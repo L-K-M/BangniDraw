@@ -197,6 +197,10 @@ object Composite {
             }
             val mode = layer.props.blendMode
             val opacity = layer.props.opacity
+            // After the size check, so a wrong-sized tile is still caught, and
+            // never on visibility — that filter is deliberately the caller's,
+            // because merge down composites layers the compositor would hide.
+            if (opacity == 0f) continue
             for (i in out.indices) {
                 out[i] = blend(out[i], src[i], mode, opacity)
             }

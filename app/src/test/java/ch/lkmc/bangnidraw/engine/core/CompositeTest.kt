@@ -25,6 +25,7 @@ class CompositeTest {
             .filter { it.isNotEmpty() }
             .map { line ->
                 val parts = line.split(Regex("\\s+"))
+                check(parts.size == 4) { "malformed fixture line in $path: '$line'" }
                 Case(
                     dst = parts[0].toUInt(16).toInt(),
                     src = parts[1].toUInt(16).toInt(),
@@ -64,6 +65,16 @@ class CompositeTest {
             val expectedR = quantize(r(src) + r(dst) * (1f - a(src)))
             assertEquals(expectedA, Composite.alpha(out), "alpha of ${hex(src)} over ${hex(dst)}")
             assertEquals(expectedR, Composite.red(out), "red of ${hex(src)} over ${hex(dst)}")
+            assertEquals(
+                quantize(Composite.green(src) / 255f + Composite.green(dst) / 255f * (1f - a(src))),
+                Composite.green(out),
+                "green of ${hex(src)} over ${hex(dst)}",
+            )
+            assertEquals(
+                quantize(Composite.blue(src) / 255f + Composite.blue(dst) / 255f * (1f - a(src))),
+                Composite.blue(out),
+                "blue of ${hex(src)} over ${hex(dst)}",
+            )
         }
     }
 

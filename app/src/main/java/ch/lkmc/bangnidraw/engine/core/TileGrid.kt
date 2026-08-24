@@ -71,6 +71,17 @@ class TileGrid(val width: Int, val height: Int) {
 
     val tilesX: Int = (width + TILE_SIZE - 1) shr TILE_SHIFT
     val tilesY: Int = (height + TILE_SIZE - 1) shr TILE_SHIFT
+
+    init {
+        // Implied by the per-side bounds today (32 x 32 = 1024), but asserted
+        // so a future change to MAX_EDGE or TILE_SIZE cannot silently outgrow
+        // the readback chunking and sandwich rebuild that MAX_TILES sizes.
+        // Must be a second init block: the one above runs before tilesX/tilesY
+        // are initialised and would read 0.
+        check(tilesX * tilesY <= MAX_TILES) {
+            "canvas is ${width}x$height, needing ${tilesX * tilesY} tiles over the format's $MAX_TILES"
+        }
+    }
     val tileCount: Int get() = tilesX * tilesY
 
     /**

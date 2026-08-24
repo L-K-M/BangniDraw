@@ -1,6 +1,14 @@
 # MULTIPLY — dst src opacity expected, premultiplied ARGB8888.
 # Generated from the normative table in docs/plan/05-layers.md section 4;
 # CompositeTest pins Composite.blend against these values.
+# Convention, so a row can be checked by hand: the source is scaled by the
+# opacity column first (premultiplied, so colour and alpha together), then
+# combined per docs/plan/05-layers.md section 4 --
+#   Co = s.rgb*(1 - d.a) + d.rgb*(1 - s.a) + both(s, d)
+#   Ao = s.a + d.a*(1 - s.a)
+# -- over the STORED PREMULTIPLIED bytes, with round-to-nearest on store.
+# That is section 4's form, not the W3C unpremultiplied one; the two differ
+# only where the destination is partly transparent.
 FF0000FF FFFF0000 1.0  FF000000  # opaque red over opaque blue
 FF0000FF FFFF0000 0.5  FF000080  # the same at half layer opacity
 80800000 80008000 1.0  C0404000  # half-covered red under half-covered green
@@ -12,3 +20,4 @@ FFFFFFFF FF000000 1.0  FF000000  # black over white
 FF000000 FFFFFFFF 1.0  FF000000  # white over black
 40200010 C0603010 1.0  D05C2411  # two partly covered pixels
 FF3366AA 80402010 0.75 FF294972  # an odd pixel at three quarters opacity
+FF3366AA 80402010 0.0  FF3366AA  # zero opacity leaves the destination untouched

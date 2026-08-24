@@ -135,8 +135,13 @@ object MemoryBudget {
         // `CanvasSize` exists precisely to describe a size in order to refuse
         // it — but it must not throw on the way past.
         if (canvas.tilesPerLayer <= 0L) return MIN_LAYERS
+        // coerceAtMost before toInt(): a Long quotient past Int.MAX_VALUE
+        // narrows by truncation, and Long.MAX_VALUE / a small canvas lands on
+        // -1, which would answer MIN_LAYERS where the honest answer is the cap.
         val layersThatFit =
-            (gpuTileBudgetBytes / canvas.layerBytesWorstCase).toInt() - STROKE_BUFFER_RESERVE_LAYERS
+            (gpuTileBudgetBytes / canvas.layerBytesWorstCase)
+                .coerceAtMost(Int.MAX_VALUE.toLong())
+                .toInt() - STROKE_BUFFER_RESERVE_LAYERS
         return layersThatFit.coerceIn(MIN_LAYERS, MAX_LAYERS)
     }
 
@@ -146,17 +151,26 @@ object MemoryBudget {
             else -> (device.totalMemBytes * GPU_TILE_FRACTION).toLong()
                 .coerceIn(GPU_TILE_MIN_BYTES, GPU_TILE_MAX_BYTES)
         }
-        val maxLayers = maxLayersFor(gpu, canvas)
         val slices =
             if (device.glMaxArrayLayers > 0) minOf(device.glMaxArrayLayers, SLICES_PER_PAGE)
             else SLICES_PER_PAGE
         val arrays = maxOf(1, (gpu / (slices.toLong() * TILE_BYTES)).toInt())
+        // The pool hands out whole texture arrays, so what it can actually
+        // allocate is arrays x slices x TILE_BYTES — up to one array (64 MiB at
+        // 256 slices) less than the raw budget. Sizing the layer cap from the
+        // raw budget instead lets the two disagree: a device reporting 2800 MiB
+        // gets a 350 MiB budget, which is 16 layers of a 2304 canvas (1296
+        // tiles) but only 5 arrays (1280 slices). The dialog would advertise a
+        // layer the pool cannot hold, and the KDoc promises those two never
+        // disagree — so both the cap and the size ceiling come from capacity.
+        val poolCapacityBytes = arrays.toLong() * slices * TILE_BYTES
+        val maxLayers = maxLayersFor(poolCapacityBytes, canvas)
         // maxCanvasEdge is bounded by memory and by the v1 ceiling, never by
         // glMaxTextureSize: tiles are 256 px, so a big canvas never needs a
         // big texture. The largest multiple of TILE_SIZE whose square, fully
         // painted, still holds MIN_USEFUL_LAYERS plus the stroke-buffer
         // reserve — so a size the dialog offers can always be painted on.
-        val perLayerLimit = gpu / (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)
+        val perLayerLimit = poolCapacityBytes / (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)
         var maxCanvasEdge = TILE_SIZE
         while (maxCanvasEdge + TILE_SIZE <= MAX_CANVAS_EDGE_V1 &&
             CanvasSize(maxCanvasEdge + TILE_SIZE, maxCanvasEdge + TILE_SIZE)

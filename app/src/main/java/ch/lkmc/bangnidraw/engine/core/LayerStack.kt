@@ -215,9 +215,19 @@ data class LayerStack(
         //
         // Blend mode does not force the rewrite: a bottom-only tile is
         // composited over transparent, and over transparent every mode reduces
-        // to source-over (pinned by CompositeTest). So opacity alone decides,
-        // and the common bottom-at-100 % merge still rewrites only the shared
-        // tiles, exactly as 05 §4.1 and 06 §5.2 describe.
+        // to source-over (pinned by CompositeTest), so its stored pixels are
+        // already right. Opacity alone decides, and the common bottom-at-100 %
+        // merge still rewrites only the shared tiles, as 05 §4.1 and 06 §5.2
+        // describe.
+        //
+        // That argument is about tile *contents* and does not make the reset
+        // itself appearance-preserving: `mergedProps` drops the bottom layer's
+        // blend mode, so anything painted *below* it now sees the merged layer
+        // composited source-over instead of multiplied/screened into. No amount
+        // of rewriting fixes that — a blend can only be baked against a known
+        // backdrop — which is exactly why 05 §4.1 scopes its "merges exactly"
+        // promise to a *normal* bottom and has the panel confirm whenever
+        // either partner's mode is not NORMAL.
         val bakesWholeBottom = bottom.props.opacity != 1f
         val rewritten = if (bakesWholeBottom) bottom.tiles + top.tiles else top.tiles
         val merged = Layer(mergedProps, bottom.tiles + top.tiles)
@@ -337,10 +347,12 @@ data class LayerStack(
          * token": a stored name is resolved only when the whole string is
          * [FLATTENED_NAME], or [DEFAULT_NAME_KEY] followed by one integer, or
          * some name followed by [COPY_SUFFIX_KEY]. Everything else is shown
-         * verbatim. That is what keeps the promise that a user-typed name
-         * survives untouched even when the user types something that looks
-         * like a key — `"@string/app_name"` is not in the grammar, so it
-         * displays as itself rather than resolving to the app's name. The
+         * verbatim. A user-typed name therefore survives unless it *exactly*
+         * matches one of the three forms: `"@string/app_name"` is not in the
+         * grammar and displays as itself, while `"@string/layer_default 7"` is
+         * indistinguishable from a generated name and does resolve as one —
+         * which costs nothing, since it resolves to the text it already reads
+         * as. The
          * resolver lands with the layer panel in roadmap step 6 and must
          * implement exactly this grammar.
          */

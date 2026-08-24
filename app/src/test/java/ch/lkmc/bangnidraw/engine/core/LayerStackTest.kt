@@ -259,6 +259,11 @@ class LayerStackTest {
             )
             val pixels = assertIs<PixelOp.Merge>(ok(stack.mergeDown(1)).pixels)
             assertEquals(setOf(shared), pixels.keys, "$mode at 100 % should not widen the rewrite")
+            assertEquals(
+                mode,
+                pixels.bottomProps.blendMode,
+                "the op must carry the pre-merge mode, not the reset one",
+            )
         }
     }
 
@@ -497,7 +502,7 @@ class LayerStackTest {
 
     private fun randomOperation(stack: LayerStack, random: Random, ids: Ids): StackResult {
         val i = random.nextInt(stack.size)
-        return when (random.nextInt(10)) {
+        return when (random.nextInt(11)) {
             0 -> stack.add(ids, cap)
             1 -> stack.duplicate(i, ids, cap)
             2 -> stack.delete(i)
@@ -507,6 +512,7 @@ class LayerStackTest {
             6 -> stack.setOpacity(i, random.nextInt(0, 101) / 100f)
             7 -> stack.setVisible(i, random.nextBoolean())
             8 -> stack.setBlendMode(i, BlendMode.entries[random.nextInt(BlendMode.entries.size)])
+            9 -> stack.flatten(ids)
             else -> stack.rename(i, "name-${random.nextInt(1000)}")
         }
     }
@@ -517,6 +523,9 @@ class LayerStackTest {
      * the journal itself land with roadmap step 3; here a tile key set stands
      * in for the pixels.
      */
+    // TODO(roadmap step 3): route this through the production undo once the
+    // journal exists, so the round-trip property proves the code that runs
+    // rather than a re-implementation that can drift away from it.
     private fun undo(stack: LayerStack, entry: HistoryEntry): LayerStack {
         val layers = stack.layers.toMutableList()
         fun indexOf(id: String) = layers.indexOfFirst { it.id.value == id }
@@ -554,7 +563,8 @@ class LayerStackTest {
         }
         return LayerStack(
             layers = layers,
-            activeIndex = layers.indexOfFirst { it.id.value == entry.activeBefore }.coerceAtLeast(0),
+            activeIndex = layers.indexOfFirst { it.id.value == entry.activeBefore }
+                .also { check(it >= 0) { "activeBefore ${entry.activeBefore} is not in the rewound stack" } },
             nextName = stack.nextName,
         )
     }

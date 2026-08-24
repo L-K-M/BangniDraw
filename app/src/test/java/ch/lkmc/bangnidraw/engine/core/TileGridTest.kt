@@ -121,7 +121,11 @@ class TileGridTest {
         TileGrid(TileGrid.MIN_EDGE, TileGrid.MIN_EDGE)
         TileGrid(TileGrid.MAX_EDGE, TileGrid.MAX_EDGE).let {
             assertEquals(32, it.tilesX, "the largest canvas the format allows is 32 tiles per side")
-            assertEquals(1024, it.tileCount, "which is exactly CanvasPresets.MAX_TILES")
+            assertEquals(
+                TileGrid.MAX_TILES,
+                it.tileCount,
+                "the largest canvas the format allows is exactly the tile ceiling",
+            )
         }
     }
 
@@ -131,6 +135,8 @@ class TileGridTest {
         // stale pointer sample that left the canvas produces a well-formed
         // key nowhere near the input, which `contains` rejects and `index`
         // would not.
+        assertEquals(TileKey(1, 1), grid.keyAt(256, 256), "inside the canvas, keyAt is plain division")
+        assertEquals(TileKey(0, 0), grid.keyAt(0, 0))
         val outside = grid.keyAt(-1, -1)
         assertEquals(65535, outside.tx, "a negative coordinate wraps through the 16-bit mask")
         assertEquals(65535, outside.ty)

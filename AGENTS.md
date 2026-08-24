@@ -198,17 +198,17 @@ and the contradiction is noted here.
   `@string/layer_flattened`, `@string/layer_default <int>`, and
   `<name> @string/layer_copy_suffix`. Anything else is shown verbatim — which
   is what lets a user type `"@string/app_name"` as a layer name and see it
-  back unchanged. The resolver arrives with the layer panel in step 6 and must
-  implement exactly that grammar, not "resolve any `@string/` token".
+  back unchanged, and what keeps a duplicate of a default-named layer
+  translatable (`01-product.md` §8: no English text in a stored name). A
+  user-typed name survives unless it exactly matches one of the three forms —
+  `"@string/layer_default 7"` is indistinguishable from a generated name and
+  resolves as one, which costs nothing since it resolves to the text it
+  already reads as. The resolver arrives with the layer panel in step 6 and
+  must implement exactly that grammar, not "resolve any `@string/` token".
 - **Test fixtures live in `app/src/test/resources/fixtures/…`**, addressed
   through `javaClass.getResourceAsStream("/fixtures/…")`.
   `docs/plan/11-testing.md` §2 names the folder but not its root, and only a
   resources root is on the test classpath.
-- **Generated layer names are resource keys plus their argument**, e.g.
-  `"@string/layer_default 3"` and `"<name> @string/layer_copy_suffix"`
-  (`01-product.md` §8: no English text in a stored name). The UI resolves
-  every `@string/…` token at display time and shows anything else verbatim,
-  which is what keeps a duplicate of a default-named layer translatable.
 
 ## CI/CD
 

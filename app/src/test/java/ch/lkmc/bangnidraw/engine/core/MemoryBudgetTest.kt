@@ -134,17 +134,33 @@ class MemoryBudgetTest {
 
     @Test
     fun `the pool spans enough arrays for every layer`() {
-        for (totalGib in listOf(2.0, 4.0, 8.0, 12.0, 16.0)) {
-            for (canvas in listOf(canvas2048, canvas4096, CanvasSize(1080, 1920))) {
-                val r = MemoryBudget.compute(device(totalGib), canvas)
-                val slices = r.poolArraySlices.toLong() * r.poolArrayCount
-                assertTrue(
-                    r.maxLayers * canvas.tilesPerLayer <= slices,
-                    "$totalGib GiB / ${canvas.width}x${canvas.height}: " +
-                        "${r.maxLayers} layers need ${r.maxLayers * canvas.tilesPerLayer} slices, pool has $slices",
-                )
+        // The odd sizes matter: the pool allocates whole 64 MiB arrays, so a
+        // budget that is not a multiple of one has capacity the raw byte count
+        // does not describe. 2800 MiB / 2304 square is the case that used to
+        // advertise 16 layers (1296 tiles) against a 5-array pool (1280).
+        for (totalGib in listOf(2.0, 2.734375, 4.0, 5.5, 8.0, 12.0, 16.0)) {
+            for (glLayers in listOf(256, 128)) {
+                for (canvas in listOf(canvas2048, canvas4096, CanvasSize(1080, 1920), CanvasSize(2304, 2304))) {
+                    val r = MemoryBudget.compute(device(totalGib, glMaxArrayLayers = glLayers), canvas)
+                    val slices = r.poolArraySlices.toLong() * r.poolArrayCount
+                    assertTrue(
+                        r.maxLayers * canvas.tilesPerLayer <= slices,
+                        "$totalGib GiB / ${canvas.width}x${canvas.height} / $glLayers per array: " +
+                            "${r.maxLayers} layers need ${r.maxLayers * canvas.tilesPerLayer} slices, pool has $slices",
+                    )
+                }
             }
         }
+    }
+
+    @Test
+    fun `an unclamped budget saturates instead of truncating to a negative layer count`() {
+        // The Long quotient here is 2^45 - 1, whose low 32 bits are -1; a bare
+        // toInt() would answer MIN_LAYERS where the honest answer is the cap.
+        assertEquals(
+            PerfConstants.MAX_LAYERS,
+            MemoryBudget.maxLayersFor(Long.MAX_VALUE, CanvasSize(256, 256)),
+        )
     }
 
     @Test

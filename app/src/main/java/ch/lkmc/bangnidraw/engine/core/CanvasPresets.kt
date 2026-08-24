@@ -66,12 +66,22 @@ object CanvasPresets {
     }
 
     /**
-     * The row the dialog selects when it opens: the largest preset this
-     * device can hold. The dialog narrows that further to what fits the
-     * screen — a pixel measurement `engine/core` has no business knowing.
+     * The row the dialog selects when it opens: the largest preset this device
+     * can hold, measured in tiles because that is what the budget spends. The
+     * dialog narrows that further to what fits the screen — a pixel
+     * measurement `engine/core` has no business knowing.
+     *
+     * Deliberately not "the last enabled row": that would silently depend on
+     * [SIZES] staying sorted, and on the caller not having reordered or
+     * filtered the list first. Falls back to 0 only when nothing is enabled,
+     * which no real device produces (the smallest preset fits every budget).
      */
     fun defaultIndex(presets: List<CanvasPreset>): Int =
-        presets.indexOfLast { it.enabled }.takeIf { it >= 0 } ?: 0
+        presets.withIndex()
+            .filter { it.value.enabled }
+            .maxByOrNull { it.value.size.tilesPerLayer }
+            ?.index
+            ?: 0
 
     /** A user-typed size, validated against the format and this device's budget. */
     fun custom(size: CanvasSize, result: MemoryBudget.Result): CustomSizeResult {

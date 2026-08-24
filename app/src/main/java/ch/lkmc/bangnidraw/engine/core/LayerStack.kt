@@ -249,6 +249,11 @@ data class LayerStack(
         if (layers.size <= 1) return StackResult.Refused(Refusal.NOOP)
         if (layers.any { it.props.locked }) return StackResult.Refused(Refusal.LOCKED)
         val visible = layers.filter { it.props.visible }
+        // Flattening with everything hidden would destroy every layer for a
+        // guaranteed-blank result, and burn a history entry holding all of
+        // their tiles to do it. That is a destructive no-op, which is exactly
+        // what Refusal exists to turn into a hint.
+        if (visible.isEmpty()) return StackResult.Refused(Refusal.NOOP)
         val props = LayerProps(id = ids.newId(), name = FLATTENED_NAME)
         val tiles = visible.flatMapTo(LinkedHashSet()) { it.tiles }
         val next = copy(layers = listOf(Layer(props, tiles)), activeIndex = 0)
@@ -326,9 +331,18 @@ data class LayerStack(
     companion object {
         /**
          * Default and generated names are stored as resource *keys* plus their
-         * argument, never as English text (`docs/plan/01-product.md` §8): the
-         * UI resolves every `@string/…` token at display time and shows
-         * anything else verbatim, so a user-typed name survives untouched.
+         * argument, never as English text (`docs/plan/01-product.md` §8).
+         *
+         * The protocol is a **closed grammar**, not "resolve any `@string/`
+         * token": a stored name is resolved only when the whole string is
+         * [FLATTENED_NAME], or [DEFAULT_NAME_KEY] followed by one integer, or
+         * some name followed by [COPY_SUFFIX_KEY]. Everything else is shown
+         * verbatim. That is what keeps the promise that a user-typed name
+         * survives untouched even when the user types something that looks
+         * like a key — `"@string/app_name"` is not in the grammar, so it
+         * displays as itself rather than resolving to the app's name. The
+         * resolver lands with the layer panel in roadmap step 6 and must
+         * implement exactly this grammar.
          */
         const val DEFAULT_NAME_KEY = "@string/layer_default"
         const val COPY_SUFFIX_KEY = "@string/layer_copy_suffix"

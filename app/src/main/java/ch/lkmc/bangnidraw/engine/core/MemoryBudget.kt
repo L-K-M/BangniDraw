@@ -63,8 +63,8 @@ data class DeviceMemory(
  * are taken in `Long`.
  */
 data class CanvasSize(val width: Int, val height: Int) {
-    val tilesX: Int get() = width / TILE_SIZE + if (width % TILE_SIZE != 0) 1 else 0
-    val tilesY: Int get() = height / TILE_SIZE + if (height % TILE_SIZE != 0) 1 else 0
+    val tilesX: Int get() = tilesFor(width)
+    val tilesY: Int get() = tilesFor(height)
     val tilesPerLayer: Long get() = tilesX.toLong() * tilesY
 
     /**
@@ -79,6 +79,18 @@ data class CanvasSize(val width: Int, val height: Int) {
             val tiles = tilesPerLayer
             return if (tiles > Long.MAX_VALUE / TILE_BYTES) Long.MAX_VALUE else tiles * TILE_BYTES
         }
+
+    private companion object {
+        /**
+         * `ceil(px / 256)` for a positive side, and **zero** for a side that
+         * is not positive — a canvas with no area has no tiles. Kotlin's `/`
+         * truncates toward zero rather than flooring, so the plain expression
+         * would answer 1 for a side of -1 and quietly budget a nonsense canvas
+         * as if it were 256 px wide.
+         */
+        fun tilesFor(px: Int): Int =
+            if (px <= 0) 0 else px / TILE_SIZE + if (px % TILE_SIZE != 0) 1 else 0
+    }
 }
 
 /**
@@ -118,6 +130,11 @@ object MemoryBudget {
      * disagree.
      */
     fun maxLayersFor(gpuTileBudgetBytes: Long, canvas: CanvasSize): Int {
+        // A canvas with no area divides by zero below. It is not this
+        // function's job to reject one — `CanvasPresets.custom` does that, and
+        // `CanvasSize` exists precisely to describe a size in order to refuse
+        // it — but it must not throw on the way past.
+        if (canvas.tilesPerLayer <= 0L) return MIN_LAYERS
         val layersThatFit =
             (gpuTileBudgetBytes / canvas.layerBytesWorstCase).toInt() - STROKE_BUFFER_RESERVE_LAYERS
         return layersThatFit.coerceIn(MIN_LAYERS, MAX_LAYERS)

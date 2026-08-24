@@ -27,8 +27,8 @@ data class Document(
         require(width in MIN_EDGE..MAX_EDGE && height in MIN_EDGE..MAX_EDGE) {
             "canvas ${width}x$height is outside $MIN_EDGE..$MAX_EDGE per side"
         }
-        require(grid.tileCount <= CanvasPresets.MAX_TILES) {
-            "canvas ${width}x$height needs ${grid.tileCount} tiles, over the ${CanvasPresets.MAX_TILES} the format allows"
+        require(grid.tileCount <= TileGrid.MAX_TILES) {
+            "canvas ${width}x$height needs ${grid.tileCount} tiles, over the ${TileGrid.MAX_TILES} the format allows"
         }
     }
 

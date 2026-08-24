@@ -119,6 +119,17 @@ class TileGrid(val width: Int, val height: Int) {
          */
         const val MIN_EDGE = 256
         const val MAX_EDGE = 8192
+
+        /**
+         * The format's ceiling on tiles per layer: the readback chunking and
+         * the sandwich rebuild are sized for it
+         * (`docs/plan/03-canvas-engine.md` §1, which names the constant
+         * `CanvasPresets.MAX_TILES` — that name survives as an alias, but the
+         * number lives here with the rest of the tile format so the document
+         * model does not have to reach into a dialog-facing object for a
+         * persistence invariant).
+         */
+        const val MAX_TILES = 1024
     }
 
     /** [keysFor] as a fresh list — the convenient form for tests and cold paths. */

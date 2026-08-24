@@ -40,11 +40,8 @@ sealed interface CustomSizeResult {
  * device's budget (`docs/plan/10-performance.md` §4).
  */
 object CanvasPresets {
-    /**
-     * The format's ceiling on tiles per layer (`docs/plan/03-canvas-engine.md`
-     * §1): the readback chunking and the sandwich rebuild are sized for it.
-     */
-    const val MAX_TILES = 1024
+    /** The name `docs/plan/03-canvas-engine.md` §1 uses; the number is [TileGrid.MAX_TILES]. */
+    const val MAX_TILES = TileGrid.MAX_TILES
 
     /** The sizes, small to large, in their natural orientation. */
     private val SIZES: List<Pair<CanvasPresetId, CanvasSize>> = listOf(

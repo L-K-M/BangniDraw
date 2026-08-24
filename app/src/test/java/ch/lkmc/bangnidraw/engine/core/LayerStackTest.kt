@@ -334,6 +334,23 @@ class LayerStackTest {
     }
 
     @Test
+    fun `flatten with every layer hidden is refused rather than wiping the document`() {
+        val stack = LayerStack(
+            listOf(
+                Layer(LayerProps(LayerId("a"), "a", visible = false), setOf(TileKey(0, 0))),
+                Layer(LayerProps(LayerId("b"), "b", visible = false), setOf(TileKey(1, 1))),
+            ),
+            activeIndex = 0,
+            nextName = 3,
+        )
+        assertEquals(
+            Refusal.NOOP,
+            refusal(stack.flatten(Ids())),
+            "flattening nothing visible would destroy both layers for a blank result",
+        )
+    }
+
+    @Test
     fun `flatten of a single layer is a no-op and a locked layer refuses it`() {
         assertEquals(Refusal.NOOP, refusal(stackOf("only").flatten(Ids())))
         val stack = stackOf("a", "b")

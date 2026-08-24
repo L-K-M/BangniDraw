@@ -185,6 +185,21 @@ and the contradiction is noted here.
   and the JVM test suite still runs the class unchanged. Anything else from
   the serialization ecosystem (custom serializers, `Json` instances, file
   IO) stays at the `data/` boundary.
+- **`HistoryEntry.LayerProps` deliberately shares its name with the model's
+  `LayerProps`.** `docs/plan/06-document-and-persistence.md` §5.2 is normative
+  for the entry kinds' *names*, and it calls the props-change entry
+  `LayerProps`. A file that touches both types qualifies the entry
+  (`HistoryEntry.LayerProps`) or aliases on import; do not rename the nested
+  class to resolve the collision. The same reasoning keeps the entries' id
+  fields as `String` rather than `LayerId` — §5.2 writes them that way and the
+  entry is the serialization-facing shape.
+- **Generated layer names are a closed grammar, not a prefix.** Only three
+  stored forms resolve through resources at display time:
+  `@string/layer_flattened`, `@string/layer_default <int>`, and
+  `<name> @string/layer_copy_suffix`. Anything else is shown verbatim — which
+  is what lets a user type `"@string/app_name"` as a layer name and see it
+  back unchanged. The resolver arrives with the layer panel in step 6 and must
+  implement exactly that grammar, not "resolve any `@string/` token".
 - **Test fixtures live in `app/src/test/resources/fixtures/…`**, addressed
   through `javaClass.getResourceAsStream("/fixtures/…")`.
   `docs/plan/11-testing.md` §2 names the folder but not its root, and only a

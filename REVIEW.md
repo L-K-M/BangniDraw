@@ -60,6 +60,20 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
   where the fix is "validate the shape *and* never build a path by
   concatenating untrusted text", not a constructor throw.
 
+- **R-005 ⏸️ Type `HistoryEntry`'s id fields as `LayerId` rather than `String`**
+  (PR #7, GLM round 5, info). The ergonomic argument is fair — `LayerId` is a
+  value class, so it costs nothing at runtime — but
+  `docs/plan/06-document-and-persistence.md` §5.2 opens with "**This section is
+  normative for `HistoryEntry`** — names, fields and the on-disk encoding" and
+  writes every one of those fields as `String`. `HistoryEntry` is the
+  serialization-facing shape, like `LayerRecord`, which this PR also kept as
+  the plan declares it; changing the field types would deviate from a normative
+  declaration for a convenience the journal can get with a wrapper in step 3.
+  Declined on the same reasoning as R-002. The name collision the same round
+  raised (`HistoryEntry.LayerProps` vs the model's `LayerProps`) is declined
+  for the identical reason and is now recorded in AGENTS.md as a convention
+  rather than left as a surprise.
+
 - **R-002 ⏸️ `DeviceMemory.largeMemoryClassMb` is unused — consult it or delete
   it** (PR #7, GLM round 2, plus the related test note about `device()` never
   varying it or `glMaxTextureSize`). Declined: `DeviceMemory` is *normative* in

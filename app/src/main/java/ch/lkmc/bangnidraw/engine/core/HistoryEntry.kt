@@ -39,7 +39,7 @@ sealed interface HistoryEntry {
         val layerId: String,
         val tiles: List<TileKey>,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long) =
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): Stroke =
             copy(seq = seq, timestamp = timestamp, bytes = bytes)
     }
 
@@ -53,7 +53,7 @@ sealed interface HistoryEntry {
         val layerId: String,
         val tiles: List<TileKey>,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long) =
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): Fill =
             copy(seq = seq, timestamp = timestamp, bytes = bytes)
     }
 
@@ -67,7 +67,7 @@ sealed interface HistoryEntry {
         val layer: LayerRecord,
         val index: Int,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long) =
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerAdd =
             copy(seq = seq, timestamp = timestamp, bytes = bytes)
     }
 
@@ -82,7 +82,7 @@ sealed interface HistoryEntry {
         val index: Int,
         val tiles: List<TileKey>,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long) =
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerDelete =
             copy(seq = seq, timestamp = timestamp, bytes = bytes)
     }
 
@@ -97,7 +97,7 @@ sealed interface HistoryEntry {
         val fromIndex: Int,
         val toIndex: Int,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long) =
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerReorder =
             copy(seq = seq, timestamp = timestamp, bytes = bytes)
     }
 
@@ -112,7 +112,7 @@ sealed interface HistoryEntry {
         val before: LayerRecord,
         val after: LayerRecord,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long) =
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerProps =
             copy(seq = seq, timestamp = timestamp, bytes = bytes)
     }
 
@@ -137,7 +137,7 @@ sealed interface HistoryEntry {
         val lower: LayerRecord,
         val lowerTiles: List<TileKey>,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long) =
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerMerge =
             copy(seq = seq, timestamp = timestamp, bytes = bytes)
     }
 
@@ -152,7 +152,7 @@ sealed interface HistoryEntry {
         val copy: LayerRecord,
         val index: Int,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long) =
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerDuplicate =
             copy(seq = seq, timestamp = timestamp, bytes = bytes)
     }
 
@@ -166,7 +166,7 @@ sealed interface HistoryEntry {
         val layerId: String,
         val tiles: List<TileKey>,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long) =
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerClear =
             copy(seq = seq, timestamp = timestamp, bytes = bytes)
     }
 
@@ -181,7 +181,7 @@ sealed interface HistoryEntry {
         val tilesPerLayer: Map<String, List<TileKey>>,
         val result: LayerRecord,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long) =
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): Flatten =
             copy(seq = seq, timestamp = timestamp, bytes = bytes)
     }
 
@@ -195,7 +195,7 @@ sealed interface HistoryEntry {
         val before: Int,
         val after: Int,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long) =
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): PaperColor =
             copy(seq = seq, timestamp = timestamp, bytes = bytes)
     }
 

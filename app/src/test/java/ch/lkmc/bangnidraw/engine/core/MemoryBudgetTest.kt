@@ -193,6 +193,26 @@ class MemoryBudgetTest {
     }
 
     @Test
+    fun `a canvas with no area is described, not divided by`() {
+        // CanvasSize carries no validation on purpose — CanvasPresets.custom
+        // has to be able to describe a size in order to refuse it — so the
+        // budget must survive one on the way past rather than throwing.
+        for (bad in listOf(CanvasSize(0, 0), CanvasSize(0, 1024), CanvasSize(1024, 0))) {
+            assertEquals(0L, bad.tilesPerLayer, "$bad should have no tiles")
+            assertEquals(
+                PerfConstants.MIN_LAYERS,
+                MemoryBudget.maxLayersFor(1L shl 30, bad),
+                "$bad must not divide by zero",
+            )
+            assertEquals(PerfConstants.MIN_LAYERS, MemoryBudget.compute(device(8.0), bad).maxLayers)
+        }
+        // Kotlin's division truncates toward zero, so the plain ceiling would
+        // answer 1 here and budget a nonsense canvas as if it were 256 px.
+        assertEquals(0, CanvasSize(-1, 1024).tilesX, "a negative side has no tiles, not one")
+        assertEquals(0L, CanvasSize(-1, -1).tilesPerLayer)
+    }
+
+    @Test
     fun `a canvas size reports its tile geometry`() {
         assertEquals(256L, canvas4096.tilesPerLayer)
         assertEquals(64L * PerfConstants.TILE_BYTES * 4, canvas4096.layerBytesWorstCase)

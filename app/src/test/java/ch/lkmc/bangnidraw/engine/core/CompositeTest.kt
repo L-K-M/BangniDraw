@@ -205,6 +205,28 @@ class CompositeTest {
     }
 
     @Test
+    fun `a NaN opacity degrades to fully visible instead of erasing the pixel`() {
+        // blend is public and is the pinned reference the GLSL must match, so
+        // it cannot rely on every caller having gone through LayerProps.
+        // coerceIn passes NaN through, `NaN == 0f` is false, and quantize
+        // truncates NaN to 0 — which would blank the pixel.
+        val dst = 0xFF204060.toInt()
+        val src = 0xFF80A0C0.toInt()
+        for (mode in BlendMode.entries) {
+            assertEquals(
+                hex(Composite.blend(dst, src, mode, 1f)),
+                hex(Composite.blend(dst, src, mode, Float.NaN)),
+                "$mode with a NaN opacity must behave as fully opaque, not erase",
+            )
+        }
+        assertEquals(
+            hex(Composite.blend(dst, src, BlendMode.NORMAL, 1f)),
+            hex(Composite.blend(dst, src, BlendMode.NORMAL, Float.POSITIVE_INFINITY)),
+        )
+        assertEquals(hex(dst), hex(Composite.blend(dst, src, BlendMode.NORMAL, Float.NEGATIVE_INFINITY)))
+    }
+
+    @Test
     fun `8-bit rounding is round-to-nearest`() {
         // 1/255 of coverage must survive: a single flow-0.004 dab is the case
         // 03 section 2.4 calls out, and truncation would drop it entirely.

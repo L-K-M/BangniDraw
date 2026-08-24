@@ -62,7 +62,12 @@ object Composite {
      * Argument order is `(dst, src)`, the one `CompositeTest` uses.
      */
     fun blend(dst: Int, src: Int, mode: BlendMode, opacity: Float): Int {
-        val o = opacity.coerceIn(0f, 1f)
+        // Not coerceIn: it returns NaN unchanged, `NaN == 0f` is false so the
+        // early return below would not fire, every channel would come out NaN,
+        // and quantize truncates NaN to 0 — a silently erased pixel, which is
+        // the worst failure a paint program has. The same sanitizer the layer
+        // model uses, so a corrupt opacity degrades to fully visible here too.
+        val o = LayerProps.sanitizeOpacity(opacity)
         if (o == 0f) return dst
         val sa = alpha(src) / 255f * o
         val sr = red(src) / 255f * o

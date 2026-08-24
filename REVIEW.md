@@ -9,6 +9,20 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
 
 ## Open
 
+- **R-004 ⏸️ Gate PR 2.5 on `PredictorTest` and `TailBufferTest`.** (PR #7, GLM
+  round 4.) The *observation* was right and was acted on: 2.5 was the only row
+  in the breakdown with no automated gate, while "no hook on pen-up" is one of
+  the step's named risks. The *suggested tests* are refuted, with evidence:
+  `docs/plan/11-testing.md` does not mention prediction anywhere, `Predictor`
+  is a wrapper whose stated purpose is that "core and tests never see the
+  androidx type" (`02-architecture.md` §2.6), and `TailBuffer` is an
+  `engine/gl` GPU object (§2.3) — neither holds logic a JVM test could pin, so
+  naming those files would invent tests for a shim and a texture. What is
+  genuinely pure is the *stabilizer copy* the tail runs through (`04-tools.md`
+  §4): the tail must continue the stabilized line and must never advance the
+  real stabilizer state. 2.5 now gates on those cases in `StabilizerTest`, and
+  says why the rest is device-gated. 🟢
+
 - **R-003 🔧 `Composite.tile` skips a tile the model lists.** (PR #7, GLM round 3.)
   Raised as inconsistent leniency — `tile()` raises on a wrong-sized tile but
   silently treats a `null` read as transparent. Resolved by *documenting* the

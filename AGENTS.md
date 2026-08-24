@@ -144,11 +144,17 @@ and the contradiction is noted here.
 
 ## Conventions the plan leaves open
 
-- **`engine/core` carries no annotations, not just no `android.*` imports.**
-  `docs/plan/02-architecture.md` §1 limits it to `kotlin.*`/`java.util`, so
-  `LayerRecord` (the serialised form of `LayerProps`, normative in
-  `06-document-and-persistence.md` §3) lives there as a plain data class; the
-  `@Serializable` DTOs stay at the `data/` boundary.
+- **What "`engine/core` is pure JVM" actually forbids.**
+  `docs/plan/02-architecture.md` §1 writes the rule as "`kotlin.*` and
+  `java.util` only", but the plan itself puts `@Serializable` on two
+  `engine/core` types — `LayerRecord` (`06-document-and-persistence.md` §3)
+  and `BrushPreset` (`04-tools.md` §2). The operative rule is therefore: **no
+  `android.*`, no Compose, no coroutines, no GL, and nothing that needs a
+  device to run** — kotlinx-serialization annotations are allowed exactly
+  where the plan declares a core type serializable, because they are pure JVM
+  and the JVM test suite still runs the class unchanged. Anything else from
+  the serialization ecosystem (custom serializers, `Json` instances, file
+  IO) stays at the `data/` boundary.
 - **Test fixtures live in `app/src/test/resources/fixtures/…`**, addressed
   through `javaClass.getResourceAsStream("/fixtures/…")`.
   `docs/plan/11-testing.md` §2 names the folder but not its root, and only a

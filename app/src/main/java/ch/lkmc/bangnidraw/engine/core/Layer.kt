@@ -1,5 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
+import kotlinx.serialization.Serializable
+
 /**
  * A layer's identity. The value is a UUID string and also names
  * `layers/<layerId>/` on disk; ids are never reused, never derived from an
@@ -46,12 +48,11 @@ data class Layer(val props: LayerProps, val tiles: Set<TileKey> = emptySet()) {
  * The serialised form of [LayerProps] (`docs/plan/06-document-and-persistence.md`
  * §3), used by `project.json` and by every history entry that stores a layer.
  *
- * It is a plain data class here rather than a `@Serializable` one because
- * `engine/core` stays free of every dependency but `kotlin.*`/`java.util`
- * (`docs/plan/02-architecture.md` §1); the serializer is added at the `data/`
- * boundary in roadmap step 3. [blend] is a string for the reason 06 §3 gives:
- * a mode added by a later version must degrade, not throw.
+ * [blend] is a string rather than the enum for the reason 06 §3 gives: a mode
+ * added by a later version must degrade to `NORMAL` with a log line, not make
+ * an older reader throw.
  */
+@Serializable
 data class LayerRecord(
     val id: String,
     val name: String,

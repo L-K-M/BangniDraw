@@ -23,6 +23,9 @@ data class Document(
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
 ) {
+    /** The tile geometry of this canvas. Built once; not part of `equals`. */
+    val grid: TileGrid = TileGrid(width, height)
+
     init {
         require(width in MIN_EDGE..MAX_EDGE && height in MIN_EDGE..MAX_EDGE) {
             "canvas ${width}x$height is outside $MIN_EDGE..$MAX_EDGE per side"
@@ -33,9 +36,6 @@ data class Document(
             "canvas ${width}x$height needs ${grid.tileCount} tiles, over the ${TileGrid.MAX_TILES} the format allows"
         }
     }
-
-    /** The tile geometry of this canvas. Cheap to build; not part of `equals`. */
-    val grid: TileGrid get() = TileGrid(width, height)
 
     val isPaperTransparent: Boolean get() = (paperColor ushr 24) == 0
 

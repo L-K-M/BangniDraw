@@ -73,6 +73,35 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
   where the fix is "validate the shape *and* never build a path by
   concatenating untrusted text", not a constructor throw.
 
+- **R-010 ⏸️ Round 7's BLOCKER: "`assertIs` return value ignored, so
+  `CanvasPresetsTest` does not compile".** Refuted. `kotlin.test.assertIs` is
+  `inline fun <reified T> assertIs(value: Any?, message: String?): T` carrying
+  the contract `returns() implies (value is T)` — a contract *may* reference a
+  reified type parameter in an inline function, which is exactly the case that
+  makes it smart-cast. The finding's premise ("contracts can't reference
+  reified type parameters") is the error. Disproved by observation as well as
+  by the signature: the file has compiled and passed on every CI run of this
+  PR, and did so again at the moment the finding was posted — 97 tests green.
+  Assigning the return value would also be fine; it is a style preference, not
+  a compile fix, and the finding was filed as a build-breaking BLOCKER.
+
+- **R-011 ⏸️ `fits()` should also require `maxLayersFor(...) >= 1`.** Declined:
+  it cannot be false. `maxLayersFor` ends in `coerceIn(MIN_LAYERS, MAX_LAYERS)`
+  with `MIN_LAYERS = 1`, so it never returns 0 for any input, including a
+  zero-area canvas (guarded separately). The suggested check is dead code. The
+  invariant the finding wants protected is real, and is now protected where it
+  can actually break — `poolCapacityBytes <= gpuTileBudgetBytes` is asserted
+  across budgets, slice counts and low-RAM in `MemoryBudgetTest`.
+
+- **R-012 ⏸️ `mergeDown` should not move the selection when merging a
+  non-active layer.** Declined: `docs/plan/05-layers.md` §3.1's operation table
+  states the active layer after `mergeDown` is "the merged (lower) layer",
+  unconditionally — the same table that specifies `delete`'s selection-
+  preserving behaviour the finding contrasts it with, so the asymmetry is the
+  plan's and is deliberate. `activeAfter` is therefore correct as recorded:
+  the merged layer *is* `next.active`. Revisit only if the layer panel in step
+  6 shows the plan's choice to be wrong in the hand.
+
 - **R-007 ⏸️ Round 6's BLOCKER: "OVERLAY fixture row 6 is mathematically
   impossible".** Refuted — the finding misquoted the file. It read the row as
   `FF808080 FFC0C0C0 1.0 FF606060` and reasoned correctly that `0x80` is above

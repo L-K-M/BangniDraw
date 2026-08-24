@@ -59,6 +59,8 @@ class MemoryBudgetTest {
             assertEquals(256 * mib, it.gpuTileBudgetBytes, "a low-RAM device gets the flat budget")
             assertEquals(3, it.maxLayers)
             assertEquals(3584, it.maxCanvasEdge, "3840 squared would need 5 x 56.3 MiB")
+            assertEquals(100, it.historyMaxSteps)
+            assertEquals(128 * mib, it.historyMaxBytes)
             assertEquals(8 * mib, it.thumbnailCacheBytes)
             assertEquals(4, it.poolArrayCount)
         }
@@ -66,6 +68,9 @@ class MemoryBudgetTest {
             assertEquals(1536 * mib, it.gpuTileBudgetBytes, "clamped at GPU_TILE_MAX_BYTES")
             assertEquals(16, it.maxLayers)
             assertEquals(4096, it.maxCanvasEdge)
+            assertEquals(200, it.historyMaxSteps)
+            assertEquals(256 * mib, it.historyMaxBytes)
+            assertEquals(24 * mib, it.thumbnailCacheBytes)
             assertEquals(24, it.poolArrayCount)
         }
     }
@@ -154,6 +159,26 @@ class MemoryBudgetTest {
     }
 
     @Test
+    fun `the pool never advertises capacity the budget cannot cover`() {
+        for (totalGib in listOf(2.0, 2.734375, 4.0, 5.5, 8.0, 12.0, 16.0)) {
+            for (glLayers in listOf(256, 128, 64)) {
+                for (lowRam in listOf(false, true)) {
+                    val r = MemoryBudget.compute(device(totalGib, lowRam, glLayers), canvas4096)
+                    assertEquals(
+                        r.poolArrayCount.toLong() * r.poolArraySlices * PerfConstants.TILE_BYTES,
+                        r.poolCapacityBytes,
+                    )
+                    assertTrue(
+                        r.poolCapacityBytes <= r.gpuTileBudgetBytes,
+                        "$totalGib GiB / $glLayers per array: capacity ${r.poolCapacityBytes} " +
+                            "exceeds the budget ${r.gpuTileBudgetBytes}",
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
     fun `an unclamped budget saturates instead of truncating to a negative layer count`() {
         // The Long quotient here is 2^45 - 1, whose low 32 bits are -1; a bare
         // toInt() would answer MIN_LAYERS where the honest answer is the cap.
@@ -225,13 +250,18 @@ class MemoryBudgetTest {
         // Kotlin's division truncates toward zero, so the plain ceiling would
         // answer 1 here and budget a nonsense canvas as if it were 256 px.
         assertEquals(0, CanvasSize(-1, 1024).tilesX, "a negative side has no tiles, not one")
+        // -1 alone cannot tell a clamp from truncation-toward-zero; a strongly
+        // negative side can, because the naive ceiling goes negative there.
+        assertEquals(0, CanvasSize(Int.MIN_VALUE, 1024).tilesX, "nor does a strongly negative one")
         assertEquals(0L, CanvasSize(-1, -1).tilesPerLayer)
     }
 
     @Test
     fun `a canvas size reports its tile geometry`() {
         assertEquals(256L, canvas4096.tilesPerLayer)
-        assertEquals(64L * PerfConstants.TILE_BYTES * 4, canvas4096.layerBytesWorstCase)
+        // 16 x 16 = 256 tiles, TILE_BYTES each. No extra per-pixel factor:
+        // TILE_BYTES already counts the four bytes of RGBA8.
+        assertEquals(256L * PerfConstants.TILE_BYTES, canvas4096.layerBytesWorstCase)
         CanvasSize(1080, 1920).let {
             assertEquals(5, it.tilesX, "1080 px is 4.2 tiles, so 5")
             assertEquals(8, it.tilesY, "1920 px is exactly 7.5 tiles, so 8")

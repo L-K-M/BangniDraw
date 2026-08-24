@@ -105,8 +105,15 @@ data class CanvasSize(val width: Int, val height: Int) {
  */
 object MemoryBudget {
     data class Result(
-        /** What `TilePool` may allocate for tiles, all texture arrays together. */
+        /** The raw tile budget. What the pool can *allocate* is [poolCapacityBytes]. */
         val gpuTileBudgetBytes: Long,
+        /**
+         * `poolArrayCount × poolArraySlices × TILE_BYTES` — whole arrays only,
+         * so up to one array below [gpuTileBudgetBytes]. Every cap here is
+         * derived from this, not from the raw budget; a caller asking "do N
+         * bytes of tiles fit?" must ask this one or it can over-commit.
+         */
+        val poolCapacityBytes: Long,
         /** For THIS canvas size, `MIN_LAYERS..MAX_LAYERS`. */
         val maxLayers: Int,
         /** The largest edge any preset may offer on this device. */
@@ -154,7 +161,15 @@ object MemoryBudget {
         val slices =
             if (device.glMaxArrayLayers > 0) minOf(device.glMaxArrayLayers, SLICES_PER_PAGE)
             else SLICES_PER_PAGE
-        val arrays = maxOf(1, (gpu / (slices.toLong() * TILE_BYTES)).toInt())
+        // maxOf(1, ...) would let poolCapacityBytes exceed the budget itself.
+        // It never can today, but only because GPU_TILE_MIN_BYTES (256 MiB)
+        // happens to be >= SLICES_PER_PAGE * TILE_BYTES (64 MiB) — a coupling
+        // between three constants that nothing enforced. Now it does.
+        val bytesPerArray = slices.toLong() * TILE_BYTES
+        check(gpu >= bytesPerArray) {
+            "tile budget of $gpu B cannot hold one $slices-slice array ($bytesPerArray B)"
+        }
+        val arrays = (gpu / bytesPerArray).toInt()
         // The pool hands out whole texture arrays, so what it can actually
         // allocate is arrays x slices x TILE_BYTES — up to one array (64 MiB at
         // 256 slices) less than the raw budget. Sizing the layer cap from the
@@ -190,6 +205,7 @@ object MemoryBudget {
             ).toLong() shl 20
         return Result(
             gpuTileBudgetBytes = gpu,
+            poolCapacityBytes = poolCapacityBytes,
             maxLayers = maxLayers,
             maxCanvasEdge = maxCanvasEdge,
             historyMaxSteps = historySteps,

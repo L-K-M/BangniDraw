@@ -20,13 +20,21 @@ class TileGridTest {
         assertEquals(
             listOf(TileKey(0, 0), TileKey(1, 0)),
             grid.keysFor(IntRect(0, 0, 257, 256)),
-            "one pixel past the boundary is one more tile",
+            "one pixel past the boundary is one more tile, enumerated row-major",
         )
         assertEquals(
             listOf(TileKey(0, 0), TileKey(1, 0), TileKey(0, 1), TileKey(1, 1)),
             grid.keysFor(IntRect(255, 255, 257, 257)),
-            "a 2x2 rect on a tile corner touches four tiles",
+            "a 2x2 rect on a tile corner touches four tiles, enumerated row-major",
         )
+    }
+
+    @Test
+    fun `a rect covering the whole canvas yields every tile exactly once`() {
+        val keys = grid.keysFor(IntRect(0, 0, 1024, 768))
+        assertEquals(grid.tileCount, keys.size)
+        assertEquals(keys.size, keys.toSet().size, "no tile may be emitted twice from one rect")
+        assertTrue(TileKey(3, 2) in keys, "the last tile of the dense grid is included")
     }
 
     @Test
@@ -75,6 +83,8 @@ class TileGridTest {
         assertEquals(7, a.ty)
         assertEquals(1, setOf(a, b).size, "equal keys collapse in a set")
         assertEquals(31, TileKey(31, 31).tx, "the largest 8192-canvas coordinate round-trips")
+        assertEquals(65535, TileKey(65535, 65535).tx, "and the packed 16-bit field itself round-trips")
+        assertEquals(65535, TileKey(65535, 65535).ty)
     }
 
     @Test

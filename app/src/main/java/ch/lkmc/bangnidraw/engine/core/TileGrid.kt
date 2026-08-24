@@ -43,6 +43,13 @@ data class IntRect(val left: Int, val top: Int, val right: Int, val bottom: Int)
          * shader writes (`docs/plan/03-canvas-engine.md` §1, §7.3).
          */
         fun forDab(x: Float, y: Float, radius: Float): IntRect {
+            // floor(NaN).toInt() is 0, so a NaN leaking out of the stabilizer
+            // would yield an empty rect and silently drop the dab — a gap in a
+            // stroke with nothing to trace it back to. Everything else in this
+            // file fails loudly; so does this.
+            require(x.isFinite() && y.isFinite() && radius.isFinite()) {
+                "dab must be finite: x=$x, y=$y, radius=$radius"
+            }
             val l = kotlin.math.floor(x - radius - 1f).toInt()
             val t = kotlin.math.floor(y - radius - 1f).toInt()
             val r = kotlin.math.ceil(x + radius + 1f).toInt()
@@ -106,8 +113,13 @@ class TileGrid(val width: Int, val height: Int) {
 
     /**
      * Appends the keys touched by the half-open rect [r], clipped to the
-     * canvas, to [out]. An empty rect, or one entirely outside the canvas,
-     * appends nothing.
+     * canvas, to [out], in row-major order — the same order [index] lays the
+     * grid out in. An empty rect, or one entirely outside the canvas, appends
+     * nothing.
+     *
+     * Keys already in [out] are appended again: a caller accumulating several
+     * overlapping dirty rects must dedupe before consuming, or it will upload
+     * and re-composite the same tile more than once per frame.
      */
     fun keysFor(r: IntRect, out: MutableList<TileKey>) {
         val l = maxOf(r.left, 0)

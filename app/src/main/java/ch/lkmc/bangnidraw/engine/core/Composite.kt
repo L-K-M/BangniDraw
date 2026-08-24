@@ -209,8 +209,14 @@ object Composite {
     }
 
     /**
-     * Round-to-nearest to 8 bits — the same conversion the GPU applies when
-     * writing a UNORM8 target, so CPU and GPU agree on the last bit.
+     * Round-to-nearest to 8 bits, ties away from zero.
+     *
+     * ES 3.0 lets an implementation break float→UNORM8 ties in either
+     * direction, so this is *not* bit-exact against every GPU — which is why
+     * `docs/plan/11-testing.md` §3.10 allows ±1 LSB between the CPU reference
+     * and a shader, and exactly 0 within the CPU reference itself. What this
+     * pins is that the reference is deterministic and never truncates: a
+     * single flow-0.004 dab has to survive, and truncation would drop it.
      */
     private fun quantize(v: Float): Int = ((v * 255f) + 0.5f).toInt().coerceIn(0, 255)
 }

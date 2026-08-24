@@ -144,15 +144,16 @@ Status: ⬜ not started · 🔁 open, in review · 🟢 landed on `main` (with c
 | 2.2 | `fable/engine-core-stroke` | `engine/core` stroke math: `StrokeInput`(+batch), `PressureCurve`, `Stabilizer`, `Dab`/`DabBatch`/`DabRing`, `DabGenerator`, `BrushPreset`/`Curve`/`ToolKind` with the one round preset | JVM: `StabilizerTest`, `DabGeneratorTest` (+ golden stroke), `PressureCurveTest`, `DabRingTest`, `BrushPresetTest`. Still no device check | ⬜ |
 | 2.3 | `fable/engine-gl-compositor` | `engine/gl` foundation and the compositor: `GlCaps`/`GlProgram`/`GlFbo`/`GlState`, `Shaders`, `TilePool`, `LayerTextures`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect, two-finger pinch/zoom/rotate is smooth, rotation snaps near 0°, the reset-view pill returns to fit. JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `ScreenTransformTest` | ⬜ |
 | 2.4 | `fable/stroke-path-touch` | The stroke lands on pixels, with touch: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, `input/` (`GestureArbiter`, `PalmRejection`, `StylusState`, `CanvasTouchHandler`) | Device: one finger draws a stroke that survives pen-up; two-finger tap does not leave a dot; pinch-zoom-rotate still smooth mid-painting. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` (the no-allocation assertion of `docs/plan/10-performance.md` §2.4 — the risk table below names it as the mitigation for touch-path GC jank, so it is a gate, not an optional extra), and the merge blend math cross-checked on the JVM against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ⬜ |
-| 2.5 | `fable/front-buffered-stylus` | 2b: the front-buffered path (`onDrawFrontBufferedLayer`, `commit`, `cancel`), `TailBuffer`, `Predictor`, stylus axes (pressure/tilt/orientation/eraser end), palm rejection on device, unbuffered dispatch, debug overlay | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). JVM: `StabilizerTest` gains the predicted-tail
-cases — the tail runs through a *copy* of the stabilizer state (`04-tools.md`
-§4), so "continues the stabilized line" and "never advances the real state" are
-pure claims, and they are the "no hook on pen-up" risk in testable form. No
-`PredictorTest`/`TailBufferTest`: `Predictor` is a thin wrapper whose whole
-purpose is that core never sees the androidx type (`02-architecture.md` §2.6)
-and `TailBuffer` is a GL object (§2.3) — neither holds logic a JVM test could
-pin, which is why `11-testing.md` gates prediction on the device checklist
-instead. **This completes step 2** | ⬜ |
+| 2.5 | `fable/front-buffered-stylus` | 2b: the front-buffered path (`onDrawFrontBufferedLayer`, `commit`, `cancel`), `TailBuffer`, `Predictor`, stylus axes (pressure/tilt/orientation/eraser end), palm rejection on device, unbuffered dispatch, debug overlay | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). JVM: `StabilizerTest` gains the predicted-tail cases — rationale in the note below. **This completes step 2** | ⬜ |
+
+*Why the predicted-tail cases and nothing else in 2.5.* The tail runs through a
+*copy* of the stabilizer state (`04-tools.md` §4), so "continues the stabilized
+line" and "never advances the real state" are pure claims, and they are the "no
+hook on pen-up" risk in testable form. No `PredictorTest`/`TailBufferTest`:
+`Predictor` is a thin wrapper whose whole purpose is that core never sees the
+androidx type (`02-architecture.md` §2.6) and `TailBuffer` is a GL object
+(§2.3) — neither holds logic a JVM test could pin, which is why
+`11-testing.md` gates prediction on the device checklist instead.
 
 **Split seam for 2.3.** It is the largest row and may well pass the ~1,500-line
 criterion once written. Rule 1 of this document says a PR that turns out to be
@@ -218,9 +219,15 @@ undo and reissue the name, which is the bug. Crash recovery is the single path
 that *rebuilds* the counter rather than reading it: `project.json` is only
 written at a checkpoint, so after the kill this step's own acceptance performs
 it is stale with respect to any layer added since. On journal replay, re-derive
-the counter as one past the high-water mark of the replayed layers' default
-names — matching `@string/layer_default N` only, since a user-typed name
-carries no number to honour — so a post-crash add still yields a fresh name.
+the counter as the **maximum of the persisted value and one past the high-water
+mark of every default name in the recovered stack** — the layers loaded from
+the checkpoint as well as every name the journal assigns during replay,
+including to layers the replay then deletes. Matching `@string/layer_default N`
+only, since a user-typed name carries no number to honour. Taking the replayed
+names alone would be wrong in the commonest case this step tests: a kill with
+no layer adds since the checkpoint replays no adds at all, so the high-water
+mark is empty and the counter would reset to 1 beside a checkpoint that already
+holds a "Layer 1".
 
 **Depends on.** Step 2 (tiles and readback are what gets saved).
 

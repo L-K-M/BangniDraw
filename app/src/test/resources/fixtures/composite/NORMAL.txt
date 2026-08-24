@@ -6,9 +6,14 @@
 # combined per docs/plan/05-layers.md section 4 --
 #   Co = s.rgb*(1 - d.a) + d.rgb*(1 - s.a) + both(s, d)
 #   Ao = s.a + d.a*(1 - s.a)
-# -- over the STORED PREMULTIPLIED bytes, with round-to-nearest on store.
-# That is section 4's form, not the W3C unpremultiplied one; the two differ
-# only where the destination is partly transparent.
+# -- with round-to-nearest on store. both(s, d) = s.a*d.a*B(d.rgb/d.a,
+# s.rgb/s.a): the mode B is applied to the UNPREMULTIPLIED channels and
+# weighted by the joint coverage. Section 4's table writes that out already
+# simplified into premultiplied terms (e.g. DARKEN's min(s.rgb*d.a,
+# d.rgb*s.a)), which is the same arithmetic, so every row here also equals
+# the W3C result. Applying the mode straight to the stored premultiplied
+# bytes is a THIRD thing and gives different values -- do not hand-verify
+# that way.
 FF0000FF FFFF0000 1.0  FFFF0000  # opaque red over opaque blue
 FF0000FF FFFF0000 0.5  FF800080  # the same at half layer opacity
 80800000 80008000 1.0  C0408000  # half-covered red under half-covered green

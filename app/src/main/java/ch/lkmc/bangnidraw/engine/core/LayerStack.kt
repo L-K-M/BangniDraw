@@ -51,6 +51,12 @@ sealed interface StackResult {
  * (`docs/plan/05-layers.md` §3). Nothing here mutates; nothing here knows
  * about the GPU, the disk or the screen.
  *
+ * **Lock protects pixels and existence, not arrangement** (`docs/plan/05-layers.md`
+ * §1): `delete`, `clear`, `mergeDown` and `flatten` refuse a locked layer,
+ * while rename, opacity, visibility, blend mode, alpha lock and `move` stay
+ * allowed on one. That asymmetry is deliberate, not an oversight — the panel
+ * in step 6 must not assume the model refuses every edit to a locked layer.
+ *
  * [nextName] only ever grows along a chain of operations, so a default name is
  * never reused while a document stays open. Keeping that true across undo and
  * across a reopen is *not* something this type can do on its own: no
@@ -346,7 +352,9 @@ data class LayerStack(
          * The protocol is a **closed grammar**, not "resolve any `@string/`
          * token": a stored name is resolved only when the whole string is
          * [FLATTENED_NAME], or [DEFAULT_NAME_KEY] followed by one integer, or
-         * some name followed by [COPY_SUFFIX_KEY]. Everything else is shown
+         * some name followed by [COPY_SUFFIX_KEY] — where the prefix is itself
+         * resolved by the same rule, so duplicating a duplicate stacks the
+         * suffix and each one is stripped in turn. Everything else is shown
          * verbatim. A user-typed name therefore survives unless it *exactly*
          * matches one of the three forms: `"@string/app_name"` is not in the
          * grammar and displays as itself, while `"@string/layer_default 7"` is

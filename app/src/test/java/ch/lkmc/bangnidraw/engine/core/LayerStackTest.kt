@@ -172,6 +172,9 @@ class LayerStackTest {
         assertEquals(1, edit.stack.activeIndex)
         assertEquals(PixelOp.Copy(LayerId("src"), copy.id, tiles), edit.pixels)
         assertEquals("top", edit.stack.layers[2].props.name, "the layer above is pushed up")
+        val entry = assertIs<HistoryEntry.LayerDuplicate>(edit.entry)
+        assertEquals(1, entry.index, "undo removes the copy by this index")
+        assertEquals("src", entry.sourceId, "redo re-copies from the source")
     }
 
     @Test
@@ -380,7 +383,7 @@ class LayerStackTest {
     // --------------------------------------------------------------- properties
 
     @Test
-    fun `alpha lock, visibility, opacity and blend edits each journal their inverse`() {
+    fun `alpha lock, visibility, opacity, blend, rename and lock edits each journal their inverse`() {
         val stack = stackOf("a", "b")
         val edits = listOf(
             stack.setAlphaLock(1, true),
@@ -459,7 +462,11 @@ class LayerStackTest {
             )
             assertTrue(
                 edit.stack.nextName >= before.nextName,
-                "the default-name counter must only grow, including across undo",
+                "the default-name counter must only grow",
+            )
+            assertTrue(
+                restored.nextName >= before.nextName,
+                "undo must not roll the default-name counter back, or a later add reissues a name",
             )
             stack = edit.stack
         }
@@ -548,6 +555,7 @@ class LayerStackTest {
             }
             is HistoryEntry.LayerMerge -> {
                 val at = indexOf(entry.lower.id)
+                    .also { check(it >= 0) { "merged layer ${entry.lower.id} is not in the rewound stack" } }
                 val upperTiles = entry.upperTiles.toSet()
                 val lowerTiles = (layers[at].tiles - upperTiles) + entry.lowerTiles.toSet()
                 layers[at] = Layer(entry.lower.toProps(), lowerTiles)

@@ -18,7 +18,7 @@ class CompositeTest {
 
     private fun fixture(mode: BlendMode): List<Case> {
         val path = "/fixtures/composite/${mode.name}.txt"
-        val text = javaClass.getResourceAsStream(path)?.bufferedReader()?.readText()
+        val text = javaClass.getResourceAsStream(path)?.bufferedReader()?.use { it.readText() }
             ?: fail("missing fixture $path")
         return text.lineSequence()
             .map { it.substringBefore('#').trim() }

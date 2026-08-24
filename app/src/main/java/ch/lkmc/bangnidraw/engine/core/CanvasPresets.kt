@@ -81,14 +81,16 @@ object CanvasPresets {
         if (size.width < TileGrid.MIN_EDGE || size.height < TileGrid.MIN_EDGE) {
             return CustomSizeResult.Refused(SizeRefusal.TOO_SMALL)
         }
-        // The per-side ceiling is checked BEFORE the tile arithmetic, not
-        // after: this is the one entry point that takes numbers the user
-        // typed, and `CanvasSize.tilesX` computes `(width + 255) / 256`, which
-        // overflows to a negative tile count near Int.MAX_VALUE — so the
-        // MAX_TILES guard below would wave the largest sizes straight through.
-        if (size.width > TileGrid.MAX_EDGE || size.height > TileGrid.MAX_EDGE ||
-            size.tilesPerLayer > MAX_TILES
-        ) {
+        // Two independent ceilings, both of them the format's rather than the
+        // device's: a side longer than the tile coordinate space allows, and a
+        // tile count past what the readback chunking and sandwich rebuild are
+        // sized for. Written as separate statements so neither depends on the
+        // other being evaluated first — `CanvasSize`'s arithmetic is
+        // overflow-safe now, so the ordering is clarity, not correctness.
+        if (size.width > TileGrid.MAX_EDGE || size.height > TileGrid.MAX_EDGE) {
+            return CustomSizeResult.Refused(SizeRefusal.TOO_MANY_TILES)
+        }
+        if (size.tilesPerLayer > MAX_TILES) {
             return CustomSizeResult.Refused(SizeRefusal.TOO_MANY_TILES)
         }
         if (!fits(size, result)) {

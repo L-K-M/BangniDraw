@@ -136,13 +136,26 @@ L, so it is split at the 2a/2b seam above and 2a is split again where the
 diff would otherwise pass ~1,500 lines. Each PR builds, tests and lints on
 its own, and each is useful on its own.
 
+Status: ⬜ not started · 🔁 open, in review · 🟢 landed on `main` (with commit).
+
 | PR | Branch | Scope (one line) | Acceptance check | Status |
 | --- | --- | --- | --- | --- |
-| 2.1 | `fable/engine-core-document` | `engine/core` document model: `PerfConstants`, `TileKey`/`IntRect`/`TileGrid`, `LayerId`/`LayerProps`/`Layer`/`BlendMode`/`LayerStack` (+ `StackEdit`/`StackResult`/`PixelOp`/`HistoryEntry` declarations), `Document`, `Composite` (CPU reference, all eight modes), `MemoryBudget`, `CanvasPresets`, `Clock`/`RandomSource` | JVM: `TileGridTest`, `LayerStackTest`, `CompositeTest`, `MemoryBudgetTest`, `CanvasPresetsTest` green; `lintDebug` clean. No device check (nothing user-visible changes) | ⬜ |
+| 2.1 | `fable/engine-core-document` | `engine/core` document model: `PerfConstants`, `TileKey`/`IntRect`/`TileGrid`, `LayerId`/`LayerProps`/`Layer`/`BlendMode`/`LayerStack` (+ `StackEdit`/`StackResult`/`PixelOp`/`HistoryEntry` declarations), `Document`, `Composite` (CPU reference, all eight modes), `MemoryBudget`, `CanvasPresets`, `Clock`/`RandomSource` | JVM: `TileGridTest`, `LayerStackTest`, `CompositeTest`, `MemoryBudgetTest`, `CanvasPresetsTest` green; `lintDebug` clean. No device check (nothing user-visible changes) | 🔁 #7 |
 | 2.2 | `fable/engine-core-stroke` | `engine/core` stroke math: `StrokeInput`(+batch), `PressureCurve`, `Stabilizer`, `Dab`/`DabBatch`/`DabRing`, `DabGenerator`, `BrushPreset`/`Curve`/`ToolKind` with the one round preset | JVM: `StabilizerTest`, `DabGeneratorTest` (+ golden stroke), `PressureCurveTest`, `DabRingTest`, `BrushPresetTest`. Still no device check | ⬜ |
 | 2.3 | `fable/engine-gl-compositor` | `engine/gl` foundation and the compositor: `GlCaps`/`GlProgram`/`GlFbo`/`GlState`, `Shaders`, `TilePool`, `LayerTextures`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect, two-finger pinch/zoom/rotate is smooth, rotation snaps near 0°, the reset-view pill returns to fit. JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `ScreenTransformTest` | ⬜ |
-| 2.4 | `fable/stroke-path-touch` | The stroke lands on pixels, with touch: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, `input/` (`GestureArbiter`, `PalmRejection`, `StylusState`, `CanvasTouchHandler`) | Device: one finger draws a stroke that survives pen-up; two-finger tap does not leave a dot; pinch-zoom-rotate still smooth mid-painting. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`. **This completes 2a** | ⬜ |
+| 2.4 | `fable/stroke-path-touch` | The stroke lands on pixels, with touch: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, `input/` (`GestureArbiter`, `PalmRejection`, `StylusState`, `CanvasTouchHandler`) | Device: one finger draws a stroke that survives pen-up; two-finger tap does not leave a dot; pinch-zoom-rotate still smooth mid-painting. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` (the no-allocation assertion of `docs/plan/10-performance.md` §2.4 — the risk table below names it as the mitigation for touch-path GC jank, so it is a gate, not an optional extra), and the merge blend math cross-checked on the JVM against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ⬜ |
 | 2.5 | `fable/front-buffered-stylus` | 2b: the front-buffered path (`onDrawFrontBufferedLayer`, `commit`, `cancel`), `TailBuffer`, `Predictor`, stylus axes (pressure/tilt/orientation/eraser end), palm rejection on device, unbuffered dispatch, debug overlay | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). **This completes step 2** | ⬜ |
+
+**Split seam for 2.3.** It is the largest row and may well pass the ~1,500-line
+criterion once written. Rule 1 of this document says a PR that turns out to be
+two is split *at a named seam, never at an arbitrary point*, so the seam is
+fixed here in advance: **2.3a** = the GL foundation that has no opinion about
+compositing (`GlCaps`, `GlProgram`, `GlFbo`, `GlState`, `Shaders`, `TilePool`,
+`LayerTextures`, with `GlShaderContractTest` and `GlslDeclarationOrderTest`);
+**2.3b** = everything that draws (`ScreenTransform` + its test, `CompositePass`,
+`SandwichCache`, `CanvasRenderer`, `EngineSession`, `CanvasSurface`, the
+reset-view pill) and the device acceptance check, which belongs to the half
+that puts pixels on screen. Measure before writing; split only if it exceeds.
 
 Decisions taken while planning, to be restated in each PR description:
 
@@ -178,8 +191,20 @@ from the readback composite on checkpoint).
 also as REVIEW.md R-001) — this step must not land without them:
 `ProjectStore.load` must refuse to turn a malformed layer id into a path (drop
 the layer into §4's unreadable tally, never throw the open away), and the
-`LayerStack.nextName` counter must survive undo and reopen, which needs either
-a `project.json` field or a slot on the journal entries.
+`LayerStack.nextName` counter must survive undo and reopen.
+
+The layer-id→path guard is **not deferrable to this step**: it lands with the
+first code that builds a path out of a layer id, whenever that ships. Step 3 is
+the latest it can arrive, not the earliest — nothing before it may derive a
+path (a thumbnail cache, a readback scratch file) from an unvalidated id.
+
+The counter's mechanism is decided rather than left open, because a hard gate
+with an undecided design gets settled arbitrarily under pressure: the counter
+stays on `LayerStack` where `05-layers.md` §3 puts it, `project.json` gains a
+field for it, and **undo never restores it**. That is the whole point — it is
+not journalled state, it is a monotonic allocator, so an add → undo → add must
+still yield a fresh name. A journal-entry slot would restore the old value on
+undo and reissue the name, which is the bug.
 
 **Depends on.** Step 2 (tiles and readback are what gets saved).
 

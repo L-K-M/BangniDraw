@@ -27,18 +27,58 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 data class DeviceMemory(
     val totalMemBytes: Long,
     val isLowRamDevice: Boolean,
+    /**
+     * Not consulted by [MemoryBudget], deliberately: the tile budget is GPU
+     * texture memory, which does not come out of the Java heap the memory
+     * class describes. Captured because it is the number the device-class
+     * triage in `docs/plan/10-performance.md` §1 is written against.
+     */
     val largeMemoryClassMb: Int,
     /** `GL_MAX_ARRAY_TEXTURE_LAYERS`; 0 means "no context yet". */
     val glMaxArrayLayers: Int,
+    /**
+     * Not consulted when sizing a canvas — a canvas is a grid of 256 px
+     * slices, never one texture (AGENTS.md, "Deviations"). It bounds the
+     * viewport-sized `Accum`/`Scratch` targets of
+     * `docs/plan/03-canvas-engine.md` §3.2 instead, which arrive with PR 2.3.
+     */
     val glMaxTextureSize: Int,
-)
+) {
+    init {
+        // Both are read once and then reasoned about as facts; neither
+        // MemoryBudget nor TilePool re-checks them.
+        require(totalMemBytes > 0) { "totalMemBytes must be positive, was $totalMemBytes" }
+    }
+}
 
-/** A canvas size in pixels, with the tile arithmetic that follows from it. */
+/**
+ * A canvas size in pixels, with the tile arithmetic that follows from it.
+ *
+ * Unlike [TileGrid] this type does **not** refuse a size: it is what
+ * `CanvasPresets.custom` measures a user-typed size with, so it has to be able
+ * to describe a size in order to reject it. That makes its arithmetic the one
+ * place that must survive absurd input, hence the ceilings below are written
+ * as quotient-plus-remainder rather than the usual `(n + 255) / 256`, which
+ * overflows to a *negative* tile count near `Int.MAX_VALUE`, and the products
+ * are taken in `Long`.
+ */
 data class CanvasSize(val width: Int, val height: Int) {
-    val tilesX: Int get() = (width + TILE_SIZE - 1) / TILE_SIZE
-    val tilesY: Int get() = (height + TILE_SIZE - 1) / TILE_SIZE
-    val tilesPerLayer: Int get() = tilesX * tilesY
-    val layerBytesWorstCase: Long get() = tilesPerLayer.toLong() * TILE_BYTES
+    val tilesX: Int get() = width / TILE_SIZE + if (width % TILE_SIZE != 0) 1 else 0
+    val tilesY: Int get() = height / TILE_SIZE + if (height % TILE_SIZE != 0) 1 else 0
+    val tilesPerLayer: Long get() = tilesX.toLong() * tilesY
+
+    /**
+     * Saturates rather than wraps. `tilesPerLayer` fits a `Long` for every
+     * `Int` side, but multiplying it by [TILE_BYTES] does not — and a budget
+     * computed from a wrapped negative byte count would report a *generous*
+     * layer cap for the largest canvas imaginable, which is the one answer
+     * that must never come out of this class.
+     */
+    val layerBytesWorstCase: Long
+        get() {
+            val tiles = tilesPerLayer
+            return if (tiles > Long.MAX_VALUE / TILE_BYTES) Long.MAX_VALUE else tiles * TILE_BYTES
+        }
 }
 
 /**

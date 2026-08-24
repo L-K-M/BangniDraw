@@ -44,7 +44,7 @@ class CanvasPresetsTest {
         // "Small to large" is by what a layer costs — tiles, not pixels: a
         // 2560x1600 tablet canvas is fewer pixels than a 2048 square but more
         // tiles, and tiles are what the budget spends.
-        var tiles = 0
+        var tiles = 0L
         var previousLayers = Int.MAX_VALUE
         for (p in presets) {
             assertTrue(p.size.tilesPerLayer > tiles, "${p.id} costs no more tiles than the preset before it")

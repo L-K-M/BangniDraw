@@ -277,6 +277,30 @@ class LayerStackTest {
     }
 
     @Test
+    fun `a corrupt opacity degrades at the boundaries instead of failing the open`() {
+        // coerceIn is not enough on its own: both of its comparisons are false
+        // for NaN, so it returns NaN unchanged and construction would then
+        // refuse it — one corrupt field failing a whole document open, which
+        // 06-document-and-persistence.md §4 forbids. kotlinx.serialization does
+        // parse a bare NaN token into a Float, so this is reachable from a
+        // hand-edited project.json.
+        assertEquals(
+            1f,
+            LayerRecord(id = "a", name = "a", opacity = Float.NaN).toProps().opacity,
+            "a NaN opacity must degrade to fully visible, not throw",
+        )
+        assertEquals(1f, LayerRecord(id = "a", name = "a", opacity = Float.POSITIVE_INFINITY).toProps().opacity)
+        assertEquals(0f, LayerRecord(id = "a", name = "a", opacity = Float.NEGATIVE_INFINITY).toProps().opacity)
+
+        // The clamping setter is total too — `copy` re-runs `init`, so a NaN
+        // arriving from a slider binding or an animation would otherwise crash.
+        val props = LayerProps(LayerId("a"), "a")
+        assertEquals(1f, props.withOpacity(Float.NaN).opacity)
+        assertEquals(1f, props.withOpacity(Float.POSITIVE_INFINITY).opacity)
+        assertEquals(0f, props.withOpacity(Float.NEGATIVE_INFINITY).opacity)
+    }
+
+    @Test
     fun `merge down is refused without a layer below, when locked, or when either partner is hidden`() {
         val stack = stackOf("a", "b", "c")
         assertEquals(Refusal.NO_LAYER_BELOW, refusal(stack.mergeDown(0)))

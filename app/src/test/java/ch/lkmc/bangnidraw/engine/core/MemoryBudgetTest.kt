@@ -139,7 +139,7 @@ class MemoryBudgetTest {
                 val r = MemoryBudget.compute(device(totalGib), canvas)
                 val slices = r.poolArraySlices.toLong() * r.poolArrayCount
                 assertTrue(
-                    r.maxLayers.toLong() * canvas.tilesPerLayer <= slices,
+                    r.maxLayers * canvas.tilesPerLayer <= slices,
                     "$totalGib GiB / ${canvas.width}x${canvas.height}: " +
                         "${r.maxLayers} layers need ${r.maxLayers * canvas.tilesPerLayer} slices, pool has $slices",
                 )
@@ -163,13 +163,43 @@ class MemoryBudgetTest {
     }
 
     @Test
+    fun `the tile ceiling never overflows, however absurd the size`() {
+        // MemoryBudget.compute takes a CanvasSize directly, so it cannot rely
+        // on CanvasPresets.custom having screened the numbers first. The usual
+        // (n + 255) / 256 ceiling would report a NEGATIVE tile count here.
+        for (edge in listOf(Int.MAX_VALUE, Int.MAX_VALUE - 1, Int.MAX_VALUE - 255)) {
+            val size = CanvasSize(edge, edge)
+            assertTrue(size.tilesX > 0, "tilesX went negative at $edge")
+            assertTrue(size.tilesY > 0, "tilesY went negative at $edge")
+            assertTrue(size.tilesPerLayer > 0, "tilesPerLayer went negative at $edge")
+            assertTrue(size.layerBytesWorstCase > 0, "layerBytesWorstCase went negative at $edge")
+            // A wrapped negative byte count would hand the largest canvas
+            // imaginable a generous layer cap. Saturating gives it the floor.
+            assertEquals(
+                PerfConstants.MIN_LAYERS,
+                MemoryBudget.compute(device(8.0), size).maxLayers,
+                "an absurd canvas must get the minimum layer cap, not a wrapped one",
+            )
+        }
+        assertEquals(8388608, CanvasSize(Int.MAX_VALUE, 256).tilesX)
+        // …and it still agrees with the plain ceiling on every real size.
+        for (edge in listOf(256, 257, 1000, 1080, 1920, 2048, 2560, 4096, 8191, 8192)) {
+            assertEquals(
+                (edge + PerfConstants.TILE_SIZE - 1) / PerfConstants.TILE_SIZE,
+                CanvasSize(edge, edge).tilesX,
+                "the overflow-safe ceiling disagrees with the plain one at $edge",
+            )
+        }
+    }
+
+    @Test
     fun `a canvas size reports its tile geometry`() {
-        assertEquals(256, canvas4096.tilesPerLayer)
+        assertEquals(256L, canvas4096.tilesPerLayer)
         assertEquals(64L * PerfConstants.TILE_BYTES * 4, canvas4096.layerBytesWorstCase)
         CanvasSize(1080, 1920).let {
             assertEquals(5, it.tilesX, "1080 px is 4.2 tiles, so 5")
             assertEquals(8, it.tilesY, "1920 px is exactly 7.5 tiles, so 8")
-            assertEquals(40, it.tilesPerLayer)
+            assertEquals(40L, it.tilesPerLayer)
         }
     }
 }

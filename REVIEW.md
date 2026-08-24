@@ -9,6 +9,15 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
 
 ## Open
 
+- **R-003 🔧 `Composite.tile` skips a tile the model lists.** (PR #7, GLM round 3.)
+  Raised as inconsistent leniency — `tile()` raises on a wrong-sized tile but
+  silently treats a `null` read as transparent. Resolved by *documenting* the
+  contract rather than by raising: a `null` is legal and expected (an
+  unreadable tile file per `06-document-and-persistence.md` §4, a readback not
+  yet landed), and `tile()` is the flatten and export path, so a painting with
+  one bad tile must still open. Raising would be R-001's mistake again. The
+  `TileReader` and `Composite.tile` KDocs now say which is which. 🟢
+
 - **R-001 🔧 Layer ids reach the filesystem unvalidated.** (PR #7, GLM round 2.)
   `LayerId` names `layers/<layerId>/` on disk, but nothing checks its shape, so
   a hand-crafted `project.json` with an id of `../../x` would be a path
@@ -52,3 +61,11 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
   `MemoryBudgetTest.device()` is declined for the same reason: asserting on
   inputs nothing consumes tests nothing, and the finding itself concedes it is
   "today harmless".
+
+  *Round 3 re-raised this as an info-level "say why it is unused".* That is a
+  different ask and was **applied**: both `largeMemoryClassMb` and
+  `glMaxTextureSize` now carry a KDoc saying why the budget does not read them
+  (GL tile memory is not the Java heap; a canvas is never one texture). The
+  decline above stands unchanged — neither field is deleted and neither is
+  wired into the `large` predicate, because both would deviate from a
+  normative struct or silently move §4's pinned table.

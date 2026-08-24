@@ -118,8 +118,12 @@ sealed interface HistoryEntry {
 
     /**
      * Merge down. [lower] is the lower layer's record *before* the merge reset
-     * its opacity, mode and flags (`docs/plan/05-layers.md` §4.1); [lowerTiles]
-     * are the lower layer's keys at the upper layer's keys only.
+     * its opacity, mode and flags (`docs/plan/05-layers.md` §4.1).
+     *
+     * [lowerTiles] are the lower layer's keys at the upper layer's keys — and
+     * *all* of the lower layer's keys when its opacity was not 1, because the
+     * merge then rewrites every one of them and undo has to be able to put
+     * them back (AGENTS.md, "Deviations discovered while building").
      */
     data class LayerMerge(
         override val seq: Long = UNSTAMPED,

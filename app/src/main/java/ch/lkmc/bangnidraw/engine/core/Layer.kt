@@ -38,10 +38,27 @@ data class LayerProps(
     }
 
     /** A copy with [opacity] clamped into range — the only way the UI should set it. */
-    fun withOpacity(value: Float): LayerProps = copy(opacity = value.coerceIn(0f, 1f))
+    fun withOpacity(value: Float): LayerProps = copy(opacity = sanitizeOpacity(value))
 
     fun toRecord(): LayerRecord =
         LayerRecord(id.value, name, visible, opacity, blendMode.name, alphaLock, locked)
+
+    companion object {
+        /**
+         * Every opacity that reaches [LayerProps] from outside goes through
+         * here, so the clamping setter and the deserialization boundary cannot
+         * drift apart.
+         *
+         * `coerceIn` alone is not enough: both its comparisons are false for
+         * `NaN`, so it returns `NaN` unchanged and construction would then
+         * refuse it — turning one corrupt field into a failed document open,
+         * which `docs/plan/06-document-and-persistence.md` §4 forbids. A
+         * corrupt opacity degrades to fully visible rather than to invisible,
+         * because a layer that vanished would read as lost work.
+         */
+        fun sanitizeOpacity(value: Float): Float =
+            if (value.isNaN()) 1f else value.coerceIn(0f, 1f)
+    }
 }
 
 /**
@@ -74,7 +91,7 @@ data class LayerRecord(
         id = LayerId(id),
         name = name,
         visible = visible,
-        opacity = opacity.coerceIn(0f, 1f),
+        opacity = LayerProps.sanitizeOpacity(opacity),
         blendMode = BlendMode.fromNameOrNormal(blend),
         alphaLock = alphaLock,
         locked = locked,

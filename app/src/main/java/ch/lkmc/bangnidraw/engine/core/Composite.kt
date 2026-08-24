@@ -2,7 +2,17 @@ package ch.lkmc.bangnidraw.engine.core
 
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 
-/** Reads one tile of one layer as premultiplied ARGB; `null` where no tile exists. */
+/**
+ * Reads one tile of one layer as premultiplied ARGB.
+ *
+ * `null` means "no pixels for this key" and is always a legal answer, even for
+ * a key the layer's tile set lists. A disk-backed reader returns it for a tile
+ * whose file failed validation, which
+ * `docs/plan/06-document-and-persistence.md` §4 requires to be treated as
+ * empty and logged rather than allowed to fail the open; a GPU-backed reader
+ * returns it for a slice whose readback has not landed yet. [Composite.tile]
+ * therefore treats `null` as transparent instead of raising.
+ */
 fun interface TileReader {
     fun read(layer: LayerId, key: TileKey): IntArray?
 }
@@ -163,6 +173,13 @@ object Composite {
      * [layers] are composited bottom to top exactly as given; visibility is
      * the caller's filter, because merge down deliberately composites two
      * layers that the compositor would otherwise treat differently.
+     *
+     * A layer contributes nothing where [pixels] has no tile for it — see
+     * [TileReader]: an unreadable tile is transparent, never an exception,
+     * because this is also the flatten and export path and a painting with one
+     * bad tile must still open. A tile of the *wrong size* is a different
+     * matter and does raise: that is a programming error in the reader, not
+     * damage on disk.
      */
     fun tile(layers: List<Layer>, key: TileKey, paper: Int, pixels: TileReader): IntArray {
         val ground = premultiply(paper)

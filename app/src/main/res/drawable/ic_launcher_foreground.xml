@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Deliberately empty. All of the launcher art lives in the adaptive
+     icon's BACKGROUND layer (the full-bleed painting from
+     media-sources/icon.png, rasterized per density by
+     scripts/generate_icons.py); a foreground would only float over it
+     during launcher parallax. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108" />

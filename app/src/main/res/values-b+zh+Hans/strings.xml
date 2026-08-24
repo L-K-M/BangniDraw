@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simplified Chinese. The folder is the BCP-47 form (b+zh+Hans) rather
+     than zh-rCN, so it matches zh-Hans in any region (CN, SG, MY) instead
+     of one country; Traditional users fall back to English until a
+     zh-Hant file exists.
+
+     House lexicon: the Studio is 画室, the Canvas is 画布, a painting on
+     the shelf is 画. 帮你Draw stays as written — it is the name. -->
+<resources>
+    <string name="studio_new">新建草图</string>
+    <string name="studio_empty">架子上还空着——点「新建草图」开始画一张。</string>
+    <string name="studio_about">关于</string>
+
+    <string name="canvas_back">返回画室</string>
+    <string name="canvas_placeholder">画布将在路线图第 2 步到来。现在已经可以用两根手指平移、缩放和旋转纸张。</string>
+    <string name="canvas_reset_view">复位视图</string>
+
+    <string name="about_body">帮你Draw 帮你画画：一款简单、快速的手机和平板速写与绘画应用，为 S Pen 而生。完全离线——不需要任何权限，不联网，除了你保存到相册的画，什么都不会离开你的设备。\n\n几乎完全由 LLM 智能体开发。公有领域（Unlicense）。\n\n自然混色由 Mixbox 提供，© 2022 Secret Weapons（Šárka Sochorová 与 Ondřej Jamriška），许可证 CC BY-NC 4.0——仅限非商业用途。</string>
+    <string name="about_close">关闭</string>
+</resources>

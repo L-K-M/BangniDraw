@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cloud backup (API 29-30 path). Settings are tiny and harmless to back
+     up; nothing sensitive exists in this app (no accounts, no keys).
+
+     Deliberately an allowlist: saved paintings (files/projects) are the
+     user's work and can be hundreds of megabytes, and the promise is that
+     nothing leaves the device except through the gallery. They stay out of
+     cloud backup and off device transfer — an uninstall takes the project
+     folders with it; the gallery copies survive (docs/plan/06). -->
+<full-backup-content>
+    <include domain="file" path="datastore" />
+    <include domain="sharedpref" path="." />
+</full-backup-content>

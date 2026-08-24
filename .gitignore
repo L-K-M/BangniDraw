@@ -1,0 +1,18 @@
+build/
+dist/
+.gradle/
+.kotlin/
+local.properties
+.vscode/
+captures/
+.DS_Store
+
+# IntelliJ: the project files are committed on purpose (the maintainer
+# works from IDEA); .idea/.gitignore keeps the per-user ones out.
+
+# Real signing keys must never be committed. The checked-in app/debug.keystore
+# is a deliberate exception (zero-secret CI signing, docs/decisions/0005).
+*.jks
+*.keystore
+*.p12
+!app/debug.keystore

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors ui/theme/Color.kt PaperLight/PaperDark; keep in sync by
+         hand (one use: the launch window background, so the first frame
+         doesn't flash a foreign color before Compose draws). -->
+    <color name="paper_light">#F6F3EC</color>
+    <color name="paper_dark">#15161A</color>
+</resources>

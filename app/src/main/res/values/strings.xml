@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The single user-visible source of the app name (PLAN.md "Renaming").
+         Untranslatable: 帮你Draw is the product's name in every language;
+         it is already half Chinese, half English on purpose. -->
+    <string name="app_name" translatable="false">帮你Draw</string>
+
+    <!-- Studio -->
+    <string name="studio_new">New sketch</string>
+    <string name="studio_empty">Nothing on the shelf yet — tap New sketch to start one.</string>
+    <string name="studio_about">About</string>
+
+    <!-- Canvas (scaffold placeholder; replaced by roadmap step 2) -->
+    <string name="canvas_back">Back to the Studio</string>
+    <string name="canvas_placeholder">The canvas arrives with roadmap step 2. Two fingers already pan, zoom and rotate the paper.</string>
+    <string name="canvas_reset_view">Reset view</string>
+
+    <!-- About. The Mixbox line is a license obligation (ADR 0003): the
+         library is in the APK from the first build, so the notice is too. -->
+    <string name="about_title" translatable="false">帮你Draw %1$s</string>
+    <string name="about_body">帮你Draw helps you draw: a simple, fast sketching and painting app for phones and tablets, made for the S Pen. Fully offline — no permissions, no network, nothing leaves your device except the paintings you keep in your gallery.\n\nBuilt almost entirely by LLM agents. Public domain (Unlicense).\n\nNatural color mixing by Mixbox © 2022 Secret Weapons (Šárka Sochorová and Ondřej Jamriška), licensed CC BY-NC 4.0 — non-commercial use only.</string>
+    <string name="about_close">Close</string>
+</resources>

@@ -1,0 +1,321 @@
+package ch.lkmc.bangnidraw.engine.core
+
+/** Source of fresh layer ids. Injected so tests get reproducible sequences. */
+fun interface IdSource {
+    fun newId(): LayerId
+}
+
+/**
+ * The pixel work an operation leaves for the GL thread
+ * (`docs/plan/05-layers.md` §3.3). The model is updated first; the pixels
+ * follow within the same frame.
+ */
+sealed interface PixelOp {
+    data class Copy(val src: LayerId, val dst: LayerId, val keys: Set<TileKey>) : PixelOp
+    data class Merge(
+        val top: LayerId,
+        val topProps: LayerProps,
+        val bottom: LayerId,
+        val keys: Set<TileKey>,
+    ) : PixelOp
+
+    data class Clear(val layer: LayerId) : PixelOp
+    data class Delete(val layer: LayerId) : PixelOp
+    data class Flatten(val order: List<LayerProps>, val result: LayerId) : PixelOp
+
+    /** Undo/redo upload; a `null` payload means "delete that tile". */
+    data class Restore(val layer: LayerId, val tiles: Map<TileKey, ByteArray?>) : PixelOp
+}
+
+/** The new stack, the pixel work it implies, and the entry that inverts it. */
+data class StackEdit(val stack: LayerStack, val pixels: PixelOp?, val entry: HistoryEntry)
+
+/** Why an operation did nothing. Values, never exceptions: each one is a UI hint. */
+enum class Refusal { LAST_LAYER, AT_CAP, LOCKED, HIDDEN_PARTNER, NO_LAYER_BELOW, NOOP }
+
+sealed interface StackResult {
+    data class Ok(val edit: StackEdit) : StackResult
+    data class Refused(val reason: Refusal) : StackResult
+}
+
+/**
+ * The ordered stack of layers, bottom (index 0) to top, with pure operations
+ * that each return a new stack plus the pixel work and the history entry
+ * (`docs/plan/05-layers.md` §3). Nothing here mutates; nothing here knows
+ * about the GPU, the disk or the screen.
+ *
+ * [nextName] only ever grows — including across undo — so a default name is
+ * never reused within a document.
+ */
+data class LayerStack(
+    val layers: List<Layer>,
+    val activeIndex: Int,
+    val nextName: Int,
+) {
+    init {
+        require(layers.isNotEmpty()) { "a document always has at least one layer" }
+        require(activeIndex in layers.indices) {
+            "activeIndex $activeIndex is outside 0..${layers.size - 1}"
+        }
+        require(layers.distinctBy { it.id.value }.size == layers.size) {
+            "layer ids must be unique within a stack"
+        }
+    }
+
+    val active: Layer get() = layers[activeIndex]
+    val size: Int get() = layers.size
+
+    fun indexOf(id: LayerId): Int = layers.indexOfFirst { it.id == id }
+
+    /** Selection is a view concern, never an edit: it is not journaled. */
+    fun select(index: Int): LayerStack =
+        if (index == activeIndex || index !in layers.indices) this else copy(activeIndex = index)
+
+    // ---------------------------------------------------------------- structure
+
+    /** A new empty layer directly above the active one; it becomes active. */
+    fun add(ids: IdSource, maxLayers: Int): StackResult {
+        if (layers.size >= maxLayers) return StackResult.Refused(Refusal.AT_CAP)
+        val index = activeIndex + 1
+        val props = LayerProps(id = ids.newId(), name = defaultName(nextName))
+        val next = copy(
+            layers = layers.toMutableList().apply { add(index, Layer(props)) },
+            activeIndex = index,
+            nextName = nextName + 1,
+        )
+        return ok(
+            next,
+            null,
+            HistoryEntry.LayerAdd(
+                activeBefore = active.id.value,
+                activeAfter = props.id.value,
+                layer = props.toRecord(),
+                index = index,
+            ),
+        )
+    }
+
+    /** A copy of [index] directly above it; the copy becomes active. */
+    fun duplicate(index: Int, ids: IdSource, maxLayers: Int): StackResult {
+        val source = layers.getOrNull(index) ?: return StackResult.Refused(Refusal.NOOP)
+        if (layers.size >= maxLayers) return StackResult.Refused(Refusal.AT_CAP)
+        val props = source.props.copy(
+            id = ids.newId(),
+            name = duplicateName(source.props.name),
+            locked = false,
+        )
+        val at = index + 1
+        val next = copy(
+            layers = layers.toMutableList().apply { add(at, Layer(props, source.tiles)) },
+            activeIndex = at,
+        )
+        return ok(
+            next,
+            PixelOp.Copy(source.id, props.id, source.tiles),
+            HistoryEntry.LayerDuplicate(
+                activeBefore = active.id.value,
+                activeAfter = props.id.value,
+                sourceId = source.id.value,
+                copy = props.toRecord(),
+                index = at,
+            ),
+        )
+    }
+
+    /**
+     * Removes [index]. The layer *below* becomes active when the active layer
+     * itself was deleted; otherwise the previously active layer stays active
+     * even though its index shifts.
+     */
+    fun delete(index: Int): StackResult {
+        val victim = layers.getOrNull(index) ?: return StackResult.Refused(Refusal.NOOP)
+        if (layers.size <= 1) return StackResult.Refused(Refusal.LAST_LAYER)
+        if (victim.props.locked) return StackResult.Refused(Refusal.LOCKED)
+        val remaining = layers.toMutableList().apply { removeAt(index) }
+        val activeAfterIndex =
+            if (index == activeIndex) maxOf(index - 1, 0)
+            else remaining.indexOfFirst { it.id == active.id }
+        val next = copy(layers = remaining, activeIndex = activeAfterIndex)
+        return ok(
+            next,
+            PixelOp.Delete(victim.id),
+            HistoryEntry.LayerDelete(
+                activeBefore = active.id.value,
+                activeAfter = next.active.id.value,
+                layer = victim.props.toRecord(),
+                index = index,
+                tiles = victim.tiles.sortedBy { it.packed },
+            ),
+        )
+    }
+
+    /** Moves [from] so that it ends up at index [to]; the moved layer becomes active. */
+    fun move(from: Int, to: Int): StackResult {
+        if (from !in layers.indices || to !in layers.indices) return StackResult.Refused(Refusal.NOOP)
+        if (from == to) return StackResult.Refused(Refusal.NOOP)
+        val moved = layers[from]
+        val reordered = layers.toMutableList().apply {
+            removeAt(from)
+            add(to, moved)
+        }
+        val next = copy(layers = reordered, activeIndex = to)
+        return ok(
+            next,
+            null,
+            HistoryEntry.LayerReorder(
+                activeBefore = active.id.value,
+                activeAfter = moved.id.value,
+                layerId = moved.id.value,
+                fromIndex = from,
+                toIndex = to,
+            ),
+        )
+    }
+
+    /**
+     * Merges [index] into the layer below it. The result keeps the lower
+     * layer's id and name and is reset to Normal at 100 % — the appearance
+     * rules and the confirmation the panel owes the user are
+     * `docs/plan/05-layers.md` §4.1.
+     */
+    fun mergeDown(index: Int): StackResult {
+        val top = layers.getOrNull(index) ?: return StackResult.Refused(Refusal.NOOP)
+        if (index == 0) return StackResult.Refused(Refusal.NO_LAYER_BELOW)
+        val bottom = layers[index - 1]
+        if (top.props.locked || bottom.props.locked) return StackResult.Refused(Refusal.LOCKED)
+        if (!top.props.visible || !bottom.props.visible) {
+            return StackResult.Refused(Refusal.HIDDEN_PARTNER)
+        }
+        val mergedProps = bottom.props.copy(
+            opacity = 1f,
+            blendMode = BlendMode.NORMAL,
+            alphaLock = false,
+            visible = true,
+            locked = false,
+        )
+        val merged = Layer(mergedProps, bottom.tiles + top.tiles)
+        val next = copy(
+            layers = layers.toMutableList().apply {
+                removeAt(index)
+                set(index - 1, merged)
+            },
+            activeIndex = index - 1,
+        )
+        return ok(
+            next,
+            PixelOp.Merge(top.id, top.props, bottom.id, top.tiles),
+            HistoryEntry.LayerMerge(
+                activeBefore = active.id.value,
+                activeAfter = merged.id.value,
+                upper = top.props.toRecord(),
+                upperIndex = index,
+                upperTiles = top.tiles.sortedBy { it.packed },
+                lower = bottom.props.toRecord(),
+                lowerTiles = bottom.tiles.intersect(top.tiles).sortedBy { it.packed },
+            ),
+        )
+    }
+
+    /** Composites every **visible** layer into one new layer; hidden layers are dropped. */
+    fun flatten(ids: IdSource): StackResult {
+        if (layers.size <= 1) return StackResult.Refused(Refusal.NOOP)
+        if (layers.any { it.props.locked }) return StackResult.Refused(Refusal.LOCKED)
+        val visible = layers.filter { it.props.visible }
+        val props = LayerProps(id = ids.newId(), name = FLATTENED_NAME)
+        val tiles = visible.flatMapTo(LinkedHashSet()) { it.tiles }
+        val next = copy(layers = listOf(Layer(props, tiles)), activeIndex = 0)
+        return ok(
+            next,
+            PixelOp.Flatten(visible.map { it.props }, props.id),
+            HistoryEntry.Flatten(
+                activeBefore = active.id.value,
+                activeAfter = props.id.value,
+                layers = layers.map { it.props.toRecord() },
+                tilesPerLayer = layers.associate { l -> l.id.value to l.tiles.sortedBy { it.packed } },
+                result = props.toRecord(),
+            ),
+        )
+    }
+
+    /** Frees a layer's pixels but keeps the layer, its props and the selection. */
+    fun clear(index: Int): StackResult {
+        val layer = layers.getOrNull(index) ?: return StackResult.Refused(Refusal.NOOP)
+        if (layer.props.locked) return StackResult.Refused(Refusal.LOCKED)
+        if (layer.tiles.isEmpty()) return StackResult.Refused(Refusal.NOOP)
+        val next = copy(layers = layers.toMutableList().apply { set(index, layer.copy(tiles = emptySet())) })
+        return ok(
+            next,
+            PixelOp.Clear(layer.id),
+            HistoryEntry.LayerClear(
+                activeBefore = active.id.value,
+                activeAfter = active.id.value,
+                layerId = layer.id.value,
+                tiles = layer.tiles.sortedBy { it.packed },
+            ),
+        )
+    }
+
+    // --------------------------------------------------------------- properties
+
+    fun rename(index: Int, name: String): StackResult = setProps(index) { it.copy(name = name) }
+
+    fun setOpacity(index: Int, opacity: Float): StackResult =
+        setProps(index) { it.withOpacity(opacity) }
+
+    fun setVisible(index: Int, visible: Boolean): StackResult =
+        setProps(index) { it.copy(visible = visible) }
+
+    fun setBlendMode(index: Int, mode: BlendMode): StackResult =
+        setProps(index) { it.copy(blendMode = mode) }
+
+    fun setAlphaLock(index: Int, alphaLock: Boolean): StackResult =
+        setProps(index) { it.copy(alphaLock = alphaLock) }
+
+    fun setLocked(index: Int, locked: Boolean): StackResult =
+        setProps(index) { it.copy(locked = locked) }
+
+    private inline fun setProps(index: Int, edit: (LayerProps) -> LayerProps): StackResult {
+        val layer = layers.getOrNull(index) ?: return StackResult.Refused(Refusal.NOOP)
+        val after = edit(layer.props)
+        if (after == layer.props) return StackResult.Refused(Refusal.NOOP)
+        val next = copy(layers = layers.toMutableList().apply { set(index, layer.copy(props = after)) })
+        return ok(
+            next,
+            null,
+            HistoryEntry.LayerProps(
+                activeBefore = active.id.value,
+                activeAfter = active.id.value,
+                layerId = layer.id.value,
+                before = layer.props.toRecord(),
+                after = after.toRecord(),
+            ),
+        )
+    }
+
+    private fun ok(stack: LayerStack, pixels: PixelOp?, entry: HistoryEntry): StackResult =
+        StackResult.Ok(StackEdit(stack, pixels, entry))
+
+    companion object {
+        /**
+         * Default and generated names are stored as resource *keys* plus their
+         * argument, never as English text (`docs/plan/01-product.md` §8): the
+         * UI resolves every `@string/…` token at display time and shows
+         * anything else verbatim, so a user-typed name survives untouched.
+         */
+        const val DEFAULT_NAME_KEY = "@string/layer_default"
+        const val COPY_SUFFIX_KEY = "@string/layer_copy_suffix"
+        const val FLATTENED_NAME = "@string/layer_flattened"
+
+        fun defaultName(n: Int): String = "$DEFAULT_NAME_KEY $n"
+
+        fun duplicateName(name: String): String = "$name $COPY_SUFFIX_KEY"
+
+        /** The stack a new document starts with: one empty layer named "Layer 1". */
+        fun initial(ids: IdSource): LayerStack =
+            LayerStack(
+                layers = listOf(Layer(LayerProps(id = ids.newId(), name = defaultName(1)))),
+                activeIndex = 0,
+                nextName = 2,
+            )
+    }
+}

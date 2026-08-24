@@ -1,0 +1,14 @@
+# MULTIPLY — dst src opacity expected, premultiplied ARGB8888.
+# Generated from the normative table in docs/plan/05-layers.md section 4;
+# CompositeTest pins Composite.blend against these values.
+FF0000FF FFFF0000 1.0  FF000000  # opaque red over opaque blue
+FF0000FF FFFF0000 0.5  FF000080  # the same at half layer opacity
+80800000 80008000 1.0  C0404000  # half-covered red under half-covered green
+00000000 FFFF8040 1.0  FFFF8040  # over a transparent destination
+FF808080 00000000 1.0  FF808080  # a fully transparent source
+FF404040 FFC0C0C0 1.0  FF303030  # light over dark: the overlay cd <= 0.5 branch
+FFC0C0C0 FF404040 1.0  FF303030  # dark over light: the overlay cd > 0.5 branch
+FFFFFFFF FF000000 1.0  FF000000  # black over white
+FF000000 FFFFFFFF 1.0  FF000000  # white over black
+40200010 C0603010 1.0  D05C2411  # two partly covered pixels
+FF3366AA 80402010 0.75 FF294972  # an odd pixel at three quarters opacity

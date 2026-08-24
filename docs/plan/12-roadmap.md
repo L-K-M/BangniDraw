@@ -131,6 +131,31 @@ zero-length stroke = one dab), `TileGridTest` (dirty rect → keys, edges),
 | Ring-buffer overrun at 120 Hz with historical + predicted samples | Overrun policy is "coalesce, never drop a pen-up"; the overlay counts overruns; if non-zero on a Tab S, batch dabs per input event rather than per sample. |
 | Allocation on the touch path (a lambda, a boxed Float) shows up as GC jank | The `CanvasTouchHandler` test asserts no allocation via the pattern in `docs/plan/10-performance.md` §2.4; profile with Perfetto before merging 2b. |
 
+**PR breakdown (written 2026-08-24, `docs/EXECUTION.md` Step A).** The step is
+L, so it is split at the 2a/2b seam above and 2a is split again where the
+diff would otherwise pass ~1,500 lines. Each PR builds, tests and lints on
+its own, and each is useful on its own.
+
+| PR | Branch | Scope (one line) | Acceptance check | Status |
+| --- | --- | --- | --- | --- |
+| 2.1 | `fable/engine-core-document` | `engine/core` document model: `PerfConstants`, `TileKey`/`IntRect`/`TileGrid`, `LayerId`/`LayerProps`/`Layer`/`BlendMode`/`LayerStack` (+ `StackEdit`/`StackResult`/`PixelOp`/`HistoryEntry` declarations), `Document`, `Composite` (CPU reference, all eight modes), `MemoryBudget`, `CanvasPresets`, `Clock`/`RandomSource` | JVM: `TileGridTest`, `LayerStackTest`, `CompositeTest`, `MemoryBudgetTest`, `CanvasPresetsTest` green; `lintDebug` clean. No device check (nothing user-visible changes) | ⬜ |
+| 2.2 | `fable/engine-core-stroke` | `engine/core` stroke math: `StrokeInput`(+batch), `PressureCurve`, `Stabilizer`, `Dab`/`DabBatch`/`DabRing`, `DabGenerator`, `BrushPreset`/`Curve`/`ToolKind` with the one round preset | JVM: `StabilizerTest`, `DabGeneratorTest` (+ golden stroke), `PressureCurveTest`, `DabRingTest`, `BrushPresetTest`. Still no device check | ⬜ |
+| 2.3 | `fable/engine-gl-compositor` | `engine/gl` foundation and the compositor: `GlCaps`/`GlProgram`/`GlFbo`/`GlState`, `Shaders`, `TilePool`, `LayerTextures`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect, two-finger pinch/zoom/rotate is smooth, rotation snaps near 0°, the reset-view pill returns to fit. JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `ScreenTransformTest` | ⬜ |
+| 2.4 | `fable/stroke-path-touch` | The stroke lands on pixels, with touch: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, `input/` (`GestureArbiter`, `PalmRejection`, `StylusState`, `CanvasTouchHandler`) | Device: one finger draws a stroke that survives pen-up; two-finger tap does not leave a dot; pinch-zoom-rotate still smooth mid-painting. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`. **This completes 2a** | ⬜ |
+| 2.5 | `fable/front-buffered-stylus` | 2b: the front-buffered path (`onDrawFrontBufferedLayer`, `commit`, `cancel`), `TailBuffer`, `Predictor`, stylus axes (pressure/tilt/orientation/eraser end), palm rejection on device, unbuffered dispatch, debug overlay | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). **This completes step 2** | ⬜ |
+
+Decisions taken while planning, to be restated in each PR description:
+
+- `HistoryEntry` is declared in 2.1 (not step 3) because `LayerStack`'s
+  tested contract is "each operation returns the entry that inverts it"
+  (`docs/plan/05-layers.md` §3.1, §5, `11-testing.md` §3.7). Only the
+  declaration lands here; the journal, the on-disk codec and the
+  `Stroke`/`Fill` payload capture stay in step 3 where the roadmap puts them.
+- `Composite` ships all eight blend modes in 2.1 rather than `NORMAL` only:
+  the eight are one `when` and `docs/plan/05-layers.md` §4 is normative for
+  them, so writing seven of them later would be a second review of the same
+  table. Only `NORMAL` is *wired* in the renderer in step 2, as the step says.
+
 ### Step 3 — Document, undo, Studio (M)
 
 **Goal.** Nothing is ever lost. Paintings persist in their project folder,

@@ -1,0 +1,111 @@
+package ch.lkmc.bangnidraw.engine.core
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/** `docs/plan/11-testing.md` §3.6. */
+class TileGridTest {
+
+    private val grid = TileGrid(1024, 768)
+
+    @Test
+    fun `a dirty rect maps to exactly the tiles it overlaps`() {
+        assertEquals(
+            listOf(TileKey(0, 0)),
+            grid.keysFor(IntRect(0, 0, 256, 256)),
+            "a rect that stops exactly on the tile boundary must not reach into the next tile",
+        )
+        assertEquals(
+            listOf(TileKey(0, 0), TileKey(1, 0)),
+            grid.keysFor(IntRect(0, 0, 257, 256)),
+            "one pixel past the boundary is one more tile",
+        )
+        assertEquals(
+            listOf(TileKey(0, 0), TileKey(1, 0), TileKey(0, 1), TileKey(1, 1)),
+            grid.keysFor(IntRect(255, 255, 257, 257)),
+            "a 2x2 rect on a tile corner touches four tiles",
+        )
+    }
+
+    @Test
+    fun `a one pixel rect on a tile corner is one key`() {
+        assertEquals(listOf(TileKey(1, 1)), grid.keysFor(IntRect(256, 256, 257, 257)))
+    }
+
+    @Test
+    fun `a rect partly outside the canvas maps only to in-canvas tiles`() {
+        val keys = grid.keysFor(IntRect(-500, -500, 100, 100))
+        assertEquals(listOf(TileKey(0, 0)), keys, "the outside part contributes nothing")
+
+        val past = grid.keysFor(IntRect(1000, 700, 5000, 5000))
+        assertEquals(listOf(TileKey(3, 2)), past, "the canvas is 4x3 tiles, so 3,2 is the last one")
+    }
+
+    @Test
+    fun `a rect entirely outside the canvas maps to nothing`() {
+        assertTrue(grid.keysFor(IntRect(2000, 2000, 3000, 3000)).isEmpty())
+        assertTrue(grid.keysFor(IntRect(-100, -100, -10, -10)).isEmpty())
+    }
+
+    @Test
+    fun `an empty rect maps to nothing`() {
+        assertTrue(grid.keysFor(IntRect(10, 10, 10, 300)).isEmpty(), "zero width")
+        assertTrue(grid.keysFor(IntRect(10, 10, 300, 10)).isEmpty(), "zero height")
+        assertTrue(grid.keysFor(IntRect(300, 300, 10, 10)).isEmpty(), "inverted")
+    }
+
+    @Test
+    fun `a dab's dirty rect includes its full radius plus the anti-aliasing band`() {
+        val r = IntRect.forDab(x = 300.5f, y = 300.5f, radius = 4f)
+        assertEquals(IntRect(295, 295, 306, 306), r, "floor(x-r-1) .. ceil(x+r+1)")
+
+        val onePixel = IntRect.forDab(x = 128f, y = 128f, radius = 0f)
+        assertEquals(IntRect(127, 127, 129, 129), onePixel, "a zero-radius dab still covers its band")
+    }
+
+    @Test
+    fun `tile keys are stable and hashable`() {
+        val a = TileKey(3, 7)
+        val b = TileKey(3, 7)
+        assertEquals(a, b)
+        assertEquals(a.hashCode(), b.hashCode())
+        assertEquals(3, a.tx)
+        assertEquals(7, a.ty)
+        assertEquals(1, setOf(a, b).size, "equal keys collapse in a set")
+        assertEquals(31, TileKey(31, 31).tx, "the largest 8192-canvas coordinate round-trips")
+    }
+
+    @Test
+    fun `tileCount for a canvas size is ceil in both axes`() {
+        TileGrid(4096, 4096).let {
+            assertEquals(16, it.tilesX)
+            assertEquals(16, it.tilesY)
+            assertEquals(256, it.tileCount)
+        }
+        TileGrid(1000, 1000).let {
+            assertEquals(4, it.tilesX)
+            assertEquals(4, it.tilesY)
+            assertEquals(16, it.tileCount)
+        }
+        TileGrid(257, 256).let {
+            assertEquals(2, it.tilesX)
+            assertEquals(1, it.tilesY)
+        }
+    }
+
+    @Test
+    fun `origin and index address the dense row-major grid`() {
+        assertEquals(IntPoint(512, 256), grid.origin(TileKey(2, 1)))
+        assertEquals(6, grid.index(TileKey(2, 1)), "row 1 of a 4-wide grid starts at 4")
+        assertTrue(grid.contains(TileKey(3, 2)))
+        assertTrue(!grid.contains(TileKey(4, 2)), "the canvas is only 4 tiles wide")
+    }
+
+    @Test
+    fun `an edge tile's canvas rect is clipped to the canvas`() {
+        val g = TileGrid(300, 300)
+        assertEquals(IntRect(256, 256, 300, 300), g.tileRect(TileKey(1, 1)))
+        assertEquals(IntRect(0, 0, 256, 256), g.tileRect(TileKey(0, 0)))
+    }
+}

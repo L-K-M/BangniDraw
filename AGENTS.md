@@ -37,7 +37,10 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   `ANDROID_HOME`. Agent sessions: `.claude/setup-android.sh` bootstraps the
   SDK idempotently (wired as a SessionStart hook). Note that the SDK's
   `aapt2` is x86_64-only — an arm64 Linux sandbox cannot assemble; CI is
-  the source of truth there.
+  the source of truth there. On an x86_64 sandbox the whole pipeline
+  (`testDebugUnitTest lintDebug assembleDebug`) runs locally; the first
+  invocation downloads the Gradle distribution and the dependency graph and
+  takes a few minutes, every later one is seconds.
 - Versions are pinned ONLY in `gradle/libs.versions.toml`. Never add an
   ad-hoc version to a build file; never restate catalog versions in docs.
 
@@ -119,6 +122,42 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   pre-decision docs (same Status/Date header as ADRs); an accepted proposal
   graduates into `docs/plan/12-roadmap.md`, a declined one stays with its
   status flipped so the reasoning isn't lost.
+
+## Deviations discovered while building
+
+Recorded per PLAN.md's rule: when the plan contradicts itself, PLAN.md wins
+and the contradiction is noted here.
+
+- **`maxCanvasEdge` is not bounded by `GL_MAX_TEXTURE_SIZE`.**
+  `docs/plan/11-testing.md` §3.11 lists `maxCanvasEdge <= glMaxTextureSize`
+  as a `MemoryBudgetTest` claim, but `docs/plan/10-performance.md` §4 — which
+  owns `MemoryBudget` — states the opposite in a code comment ("never bounded
+  by `glMaxTextureSize` … tiles are 256"), and it is right: a canvas is never
+  a texture, only a grid of 256 px slices, so a device with the ES 3.0
+  minimum `GL_MAX_TEXTURE_SIZE` of 2048 can still hold a 4096 canvas. PLAN.md
+  §3.1 and decision 1 side with 10 §4. `MemoryBudgetTest` therefore asserts
+  the two claims that are real (the pool spans enough slices for every layer,
+  and `poolArraySlices <= glMaxArrayLayers` once queried) and not the third.
+  `glMaxTextureSize` stays in `DeviceMemory` because the viewport-sized
+  `Accum`/`Scratch` targets of `03-canvas-engine.md` §3.2 are real textures
+  and will need it.
+
+## Conventions the plan leaves open
+
+- **`engine/core` carries no annotations, not just no `android.*` imports.**
+  `docs/plan/02-architecture.md` §1 limits it to `kotlin.*`/`java.util`, so
+  `LayerRecord` (the serialised form of `LayerProps`, normative in
+  `06-document-and-persistence.md` §3) lives there as a plain data class; the
+  `@Serializable` DTOs stay at the `data/` boundary.
+- **Test fixtures live in `app/src/test/resources/fixtures/…`**, addressed
+  through `javaClass.getResourceAsStream("/fixtures/…")`.
+  `docs/plan/11-testing.md` §2 names the folder but not its root, and only a
+  resources root is on the test classpath.
+- **Generated layer names are resource keys plus their argument**, e.g.
+  `"@string/layer_default 3"` and `"<name> @string/layer_copy_suffix"`
+  (`01-product.md` §8: no English text in a stored name). The UI resolves
+  every `@string/…` token at display time and shows anything else verbatim,
+  which is what keeps a duplicate of a default-named layer translatable.
 
 ## CI/CD
 

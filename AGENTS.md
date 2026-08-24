@@ -86,6 +86,11 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - The CPU reference implementations in `engine/core` (`Composite`, the
   mixing formula, dab falloff) and the GLSL must stay trivially close; when
   one changes, change both, and let the unit tests pin the semantics.
+- `engine/core/ViewTransform` and `FitTransform` are Meltorama's, ported
+  verbatim — except the scale limits: `MIN_SCALE = 0.25f`, `MAX_SCALE = 64f`
+  (Meltorama: 0.5 / 8), because pixel work on a 4096² canvas needs to zoom
+  far past a photo warper's range (docs/plan/07 §7). Keep the math in sync
+  with Meltorama if either side finds a bug; keep the constants ours.
 - **User-visible wording is a string resource, everywhere.** ViewModels
   and the renderer have no Context and no locale, so failures travel as
   `@StringRes Int` and the exception's own English text goes to Logcat.

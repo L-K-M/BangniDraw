@@ -121,9 +121,9 @@ data class ViewTransform(
     )
 
     companion object {
-        /** Relative to the fit: half size out to 32× in (pixel work). */
-        const val MIN_SCALE = 0.5f
-        const val MAX_SCALE = 32f
+        /** Relative to the fit: a quarter out, 64× in — pixel work on a 4096² canvas needs it (docs/plan/07 §7; Meltorama ships 0.5/8). */
+        const val MIN_SCALE = 0.25f
+        const val MAX_SCALE = 64f
 
         private const val TWO_PI = (2.0 * kotlin.math.PI).toFloat()
 

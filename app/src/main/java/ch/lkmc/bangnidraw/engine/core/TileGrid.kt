@@ -5,8 +5,15 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 
 /**
  * A tile address in canvas space, packed into one `Int` so the hot paths
- * never box (`docs/plan/03-canvas-engine.md` §1). Coordinates are 16-bit,
- * which is what bounds the format at 8192 px per side.
+ * never box (`docs/plan/03-canvas-engine.md` §1).
+ *
+ * Coordinates are unsigned 16-bit, so the packing alone would address 65 536
+ * tiles — 16 777 216 px — per side. The format's real ceiling of 8192 px is
+ * [TileGrid.MAX_EDGE], and it comes from `CanvasPresets.MAX_TILES` (1024
+ * tiles per layer, i.e. 32 per side on a square canvas) together with the
+ * readback chunking and sandwich rebuild that are sized for it. Coordinates
+ * outside `0..65 535` **wrap** rather than throw, which is why [TileGrid]
+ * validates its sides at construction.
  */
 @JvmInline
 value class TileKey(val packed: Int) {
@@ -52,14 +59,29 @@ data class IntRect(val left: Int, val top: Int, val right: Int, val bottom: Int)
  */
 class TileGrid(val width: Int, val height: Int) {
     init {
-        require(width > 0 && height > 0) { "canvas is ${width}x$height, both sides must be positive" }
+        // The format's per-side range (`docs/plan/03-canvas-engine.md` §1).
+        // Validated here, at the class that does the packing, so a grid built
+        // from unvalidated numbers — a corrupt `project.json`, a future reopen
+        // path — fails loudly instead of overflowing `tilesX` or wrapping a
+        // `TileKey` into a plausible-looking address for the wrong tile.
+        require(width in MIN_EDGE..MAX_EDGE && height in MIN_EDGE..MAX_EDGE) {
+            "canvas is ${width}x$height, outside the format's $MIN_EDGE..$MAX_EDGE px per side"
+        }
     }
 
     val tilesX: Int = (width + TILE_SIZE - 1) shr TILE_SHIFT
     val tilesY: Int = (height + TILE_SIZE - 1) shr TILE_SHIFT
     val tileCount: Int get() = tilesX * tilesY
 
-    /** The tile containing canvas pixel ([x], [y]); not clipped. */
+    /**
+     * The tile containing canvas pixel ([x], [y]).
+     *
+     * ([x], [y]) must be inside the canvas: out-of-range input is neither
+     * clamped nor rejected, and a negative coordinate wraps through
+     * [TileKey]'s 16-bit mask into a far-away key that [contains] rejects but
+     * [index] would happily turn into an out-of-bounds offset. Clip first, or
+     * use [keysFor], which clips for you.
+     */
     fun keyAt(x: Int, y: Int): TileKey = TileKey(x shr TILE_SHIFT, y shr TILE_SHIFT)
 
     /** Tile origin in canvas px. */
@@ -87,6 +109,16 @@ class TileGrid(val width: Int, val height: Int) {
                 out += TileKey(tx, ty)
             }
         }
+    }
+
+    companion object {
+        /**
+         * The format's per-side limits (`docs/plan/03-canvas-engine.md` §1).
+         * The v1 UI ceiling is lower still — `PerfConstants.MAX_CANVAS_EDGE_V1`,
+         * narrowed again per device by `MemoryBudget`.
+         */
+        const val MIN_EDGE = 256
+        const val MAX_EDGE = 8192
     }
 
     /** [keysFor] as a fresh list — the convenient form for tests and cold paths. */

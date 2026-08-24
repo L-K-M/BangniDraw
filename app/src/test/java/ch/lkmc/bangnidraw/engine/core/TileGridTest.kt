@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.engine.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /** `docs/plan/11-testing.md` §3.6. */
@@ -100,6 +101,41 @@ class TileGridTest {
         assertEquals(6, grid.index(TileKey(2, 1)), "row 1 of a 4-wide grid starts at 4")
         assertTrue(grid.contains(TileKey(3, 2)))
         assertTrue(!grid.contains(TileKey(4, 2)), "the canvas is only 4 tiles wide")
+    }
+
+    @Test
+    fun `a canvas outside the format's per-side range is refused at construction`() {
+        // Not defence in depth for its own sake: TileKey packs 16-bit tile
+        // coordinates, so a side past 16 777 216 px wraps into a plausible key
+        // for the wrong tile, and (width + 255) overflows to a negative tilesX
+        // near Int.MAX_VALUE. Both are silent pixel corruption; this is the
+        // one place that can turn them into a thrown exception.
+        for (bad in listOf(0, -1, TileGrid.MIN_EDGE - 1, TileGrid.MAX_EDGE + 1, Int.MAX_VALUE)) {
+            assertFailsWith<IllegalArgumentException>("a ${bad}px side must be refused") {
+                TileGrid(bad, 1024)
+            }
+            assertFailsWith<IllegalArgumentException>("a ${bad}px side must be refused") {
+                TileGrid(1024, bad)
+            }
+        }
+        TileGrid(TileGrid.MIN_EDGE, TileGrid.MIN_EDGE)
+        TileGrid(TileGrid.MAX_EDGE, TileGrid.MAX_EDGE).let {
+            assertEquals(32, it.tilesX, "the largest canvas the format allows is 32 tiles per side")
+            assertEquals(1024, it.tileCount, "which is exactly CanvasPresets.MAX_TILES")
+        }
+    }
+
+    @Test
+    fun `keyAt wraps rather than clamps outside the canvas, which is why callers must clip`() {
+        // Pinned so the KDoc's precondition is a tested claim, not a hope: a
+        // stale pointer sample that left the canvas produces a well-formed
+        // key nowhere near the input, which `contains` rejects and `index`
+        // would not.
+        val outside = grid.keyAt(-1, -1)
+        assertEquals(65535, outside.tx, "a negative coordinate wraps through the 16-bit mask")
+        assertEquals(65535, outside.ty)
+        assertTrue(!grid.contains(outside), "contains is what catches it")
+        assertTrue(grid.keysFor(IntRect(-1, -1, 0, 0)).isEmpty(), "keysFor clips, so it never sees this")
     }
 
     @Test

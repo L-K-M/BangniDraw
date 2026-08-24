@@ -40,8 +40,12 @@ data class Document(
     companion object {
         const val DEFAULT_DPI = 300
 
-        /** Format limits (`docs/plan/03-canvas-engine.md` §1); the v1 UI ceiling is lower. */
-        const val MIN_EDGE = 256
-        const val MAX_EDGE = 8192
+        /**
+         * The format's per-side limits, owned by [TileGrid] because that is
+         * the class whose packing they follow from. Aliased here so document
+         * code reads naturally; the v1 UI ceiling is lower again.
+         */
+        const val MIN_EDGE = TileGrid.MIN_EDGE
+        const val MAX_EDGE = TileGrid.MAX_EDGE
     }
 }

@@ -6,8 +6,8 @@ FF0000FF FFFF0000 0.5  FF000080  # the same at half layer opacity
 80800000 80008000 1.0  C0404000  # half-covered red under half-covered green
 00000000 FFFF8040 1.0  FFFF8040  # over a transparent destination
 FF808080 00000000 1.0  FF808080  # a fully transparent source
-FF404040 FFC0C0C0 1.0  FF404040  # light over dark: the overlay cd <= 0.5 branch
-FFC0C0C0 FF404040 1.0  FF404040  # dark over light: the overlay cd > 0.5 branch
+FF404040 FFC0C0C0 1.0  FF404040  # the minimum keeps the darker dst
+FFC0C0C0 FF404040 1.0  FF404040  # the minimum keeps the darker src
 FFFFFFFF FF000000 1.0  FF000000  # black over white
 FF000000 FFFFFFFF 1.0  FF000000  # white over black
 40200010 C0603010 1.0  D0682414  # two partly covered pixels

@@ -14,7 +14,12 @@ value class LayerId(val value: String)
  * Everything about a layer except its pixels — the part that goes into
  * `project.json` and into pixel-free history entries.
  *
- * [opacity] is clamped to 0..1 on construction so no caller can store drift.
+ * [opacity] is *validated* to 0..1 on construction — construction refuses a
+ * value outside it (NaN and both infinities included) rather than quietly
+ * repairing it, so drift can never be stored. [withOpacity] is the clamping
+ * setter the UI uses, and `LayerRecord.toProps` clamps at the deserialization
+ * boundary, where a corrupt file must degrade rather than throw
+ * (`docs/plan/06-document-and-persistence.md` §4).
  */
 data class LayerProps(
     val id: LayerId,
@@ -26,7 +31,10 @@ data class LayerProps(
     val locked: Boolean = false,
 ) {
     init {
-        require(!opacity.isNaN()) { "opacity of ${id.value} is NaN" }
+        // `in 0f..1f` is false for NaN and for both infinities, so this one
+        // check covers every value that would otherwise reach a GL uniform or
+        // serialize as an invalid JSON float.
+        require(opacity in 0f..1f) { "opacity of ${id.value} must be in 0f..1f, was $opacity" }
     }
 
     /** A copy with [opacity] clamped into range — the only way the UI should set it. */

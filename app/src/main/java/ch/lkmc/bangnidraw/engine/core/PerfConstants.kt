@@ -10,8 +10,12 @@ package ch.lkmc.bangnidraw.engine.core
  * rather than as a silently different app.
  */
 object PerfConstants {
-    const val TILE_SIZE = 256
+    // Every tile computation in TileGrid depends on TILE_SIZE == 1 shl
+    // TILE_SHIFT, so the shift is the one authored number and the size is
+    // derived: editing one without the other would compile cleanly and shift
+    // every tile address, index and dirty rect.
     const val TILE_SHIFT = 8
+    const val TILE_SIZE = 1 shl TILE_SHIFT // 256
     const val TILE_BYTES = TILE_SIZE * TILE_SIZE * 4 // 262 144
 
     // Touch path (all preallocated once per CanvasTouchHandler).

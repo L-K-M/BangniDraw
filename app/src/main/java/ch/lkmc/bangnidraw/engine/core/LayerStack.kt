@@ -12,10 +12,17 @@ fun interface IdSource {
  */
 sealed interface PixelOp {
     data class Copy(val src: LayerId, val dst: LayerId, val keys: Set<TileKey>) : PixelOp
+    /**
+     * [keys] are every tile the merge rewrites. [bottomProps] is the lower
+     * layer's state *before* the merge reset it: the model already holds the
+     * reset props by the time the GL thread runs this, so the op has to carry
+     * what the pixels must be composited with.
+     */
     data class Merge(
         val top: LayerId,
         val topProps: LayerProps,
         val bottom: LayerId,
+        val bottomProps: LayerProps,
         val keys: Set<TileKey>,
     ) : PixelOp
 
@@ -44,8 +51,13 @@ sealed interface StackResult {
  * (`docs/plan/05-layers.md` §3). Nothing here mutates; nothing here knows
  * about the GPU, the disk or the screen.
  *
- * [nextName] only ever grows — including across undo — so a default name is
- * never reused within a document.
+ * [nextName] only ever grows along a chain of operations, so a default name is
+ * never reused while a document stays open. Keeping that true across undo and
+ * across a reopen is *not* something this type can do on its own: no
+ * `HistoryEntry` carries the counter and `ProjectFile`
+ * (`docs/plan/06-document-and-persistence.md` §3) has no field for it, so the
+ * journal must preserve it when it lands in roadmap step 3 — see AGENTS.md,
+ * "Deviations discovered while building".
  */
 data class LayerStack(
     val layers: List<Layer>,
@@ -193,6 +205,21 @@ data class LayerStack(
             visible = true,
             locked = false,
         )
+        // Which of the bottom layer's tiles the merge has to rewrite.
+        //
+        // The result is Normal at 100 %, so any tile whose appearance depended
+        // on the bottom layer's opacity must be re-composited — including the
+        // tiles the top layer never covers, which would otherwise jump from
+        // 50 % to fully opaque. That is what makes 05-layers.md §4.1's promise
+        // ("a normal bottom at *any* opacity merges exactly") true.
+        //
+        // Blend mode does not force the rewrite: a bottom-only tile is
+        // composited over transparent, and over transparent every mode reduces
+        // to source-over (pinned by CompositeTest). So opacity alone decides,
+        // and the common bottom-at-100 % merge still rewrites only the shared
+        // tiles, exactly as 05 §4.1 and 06 §5.2 describe.
+        val bakesWholeBottom = bottom.props.opacity != 1f
+        val rewritten = if (bakesWholeBottom) bottom.tiles + top.tiles else top.tiles
         val merged = Layer(mergedProps, bottom.tiles + top.tiles)
         val next = copy(
             layers = layers.toMutableList().apply {
@@ -201,9 +228,10 @@ data class LayerStack(
             },
             activeIndex = index - 1,
         )
+        val lowerTiles = if (bakesWholeBottom) bottom.tiles else bottom.tiles.intersect(top.tiles)
         return ok(
             next,
-            PixelOp.Merge(top.id, top.props, bottom.id, top.tiles),
+            PixelOp.Merge(top.id, top.props, bottom.id, bottom.props, rewritten),
             HistoryEntry.LayerMerge(
                 activeBefore = active.id.value,
                 activeAfter = merged.id.value,
@@ -211,7 +239,7 @@ data class LayerStack(
                 upperIndex = index,
                 upperTiles = top.tiles.sortedBy { it.packed },
                 lower = bottom.props.toRecord(),
-                lowerTiles = bottom.tiles.intersect(top.tiles).sortedBy { it.packed },
+                lowerTiles = lowerTiles.sortedBy { it.packed },
             ),
         )
     }

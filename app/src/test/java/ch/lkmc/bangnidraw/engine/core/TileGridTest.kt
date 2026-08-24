@@ -139,6 +139,17 @@ class TileGridTest {
     }
 
     @Test
+    fun `the tile size and shift are one number, not two that can drift`() {
+        assertEquals(
+            PerfConstants.TILE_SIZE,
+            1 shl PerfConstants.TILE_SHIFT,
+            "every address in this class assumes TILE_SIZE == 1 shl TILE_SHIFT",
+        )
+        assertEquals(256, PerfConstants.TILE_SIZE, "and the plan's tile is 256 px")
+        assertEquals(262144, PerfConstants.TILE_BYTES)
+    }
+
+    @Test
     fun `an edge tile's canvas rect is clipped to the canvas`() {
         val g = TileGrid(300, 300)
         assertEquals(IntRect(256, 256, 300, 300), g.tileRect(TileKey(1, 1)))

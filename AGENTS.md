@@ -142,6 +142,36 @@ and the contradiction is noted here.
   `Accum`/`Scratch` targets of `03-canvas-engine.md` §3.2 are real textures
   and will need it.
 
+- **Merge down bakes the lower layer's opacity into *every* one of its tiles.**
+  `docs/plan/05-layers.md` §4.1 contradicts itself: its mechanism says
+  "bottom's tiles at keys the top does not have are untouched", while its
+  appearance rule says "bottom's opacity is baked into the merged pixels" and
+  "a normal bottom at *any* opacity merges exactly". Both cannot hold — the
+  merged layer is reset to Normal at 100 %, so an untouched tile of a 50 %
+  bottom layer jumps to fully opaque. The guarantee wins (it is also the
+  stronger promise to the user, and PLAN.md decision 10 only requires the
+  weaker one), so `mergeDown` widens `PixelOp.Merge.keys` and
+  `HistoryEntry.LayerMerge.lowerTiles` to all of the bottom layer's tiles
+  **when its opacity is not 1**. Blend mode alone never widens them: a
+  bottom-only tile is composited over transparent, where every mode reduces to
+  source-over. So the ordinary bottom-at-100 % merge still rewrites only the
+  shared tiles, exactly as 05 §4.1 and `06-document-and-persistence.md` §5.2
+  describe, and 06 §5.2's "lower's tiles at upper's keys only" is a superset
+  violation only in the faded case, where undo would otherwise be unable to
+  restore what the merge overwrote. `PixelOp.Merge` also carries
+  `bottomProps`, because the model already holds the reset props by the time
+  the GL thread runs the op.
+- **`LayerStack.nextName` cannot survive undo or reopen on its own.** The
+  counter that names "Layer N" only grows along a chain of operations, but no
+  `HistoryEntry` variant carries it and `ProjectFile`
+  (`06-document-and-persistence.md` §3) has no field for it — so an
+  add → undo → add sequence, or simply closing and reopening a painting,
+  reissues a default name that 05 §1 says is never reused. Nothing in v1 keys
+  off a generated name yet, so this is recorded rather than fixed here.
+  **Roadmap step 3 owns it**: either hoist the counter into `Document` and add
+  it to `project.json`, or carry it on the entries. Whichever is chosen, the
+  test is `add → undo → add` yields a fresh name.
+
 ## Conventions the plan leaves open
 
 - **What "`engine/core` is pure JVM" actually forbids.**

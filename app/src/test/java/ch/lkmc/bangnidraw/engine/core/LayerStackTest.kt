@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.engine.core
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -199,7 +200,80 @@ class LayerStackTest {
         assertEquals(BlendMode.SCREEN.name, entry.lower.blend, "undo needs the lower layer's mode from before")
         assertEquals(0.5f, entry.lower.opacity)
         assertEquals(upperTiles, entry.upperTiles.toSet())
-        assertEquals(setOf(TileKey(1, 1)), entry.lowerTiles.toSet(), "only the keys the upper layer overwrote")
+        assertEquals(
+            lowerTiles,
+            entry.lowerTiles.toSet(),
+            "the bottom layer is at 50 %, so every one of its tiles is rewritten and must be undoable",
+        )
+    }
+
+    @Test
+    fun `merge down rewrites every bottom tile whose look depended on the bottom's opacity`() {
+        // The merged layer is Normal at 100 %, so a bottom layer at 50 % has
+        // to have that opacity baked into ALL of its tiles — including the
+        // ones the top never covers, which would otherwise jump from half to
+        // fully opaque. This is what makes 05-layers.md §4.1's "a normal
+        // bottom at *any* opacity merges exactly" true.
+        val bottomOnly = TileKey(0, 0)
+        val shared = TileKey(1, 1)
+        fun stack(bottomOpacity: Float) = LayerStack(
+            listOf(
+                Layer(LayerProps(LayerId("lo"), "lo", opacity = bottomOpacity), setOf(bottomOnly, shared)),
+                Layer(LayerProps(LayerId("hi"), "hi"), setOf(shared)),
+            ),
+            activeIndex = 1,
+            nextName = 3,
+        )
+        val faded = assertIs<PixelOp.Merge>(ok(stack(0.5f).mergeDown(1)).pixels)
+        assertEquals(
+            setOf(bottomOnly, shared),
+            faded.keys,
+            "a bottom-only tile at 50 % must be re-composited, not left as it was",
+        )
+        assertEquals(0.5f, faded.bottomProps.opacity, "the op carries the pre-merge props the pixels need")
+
+        val opaque = assertIs<PixelOp.Merge>(ok(stack(1f).mergeDown(1)).pixels)
+        assertEquals(
+            setOf(shared),
+            opaque.keys,
+            "a bottom already at 100 % needs only the shared tiles rewritten, as 06 §5.2 assumes",
+        )
+    }
+
+    @Test
+    fun `a bottom layer's blend mode alone never forces a rewrite of its untouched tiles`() {
+        // Over transparent every blend mode reduces to source-over (pinned by
+        // CompositeTest), and a bottom-only tile is composited over
+        // transparent — so a non-NORMAL bottom at 100 % leaves those tiles
+        // pixel-identical and the merge need not touch them.
+        val bottomOnly = TileKey(0, 0)
+        val shared = TileKey(1, 1)
+        for (mode in BlendMode.entries) {
+            val stack = LayerStack(
+                listOf(
+                    Layer(LayerProps(LayerId("lo"), "lo", blendMode = mode), setOf(bottomOnly, shared)),
+                    Layer(LayerProps(LayerId("hi"), "hi"), setOf(shared)),
+                ),
+                activeIndex = 1,
+                nextName = 3,
+            )
+            val pixels = assertIs<PixelOp.Merge>(ok(stack.mergeDown(1)).pixels)
+            assertEquals(setOf(shared), pixels.keys, "$mode at 100 % should not widen the rewrite")
+        }
+    }
+
+    @Test
+    fun `an opacity outside 0 to 1 is refused at construction, never quietly repaired`() {
+        for (bad in listOf(-1f, 2f, Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY)) {
+            assertFailsWith<IllegalArgumentException>("opacity $bad must be refused") {
+                LayerProps(LayerId("a"), "a", opacity = bad)
+            }
+        }
+        // The setter clamps and the deserialization boundary clamps; only
+        // direct construction refuses, because a corrupt file must degrade.
+        assertEquals(1f, LayerProps(LayerId("a"), "a").withOpacity(4f).opacity)
+        assertEquals(0f, LayerProps(LayerId("a"), "a").withOpacity(-4f).opacity)
+        assertEquals(1f, LayerRecord(id = "a", name = "a", opacity = 9f).toProps().opacity)
     }
 
     @Test

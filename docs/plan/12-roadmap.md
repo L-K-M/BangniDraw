@@ -174,6 +174,13 @@ duplicate and share are stubs until step 4), storage readout;
 "history capped at N steps / M MB" readout. Thumbnail writer (`thumb.png`
 from the readback composite on checkpoint).
 
+**Carried in from PR 2.1's review** (both recorded in AGENTS.md, the first
+also as REVIEW.md R-001) — this step must not land without them:
+`ProjectStore.load` must refuse to turn a malformed layer id into a path (drop
+the layer into §4's unreadable tally, never throw the open away), and the
+`LayerStack.nextName` counter must survive undo and reopen, which needs either
+a `project.json` field or a slot on the journal entries.
+
 **Depends on.** Step 2 (tiles and readback are what gets saved).
 
 **Acceptance.** Manual: paint, kill the process mid-stroke sequence with

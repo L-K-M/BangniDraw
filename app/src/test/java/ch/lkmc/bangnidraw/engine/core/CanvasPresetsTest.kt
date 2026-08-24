@@ -130,6 +130,23 @@ class CanvasPresetsTest {
     }
 
     @Test
+    fun `a custom size is bounded before the tile arithmetic that could overflow`() {
+        // CanvasSize.tilesX computes (width + 255) / 256, which overflows to a
+        // NEGATIVE tile count near Int.MAX_VALUE — so a MAX_TILES guard alone
+        // would wave the very largest sizes through. This is the one entry
+        // point fed by numbers a user typed.
+        val result = budget(8.0)
+        for (huge in listOf(Int.MAX_VALUE, Int.MAX_VALUE - 100, TileGrid.MAX_EDGE + 1)) {
+            val refused = CanvasPresets.custom(CanvasSize(huge, 1024), result)
+            assertIs<CustomSizeResult.Refused>(refused, "a ${huge}px side must be refused")
+            assertEquals(SizeRefusal.TOO_MANY_TILES, refused.reason)
+            val flipped = CanvasPresets.custom(CanvasSize(1024, huge), result)
+            assertIs<CustomSizeResult.Refused>(flipped, "a ${huge}px side must be refused")
+            assertEquals(SizeRefusal.TOO_MANY_TILES, flipped.reason)
+        }
+    }
+
+    @Test
     fun `an accepted custom size carries the budget's layer count`() {
         val result = budget(8.0)
         val ok = CanvasPresets.custom(CanvasSize(3072, 2048), result)

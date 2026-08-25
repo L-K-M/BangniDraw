@@ -186,7 +186,17 @@ class MemoryBudgetTest {
                 // array-count rounding this test guards has four times as
                 // many chances to lose a slice.
                 for (glLayers in listOf(256, 128, 64)) {
-                    for (canvas in listOf(canvas2048, canvas4096, CanvasSize(1080, 1920), CanvasSize(2304, 2304))) {
+                    // 8192 square is the format's largest and the tightest
+                    // slice case there is: 1024 slices for one layer, against a
+                    // low-RAM pool of exactly 1024. Zero slack, so any
+                    // array-count rounding bug fails here first.
+                    for (canvas in listOf(
+                        canvas2048,
+                        canvas4096,
+                        CanvasSize(1080, 1920),
+                        CanvasSize(2304, 2304),
+                        CanvasSize(8192, 8192),
+                    )) {
                         val r = MemoryBudget.compute(device(totalGib, lowRam, glLayers), canvas)
                         val slices = r.poolArraySlices.toLong() * r.poolArrayCount
                         assertTrue(

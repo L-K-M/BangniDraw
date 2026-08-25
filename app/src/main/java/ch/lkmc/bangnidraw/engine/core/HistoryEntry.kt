@@ -37,6 +37,17 @@ sealed interface HistoryEntry {
      * shot: re-stamping would rewrite a `seq` the journal already issued, so
      * every override refuses it. An entry reloaded from disk is *constructed*
      * stamped, never stamped again.
+     *
+     * Also refuses `seq <= `[UNSTAMPED]. Without that, `stamp(seq = 0)` would
+     * produce an entry that still reports [isStamped] `false` — so the
+     * single-shot guard would pass a second time and the journal could reissue
+     * the number. It makes [isStamped] sound here rather than resting on the
+     * journal's `nextSeq = 1L` holding somewhere else.
+     *
+     * Not airtight, and cannot be: these are `data class`es, so the generated
+     * `copy` sets all three fields with no guard at all. The journal must
+     * re-validate on ingest (seq strictly increasing, never below 1); this
+     * catches the honest mistake, not a determined one.
      */
     fun stamp(seq: Long, timestamp: Long, bytes: Long): HistoryEntry
 
@@ -59,6 +70,7 @@ sealed interface HistoryEntry {
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): Stroke {
             check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -75,6 +87,7 @@ sealed interface HistoryEntry {
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): Fill {
             check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -91,6 +104,7 @@ sealed interface HistoryEntry {
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerAdd {
             check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -108,6 +122,7 @@ sealed interface HistoryEntry {
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerDelete {
             check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -125,6 +140,7 @@ sealed interface HistoryEntry {
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerReorder {
             check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -142,6 +158,7 @@ sealed interface HistoryEntry {
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerProps {
             check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -175,6 +192,7 @@ sealed interface HistoryEntry {
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerMerge {
             check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -192,6 +210,7 @@ sealed interface HistoryEntry {
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerDuplicate {
             check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -208,6 +227,7 @@ sealed interface HistoryEntry {
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerClear {
             check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -225,6 +245,7 @@ sealed interface HistoryEntry {
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): Flatten {
             check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -241,6 +262,7 @@ sealed interface HistoryEntry {
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): PaperColor {
             check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }

@@ -19,6 +19,21 @@ enum class BlendMode(val shaderId: Int) {
     ;
 
     companion object {
+        /**
+         * Every mode's [shaderId], and a guarantee no two share one. The
+         * explicit ids exist so an enum reorder cannot silently swap two
+         * modes; a duplicated id would defeat that just as quietly, and
+         * `GlShaderContractTest` cannot catch it — it checks that each
+         * declared id appears in the shader, which a duplicate still does.
+         * This fires the first time the class is touched instead.
+         */
+        private val byShaderId: Map<Int, BlendMode> =
+            entries.associateBy(BlendMode::shaderId).also {
+                check(it.size == entries.size) {
+                    "two BlendModes share a shaderId: ${entries.map { m -> "${m.name}=${m.shaderId}" }}"
+                }
+            }
+
         /** Decodes a persisted `BlendMode.name`; anything unknown is [NORMAL] (`docs/plan/06-document-and-persistence.md` §3). */
         fun fromNameOrNormal(name: String): BlendMode = entries.firstOrNull { it.name == name } ?: NORMAL
 
@@ -29,7 +44,6 @@ enum class BlendMode(val shaderId: Int) {
          * unknown one is a programming error, not a corrupt file.
          */
         fun fromShaderId(id: Int): BlendMode =
-            entries.firstOrNull { it.shaderId == id }
-                ?: throw IllegalArgumentException("no BlendMode with shaderId $id")
+            byShaderId[id] ?: throw IllegalArgumentException("no BlendMode with shaderId $id")
     }
 }

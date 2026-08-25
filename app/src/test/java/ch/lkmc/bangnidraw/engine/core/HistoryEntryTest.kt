@@ -18,6 +18,14 @@ class HistoryEntryTest {
     private val record = LayerRecord(id = "a", name = "Layer 1")
     private val tiles = listOf(TileKey(0, 0), TileKey(1, 2))
 
+    // Distinct on purpose. The payload check below rewinds the stamp and
+    // compares for equality, which only catches a field swap if the two fields
+    // differ: with before == after, a stamp() that swapped them would pass.
+    private val recordBefore = LayerRecord(id = "a", name = "before")
+    private val recordAfter = LayerRecord(id = "a", name = "after", opacity = 0.25f)
+    private val upperRecord = LayerRecord(id = "b", name = "upper")
+    private val otherTiles = listOf(TileKey(5, 6))
+
     /**
      * One of every kind. Listed by hand rather than reflected over the sealed
      * interface, so adding a kind without adding it here is a visible omission
@@ -29,13 +37,19 @@ class HistoryEntryTest {
         HistoryEntry.LayerAdd(activeBefore = a, activeAfter = b, layer = record, index = 1),
         HistoryEntry.LayerDelete(activeBefore = b, activeAfter = a, layer = record, index = 1, tiles = tiles),
         HistoryEntry.LayerReorder(activeBefore = a, activeAfter = a, layerId = a, fromIndex = 0, toIndex = 2),
-        HistoryEntry.LayerProps(activeBefore = a, activeAfter = a, layerId = a, before = record, after = record),
+        HistoryEntry.LayerProps(
+            activeBefore = a,
+            activeAfter = a,
+            layerId = a,
+            before = recordBefore,
+            after = recordAfter,
+        ),
         HistoryEntry.LayerMerge(
             activeBefore = b,
             activeAfter = a,
-            upper = record,
+            upper = upperRecord,
             upperIndex = 1,
-            upperTiles = tiles,
+            upperTiles = otherTiles,
             lower = record,
             lowerTiles = tiles,
         ),
@@ -44,15 +58,20 @@ class HistoryEntryTest {
         HistoryEntry.Flatten(
             activeBefore = b,
             activeAfter = a,
-            layers = listOf(record),
-            tilesPerLayer = mapOf(a to tiles),
+            layers = listOf(record, upperRecord),
+            tilesPerLayer = mapOf(a to tiles, b to otherTiles),
             result = record,
         ),
         HistoryEntry.PaperColor(activeBefore = a, activeAfter = a, before = 0xFFFFFFFF.toInt(), after = 0),
     )
 
     @Test
-    fun `every kind is listed exactly once`() {
+    fun `no kind is listed twice`() {
+        // Named for what it checks. It cannot detect a *missing* kind — the
+        // `when` in stampedBackToUnstamped is the compiler-enforced half of
+        // that, and adding a kind there without adding it here leaves the new
+        // kind untested. Reflection would close it, but `sealedSubclasses`
+        // needs kotlin-reflect, which this module does not take.
         assertEquals(
             everyKind.size,
             everyKind.map { it::class }.distinct().size,
@@ -112,6 +131,16 @@ class HistoryEntryTest {
         // sentinel must be a value it never issues.
         assertEquals(0L, HistoryEntry.UNSTAMPED)
         assertTrue(everyKind.first().stamp(seq = 1, timestamp = 1, bytes = 0).isStamped)
+        // Stamping with the sentinel itself would produce an entry that still
+        // reports isStamped false — so the single-shot check would pass a
+        // second time and the journal could reissue the number.
+        for (entry in everyKind) {
+            assertFailsWith<IllegalArgumentException>(
+                "${entry::class.simpleName} accepted the UNSTAMPED sentinel as a seq",
+            ) {
+                entry.stamp(seq = HistoryEntry.UNSTAMPED, timestamp = 1, bytes = 1)
+            }
+        }
     }
 
     /** Puts [HistoryEntry.UNSTAMPED] back in the three journal fields. */

@@ -309,9 +309,12 @@ class LayerStackTest {
         // coerceIn is not enough on its own: both of its comparisons are false
         // for NaN, so it returns NaN unchanged and construction would then
         // refuse it — one corrupt field failing a whole document open, which
-        // 06-document-and-persistence.md §4 forbids. kotlinx.serialization does
-        // parse a bare NaN token into a Float, so this is reachable from a
-        // hand-edited project.json.
+        // 06-document-and-persistence.md §4 forbids. Reachable from a hand-edited
+        // project.json only if the loader opts in: kotlinx.serialization's
+        // default Json sets allowSpecialFloatingPointValues = false and throws
+        // on a bare NaN token, which would fail the whole open before
+        // toPropsOrNull ever saw it. Step 3 must enable that flag, or move the
+        // degradation boundary to the decoder.
         assertEquals(
             1f,
             LayerRecord(id = "a", name = "a", opacity = Float.NaN).toProps().opacity,

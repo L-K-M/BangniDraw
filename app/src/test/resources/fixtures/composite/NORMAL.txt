@@ -12,6 +12,12 @@
 # is the one that discriminates that from half-even: 126.5 stores as 127,
 # where half-even would give 126.
 #
+# When s.a = 0 -- the fully-transparent-source row and the zero-opacity row --
+# both() is 0 by definition, not 0/0: the unpremultiplied source is undefined
+# there and must not be computed. Those rows are the destination unchanged.
+# That is exactly the hazard they pin: an implementation that divides without
+# guarding s.a = 0 propagates NaN instead of passing the destination through.
+#
 # In both(), the mode B is applied to the UNPREMULTIPLIED channels and
 # weighted by the joint coverage. Section 4's table writes that out already
 # simplified into premultiplied terms (e.g. DARKEN's min(s.rgb*d.a,

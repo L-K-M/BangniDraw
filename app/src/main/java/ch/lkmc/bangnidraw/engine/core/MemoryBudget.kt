@@ -157,6 +157,12 @@ object MemoryBudget {
         // function's job to reject one — `CanvasPresets.custom` does that, and
         // `CanvasSize` exists precisely to describe a size in order to refuse
         // it — but it must not throw on the way past.
+        // Every other invalid input in this package fails loudly; this one used
+        // to clamp up to MIN_LAYERS and report "1 layer fits" for a pool that
+        // holds none — the over-commit this function exists to prevent, arriving
+        // silently. compute() cannot produce a non-positive capacity, but this
+        // is public and its KDoc already warns it is easy to feed the wrong field.
+        require(poolCapacityBytes > 0) { "poolCapacityBytes must be positive, was $poolCapacityBytes" }
         if (canvas.tilesPerLayer <= 0L) return MIN_LAYERS
         // coerceAtMost before toInt(): a Long quotient past Int.MAX_VALUE
         // narrows by truncation, and Long.MAX_VALUE / a small canvas lands on

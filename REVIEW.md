@@ -95,6 +95,35 @@ _Nothing open._
 
 ## Declined, with reasons
 
+- **R-010 ⏸️ (second raising) Round 11's BLOCKER: "`assertIs` does not
+  smart-cast, so `ok()`/`refusal()` do not compile".** Refuted in round 7 and
+  again now, on the same evidence: `kotlin.test.assertIs` carries the contract
+  `returns() implies (value is T)`, which is precisely a smart-cast, and the
+  helpers have compiled on every one of the eleven heads this PR has had. The
+  finding's own stated impact — "this file does not compile, so all 653 lines of
+  layer tests are dead and CI is red for the whole module" — is checkable and
+  false: `android` is green on `df303d0`, and `testDebugUnitTest lintDebug
+  assembleDebug` passes locally at 108 tests. Rewriting the helpers to consume
+  the return value would be harmless, but applying a change to satisfy a claim
+  that is demonstrably untrue is how a false finding becomes precedent.
+
+- **R-015 ⏸️ (fourth raising) Vary `largeMemoryClassMb` in the device helper.**
+  Declined again, and this time the finding declines itself: it says to apply it
+  "only after confirming `MemoryBudget.compute` actually consumes
+  `largeMemoryClassMb`; if it doesn't, the current hard-coding is fine as-is and
+  this can be closed." It does not consume it. Closed on the reviewer's own
+  terms. See R-002.
+
+- **R-014 ⏸️ (second raising) `LayerId` should reject Windows reserved device
+  names.** The *character set* half of round 11's finding was applied — `*?<>|"`
+  now join `:` and `\`, which were already there for exactly the
+  copied-between-machines reason, along with a 255-byte NAME_MAX bound and
+  `isISOControl()`. The reserved device names (`CON`, `NUL`, `LPT1`, …) stay
+  declined: they are a Windows *shell* hazard, not a path hazard, they need a
+  case-insensitive stem-and-extension parse to detect properly, and no code in
+  this project ever hands a layer id to a Windows filesystem. The finding itself
+  scopes them out as beyond "the cheap 90%".
+
 - **R-016 ⏸️ Add `TileGrid.keysForPacked(r, out: IntArray, offset)`.** (PR #7,
   GLM round 10.) The premise is right — `keysFor` appends boxed `TileKey`s to a
   `MutableList`, and a value class boxes as a generic argument, so it is not an

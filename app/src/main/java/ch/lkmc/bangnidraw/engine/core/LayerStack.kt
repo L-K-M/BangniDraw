@@ -1,6 +1,13 @@
 package ch.lkmc.bangnidraw.engine.core
 
-/** Source of fresh layer ids. Injected so tests get reproducible sequences. */
+/**
+ * Source of fresh layer ids. Injected so tests get reproducible sequences.
+ *
+ * Must never return an id the stack already holds. `LayerStack`'s constructor
+ * fails fast on duplicates, so a fake that wraps or resets its counter throws
+ * `IllegalArgumentException` from inside `add`/`duplicate`/`flatten` — the one
+ * place these otherwise value-returning operations can throw.
+ */
 fun interface IdSource {
     fun newId(): LayerId
 }
@@ -156,8 +163,9 @@ data class LayerStack(
 
     /**
      * Removes [index]. The layer *below* becomes active when the active layer
-     * itself was deleted; otherwise the previously active layer stays active
-     * even though its index shifts.
+     * itself was deleted — or the one *above*, when the deleted layer was the
+     * bottom-most and there is no below; otherwise the previously active layer
+     * stays active even though its index shifts.
      */
     fun delete(index: Int): StackResult {
         val victim = layers.getOrNull(index) ?: return StackResult.Refused(Refusal.NOOP)
@@ -206,9 +214,11 @@ data class LayerStack(
 
     /**
      * Merges [index] into the layer below it. The result keeps the lower
-     * layer's id and name and is reset to Normal at 100 % — the appearance
-     * rules and the confirmation the panel owes the user are
-     * `docs/plan/05-layers.md` §4.1.
+     * layer's id and name and is reset to Normal at 100 % **with alpha lock
+     * cleared** — the appearance rules and the confirmation the panel owes the
+     * user are `docs/plan/05-layers.md` §4.1. (`visible` and `locked` are reset
+     * in the same `copy`, but both are already guaranteed by the refusals
+     * above; alpha lock is the one prop a merge silently changes.)
      */
     fun mergeDown(index: Int): StackResult {
         val top = layers.getOrNull(index) ?: return StackResult.Refused(Refusal.NOOP)

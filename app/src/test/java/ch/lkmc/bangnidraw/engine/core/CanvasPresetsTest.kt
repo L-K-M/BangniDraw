@@ -189,7 +189,11 @@ class CanvasPresetsTest {
         assertIs<CustomSizeResult.Ok>(ok)
         assertEquals(CanvasPresetId.CUSTOM, ok.preset.id)
         assertEquals(
-            MemoryBudget.maxLayersFor(result.gpuTileBudgetBytes, CanvasSize(3072, 2048)),
+            // poolCapacityBytes, like the preset test above and like custom()
+            // itself. Asking a different field here would let a custom 2048
+            // square and the SQUARE_2048 preset advertise different layer
+            // counts for the same size, and cement it as expected.
+            MemoryBudget.maxLayersFor(result.poolCapacityBytes, CanvasSize(3072, 2048)),
             ok.preset.maxLayers,
         )
     }

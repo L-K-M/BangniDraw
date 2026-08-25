@@ -109,12 +109,18 @@ object CanvasPresets {
      * filtered the list first. Falls back to 0 only when nothing is enabled,
      * which no real device produces (the smallest preset fits every budget).
      */
-    fun defaultIndex(presets: List<CanvasPreset>): Int =
-        presets.withIndex()
+    fun defaultIndex(presets: List<CanvasPreset>): Int {
+        // The `?: 0` below is only an index if there is a row 0. An empty list
+        // is a caller bug, not a device with nothing enabled, and returning 0
+        // for it hands back an index that throws at `presets[it]` far from
+        // whoever built the empty list.
+        require(presets.isNotEmpty()) { "defaultIndex needs at least one preset" }
+        return presets.withIndex()
             .filter { it.value.enabled }
             .maxByOrNull { it.value.size.tilesPerLayer }
             ?.index
             ?: 0
+    }
 
     /** A user-typed size, validated against the format and this device's budget. */
     fun custom(size: CanvasSize, result: MemoryBudget.Result): CustomSizeResult {

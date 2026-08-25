@@ -20,10 +20,37 @@ value class LayerId(val value: String) {
         // future fixtures need not be UUIDs to satisfy it.
         require(
             value.isNotEmpty() && value != "." && value != ".." &&
-                value.none { it == '/' || it == '\\' || it == ':' || it == '\u0000' }
+                // NAME_MAX is 255 *bytes* on the filesystems Android puts app
+                // storage on. An over-long id is not a traversal problem but a
+                // worse one: it passes here, and `layers/<id>/` then fails with
+                // ENAMETOOLONG at open time, turning the logged skip that
+                // `06-document-and-persistence.md` §4 promises into a failed
+                // document open. Bytes, not chars — a 200-character CJK id is over.
+                value.toByteArray(Charsets.UTF_8).size <= MAX_BYTES &&
+                value.none {
+                    // isISOControl subsumes the old NUL check and also takes
+                    // \n, \r and \t, which are legal in a Linux filename and
+                    // ruin every log line and archive that later names this
+                    // directory.
+                    it.isISOControl() || it in FORBIDDEN
+                }
         ) {
             "layer id must be a single safe path segment, was \"$value\""
         }
+    }
+
+    private companion object {
+        /** NAME_MAX on ext4/f2fs, in bytes. */
+        const val MAX_BYTES = 255
+
+        /**
+         * Separators, plus the characters Windows refuses in a filename. A
+         * project folder is meant to be copied between machines, so the floor
+         * is the portable one rather than Android's — which is why `:` and `\`
+         * were already here. Reserved device names (`CON`, `NUL`, …) are
+         * deliberately still not covered; see REVIEW.md R-014.
+         */
+        val FORBIDDEN = charArrayOf('/', '\\', ':', '*', '?', '<', '>', '|', '"')
     }
 }
 

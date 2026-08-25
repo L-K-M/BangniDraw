@@ -79,6 +79,31 @@ class CompositeTest {
     }
 
     @Test
+    fun `a finite opacity outside 0 to 1 clamps to its bound`() {
+        // The NaN and infinity cases are pinned below, but a plain 2f is a
+        // different bug: if the clamp were ever replaced by a raw multiply,
+        // it would overshoot alpha past 255 and break the premultiplied
+        // invariant, and nothing else here would notice.
+        val random = Random(31)
+        for (mode in BlendMode.entries) {
+            repeat(50) {
+                val dst = randomPremultiplied(random)
+                val src = randomPremultiplied(random)
+                assertEquals(
+                    hex(Composite.blend(dst, src, mode, 1f)),
+                    hex(Composite.blend(dst, src, mode, 2f)),
+                    "$mode at opacity 2 differs from opacity 1",
+                )
+                assertEquals(
+                    hex(Composite.blend(dst, src, mode, 0f)),
+                    hex(Composite.blend(dst, src, mode, -0.5f)),
+                    "$mode at opacity -0.5 differs from opacity 0",
+                )
+            }
+        }
+    }
+
+    @Test
     fun `every blend mode at opacity 0 leaves the destination unchanged`() {
         val random = Random(7)
         for (mode in BlendMode.entries) {

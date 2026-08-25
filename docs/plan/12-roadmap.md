@@ -142,7 +142,7 @@ Status: ⬜ not started · 🔁 open, in review · 🟢 landed on `main` (with c
 | --- | --- | --- | --- | --- |
 | 2.1 | `fable/engine-core-document` | `engine/core` document model: `PerfConstants`, `TileKey`/`IntRect`/`TileGrid`, `LayerId`/`LayerProps`/`Layer`/`BlendMode`/`LayerStack` (+ `StackEdit`/`StackResult`/`PixelOp`/`HistoryEntry` declarations), `Document`, `Composite` (CPU reference, all eight modes), `MemoryBudget`, `CanvasPresets`, `Clock`/`RandomSource` | JVM: `TileGridTest`, `LayerStackTest`, `CompositeTest`, `MemoryBudgetTest`, `CanvasPresetsTest` green; `lintDebug` clean. No device check (nothing user-visible changes) | 🔁 #7 |
 | 2.2 | `fable/engine-core-stroke` | `engine/core` stroke math: `StrokeInput`(+batch), `PressureCurve`, `Stabilizer`, `Dab`/`DabBatch`/`DabRing`, `DabGenerator`, `BrushPreset`/`Curve`/`ToolKind` with the one round preset | JVM: `StabilizerTest`, `DabGeneratorTest` (+ golden stroke), `PressureCurveTest`, `DabRingTest`, `BrushPresetTest`. Still no device check | ⬜ |
-| 2.3 | `fable/engine-gl-compositor` | `engine/gl` foundation and the compositor: `GlCaps`/`GlProgram`/`GlFbo`/`GlState`, `Shaders`, `TilePool`, `LayerTextures`, `ScreenTransform`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect at the right size and orientation, and the reset-view pill returns to fit after the debug overlay nudges the view. No touch navigation yet: `input/` is 2.4, so the view is driven programmatically here (see the note below). JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `ScreenTransformTest` (`ScreenTransform` is created here — pure math, so it is the one piece of this row a JVM test can pin end to end) | ⬜ |
+| 2.3 | `fable/engine-gl-compositor` | `engine/gl` foundation and the compositor: `GlCaps`/`GlProgram`/`GlFbo`/`GlState`, `Shaders`, `TilePool`, `LayerTextures`, `ScreenTransform`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect at the right size and orientation, and the reset-view pill returns to fit after a programmatic nudge of the transform (the debug overlay is 2.5's). No touch navigation yet: `input/` is 2.4, so the view is driven programmatically here (see the note below). JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `ScreenTransformTest` (`ScreenTransform` is created here — pure math, so it is the one piece of this row a JVM test can pin end to end) | ⬜ |
 | 2.4 | `fable/stroke-path-touch` | The stroke lands on pixels, with touch: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, `input/` (`GestureArbiter`, `PalmRejection`, `StylusState`, `CanvasTouchHandler`) | Device: one finger draws a stroke that survives pen-up; two-finger tap does not leave a dot; two-finger pinch/zoom/rotate is smooth and rotation snaps near 0°, during a stroke as well as between strokes. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` (the no-allocation assertion of `docs/plan/10-performance.md` §2.4 — the step-2 risk table above names it as the mitigation for touch-path GC jank, so it is a gate, not an optional extra), and the merge blend math cross-checked on the JVM against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ⬜ |
 | 2.5 | `fable/front-buffered-stylus` | 2b: the front-buffered path (`onDrawFrontBufferedLayer`, `commit`, `cancel`), `TailBuffer`, `Predictor`, stylus axes (pressure/tilt/orientation/eraser end), palm rejection on device, unbuffered dispatch, debug overlay | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). JVM: `StabilizerTest` gains the predicted-tail cases — rationale in the note below. **This completes step 2** | ⬜ |
 
@@ -210,15 +210,17 @@ from the readback composite on checkpoint).
 
 **Carried in from PR 2.1's review** (both recorded in AGENTS.md, the first
 also as REVIEW.md R-001) — this step must not land without them:
-`ProjectStore.load` must refuse to turn a malformed layer id into a path (drop
-the layer into the unreadable tally of `docs/plan/06-document-and-persistence.md`
-§4 — "the count of unreadable tiles is returned with the load result" — and
-never throw the open away), and the
+`ProjectStore.load` must refuse to turn a malformed layer id into a path (count the
+layer among the unreadable and never throw the open away. Note the granularity:
+`docs/plan/06-document-and-persistence.md` §4 returns "the count of unreadable
+**tiles**" with the load result, and a dropped layer is not a tile — step 3
+either adds an unreadable-layers count beside it or amends §4 to cover both,
+because reporting a lost layer as N lost tiles is a misleading readout), and the
 `LayerStack.nextName` counter must survive undo and reopen.
 
 Step 3 is the **latest** the layer-id→path guard may arrive, not the date it is
 scheduled for: it lands with the first code that builds a path out of a layer
-id, whenever that ships. In the event PR 2.1 brought it forward — `LayerId`'s
+id, whenever that ships. As it turned out, PR 2.1 brought it forward — `LayerId`'s
 constructor now rejects anything that is not one safe path segment, and
 `LayerRecord.toPropsOrNull` returns `null` for such a record instead of
 throwing. What is left for this step is the *policy*: `ProjectStore.load` must
@@ -239,7 +241,13 @@ the counter as the **maximum of the persisted value and one past the high-water
 mark of every default name in the recovered stack** — the layers loaded from
 the checkpoint as well as every name the journal assigns during replay,
 including to layers the replay then deletes. Matching `@string/layer_default N`
-only, since a user-typed name carries no number to honour. Taking the replayed
+only, since a user-typed name carries no number to honour. The scan assumes
+`@string/layer_default` is not localized; the app ships `values/` and
+`values-b+zh+Hans/`, so if that string is ever translated, names written under
+one locale stop matching the pattern under another and the scan under-recovers.
+`max(persisted, high-water + 1)` still floors it at the last checkpoint, but
+names added since could be reissued — so either mark the string
+`translatable="false"` or persist the counter at add time instead of scanning. Taking the replayed
 names alone would be wrong in the commonest case this step tests: a kill with
 no layer adds since the checkpoint replays no adds at all, so the high-water
 mark is empty and the counter would reset to 1 beside a checkpoint that already

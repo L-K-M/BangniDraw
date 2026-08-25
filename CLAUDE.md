@@ -31,8 +31,10 @@ alone is how two files drift and both look authoritative. You need both.
 - **One** round is **empty**: a coherent review arrived and raised nothing —
   no findings, or only restatements and self-answered "✅ fine" items. One is
   enough — don't spend a CI cycle re-confirming it. A restatement repeats
-  something already applied or resolved; **a re-raise of something you declined
-  or deferred is never a restatement**: it is a live finding, and the round is a
+  something already applied or resolved — check that against the code before
+  calling a re-raise one, since "I already fixed that" is self-graded like a
+  dismissal and buys the *fastest* exit; a partial fix is a live finding.
+  **A re-raise of something you declined or deferred is never a restatement**: it is a live finding, and the round is a
   **dismissed-only** round only if you decline it *again* — useful feedback if
   you apply it,
   as PR #7 eventually did with both. Otherwise "that's just a restatement"

@@ -93,10 +93,15 @@ For each round:
       malfunctioning reviewer that says nothing looks exactly like a clean bill of health, so
       it is never scored as one: this is not `empty`.
 
-      Re-run it once — most failures are transient. If the re-run delivers a coherent review,
-      score the round on **that** review, from (b) down, like any other. Only a round still
+      Re-run it once — most failures are transient, but wait out the window first if the
+      failure was a rate-limit stub: an immediate retry is the one most likely to fail for a
+      reason waiting would have fixed, and it spends the single re-run doing it.
+
+      If the re-run delivers a coherent review, score the round on **that** review, from (b)
+      down, like any other. Only a round still
       unreviewed after the re-run is `no review`; such a round counts toward no *streak* rule
-      and breaks any streak it interrupts. It does satisfy rule 6 below, which exists for it.
+      and pauses any streak it interrupts rather than resetting it (see the streak paragraph
+      after the rules). It does satisfy rule 6 below, which exists for it.
 
       If the re-run also fails, **do not stop the pipeline**: a broken reviewer is not a
       reason to leave finished work unmerged. Keep the score `no review` and merge under
@@ -112,7 +117,8 @@ For each round:
         **`integration failed`**. Revert to the last green state before continuing.
 
    c. **Did the review raise a substantive finding you did not apply** — declined, refuted, or
-      deferred as an out-of-scope follow-up?
+      deferred, whether to a later PR in the plan or as an out-of-scope follow-up? (Deferring
+      to a later PR is the most common kind here, and it is still not applying the finding.)
       - And the head ended green: **`dismissed only`**, however many cosmetic fixes you
         applied alongside it. One applied typo must not launder a refused blocker into the
         faster streak.
@@ -125,8 +131,13 @@ For each round:
    d. **Did the review raise any finding at all?** Restatements and self-answered "✅ fine"
       items are not findings.
 
-      A **restatement** repeats something already applied or already resolved. A re-raise of
-      a finding you *declined or deferred* is **never** a restatement — it is a live finding
+      A **restatement** repeats something already applied or already resolved — and you must
+      check that against the code before scoring any re-raise as one, exactly as you would
+      re-check a decline. "I already fixed that" is self-graded in precisely the way a
+      dismissal is, and it buys the *fastest* exit in the list rather than the slowest: a
+      partial fix (the read path sanitised, the write path still joining the raw string) is a
+      live finding, not a restatement. A re-raise of a finding you *declined or deferred* is
+      **never** a restatement — it is a live finding
       you did not apply, and it belongs at (c). This matters because "restatement" is the one
       word in this procedure that can quietly demote a real finding into the fastest exit in
       the list: call a re-raised blocker a restatement and the round scores `empty`, which
@@ -156,13 +167,15 @@ For each round:
    | applied a typo, **declined a blocker** | `dismissed only` |
    | declined a blocker, applied nothing | `dismissed only` |
    | declined a blocker, applied a cosmetic fix, head left red | `integration failed` |
+   | deferred a blocker to a later PR, applied a nit, green | `dismissed only` |
    | applied only cosmetic fixes, green | `nits only` |
    | applied only a cosmetic fix, and it broke the build for good | `integration failed` |
    | review raised only nits, you declined them all | `dismissed only` |
    | review raised nothing, or only restatements and "✅ fine" | `empty` |
 
-**Steady state is reached when ANY of these hold** (`CLAUDE.md` carries the same list; change
-both or neither)
+**The review loop ends when ANY of these hold.** Rules 1-5 are steady state; rules 6 and 7
+are last-resort exits and are not — the scorecard must say which it was. (`CLAUDE.md` carries
+the same list; change both or neither.)
 1. **one** round was empty, **OR**
 2. **two consecutive** rounds were nits only — no blocker, nothing genuinely helpful, **OR**
 3. **two consecutive** rounds were dismissed only, **OR**
@@ -179,9 +192,10 @@ both or neither)
    below. A successful re-run is not a new round: step (a) scores the same round on the
    re-run's review. A round that stays `no review` still consumes a round number, including
    toward rule 7 — otherwise a reviewer that fails forever is also a loop that runs forever,
-   which is the one thing rule 7 exists to stop. Listed here because merging is otherwise gated on steady state, and without this
-   rule an agent reading that gate literally would stall on a broken reviewer: the one
-   outcome the section it points at exists to forbid, **OR**
+   which is the one thing rule 7 exists to stop. Listed here because merging is otherwise
+   gated on the loop ending, and without this rule an agent reading that gate literally would
+   stall on a broken reviewer: the one outcome the section it points at exists to forbid,
+   **OR**
 7. **fifteen** rounds have run. A backstop, not a target. Rules 1-5 all require the reviewer
    to slow down. Rules 4 and 5 can fire while it is still productive, but a reviewer whose real,
    in-scope findings you keep applying and landing green satisfies none of the five — it is
@@ -212,7 +226,7 @@ but rule 3 would also have fired at round 7 if rounds 6 and 7 had been decline-o
 not: round 6 *applied* a fix making `flatten()` refuse a destructive no-op, and round 7
 applied one resizing the layer cap, so both scored `useful feedback` and the streak never
 started. (Read "refuse" there as what the code now does, not as declining a finding — a round
-that only declined would be `dismissed only`, which is the whole point.) **The fix survived because the reviewer was
+that only declined would be `dismissed only`, which is the whole point.)
 still finding other real things, not because two rounds is a safe budget.** Read a
 dismissed-only streak as "I have stopped learning from this reviewer" and check that it is
 true before you act on it.

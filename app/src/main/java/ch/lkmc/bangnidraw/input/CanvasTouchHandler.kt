@@ -77,6 +77,16 @@ class CanvasTouchHandler(
         get() = arbiter.stylusOnly
         set(value) { arbiter.stylusOnly = value }
 
+    /**
+     * `Prefs.snapRightAngles` (§7). Off by default.
+     *
+     * Exposed because [snap] is private: without this the pref had no way to
+     * reach the snap at all, so the feature was unreachable as well as broken.
+     */
+    var snapRightAngles: Boolean
+        get() = snap.snapRightAngles
+        set(value) { snap.snapRightAngles = value }
+
     /** Live navigation pointers, and where they were on the previous move. */
     private val navIds = IntArray(2) { NO_POINTER }
     private val prevX = FloatArray(2)
@@ -212,10 +222,15 @@ class CanvasTouchHandler(
         }
     }
 
-    internal fun handleCancel() {
+    internal fun handleCancel(timeNs: Long) {
         arbiter.cancel(decisions)
         navigating = false
         pendingMove = false
+        // The pen's own ACTION_UP never arrives after a cancel, so nothing else
+        // would ever clear contact: isDown stayed true, isNear stayed true with
+        // it, and every later finger was rejected as a palm. The app looked
+        // dead to touch until the pen next happened to touch the glass.
+        if (stylus.isDown) stylus.onUp(timeNs)
         stylusPointerId = NO_POINTER
         for (i in trackIds.indices) trackIds[i] = NO_POINTER
         navIds[0] = NO_POINTER
@@ -245,10 +260,16 @@ class CanvasTouchHandler(
             prevX[1] = trackX[bi]; prevY[1] = trackY[bi]
         }
         rawRotation += step.rotation
-        val entered = snap.updateAndDetectEntry(rawRotation)
+        // The angle to DISPLAY, which is the snap's target — zero, or the
+        // nearest right angle when Prefs.snapRightAngles is on. Hardcoding 0f
+        // here meant right-angle snapping fired its haptic near 90° and then
+        // threw the canvas to straight, so the pref was silently broken.
+        val wasSnapped = snap.isSnapped
+        val displayed = snap.update(rawRotation)
+        val entered = !wasSnapped && snap.isSnapped
         val stepped = step.applyTo(view)
         // The snap only touches rotation; pan and zoom are the gesture's.
-        view = stepped.copy(rotation = if (snap.isSnapped) 0f else snap.raw)
+        view = stepped.copy(rotation = displayed)
         if (entered) host.onRotationSnapped()
         host.onViewChanged(view)
     }
@@ -334,7 +355,12 @@ class CanvasTouchHandler(
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> handleUp(id, timeNs)
-            MotionEvent.ACTION_CANCEL -> handleCancel()
+            // §6's barrel button. Without these StylusState.buttonPressed could
+            // never leave false, and its KDoc promising these two actions was a
+            // description of code that did not exist.
+            MotionEvent.ACTION_BUTTON_PRESS -> stylus.onButton(true)
+            MotionEvent.ACTION_BUTTON_RELEASE -> stylus.onButton(false)
+            MotionEvent.ACTION_CANCEL -> handleCancel(timeNs)
             else -> return false
         }
         return true

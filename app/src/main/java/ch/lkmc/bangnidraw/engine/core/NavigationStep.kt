@@ -117,8 +117,10 @@ class NavigationStep {
 
     /** Applies this step to [view], pivoting about [anchorX] — see its KDoc. */
     fun applyTo(view: ViewTransform): ViewTransform = view.gesture(
-        centroidX = anchorX,
-        centroidY = anchorY,
+        // The PREVIOUS centroid, deliberately — see anchorX's KDoc. Now that
+        // the parameters are named pivot, this reads as what it is.
+        pivotX = anchorX,
+        pivotY = anchorY,
         panX = panX,
         panY = panY,
         zoom = zoom,

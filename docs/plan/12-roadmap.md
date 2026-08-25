@@ -144,7 +144,7 @@ Status: ⬜ not started · 🔁 open, in review · ✅ landed on `main` (with th
 | 2.2 | `fable/engine-core-stroke` | `engine/core` stroke math: `StrokeInput`(+batch), `PressureCurve`, `Stabilizer`, `Dab`/`DabBatch`/`DabRing`, `DabGenerator`, `BrushPreset`/`Curve`/`ToolKind` with the one round preset | JVM: `StabilizerTest`, `DabGeneratorTest` (+ golden stroke), `PressureCurveTest`, `DabRingTest`, `BrushPresetTest`. Still no device check | ✅ #9, merged 2026-08-25 |
 | 2.3a | `fable/engine-gl-compositor` | `engine/gl` foundation, with no opinion about compositing: `GlCaps`, `GlErrors`, `GlProgram`, `GlFbo`, `GlState`, `Shaders`, `TilePool`, `LayerTextures`, plus their pure `engine/core` twins `SliceAllocator`/`SliceHandle` and `TileIndex` and the packed `TileGrid.keysFor` overload the compositor needs | No device check: nothing in this half puts a pixel on screen, so there is nothing a device could show. JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `GlCapsTest`, `SliceAllocatorTest`, `TileIndexTest` | ✅ #10, merged 2026-08-25 |
 | 2.3b | `fable/engine-gl-canvas` | Everything that draws: `ScreenTransform`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect at the right size and orientation, and the reset-view pill returns to fit after a programmatic nudge of the transform (the debug overlay is 2.5's). No touch navigation yet: `input/` is 2.4, so the view is driven programmatically here. JVM: `ScreenTransformTest` | ✅ #11, merged 2026-08-25 |
-| 2.4a | `fable/stroke-path-touch` | The input stack, driving navigation: `engine/core/GestureArbiter` plus `input/` (`StylusState`, `PalmRejection`, `CanvasTouchHandler`), wired to `ViewTransform` in `CanvasScreen`. The stroke callbacks are declared here and consumed in 2.4b | Device: two-finger pinch/zoom/rotate is smooth and rotation snaps near 0°; a resting palm leaves no mark while the pen hovers; two- and three-finger taps fire undo/redo. No strokes yet, so the stroke clauses of the old 2.4 check move to 2.4b. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` — including the no-allocation assertion of `docs/plan/10-performance.md` §2.4, which the step-2 risk table names as the mitigation for touch-path GC jank, so it is a gate | ⬜ |
+| 2.4a | `fable/stroke-path-touch` | The input stack, driving navigation: `engine/core/GestureArbiter` plus `input/` (`StylusState`, `PalmRejection`, `CanvasTouchHandler`), wired to `ViewTransform` in `CanvasScreen`. The stroke callbacks are declared here and consumed in 2.4b | Device: two-finger pinch/zoom/rotate is smooth and rotation snaps near 0°; a resting palm does not pan, zoom or rotate the view while the pen hovers; two- and three-finger taps fire undo/redo. No strokes yet, so the stroke clauses of the old 2.4 check move to 2.4b. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` — including the no-allocation assertion of `docs/plan/10-performance.md` §2.4, which the step-2 risk table names as the mitigation for touch-path GC jank, so it is a gate | ⬜ |
 | 2.4b | `fable/stroke-on-pixels` | The stroke reaches pixels: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, and the dab and merge shaders | Device: one finger draws a stroke that survives pen-up; a two-finger tap does not leave a dot; navigation stays smooth during a stroke as well as between strokes. JVM: the merge blend math cross-checked against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ⬜ |
 | 2.5 | `fable/front-buffered-stylus` | 2b: the front-buffered path (`onDrawFrontBufferedLayer`, `commit`, `cancel`), `TailBuffer`, `Predictor`, stylus axes (pressure/tilt/orientation/eraser end), palm rejection on device, unbuffered dispatch, debug overlay | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). JVM: `StabilizerTest` gains the predicted-tail cases — rationale in the note below. **This completes step 2** | ⬜ |
 
@@ -192,17 +192,21 @@ androidx type (`02-architecture.md` §2.6) and `TailBuffer` is a GL object
 **Split seam for 2.4, named in advance.** Rule 1 requires a *named* seam, so
 this fixes one before it is needed rather than cutting where the work happens to
 stop. 2.4 carries more classes than 2.3 did — four GL classes, four input
-classes, four JVM test suites, and two new shaders — and 2.3's two halves
+classes (three in `input/` plus the engine-core `GestureArbiter`), four JVM test
+suites, and two new shaders — and 2.3's two halves
 measured ~2,700 lines each, so it is very unlikely to fit one PR. Both halves
 are independently demoable on a device, which is what makes this seam better
 than 2.3's: **2.4a** is the input stack driving *navigation* (the canvas 2.3b
 draws can be panned, zoomed and rotated, and a resting palm can be shown not to
-mark), and **2.4b** is the stroke reaching pixels. Every JVM gate the old 2.4
-row listed belongs to 2.4a; 2.4b's evidence is the CPU-reference cross-check and
-the device.
+mark), and **2.4b** is the stroke reaching pixels. Every JVM *test suite* the
+old 2.4 row listed belongs to 2.4a; the one gate that does not is the
+CPU-reference cross-check, which is 2.4b's evidence along with the device.
 
 Measure before splitting: if 2.4a and 2.4b together come in under the M band,
-they stay one PR and the second row is struck.
+they stay one PR and the two rows fold back into a single 2.4 row — keeping
+2.4b's CPU-reference cross-check gate and its **This completes 2a** marker, and
+resolving 2.4a's "consumed in 2.4b" reference. Striking the second row instead
+would satisfy "measured, not assumed" by deleting the evidence.
 
 **2.3 was split, at the seam this document named in advance.** Rule 1 above is
 that a step which turns out to be two PRs is split at a named seam, never at an

@@ -32,6 +32,60 @@ class GestureArbiterTest {
     private fun arbiter(stylusOnly: Boolean = false) = GestureArbiter(density, stylusOnly)
     private fun ms(v: Long) = v * 1_000_000L
 
+    @Test
+    fun `a second pen stroke does not roll back the first when a palm rests through the lift`() {
+        // The palm keeps count > 0 across the pen's lift, so the gesture never
+        // ends and resetGesture never runs. drawingId stayed pointing at the
+        // pen that already lifted, and the next pen down took the "roll back
+        // the live stroke" branch — discarding a committed stroke.
+        val r = Recorder()
+        val a = arbiter()
+        a.down(1, PointerTool.STYLUS, 100f, 100f, ms(0), r)
+        a.down(2, PointerTool.FINGER, 400f, 400f, ms(10), r)   // palm, ignored
+        a.up(1, ms(100), r)                                  // the pen lifts normally
+        r.events.clear()
+        a.down(3, PointerTool.STYLUS, 120f, 120f, ms(200), r) // and comes back down
+        assertTrue(
+            !r.events.contains("cancel"),
+            "a stroke that ended normally must not be rolled back: ${r.events}",
+        )
+    }
+
+    @Test
+    fun `a pointer beyond the tracking table can land and lift without crashing`() {
+        // add() returns NO_POINTER once the table is full and indexOf() returns
+        // -1 for an unknown id, so an untracked pointer's lift is an expected
+        // input on a device reporting five contacts.
+        val r = Recorder()
+        val a = arbiter()
+        for (i in 1..GestureArbiter.MAX_POINTERS) {
+            a.down(i, PointerTool.FINGER, 100f * i, 100f, ms(i.toLong()), r)
+        }
+        a.down(99, PointerTool.FINGER, 500f, 500f, ms(50), r) // one too many
+        a.move(99, 510f, 500f, ms(60), r)
+        a.up(99, ms(70), r)                                   // must be a no-op
+        assertTrue(r.events.contains("ignore(99)"), "the extra pointer is ignored: ${r.events}")
+    }
+
+    @Test
+    fun `a palm still down does not turn a one-finger tap into an undo`() {
+        // maxDown counted every tracked pointer, palms included. A palm added
+        // while the pen was near stays down after the pen leaves, so the next
+        // single-finger tap read as a two-finger tap and fired undo.
+        val r = Recorder()
+        val a = arbiter()
+        a.stylusNear = true
+        a.down(1, PointerTool.FINGER, 0f, 0f, ms(0), r)     // palm: ignored
+        a.stylusNear = false                                // pen left, grace expired
+        a.down(2, PointerTool.FINGER, 400f, 400f, ms(600), r)
+        a.up(2, ms(650), r)                                 // a quick one-finger tap
+        a.up(1, ms(700), r)                                 // the palm finally lifts
+        assertTrue(
+            !r.events.contains("undo"),
+            "a palm must not count toward the tap's finger count: ${r.events}",
+        )
+    }
+
     // Comfortably past TAP_SLOP_DP (8 dp) at density 2 — 16 px.
     private val past = 40f
 

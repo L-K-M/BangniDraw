@@ -5,7 +5,10 @@ import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.RotationSnap
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -25,7 +28,9 @@ class CanvasTouchHandlerTest {
     private class Host : CanvasInputHost {
         var view = ViewTransform()
         val events = mutableListOf<String>()
-        override fun onViewChanged(view: ViewTransform) { this.view = view; events += "view" }
+        /** Muted during the allocation gate's measured window, so the harness costs nothing. */
+        var record = true
+        override fun onViewChanged(view: ViewTransform) { this.view = view; if (record) events += "view" }
         override fun onRotationSnapped() { events += "snap" }
         override fun onUndoRequested() { events += "undo" }
         override fun onRedoRequested() { events += "redo" }
@@ -76,17 +81,22 @@ class CanvasTouchHandlerTest {
         h.setView(ViewTransform(rotation = 0.3f))
         h.handleDown(1, PointerTool.FINGER, 100f, 200f, ms(0))
         h.handleDown(2, PointerTool.FINGER, 300f, 200f, ms(10))
-        // Rotate back to almost straight in one step.
+        // The pointer pair starts horizontal, so its separation angle is 0 and
+        // the raw angle tracks the view's own 0.3. Rotating the pair to -0.28
+        // lands raw at 0.02 — inside SNAP_IN, so this move enters the snap.
         h.handleMove(1, 100f, 200f, ms(30))
-        h.handleMove(2, 300f - 1f, 200f - 60f, ms(30))
+        h.handleMove(2, 292.2111f, 144.7289f, ms(30))
         h.handleMoveEnd(ms(30))
-        // Now nudge into the snap band.
-        h.handleMove(2, 300f, 200f, ms(50))
+        // A second move to -0.26 puts raw at 0.04: past SNAP_IN but inside
+        // SNAP_OUT, so it STAYS snapped and must not report a second entry.
+        // The old fixture rotated the pair back to horizontal here, which put
+        // raw back at 0.3 and left the snap — which is why every assertion
+        // below used to sit behind an `if` that never ran.
+        h.handleMove(2, 293.2780f, 148.5839f, ms(50))
         h.handleMoveEnd(ms(50))
-        if (host.view.rotation == 0f) {
-            assertTrue("snap" in host.events, "entering the snap must report, for the haptic")
-            assertEquals(1, host.events.count { it == "snap" }, "the tick fires once, not per event")
-        }
+        assertEquals(0f, host.view.rotation, "near-straight fingers must snap to exactly zero")
+        assertTrue("snap" in host.events, "entering the snap must report, for the haptic")
+        assertEquals(1, host.events.count { it == "snap" }, "the tick fires once, not per event")
     }
 
     @Test
@@ -144,7 +154,7 @@ class CanvasTouchHandlerTest {
         h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
         h.handleTick(ms(GestureArbiter.PENDING_MS))
         host.events.clear()
-        h.handleCancel()
+        h.handleCancel(ms(200))
         assertEquals(listOf("cancel"), host.events)
     }
 
@@ -201,6 +211,7 @@ class CanvasTouchHandlerTest {
             h.handleUp(2, t + ms(4))
         }
         host.events.clear()
+        host.record = false
 
         // The measured window: one full two-finger drag, moves only.
         h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
@@ -213,11 +224,11 @@ class CanvasTouchHandlerTest {
         }
         val allocated = counter.getThreadAllocatedBytes(thread) - before
 
-        // The host records a String per view change, which IS an allocation —
-        // by the test's own harness, not by the handler. Subtracting an
-        // estimate would be arithmetic dressed as evidence, so the budget is
-        // stated instead: a handler that allocated per sample would produce
-        // orders of magnitude more than the recorder's few hundred bytes a move.
+        // The harness is muted above, so this measures the handler alone. The
+        // old comment here claimed the recorder allocated "a String per view
+        // change" and used that to justify a budget of 160; `"view"` is an
+        // interned literal and allocates nothing, so the slack was real and
+        // wide enough to admit the very regression the gate exists to catch.
         val budget = MOVES * BYTES_PER_MOVE_BUDGET
         assertTrue(
             allocated < budget,
@@ -278,17 +289,72 @@ class CanvasTouchHandlerTest {
         assertTrue(!h.stylus.isDown, "the pen's own lift does end contact")
     }
 
+    @Test
+    fun `a cancel while the pen is down ends its contact, so touch is not dead`() {
+        // The pen's own ACTION_UP never arrives after a cancel. With isDown
+        // latched true, isNear stayed true forever and PalmRejection rejected
+        // every finger from then on — the app looked dead to touch.
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(1, PointerTool.STYLUS, 100f, 100f, ms(0))
+        assertTrue(h.stylus.isDown, "precondition: the pen is down")
+        h.handleCancel(ms(50))
+        assertTrue(!h.stylus.isDown, "a cancel must end pen contact")
+        assertTrue(
+            !PalmRejection.rejects(PointerTool.FINGER, h.stylus, ms(50) + 10_000_000_000L),
+            "fingers must work again once the hover grace expires",
+        )
+    }
+
+    @Test
+    fun `right-angle snapping settles at the right angle, not at zero`() {
+        // RotationSnap.nearestTarget returns 90-degree multiples when the pref
+        // is on. applyNavigation hardcoded 0f, so the haptic fired near 90 and
+        // the canvas was then thrown to straight.
+        val host = Host()
+        val h = handler(host)
+        h.snapRightAngles = true
+        val quarter = (PI / 2.0).toFloat()
+        h.setView(ViewTransform(rotation = quarter - 0.2f))
+        h.handleDown(1, PointerTool.FINGER, 100f, 200f, ms(0))
+        h.handleDown(2, PointerTool.FINGER, 300f, 200f, ms(10))
+        // Rotate the pair by +0.2 rad, landing the raw angle on a right angle.
+        val c = cos(0.2f); val sn = sin(0.2f)
+        fun rot(x: Float, y: Float): Pair<Float, Float> {
+            val dx = x - 200f; val dy = y - 200f
+            return Pair(200f + c * dx - sn * dy, 200f + sn * dx + c * dy)
+        }
+        val (x1, y1) = rot(100f, 200f)
+        val (x2, y2) = rot(300f, 200f)
+        h.handleMove(1, x1, y1, ms(30))
+        h.handleMove(2, x2, y2, ms(30))
+        h.handleMoveEnd(ms(30))
+        assertEquals(
+            quarter, host.view.rotation, 1e-5f,
+            "with right angles on, the snap target is 90 degrees, not zero",
+        )
+        assertTrue("snap" in host.events, "entering the snap must still report for the haptic")
+    }
+
     private companion object {
         const val WARMUP = 200
         const val MOVES = 2000
 
         /**
-         * Generous, because the recorder in [Host] allocates a String per view
-         * change and that is the harness, not the handler. A per-sample
-         * `StrokeInput`, a boxed `Pair` from a transform, or a lambda per event
-         * would each blow past this by a wide margin — which is the class of
-         * regression the gate is for.
+         * Tight, and set from a measurement rather than a guess: the floor is
+         * 64.5 bytes per loop, which is the two `ViewTransform`s one navigation
+         * step allocates — `applyTo` returns one and the snap's `copy` returns
+         * another. That is per **event**, not per sample, and §2.4's target is
+         * per-sample churn.
+         *
+         * 80 leaves ~15 bytes of headroom, so a single extra object per pointer
+         * move — a per-sample `StrokeInput`, a boxed `Pair`, a lambda — fails
+         * the gate: two per loop at the JVM's 16-byte minimum is already 32.
+         *
+         * Getting the floor to zero means an in-place `applyTo(view, out)` and
+         * a mutable `ViewTransform`; `ViewTransform`'s immutability is relied on
+         * well outside the touch path, so that is a follow-up, not this PR.
          */
-        const val BYTES_PER_MOVE_BUDGET = 160
+        const val BYTES_PER_MOVE_BUDGET = 80
     }
 }

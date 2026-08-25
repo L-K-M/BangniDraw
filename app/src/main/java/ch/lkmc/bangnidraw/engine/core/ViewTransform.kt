@@ -60,14 +60,23 @@ data class ViewTransform(
     /**
      * One two-finger gesture step: pan by ([panX], [panY]), zoom by
      * [zoom] and rotate by [rotationDelta] about the view-space
-     * [centroidX], [centroidY] — the standard formulation where the
-     * point under the fingers stays under the fingers. Scale clamps to
+     * [pivotX], [pivotY] — the standard formulation where the point under
+     * the pivot stays under the pivot. Scale clamps to
      * [MIN_SCALE]..[MAX_SCALE]; the effective zoom is adjusted so the
-     * centroid anchor stays exact at the clamp boundary.
+     * pivot stays exact at the clamp boundary.
+     *
+     * **Pivot, not centroid**, and the name is load-bearing. Zoom and rotation
+     * are applied about this point and the pan is added *afterwards*, so the
+     * pivot a gesture step must pass is the centroid it is rotating *away
+     * from* — the previous one. Calling these parameters `centroidX/centroidY`
+     * invited exactly the plausible-looking `centroidX = centroidX` that drifts
+     * the canvas ~2 px per step under a rotating pinch, which is the bug
+     * `docs/plan/07-input-and-stylus.md` §7 carried until PR 2.4a.
+     * See [NavigationStep.anchorX].
      */
     fun gesture(
-        centroidX: Float,
-        centroidY: Float,
+        pivotX: Float,
+        pivotY: Float,
         panX: Float,
         panY: Float,
         zoom: Float,
@@ -77,8 +86,8 @@ data class ViewTransform(
         val effectiveZoom = newScale / scale
         val c = cos(rotationDelta)
         val s = sin(rotationDelta)
-        val relX = tx - centroidX
-        val relY = ty - centroidY
+        val relX = tx - pivotX
+        val relY = ty - pivotY
         return ViewTransform(
             scale = newScale,
             // Wrapped to (-π, π]: keeps cos/sin arguments small over long
@@ -86,8 +95,8 @@ data class ViewTransform(
             // construction — a view rotated "350°" stores as -10°, so
             // Reset springs 10° forward, never the long way around.
             rotation = normalizeAngle(rotation + rotationDelta),
-            tx = centroidX + panX + effectiveZoom * (c * relX - s * relY),
-            ty = centroidY + panY + effectiveZoom * (s * relX + c * relY),
+            tx = pivotX + panX + effectiveZoom * (c * relX - s * relY),
+            ty = pivotY + panY + effectiveZoom * (s * relX + c * relY),
         )
     }
 

@@ -154,6 +154,10 @@ class GestureArbiter(
             state = State.STYLUS_DRAW
             drawingId = pointerId
             maxDown = 1
+            // clearPointers() + add() means count never passes through 0 here,
+            // so the gesture-end reset is skipped. tapPossible is documented as
+            // cleared "when a stroke begins", and this branch begins one.
+            tapPossible = false
             out.onDraw(pointerId, if (tool == PointerTool.ERASER) StrokeSource.ERASER_END else StrokeSource.STYLUS)
             return
         }
@@ -173,7 +177,11 @@ class GestureArbiter(
             out.onIgnore(pointerId)
             return
         }
-        maxDown = max(maxDown, count)
+        // Participating pointers only. `count` includes ignored ones, and a
+        // palm added while the pen was near outlives the pen: after the hover
+        // grace expired it was still tracked, so the next single-finger tap
+        // read as maxDown == 2 and fired undo.
+        maxDown = max(maxDown, participatingCount())
 
         when (state) {
             State.IDLE, State.TAP_WAIT -> {
@@ -265,7 +273,15 @@ class GestureArbiter(
         // What THIS pointer's lift means, if it was participating.
         if (!wasIgnored) {
             when (state) {
-                State.STYLUS_DRAW -> out.onStrokeEnd(pointerId)
+                State.STYLUS_DRAW -> {
+                    out.onStrokeEnd(pointerId)
+                    // A palm resting through the lift keeps count > 0, so the
+                    // gesture never ends and resetGesture never runs. Leaving
+                    // drawingId set made the NEXT pen down take the
+                    // "roll back the live stroke" branch and silently discard
+                    // a stroke that had already ended normally.
+                    if (drawingId == pointerId) drawingId = NO_POINTER
+                }
                 State.FINGER_DRAW -> if (drawingId == pointerId) {
                     out.onStrokeEnd(pointerId)
                     drawingId = NO_POINTER
@@ -371,6 +387,13 @@ class GestureArbiter(
     private fun indexOf(pointerId: Int): Int {
         for (i in 0 until MAX_POINTERS) if (ids[i] == pointerId) return i
         return -1
+    }
+
+    /** Pointers that count toward a tap: tracked, and not ignored as palms. */
+    private fun participatingCount(): Int {
+        var n = 0
+        for (i in 0 until MAX_POINTERS) if (ids[i] != NO_POINTER && !ignored[i]) n++
+        return n
     }
 
     private fun firstActive(): Int {

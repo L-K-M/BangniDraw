@@ -40,7 +40,15 @@ class NavigationStepTest {
     fun `rotation wraps the short way round`() {
         // Crossing pi must not report nearly a full turn backwards: the canvas
         // would spin the long way for a few degrees of finger movement.
+        // This pair spans about +/-0.01 rad either side of ZERO, not pi, under
+        // this class's p1 - p0 convention — so on its own it passes even with
+        // no wrap logic at all. Kept as the near-zero control.
         step.fromPointers(-100f, -1f, 100f, 1f, -100f, 1f, 100f, -1f)
+        assertTrue(abs(step.rotation) < 0.1f, "expected a small delta, got ${step.rotation}")
+        // The mirrored pair is the one that crosses pi: the separation angles
+        // are +/-(pi - 0.01), so the raw difference is about -2pi and only the
+        // wrap brings it back to +0.02.
+        step.fromPointers(100f, -1f, -100f, 1f, 100f, 1f, -100f, -1f)
         assertTrue(abs(step.rotation) < 0.1f, "expected a small delta, got ${step.rotation}")
     }
 
@@ -134,12 +142,12 @@ class NavigationStepTest {
         // Twenty peaks at ~6.7x, comfortably inside 0.25..64.
         var view = ViewTransform()
         repeat(20) {
-            step.fromPointers(100f, 100f, 300f, 100f, 90f, 100f, 310f, 100f)
+            step.fromPointers(100f, 100f, 300f, 100f, 90f, 100f, 310f, 110f)
             view = step.applyTo(view)
         }
         assertTrue(view.scale > 5f, "the fixture must actually zoom: ${view.scale}")
         repeat(20) {
-            step.fromPointers(90f, 100f, 310f, 100f, 100f, 100f, 300f, 100f)
+            step.fromPointers(90f, 100f, 310f, 110f, 100f, 100f, 300f, 100f)
             view = step.applyTo(view)
         }
         assertEquals(1f, view.scale, 1e-3f)

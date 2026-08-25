@@ -73,7 +73,10 @@ fun CanvasScreen(onBack: () -> Unit) {
 
     // Roadmap 2.4a: real two-finger navigation. The handler owns the view
     // transform while a gesture is running and reports it back here.
-    val touch = remember(density) {
+    // view0 is in the key because the host below captures it for the snap
+    // haptic: a composition that moved to a different View would otherwise keep
+    // ticking the old one. Safe now that CanvasSurface re-attaches on update.
+    val touch = remember(density, view0) {
         CanvasTouchHandler(
             density = density.density,
             host = object : CanvasInputHost {
@@ -94,7 +97,10 @@ fun CanvasScreen(onBack: () -> Unit) {
     val checkerA = MaterialTheme.colorScheme.surface.toArgb()
     val checkerB = MaterialTheme.colorScheme.surfaceVariant.toArgb()
 
-    LaunchedEffect(Unit) { touch.setView(view) }
+    // Keyed on the handler, not Unit: a recreated handler starts from an
+    // identity transform, and without re-seeding its first gesture would
+    // measure from the wrong baseline and jump.
+    LaunchedEffect(touch) { touch.setView(view) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         CanvasSurface(

@@ -686,3 +686,43 @@ unreadable.
   decline above stands unchanged — neither field is deleted and neither is
   wired into the `large` predicate, because both would deviate from a
   normative struct or silently move §4's pinned table.
+
+## PR #12 (roadmap 2.4a) — GLM round 1
+
+- **R-047 ❌ `noteLift(slot)` / `remove(slot)` can be reached with `slot = -1`
+  and crash the touch path** (PR #12, GLM round 1, Major). **Refuted**: no call
+  site can pass `-1`, and both guard already. `up()` opens with
+  `val slot = indexOf(pointerId); if (slot < 0) return`, so an untracked
+  pointer's lift returns before either helper. `down()` opens with
+  `val slot = add(...); if (slot < 0) { out.onIgnore(pointerId); return }`, and
+  the palm branch guards its own write with `if (slot >= 0)`. The finding's own
+  scenario — a fifth pointer on a device reporting five contacts — is therefore
+  a no-op in both directions, which
+  `GestureArbiterTest.a pointer beyond the tracking table can land and lift
+  without crashing` now pins: the extra pointer is ignored on the way in and its
+  move and lift do nothing on the way out. The test was **applied** even though
+  the crash claim was refuted, because "no reachable crash" is worth a
+  regression test. The guards themselves are declined: they would be branches no
+  test can reach without breaking encapsulation, and "one refactor away from an
+  unguarded call" is true of every private helper in the codebase.
+
+- **R-048 ⏸️ The allocation gate should `assumeTrue` instead of failing on a JVM
+  without `com.sun.management.ThreadMXBean`** (PR #12, GLM round 1, Info).
+  Declined. The hard failure is the point. This gate exists because
+  `10-performance.md` §2.4 names it the mitigation for touch-path GC jank, and a
+  skip turns it into exactly the silently-vacuous check that the same round's
+  budget finding (applied, see below) was about: a green build that measured
+  nothing. CI runs stock OpenJDK, where the extension is present, so the skip
+  would only ever fire on a JVM nobody builds this on. A red test whose message
+  reads "this JVM cannot measure per-thread allocation, so this gate would be
+  vacuous" already says "wrong JVM", not "allocation regression".
+
+- **R-049 ⏸️ Rename the 2.4a branch label to `fable/touch-navigation`, since
+  `fable/stroke-path-touch` no longer describes a PR with no stroke path** (PR
+  #12, GLM round 1, Info). Declined. The observation is fair — 2.4a carries no
+  stroke path — but the branch exists, PR #12 is open on it, and the roadmap
+  cell's job is to record where the work actually landed. Renaming the label
+  without renaming the branch makes the table wrong for exactly the bisecting
+  the finding wants to protect; renaming the branch mid-review closes the PR and
+  discards the round. The 2.4b row already carries `fable/stroke-on-pixels`, so
+  a reader looking for where strokes first land is sent to the right row.

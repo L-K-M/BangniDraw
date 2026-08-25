@@ -58,14 +58,6 @@ fun CanvasSurface(
         modifier = modifier,
         factory = { ctx ->
             SurfaceView(ctx).also { surface ->
-                touchHandler?.let {
-                    surface.setOnTouchListener(it)
-                    surface.setOnHoverListener(it)
-                    // Without this the view never receives the DOWN that starts
-                    // a gesture, and every listener above is dead code.
-                    surface.isFocusable = true
-                    surface.isFocusableInTouchMode = true
-                }
                 val session = EngineSession(surface, canvas, budget, debugBuild)
                 sessionHolder[0] = session
                 session.setStack(stack)
@@ -74,7 +66,17 @@ fun CanvasSurface(
                 onSession(session)
             }
         },
-        update = {
+        update = { surface ->
+            // Attached here, not in `factory`: `factory` runs once per view
+            // instance, but CanvasScreen builds the handler with
+            // `remember(density, view0)`, so a density or window change makes a
+            // NEW handler that the SurfaceView would never hear about — it
+            // would keep dispatching to the stale one while reset-view drove
+            // the new one. These setters replace rather than accumulate, so
+            // calling them on every recomposition is idempotent.
+            surface.setOnTouchListener(touchHandler)
+            surface.setOnHoverListener(touchHandler)
+
             // Compose recomposes on every state change; the engine only needs
             // to hear about the ones that change what it draws. Each setter
             // hops to the GL thread and requests one redraw, and the renderer

@@ -56,6 +56,16 @@ class TilePool(
 
     private val fbo = GlFbo()
 
+    /**
+     * The clear-bind warning fires once, for the same reason
+     * `GlFbo.loggedIncomplete` does — and it is the same underlying failure.
+     * A driver that persistently reports the FBO incomplete fails this bind on
+     * every fresh-slice clear, and §12's streaming refill allocates tiles
+     * continuously, so an unguarded log would put back exactly the per-frame
+     * spam `GlFbo` suppresses one call down the stack.
+     */
+    private var loggedClearBindFailure = false
+
     val pageCount: Int get() = allocator.pageCount
     val usedSlices: Int get() = allocator.usedCount
     val residentBytes: Long get() = allocator.residentBytes
@@ -138,11 +148,19 @@ class TilePool(
     fun clear(handle: SliceHandle) {
         require(allocator.isLive(handle)) { "cannot clear $handle: not allocated" }
         if (!fbo.bindArrayLayer(textures[handle.page], handle.slice)) {
-            // Silent here would be the worst outcome in this file:
-            // `allocateCleared` would hand out a slice still holding the
-            // previous tenant's pixels while every caller believes it is
-            // transparent, and nothing in the log would point at the cause.
-            Log.w(GL_TAG, "clear($handle): FBO bind failed, the slice keeps stale contents")
+            // Silent would be the worst outcome in this file: `allocateCleared`
+            // would hand out a slice still holding the previous tenant's pixels
+            // while every caller believes it is transparent, and nothing in the
+            // log would point at the cause. Once, though — the messages differ
+            // only by handle, so the second adds noise rather than information.
+            if (!loggedClearBindFailure) {
+                loggedClearBindFailure = true
+                Log.w(
+                    GL_TAG,
+                    "clear($handle): FBO bind failed, the slice keeps stale contents " +
+                        "(further clear bind failures this session are suppressed)",
+                )
+            }
             return
         }
         // No scissor: the whole slice is the target, and a stale scissor from
@@ -244,6 +262,7 @@ class TilePool(
         }
         fbo.release()
         allocator.reset()
+        loggedClearBindFailure = false
     }
 
     /** One line for the debug overlay and for a `PoolExhausted` notice. */

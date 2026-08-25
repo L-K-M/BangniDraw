@@ -39,12 +39,33 @@ object GlErrors {
      */
     fun drain(): Int {
         var first = GLES30.GL_NO_ERROR
-        while (true) {
+        // Bounded, because the unbounded form has no floor under it. GL's
+        // error queue is normally short and clears to GL_NO_ERROR, but a lost
+        // context is specified to keep reporting `GL_CONTEXT_LOST` until the
+        // context is recreated — so on a driver that surfaces a reset that way
+        // (ANGLE-backed stacks do) `while (true)` never terminates. That would
+        // turn a GPU reset, the one device condition this whole policy exists
+        // to survive, into a hung render thread and an ANR: strictly worse
+        // than the torn frame §13 is willing to accept. Plain ES 3.0 without
+        // the robustness extension reports loss through EGL instead, so this
+        // is insurance rather than a reproduction — which is the point, since
+        // the failure it insures against cannot be recovered from in-process.
+        repeat(MAX_DRAIN) {
             val e = GLES30.glGetError()
             if (e == GLES30.GL_NO_ERROR) return first
             if (first == GLES30.GL_NO_ERROR) first = e
         }
+        return first
     }
+
+    /**
+     * How many `glGetError` calls one [drain] will make.
+     *
+     * Far above any real queue — errors are raised singly by the passes here —
+     * so reaching it means the driver is not clearing, not that errors were
+     * lost.
+     */
+    private const val MAX_DRAIN = 32
 
     /**
      * Checks after an allocation or a link. Returns the error so the caller can

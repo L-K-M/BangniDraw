@@ -217,7 +217,7 @@ class GlShaderContractTest {
         // After the clamp statement itself — `substringAfter("int taps = clamp")`
         // starts at "(u_taps, …" and can never be clean.
         assertTrue(
-            "u_taps" !in Shaders.COMPOSITE_FRAG
+            "u_taps" !in stripComments(Shaders.COMPOSITE_FRAG)
                 .substringAfter("int taps = clamp(u_taps, 1, MAX_TAPS);"),
             "nothing after the clamp may read the raw u_taps again",
         )
@@ -241,9 +241,15 @@ class GlShaderContractTest {
             "#define TILE_PX ${PerfConstants.TILE_SIZE}" in Shaders.COMPOSITE_FRAG,
             "TILE_PX must be defined from PerfConstants.TILE_SIZE",
         )
-        // Past the #define's own value, for the same reason.
+        // Past the #define's own value, for the same reason — and the
+        // forbidden literal is DERIVED, not written as 256. Hardcoding it made
+        // the guard vacuous in the one scenario it exists for: on the day
+        // TILE_SIZE becomes 512, a check for "256" finds only stale values and
+        // waves a fresh `512.0` through. Comments are stripped for the same
+        // reason the u_viewport ban is checked over declarations rather than
+        // raw text — prose that names the number is not a use of it.
         assertTrue(
-            "256" !in Shaders.COMPOSITE_FRAG
+            "${PerfConstants.TILE_SIZE}" !in stripComments(Shaders.COMPOSITE_FRAG)
                 .substringAfter("#define TILE_PX ${PerfConstants.TILE_SIZE}"),
             "the tile size must not also appear as a literal in the body",
         )
@@ -291,14 +297,19 @@ class GlShaderContractTest {
      * Every `uniform` the source declares, as `name to type`.
      *
      * Comments are stripped first so a commented-out declaration cannot
-     * register as a real one, and the optional precision qualifier is matched
-     * so `uniform highp vec4 u_x;` — legal, and one edit away — does not report
-     * a disagreement that does not exist. An array uniform still fails to
-     * match, and loudly: that is fail-safe, and there are none today.
+     * register as a real one; the optional precision qualifier is matched so
+     * `uniform highp vec4 u_x;` — legal, and one edit away — does not report a
+     * disagreement that does not exist; and the optional array suffix is
+     * matched because **not** matching it is fail-OPEN for one of this file's
+     * two callers, not fail-safe as an earlier version of this KDoc claimed.
+     * An unmatched declaration makes the bidirectional test fail (the sets
+     * differ) but makes the `u_viewport` ban *pass*: `none { … }` over a set
+     * that never captured `uniform vec4 u_viewport[2];` is trivially true, and
+     * the banned uniform slips through the check that was hardened to stop it.
      */
     private fun declaredUniforms(source: String): Set<Pair<String, String>> =
         Regex(
-            """^\s*uniform\s+(?:(?:lowp|mediump|highp)\s+)?(\w+)\s+(\w+)\s*;""",
+            """^\s*uniform\s+(?:(?:lowp|mediump|highp)\s+)?(\w+)\s+(\w+)\s*(?:\[\w*\])?\s*;""",
             RegexOption.MULTILINE,
         )
             .findAll(stripComments(source))

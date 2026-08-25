@@ -83,7 +83,7 @@ class GlslDeclarationOrderTest {
         // GLSL has no forward declaration. Moving a uniform below the function
         // that reads it is a natural-looking edit and a compile error.
         for (s in stages) {
-            val lines = s.source.lines()
+            val lines = withoutComments(s.source).lines()
             val declaredAt = HashMap<String, Int>()
             for ((i, line) in lines.withIndex()) {
                 val m = Regex(
@@ -93,15 +93,15 @@ class GlslDeclarationOrderTest {
             }
             for ((name, declaration) in declaredAt) {
                 val firstUse = lines.indexOfFirst { line ->
-                    // Comments are not uses, and skipping them is not loosening
-                    // the lint: a comment cannot contain a real GLSL use, so
+                    // Comments were removed from `lines` above, both forms and
+                    // in both positions. Skipping them is not loosening the
+                    // lint: a comment cannot contain a real GLSL use, so
                     // excluding it cannot hide an ordering bug. Leaving them in
                     // makes the natural documenting comment ABOVE a
                     // declaration — which this codebase writes everywhere —
                     // count as a use before it, and the only "fix the shader"
                     // available is deleting the documentation.
-                    !line.trimStart().startsWith("//") &&
-                        !Regex("""^\s*$QUALIFIERS(uniform|in|out)\b""").containsMatchIn(line) &&
+                    !Regex("""^\s*$QUALIFIERS(uniform|in|out)\b""").containsMatchIn(line) &&
                         Regex("""\b${Regex.escape(name)}\b""").containsMatchIn(line)
                 }
                 if (firstUse < 0) continue
@@ -157,14 +157,30 @@ class GlslDeclarationOrderTest {
                 val location = Regex("""^\s*layout\s*\(\s*location\s*=\s*(\d+)\s*\)\s*in\s+""")
                     .find(line)?.groupValues?.get(1)?.toInt()
                 when {
-                    // Two attributes at one location is a link error on the
-                    // device and nothing on the JVM — the same class of bug as
-                    // a missing location, and the check was one step short of
-                    // catching it.
-                    location != null -> assertTrue(
-                        claimed.add(location),
-                        "${s.name}.vert: location $location is claimed twice",
-                    )
+                    location != null -> {
+                        // `layout(location = 0) in vec2 a, b;` is legal and
+                        // occupies 0 AND 1, so recording only the written 0
+                        // would let a later explicit `location = 1` collide
+                        // silently — the exact link-error-on-device case this
+                        // check exists for. Rather than reconstruct implicit
+                        // locations from a declarator list, forbid the form:
+                        // one attribute per line is what every shader here
+                        // writes, and a lint whose policy is "fix the shader"
+                        // should say so outright instead of parsing around it.
+                        assertTrue(
+                            ',' !in line.substringAfter(" in "),
+                            "${s.name}.vert: `${line.trim()}` declares several " +
+                                "attributes on one line; give each its own location",
+                        )
+                        // Two attributes at one location is a link error on the
+                        // device and nothing on the JVM — the same class of bug
+                        // as a missing location, and the check was one step
+                        // short of catching it.
+                        assertTrue(
+                            claimed.add(location),
+                            "${s.name}.vert: location $location is claimed twice",
+                        )
+                    }
                     Regex("""^\s*in\s+""").containsMatchIn(line) ->
                         fail("${s.name}.vert: `${line.trim()}` has no layout(location = …)")
                 }
@@ -210,6 +226,39 @@ class GlslDeclarationOrderTest {
         Regex("""^\s*$QUALIFIERS$keyword\s+(\w+)\s+(\w+)\s*(?:\[\w*\])?\s*;""", RegexOption.MULTILINE)
             .findAll(source)
             .associate { it.groupValues[2] to it.groupValues[1] }
+
+    /**
+     * [source] with both GLSL comment forms blanked out — **line for line**.
+     *
+     * Deliberately not a regex replace of block comments with the empty
+     * string: a block comment spanning three lines would collapse them into
+     * one, shifting every line index after it — and the assertions here quote
+     * line numbers back to whoever has to fix the shader. Blanking in place keeps `lines()` aligned
+     * with the real source while removing anything a scan could mistake for a
+     * use — a trailing `// …` on a code line included, which the earlier
+     * `startsWith("//")` predicate could not see.
+     */
+    private fun withoutComments(source: String): String {
+        val out = StringBuilder(source.length)
+        var i = 0
+        var inBlock = false
+        while (i < source.length) {
+            val c = source[i]
+            when {
+                c == '\n' -> { out.append(c); i++ }
+                inBlock -> {
+                    if (source.startsWith("*/", i)) { inBlock = false; out.append("  "); i += 2 }
+                    else { out.append(' '); i++ }
+                }
+                source.startsWith("/*", i) -> { inBlock = true; out.append("  "); i += 2 }
+                source.startsWith("//", i) -> {
+                    while (i < source.length && source[i] != '\n') { out.append(' '); i++ }
+                }
+                else -> { out.append(c); i++ }
+            }
+        }
+        return out.toString()
+    }
 
     private companion object {
         /** An optional `layout(...)` and any interpolation qualifiers before a declaration. */

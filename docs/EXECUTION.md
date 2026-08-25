@@ -107,8 +107,10 @@ For each round:
       reason to leave finished work unmerged. Keep the score `no review` and merge under
       *Unreviewed merges* below.
 
-   b. **Did you apply a substantive finding** — one that changed behavior, closed a hole, or
-      corrected a false claim?
+   b. **Did you apply a substantive finding the review raised** — one that changed behavior,
+      closed a hole, or corrected a false claim? Only the review's findings score the round.
+      Work driven by a human comment happens regardless (Step 3 puts those in their own lane,
+      never subject to a cutoff) and does not make an otherwise-empty round look productive.
       - Yes, and the head ended green — the push was green, or it went red and **one**
         follow-up fix commit made it green: **`useful feedback`**. A rescued build is a
         normal round, not a failed one.
@@ -153,6 +155,11 @@ For each round:
         does not decide that, the outcome does.
       - Yes, and you applied none: **`dismissed only`**.
 
+      Neither this branch nor `empty` looks at the head, because neither pushed anything — but
+      a red head can still arrive from a flaky job or a moved base. **No score authorizes
+      merging a red head.** If the loop would end here with CI red, fix or re-run CI first;
+      the exit rules say when reviewing stops, not that the result is mergeable.
+
    Worked examples. Every edit to the questions above has broken at least one of these rows;
    three of them were found by review rather than by re-reading the prose. Walk the tree
    against this table before changing it.
@@ -178,7 +185,13 @@ are last-resort exits and are not — the scorecard must say which it was. (`CLA
 the same list; change both or neither.)
 1. **one** round was empty, **OR**
 2. **two consecutive** rounds were nits only — no blocker, nothing genuinely helpful, **OR**
-3. **two consecutive** rounds were dismissed only, **OR**
+3. **two consecutive** rounds were dismissed only — **except** where a declined or deferred
+   finding is security-relevant (path traversal, injection, authorization, secret handling,
+   data loss). Those never end the loop on this rule: put them in front of the user and let
+   them decide. This project is the argument — R-001 and R-005 were both path traversal
+   through an unvalidated layer id, both declined three times by the same agent that scored
+   the rounds, and both were right. Two self-graded dismissals is not a safety margin for
+   that class, **OR**
 4. feedback integration failed in two consecutive rounds, **OR**
 5. **two consecutive** rounds scored `dismissed only` in which every declined or deferred
    finding was out of scope for this PR (pre-existing behavior, product decisions) — collect
@@ -196,7 +209,9 @@ the same list; change both or neither.)
    gated on the loop ending, and without this rule an agent reading that gate literally would
    stall on a broken reviewer: the one outcome the section it points at exists to forbid,
    **OR**
-7. **fifteen** rounds have run. A backstop, not a target. Rules 1-5 all require the reviewer
+7. **fifteen** rounds have run — scored rounds, where a round and its re-run count as one,
+   and a round still `no review` after its re-run counts too (see rule 6). A backstop, not a
+   target. Rules 1-5 all require the reviewer
    to slow down. Rules 4 and 5 can fire while it is still productive, but a reviewer whose real,
    in-scope findings you keep applying and landing green satisfies none of the five — it is
    neither stuck nor wrong — and that case has no exit at all without a cap. PR #7 took 12
@@ -226,10 +241,10 @@ but rule 3 would also have fired at round 7 if rounds 6 and 7 had been decline-o
 not: round 6 *applied* a fix making `flatten()` refuse a destructive no-op, and round 7
 applied one resizing the layer cap, so both scored `useful feedback` and the streak never
 started. (Read "refuse" there as what the code now does, not as declining a finding — a round
-that only declined would be `dismissed only`, which is the whole point.)
-still finding other real things, not because two rounds is a safe budget.** Read a
-dismissed-only streak as "I have stopped learning from this reviewer" and check that it is
-true before you act on it.
+that only declined would be `dismissed only`, which is the whole point.) **The fix survived
+because the reviewer was still finding other real things, not because two rounds is a safe
+budget.** Read a dismissed-only streak as "I have stopped learning from this reviewer", and
+check that it is true before you act on it.
 
 Only rounds where a review actually ran count toward the **streak** rules (2, 3, 4, 5) — never
 toward rule 6, which fires precisely because no review ran. A *no review* round earns nothing
@@ -252,14 +267,21 @@ terms:
 - Tell the user in the report for that PR, not just in the commit — the first unreviewed
   merge is the one they would most want to know about, and a scorecard they never open is not
   a notification. Telling them is not stopping: keep going.
-- If three PRs in a row merge unreviewed, the reviewer is broken rather than flaky. Say so
-  plainly, and keep merging — they can decide whether to fix it before the next step.
+- Before concluding the reviewer is broken, check the shape of its output. Reports that look
+  complete but no longer open with the expected line or close with the expected marker mean
+  its *template* changed and the matcher needs updating — a one-line fix. Calling that a
+  broken reviewer sends the user looking in the wrong place, and this integrity check is the
+  only thing separating a silent malfunction from a clean bill of health.
+- Otherwise, if three PRs in a row merge unreviewed, the reviewer is broken rather than
+  flaky. Say so plainly, and keep merging — they can decide whether to fix it first.
 
-The first rule is deliberately a hair trigger. A reviewer that raises nothing has run out of
+The empty-round rule (1) is deliberately a hair trigger. A reviewer that raises nothing has run
+out of
 things to say about this diff, and a further round costs a CI cycle and a review cycle to
 re-confirm that. Do not wait for a second empty round to be polite to the process.
 
-The third rule is deliberately *not* a hair trigger, for the opposite reason: you are grading
+The dismissed-only rule (3) is deliberately *not* a hair trigger, for the opposite reason: you are
+grading
 your own dismissals. The same agent wrote the code, decided the finding was wrong, and scored
 the round — so one round of self-graded refusal is not evidence of anything, and ending the
 loop on it would make the review optional whenever you disagreed with it. Two rounds is the
@@ -310,6 +332,6 @@ Start a session in `/work/GitHub/BangniDraw` and give the agent this prompt:
 
 > Read `docs/EXECUTION.md` in this repository and follow it exactly. It tells you how to
 > implement the plan in `PLAN.md` as a sequence of reviewed pull requests, how to run the
-> review loop, when a PR has reached steady state (the conditions are defined in that file and
-> mirrored in `CLAUDE.md`; this prompt deliberately does not restate them), when to merge, and
-> how to move on to the next roadmap step. Begin with Step A.
+> review loop, when a PR has reached steady state (the conditions are defined in that file;
+> this prompt deliberately does not restate them), when to merge, and how to move on to the
+> next roadmap step. Begin with Step A.

@@ -24,9 +24,13 @@ review feedback under this policy:
 `docs/EXECUTION.md` is the source of truth for this list and for the full
 round-scoring rules; this is a summary. Change both in the same commit — and if
 they ever disagree anyway, EXECUTION.md wins *and the drift is a bug to fix
-before the next round is scored* — not a standing arrangement. A tiebreaker
-alone would quietly make a stale file authoritative; "change both or neither"
-alone is how two files drift and both look authoritative. You need both.
+before the next round is scored* — not a standing arrangement.
+
+Kept deliberately short. This file is auto-loaded and EXECUTION.md is not, so
+the rules have to be *here* in some form; but every detail duplicated here is a
+detail that can drift, and four separate review rounds caught exactly that. So
+this lists what ends the loop and nothing else — the round scores, the
+scoring procedure, and the reasoning all live in EXECUTION.md.
 
 - **One** round is **empty**: a coherent review arrived and raised nothing —
   no findings, or only restatements and self-answered "✅ fine" items. One is
@@ -34,21 +38,20 @@ alone is how two files drift and both look authoritative. You need both.
   something already applied or resolved — check that against the code before
   calling a re-raise one, since "I already fixed that" is self-graded like a
   dismissal and buys the *fastest* exit; a partial fix is a live finding.
-  **A re-raise of something you declined or deferred is never a restatement**: it is a live finding, and the round is a
-  **dismissed-only** round only if you decline it *again* — useful feedback if
-  you apply it,
-  as PR #7 eventually did with both. Otherwise "that's just a restatement"
-  becomes a one-round exit from any finding you don't like,
+  **A re-raise of something you declined or deferred is never a restatement**:
+  it is a live finding, and the round is a **dismissed-only** round only if you
+  decline it *again* — useful feedback if you apply it, as PR #7 eventually did
+  with both. Otherwise "that's just a restatement" becomes a one-round exit
+  from any finding you don't like,
 - **two consecutive** rounds are **nits only**: you applied something, every
   applied finding was cosmetic (wording, a comment, a rename, a test message),
   and the review raised no substantive claim you declined or deferred — a round
   that applies a typo while refusing a blocker is dismissed only, not this,
-- **two consecutive** rounds are **dismissed only**: the review raised at least
-  one finding, and no substantive one was applied — every substantive finding
-  declined, refuted, or deferred — or nothing was applied at all. Two, not one:
-  you are grading your own dismissals, so a single such round is not evidence
-  of anything. Restatements and "✅ fine" items are not findings;
-  a round of only those is empty, not this,
+- **two consecutive** rounds are **dismissed only** (no substantive finding
+  applied — all declined, refuted or deferred — or nothing applied at all).
+  Two, not one: you grade your own dismissals. **Except** for a
+  security-relevant decline (path traversal, injection, authz, secrets, data
+  loss) — those never merge on this rule; put them to the user,
 - feedback integration failed in two consecutive rounds (you applied something
   — of any weight, cosmetic included — and could not get CI green with one
   follow-up fix, or had to revert it),
@@ -62,7 +65,9 @@ alone is how two files drift and both look authoritative. You need both.
 - **fifteen** rounds have run. A backstop, not a target: every other rule here
   needs the reviewer to slow down, and one whose real, in-scope findings you keep
   applying and landing green satisfies none of them — neither stuck nor wrong —
-  so without a cap that case has no exit at all. The scorecard and merge commit say the cap fired and what was still open.
+  so without a cap that case has no exit at all. Counts scored rounds: a round
+  and its re-run are one. The scorecard and merge commit say the cap fired and
+  what was still open.
 
 **When the reviewer contradicts itself** — asks for a change, then for its
 revert, on code you have not touched — re-check both positions against the code
@@ -105,8 +110,11 @@ commit must both say that no review ran. An unreviewed merge is fine to do and
 bad to hide, so tell the user in the report for that PR — the first one is what
 they would most want to know about, and a scorecard they never open is not a
 notification. Telling them is not stopping; keep going. If three PRs in a row
-merge unreviewed, say plainly that the reviewer is broken rather than flaky, and
-keep merging: they decide whether to fix it before the next step.
+merge unreviewed, check one thing before blaming the reviewer: if the reports
+look complete but no longer carry the expected opening line or closing marker,
+its *template* changed and the matcher needs updating — a one-line fix, not a
+broken pipeline. Otherwise say plainly that the reviewer is broken rather than
+flaky, and keep merging: they decide whether to fix it before the next step.
 
 At steady-state: post a short scorecard in chat (what was real, what was
 refuted, what's deferred), then merge the PR into `main` once its build checks

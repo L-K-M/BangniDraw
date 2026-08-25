@@ -21,12 +21,18 @@ review feedback under this policy:
   chat summaries carry the record.
 
 ### Declare steady-state and stop when any of these hold
-`docs/EXECUTION.md` carries the same list with the full round-scoring rules —
-change both or neither.
+`docs/EXECUTION.md` is the source of truth for this list and for the full
+round-scoring rules; this is a summary. Change both in the same commit — and if
+they ever disagree anyway, EXECUTION.md wins. "Change both or neither" with no
+tiebreaker is how two files drift and both look authoritative.
 
 - **One** round is **empty**: a coherent review arrived and raised nothing —
   no findings, or only restatements and self-answered "✅ fine" items. One is
-  enough — don't spend a CI cycle re-confirming it,
+  enough — don't spend a CI cycle re-confirming it. A restatement repeats
+  something already applied or resolved; **a re-raise of something you declined
+  or deferred is never a restatement**, it is a live finding and the round is
+  dismissed only. Otherwise "that's just a restatement" becomes a one-round
+  exit from any finding you don't like,
 - **two consecutive** rounds are **nits only**: you applied something, every
   applied finding was cosmetic (wording, a comment, a rename, a test message),
   and the review raised no substantive claim you declined or deferred — a round
@@ -40,11 +46,23 @@ change both or neither.
 - feedback integration failed in two consecutive rounds (you applied something
   — of any weight, cosmetic included — and could not get CI green with one
   follow-up fix, or had to revert it),
-- everything remaining is out of scope for the PR (pre-existing behavior,
-  product decisions) — collect those as follow-up suggestions instead,
+- **two consecutive** rounds where everything remaining is out of scope for the
+  PR (pre-existing behavior, product decisions) — collect those as follow-up
+  suggestions instead. Two, like dismissals: "out of scope" is your judgment
+  about the reviewer's finding, so one round of it is not evidence,
 - a round found no usable review and its re-run failed too — merge unreviewed,
   per the paragraph below. Listed here because merging is otherwise gated on
-  steady state, and a broken reviewer must not stall the pipeline.
+  steady state, and a broken reviewer must not stall the pipeline,
+- **fifteen** rounds have run. A backstop, not a target: every other rule here
+  needs the reviewer to slow down, and one that keeps finding real things
+  satisfies none of them, so without a cap there is no termination guarantee at
+  all. The scorecard and merge commit say the cap fired and what was still open.
+
+**When the reviewer contradicts itself** — asks for a change, then for its
+revert, on code you have not touched — re-check both positions against the code
+once, then score the round on its merits and let the dismissed-only rule end it.
+Not its own stop rule: that reading is yours, and a reviewer that genuinely
+changed its mind on new evidence looks the same from outside.
 
 **A re-raise is a prompt to re-read, not a reason to stop.** There is
 deliberately no rule here for "the reviewer repeated something you declined".
@@ -71,8 +89,11 @@ If the re-run also fails, **merge anyway — do not stop work because the
 reviewer is down.** CI must still be green, you must re-read your own diff
 adversarially first (you are the only check left), and the scorecard and merge
 commit must both say that no review ran. An unreviewed merge is fine to do and
-bad to hide. If three PRs in a row merge unreviewed, tell the user: that is a
-broken reviewer, not a flaky one.
+bad to hide, so tell the user in the report for that PR — the first one is what
+they would most want to know about, and a scorecard they never open is not a
+notification. Telling them is not stopping; keep going. If three PRs in a row
+merge unreviewed, say plainly that the reviewer is broken rather than flaky, and
+keep merging: they decide whether to fix it before the next step.
 
 At steady-state: post a short scorecard in chat (what was real, what was
 refuted, what's deferred), then merge the PR into `main` once its build checks

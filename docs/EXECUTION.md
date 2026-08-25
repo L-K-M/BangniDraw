@@ -97,8 +97,8 @@ For each round:
 
       Re-run it once — most failures are transient. If the re-run delivers a coherent review,
       score the round on **that** review, from (b) down, like any other. Only a round still
-      unreviewed after the re-run is `no review`; such a round counts toward no rule and
-      breaks any streak it interrupts.
+      unreviewed after the re-run is `no review`; such a round counts toward no *streak* rule
+      and breaks any streak it interrupts. It does satisfy rule 6 below, which exists for it.
 
       If the re-run also fails, **do not stop the pipeline**: a broken reviewer is not a
       reason to leave finished work unmerged. Keep the score `no review` and merge under
@@ -120,6 +120,14 @@ For each round:
 
    d. **Did the review raise any finding at all?** Restatements and self-answered "✅ fine"
       items are not findings.
+
+      A **restatement** repeats something already applied or already resolved. A re-raise of
+      a finding you *declined or deferred* is **never** a restatement — it is a live finding
+      you did not apply, and it belongs at (c). This matters because "restatement" is the one
+      word in this procedure that can quietly demote a real finding into the fastest exit in
+      the list: call a re-raised blocker a restatement and the round scores `empty`, which
+      merges after one round. You would be grading that call yourself, exactly as with a
+      dismissal.
       - No: **`empty`**.
       - Yes, and you applied at least one, and the head ended green: **`nits only`**. Every
         applied finding was cosmetic — a substantive one would have been scored at (b) and
@@ -150,16 +158,30 @@ For each round:
 
 **Steady state is reached when ANY of these hold** (`CLAUDE.md` carries the same list; change
 both or neither)
-- **one** round was empty, **OR**
-- **two consecutive** rounds were nits only — no blocker, nothing genuinely helpful, **OR**
-- **two consecutive** rounds were dismissed only, **OR**
-- feedback integration failed in two consecutive rounds, **OR**
-- everything left is out of scope for this PR (pre-existing behavior, product decisions) —
-  collect those as follow-up suggestions instead, **OR**
-- a round scored `no review` and its re-run failed too — merge under *Unreviewed merges*
-  below. Listed here because merging is otherwise gated on steady state, and without this
-  bullet an agent reading that gate literally would stall on a broken reviewer: the one
-  outcome the section it points at exists to forbid.
+1. **one** round was empty, **OR**
+2. **two consecutive** rounds were nits only — no blocker, nothing genuinely helpful, **OR**
+3. **two consecutive** rounds were dismissed only, **OR**
+4. feedback integration failed in two consecutive rounds, **OR**
+5. **two consecutive** rounds where everything left was out of scope for this PR
+   (pre-existing behavior, product decisions) — collect those as follow-up suggestions
+   instead. Two, for the same reason as rule 3: "out of scope" is your judgment about the
+   reviewer's finding, and one round of it is not evidence. Otherwise the cheapest way to end
+   a review early is to relabel refusals as scope calls, **OR**
+6. a round scored `no review` and its re-run failed too — merge under *Unreviewed merges*
+   below. Listed here because merging is otherwise gated on steady state, and without this
+   rule an agent reading that gate literally would stall on a broken reviewer: the one
+   outcome the section it points at exists to forbid, **OR**
+7. **fifteen** rounds have run. A backstop, not a target. Rules 1-5 all require the reviewer
+   to slow down, and a reviewer that keeps finding real things satisfies none of them — so
+   without a cap the loop has no termination guarantee at all, only a hope. PR #7 needed 12
+   rounds and PR #8 passed 9, so 15 is not a number you should reach often; if you do, the
+   scorecard and the merge commit both say the cap fired and what was still outstanding.
+
+**When the reviewer contradicts itself** — demands a change, then demands its revert, on code
+you have not touched in between — re-check *both* positions against the code once. Then score
+the round on its merits and let rule 3 end it if the dismissals keep coming. Deliberately not
+its own stop rule: "it contradicted itself" is your reading of two reviews, and a reviewer
+that has genuinely changed its mind on new evidence looks identical from the outside.
 
 **A re-raise is a prompt to re-read, not a reason to stop.** There is deliberately no rule
 here that fires when the reviewer repeats a finding you declined. When it does, go back to
@@ -181,7 +203,8 @@ still finding other real things, not because two rounds is a safe budget.** Read
 dismissed-only streak as "I have stopped learning from this reviewer" and check that it is
 true before you act on it.
 
-Only rounds where a review actually ran count toward these. A *no review* round earns nothing
+Only rounds where a review actually ran count toward the **streak** rules (2, 3, 4) — never
+toward rule 6, which fires precisely because no review ran. A *no review* round earns nothing
 and breaks any streak it interrupts, so nits only → no review → nits only is **not** two
 consecutive nits-only rounds.
 
@@ -194,9 +217,11 @@ terms:
 - Say plainly, in the PR scorecard and in the merge commit, that no review ran and why. An
   unreviewed merge is a fine thing to do and a bad thing to hide: the record is what lets
   someone come back and look at this diff on purpose.
-- Do not let it become the habit. If three PRs in a row merge unreviewed, the reviewer is
-  broken rather than flaky — say so to the user, who can decide whether to fix it before the
-  next step.
+- Tell the user in the report for that PR, not just in the commit — the first unreviewed
+  merge is the one they would most want to know about, and a scorecard they never open is not
+  a notification. Telling them is not stopping: keep going.
+- If three PRs in a row merge unreviewed, the reviewer is broken rather than flaky. Say so
+  plainly, and keep merging — they can decide whether to fix it before the next step.
 
 The first rule is deliberately a hair trigger. A reviewer that raises nothing has run out of
 things to say about this diff, and a further round costs a CI cycle and a review cycle to
@@ -245,8 +270,8 @@ Do not start post-v1 backlog items unless the user asks.
 ## Reporting
 After each merge, print one paragraph: which PR merged, how many review rounds it took, why
 steady state was declared — which rule fired, or that no review ran and the PR merged
-unreviewed — what you declined and why, and what the next PR is. Report failures plainly with the output; never claim CI is green without having
-seen the run result.
+unreviewed — what you declined and why, and what the next PR is. Report failures plainly
+with the output; never claim CI is green without having seen the run result.
 
 ## How to invoke
 Start a session in `/work/GitHub/BangniDraw` and give the agent this prompt:

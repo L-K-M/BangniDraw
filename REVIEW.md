@@ -118,12 +118,28 @@ unreadable.
 
 ## Declined, with reasons
 
+- **R-040 ⏸️ Round 5: "`notePressure`'s KDoc contradicts the implementation
+  quoted in REVIEW.md".** Refuted on the code, and the finding's own fallback
+  applied. It reads `if (x.isNaN()) 0f else …` as a literal return, and it is
+  not: the `0f` is assigned to `t`, the x coordinate the lookup falls back to,
+  and `lut[t]` — `lut[0]` — is returned. So NaN really does map to the curve
+  *at* x = 0, not to zero: on `Curve.floor(0.3f)`, `lookup(lut, NaN)` is
+  `0.3`. Verified by running it before answering. The KDoc stands as written;
+  the finding says "if it instead returns the curve's value at x=0, leave the
+  KDoc unchanged and fix the quoted snippet in R-039" — which is exactly the
+  case, and R-039's quote is now the full expression rather than its first
+  half.
+
 - **R-039 ⏸️ Round 4's major: "NaN pressure is sanitized in `notePressure` but
   fed raw into the spacing math, permanently poisoning `carry`".** Refuted, by
   running it. The finding is explicit about its premise — "*If* `Curve.lookup`
-  propagates NaN (as a plain interpolation would)" — and it does not:
-  `lookup` opens with `if (x.isNaN()) 0f else …`, so
-  `Curve.lookup(Curve.Linear.lut(), NaN)` returns `0.0`. Fed a NaN-pressure
+  propagates NaN (as a plain interpolation would)" — and it does not.
+  `lookup` opens with `val t = if (x.isNaN()) 0f else x.coerceIn(0f, 1f)`, and
+  that `0f` is the *x coordinate* it falls back to, not the value it returns:
+  it then returns `lut[t]`, the curve **at** x = 0. On `Curve.floor(0.3f)`,
+  `lookup(lut, NaN)` is `0.3`, not zero. (Round 5 read the shorter quote that
+  stood here as a literal return and filed the mismatch as R-040; the quote
+  was the misleading half, so it is written out in full now.) Fed a NaN-pressure
   sample mid-stroke, the generator emitted 11 → 111 → 211 dabs across the
   segments before, during and after it, and no dab had a non-finite radius.
   The reasoning about what a NaN `carry` *would* do is correct and is exactly

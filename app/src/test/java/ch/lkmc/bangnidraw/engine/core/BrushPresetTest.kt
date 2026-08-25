@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.engine.core
 
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -85,12 +86,19 @@ class BrushPresetTest {
         // catches this and drops the preset lands with `BrushPresetStore`;
         // what matters here is that the model refuses rather than producing a
         // brush with a negative radius.
-        assertFailsWith<IllegalArgumentException> {
+        // `SerializationException` extends `IllegalArgumentException`, so
+        // catching the latter alone would also pass if these snippets became
+        // undecodable for some unrelated reason — certifying a range check
+        // that no longer runs on the decode path. The JSON here is well
+        // formed; the only failure this test accepts is the model's own.
+        val spacing = assertFailsWith<IllegalArgumentException> {
             json.decodeFromString<BrushPreset>("""{"id":"bad","name":"Bad","spacing":0.0}""")
         }
-        assertFailsWith<IllegalArgumentException> {
+        assertTrue(spacing !is SerializationException, "the model must be what rejects it: $spacing")
+        val opacity = assertFailsWith<IllegalArgumentException> {
             json.decodeFromString<BrushPreset>("""{"id":"bad","name":"Bad","opacity":4.0}""")
         }
+        assertTrue(opacity !is SerializationException, "the model must be what rejects it: $opacity")
     }
 
     @Test
@@ -200,17 +208,26 @@ class BrushPresetTest {
         // ever became its own ToolKind, 90 % of the brush path would be
         // duplicated for one boolean.
         val eraser = BrushPresets.INK_PEN.copy(id = "builtin.hard_eraser", eraseMode = true)
-        val kind = ToolKind.Brush(eraser)
+        val kind: ToolKind = ToolKind.Brush(eraser)
         assertIs<ToolKind.Brush>(kind)
         assertTrue(kind.preset.eraseMode)
-        val kinds = listOf(
-            ToolKind.Brush(BrushPresets.INK_PEN),
-            ToolKind.Smudge(),
-            ToolKind.Blur(),
-            ToolKind.Fill(),
-            ToolKind.Eyedropper(),
-        )
-        assertEquals(5, kinds.size, "`04` §1 declares exactly five kinds")
+
+        // The count of kinds is pinned by an exhaustive `when` rather than by
+        // a number. A hand-built list of five and an `assertEquals(5, ...)`
+        // stood here and could not fail — it counted what the test itself had
+        // just written down. This cannot be satisfied by a stale expectation:
+        // a sixth arm on the sealed interface, or an `Eraser` one, stops this
+        // file compiling, which is the same mechanism the production `when`s
+        // rely on and the only one that catches an addition rather than a
+        // change.
+        val label = when (kind) {
+            is ToolKind.Brush -> "brush"
+            is ToolKind.Smudge -> "smudge"
+            is ToolKind.Blur -> "blur"
+            is ToolKind.Fill -> "fill"
+            is ToolKind.Eyedropper -> "eyedropper"
+        }
+        assertEquals("brush", label, "an eraser preset is still a Brush kind")
     }
 
     @Test

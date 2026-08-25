@@ -115,8 +115,11 @@ For each round:
       - Yes, and the head ended green — the push was green, or it went red and **one**
         follow-up fix commit made it green: **`useful feedback`**. A rescued build is a
         normal round, not a failed one.
-      - Yes, and the head did not end green — one follow-up fix commit could not save it, or
-        the change had to be reverted because it broke behavior or contradicted `PLAN.md`:
+      - Yes, but the change had to be reverted because it broke behavior or contradicted
+        `PLAN.md`: **`integration failed`**. The head is green again *because* of the revert,
+        which is why this cannot sit under the bullet below — the round did not land the
+        finding, so it is not `useful feedback` either.
+      - Yes, and the head did not end green — one follow-up fix commit could not save it:
         **`integration failed`**. Revert to the last green state before continuing.
 
    c. **Did the review raise a substantive finding you did not apply** — declined, refuted, or
@@ -131,7 +134,11 @@ For each round:
         `dismissed only` either. Without this branch the loop could reach steady state under
         rule 3 with a broken head and no revert. But if you pushed nothing this round there
         is nothing to revert and nothing you broke: a red head is then the flaky-job or
-        moved-base case below, and this score does not apply.
+        moved-base case below. Fix or re-run CI until the head is green, then score the round
+        here as written: the score is *deferred* until the head is green, never undefined.
+        (An earlier draft said "this score does not apply", which left that round in no bucket
+        at all — the exhaustiveness this procedure claims is only worth having if no branch
+        can opt out of it.)
 
    d. **Did the review raise any finding at all?** Restatements and self-answered "✅ fine"
       items are not findings.
@@ -179,6 +186,8 @@ For each round:
    | applied a typo, **declined a blocker** | `dismissed only` |
    | declined a blocker, applied nothing | `dismissed only` |
    | declined a blocker, applied a cosmetic fix, head left red | `integration failed` |
+   | applied a real fix, then reverted it as contradicting `PLAN.md` | `integration failed` |
+   | declined a blocker, pushed nothing, head red from a flake | score deferred until green |
    | deferred a blocker to a later PR, applied a nit, green | `dismissed only` |
    | applied only cosmetic fixes, green | `nits only` |
    | applied only a cosmetic fix, and it broke the build for good | `integration failed` |

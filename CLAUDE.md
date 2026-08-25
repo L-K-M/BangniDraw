@@ -29,8 +29,9 @@ before the next round is scored* — not a standing arrangement.
 Kept deliberately short. This file is auto-loaded and EXECUTION.md is not, so
 the rules have to be *here* in some form; but every detail duplicated here is a
 detail that can drift, and four separate review rounds caught exactly that. So
-this lists what ends the loop and nothing else — the round scores, the
-scoring procedure, and the reasoning all live in EXECUTION.md.
+this lists what ends the loop, plus the streak semantics those rules cannot be
+applied without — the round scores, the rest of the scoring procedure, and the
+reasoning all live in EXECUTION.md.
 
 - **One** round is **empty**: a coherent review arrived and raised nothing —
   no findings, or only restatements and self-answered "✅ fine" items. One is
@@ -38,7 +39,7 @@ scoring procedure, and the reasoning all live in EXECUTION.md.
   something already applied or resolved — check that against the code before
   calling a re-raise one, since "I already fixed that" is self-graded like a
   dismissal and buys the *fastest* exit; a partial fix is a live finding.
-  **A re-raise of something you declined or deferred is never a restatement**:
+  **A re-raise of something you declined, refuted or deferred is never a restatement**:
   it is a live finding, and the round is a **dismissed-only** round only if you
   decline it *again* — useful feedback if you apply it, as PR #7 eventually did
   with both. Otherwise "that's just a restatement" becomes a one-round exit
@@ -97,7 +98,10 @@ cancelled, finished without posting its report, or posted a blank, truncated or
 error-shaped one — is an infrastructure failure, not an empty round. A
 malfunctioning reviewer that says nothing looks exactly like a clean bill of
 health, so never score it as one. This reviewer's reports open with
-"Actionable suggestions identified: N" and close with an HTML marker comment;
+"Actionable suggestions identified: N" and close with an HTML marker comment
+(if that format ever changes, this line, EXECUTION.md and the matcher move in
+one commit — otherwise every report reads as truncated and the pipeline quietly
+converts to unreviewed merges);
 a report missing either end was cut off, whatever it appears to say. Re-run it
 once; a round the re-run fixed is
 scored on the re-run's review and counts like any other, and only a round still

@@ -131,6 +131,65 @@ zero-length stroke = one dab), `TileGridTest` (dirty rect → keys, edges),
 | Ring-buffer overrun at 120 Hz with historical + predicted samples | Overrun policy is "coalesce, never drop a pen-up"; the overlay counts overruns; if non-zero on a Tab S, batch dabs per input event rather than per sample. |
 | Allocation on the touch path (a lambda, a boxed Float) shows up as GC jank | The `CanvasTouchHandler` test asserts no allocation via the pattern in `docs/plan/10-performance.md` §2.4; profile with Perfetto before merging 2b. |
 
+**PR breakdown (written 2026-08-24, `docs/EXECUTION.md` Step A).** The step is
+L, so it is split at the 2a/2b seam above and 2a is split again where the
+diff would otherwise pass ~1,500 lines. Each PR builds, tests and lints on
+its own, and each is useful on its own.
+
+Status: ⬜ not started · 🔁 open, in review · 🟢 landed on `main` (with commit).
+
+| PR | Branch | Scope (one line) | Acceptance check | Status |
+| --- | --- | --- | --- | --- |
+| 2.1 | `fable/engine-core-document` | `engine/core` document model: `PerfConstants`, `TileKey`/`IntRect`/`TileGrid`, `LayerId`/`LayerProps`/`Layer`/`LayerRecord`/`BlendMode`/`LayerStack` (+ `StackEdit`/`StackResult`/`PixelOp`/`HistoryEntry` declarations), `Document`, `Composite` (CPU reference, all eight modes), `MemoryBudget`, `CanvasPresets`, `Clock`/`RandomSource` | JVM: `TileGridTest`, `LayerStackTest`, `CompositeTest`, `MemoryBudgetTest`, `CanvasPresetsTest` green; `lintDebug` clean. No device check (nothing user-visible changes) | ✅ #7, merged 2026-08-25 |
+| 2.2 | `fable/engine-core-stroke` | `engine/core` stroke math: `StrokeInput`(+batch), `PressureCurve`, `Stabilizer`, `Dab`/`DabBatch`/`DabRing`, `DabGenerator`, `BrushPreset`/`Curve`/`ToolKind` with the one round preset | JVM: `StabilizerTest`, `DabGeneratorTest` (+ golden stroke), `PressureCurveTest`, `DabRingTest`, `BrushPresetTest`. Still no device check | ⬜ |
+| 2.3 | `fable/engine-gl-compositor` | `engine/gl` foundation and the compositor: `GlCaps`/`GlProgram`/`GlFbo`/`GlState`, `Shaders`, `TilePool`, `LayerTextures`, `ScreenTransform`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect at the right size and orientation, and the reset-view pill returns to fit after a programmatic nudge of the transform (the debug overlay is 2.5's). No touch navigation yet: `input/` is 2.4, so the view is driven programmatically here (see the note below). JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `ScreenTransformTest` (`ScreenTransform` is created here — pure math, so it is the one piece of this row a JVM test can pin end to end) | ⬜ |
+| 2.4 | `fable/stroke-path-touch` | The stroke lands on pixels, with touch: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, `input/` (`GestureArbiter`, `PalmRejection`, `StylusState`, `CanvasTouchHandler`) | Device: one finger draws a stroke that survives pen-up; two-finger tap does not leave a dot; two-finger pinch/zoom/rotate is smooth and rotation snaps near 0°, during a stroke as well as between strokes. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` (the no-allocation assertion of `docs/plan/10-performance.md` §2.4 — the step-2 risk table above names it as the mitigation for touch-path GC jank, so it is a gate, not an optional extra), and the merge blend math cross-checked on the JVM against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ⬜ |
+| 2.5 | `fable/front-buffered-stylus` | 2b: the front-buffered path (`onDrawFrontBufferedLayer`, `commit`, `cancel`), `TailBuffer`, `Predictor`, stylus axes (pressure/tilt/orientation/eraser end), palm rejection on device, unbuffered dispatch, debug overlay | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). JVM: `StabilizerTest` gains the predicted-tail cases — rationale in the note below. **This completes step 2** | ⬜ |
+
+*Why the predicted-tail cases and nothing else in 2.5.* The tail runs through a
+*copy* of the stabilizer state (`04-tools.md` §4), so "continues the stabilized
+line" and "never advances the real state" are pure claims, and they are the "no
+hook on pen-up" risk in testable form. No `PredictorTest`/`TailBufferTest`:
+`Predictor` is a thin wrapper whose whole purpose is that core never sees the
+androidx type (`02-architecture.md` §2.6) and `TailBuffer` is a GL object
+(§2.3) — neither holds logic a JVM test could pin, which is why
+`11-testing.md` gates prediction on the device checklist instead.
+
+**Split seam for 2.3.** It is the largest row and may well pass the ~1,500-line
+criterion once written. Rule 1 of this document says a PR that turns out to be
+two is split *at a named seam, never at an arbitrary point*, so the seam is
+fixed here in advance: **2.3a** = the GL foundation that has no opinion about
+compositing (`GlCaps`, `GlProgram`, `GlFbo`, `GlState`, `Shaders`, `TilePool`,
+`LayerTextures`, with `GlShaderContractTest` and `GlslDeclarationOrderTest`);
+**2.3b** = everything that draws (`ScreenTransform` + its test, `CompositePass`,
+`SandwichCache`, `CanvasRenderer`, `EngineSession`, `CanvasSurface`, the
+reset-view pill) and the device acceptance check, which belongs to the half
+that puts pixels on screen. Measure before writing; split only if it exceeds.
+
+**Why 2.3 has no touch navigation.** An earlier draft of the 2.3 row asked the
+device check for two-finger pinch/zoom/rotate, which it cannot deliver: every
+gesture component (`CanvasTouchHandler`, `GestureArbiter`, `PalmRejection`,
+`StylusState`, all of `docs/plan/07-input-and-stylus.md`) is scoped to 2.4, and
+`07` §2 makes `CanvasTouchHandler` the single owner of `MotionEvent` — so
+pulling "just the viewport half" into 2.3 would split one coherent area across
+two PRs, which rule 1 forbids, and grow the row that already needed a split
+seam. The gesture clauses therefore live in 2.4, where the code does. 2.3 still
+stands on its own: it is the PR that makes the canvas appear, `ScreenTransform`
+is fully pinned on the JVM without a device, and the reset-view pill exercises
+the view path end to end by setting the transform directly.
+
+Decisions taken while planning, to be restated in each PR description:
+
+- `HistoryEntry` is declared in 2.1 (not step 3) because `LayerStack`'s
+  tested contract is "each operation returns the entry that inverts it"
+  (`docs/plan/05-layers.md` §3.1, §5, `11-testing.md` §3.7). Only the
+  declaration lands here; the journal, the on-disk codec and the
+  `Stroke`/`Fill` payload capture stay in step 3 where the roadmap puts them.
+- `Composite` ships all eight blend modes in 2.1 rather than `NORMAL` only:
+  the eight are one `when` and `docs/plan/05-layers.md` §4 is normative for
+  them, so writing seven of them later would be a second review of the same
+  table. Only `NORMAL` is *wired* in the renderer in step 2, as the step says.
+
 ### Step 3 — Document, undo, Studio (M)
 
 **Goal.** Nothing is ever lost. Paintings persist in their project folder,
@@ -148,6 +207,64 @@ duplicate and share are stubs until step 4), storage readout;
 `MemoryBudget`, paper color). `ui/canvas`: undo/redo in the top strip, the
 "history capped at N steps / M MB" readout. Thumbnail writer (`thumb.png`
 from the readback composite on checkpoint).
+
+**Carried in from PR 2.1's review** (both recorded in AGENTS.md, the first
+also as REVIEW.md R-001) — this step must not land without them:
+`ProjectStore.load` must refuse to turn a malformed layer id into a path —
+count the layer among the unreadable and never throw the open away. (Note the
+granularity: `docs/plan/06-document-and-persistence.md` §4 returns "the count of
+unreadable **tiles**" with the load result, and a dropped layer is not a tile;
+step 3 either adds an unreadable-layers count beside it or amends §4 to cover
+both, because reporting a lost layer as N lost tiles is a misleading readout.)
+Separately, the `LayerStack.nextName` counter must survive undo and reopen.
+
+Two more came out of PR 2.1's later rounds. `ProjectStore.load` must degrade on
+a **case-insensitive** id collision rather than throwing: `LayerStack` refuses
+one at construction, but two ids differing only by case name one directory on a
+Windows or macOS copy, and a document that arrives that way must open with a
+layer counted among the unreadable, not fail. And the loader's `Json` instance
+must be able to decode a NaN or Infinity token (`allowSpecialFloatingPointValues`,
+or a coercing serializer for `opacity`) — `LayerRecord.toProps` already degrades
+such a value, but kotlinx's default decoder throws on the token before it is
+ever reached, so §4's "one bad field must never fail an open" would not hold.
+That is REVIEW.md R-020, deferred here rather than declined.
+
+Step 3 is the **latest** the layer-id→path guard may arrive, not the date it is
+scheduled for: it lands with the first code that builds a path out of a layer
+id, whenever that ships. As it turned out, PR 2.1 brought it forward — `LayerId`'s
+constructor now rejects anything that is not one safe path segment, and
+`LayerRecord.toPropsOrNull` returns `null` for such a record instead of
+throwing. What is left for this step is the *policy*: `ProjectStore.load` must
+call `toPropsOrNull`, drop the layer, and count it among the unreadable rather
+than failing the open.
+
+The counter's mechanism is decided rather than left open, because a hard gate
+with an undecided design gets settled arbitrarily under pressure: the counter
+stays on `LayerStack` where `05-layers.md` §3 puts it, `project.json` gains a
+field for it, and **undo never restores it**. That is the whole point — it is
+not journalled state, it is a monotonic allocator, so an add → undo → add must
+still yield a fresh name. A journal-entry slot would restore the old value on
+undo and reissue the name, which is the bug. Crash recovery is the single path
+that *rebuilds* the counter rather than reading it: `project.json` is only
+written at a checkpoint, so after the kill this step's own acceptance performs
+it is stale with respect to any layer added since. On journal replay, re-derive
+the counter as the **maximum of the persisted value and one past the high-water
+mark of every default name in the recovered stack** — the layers loaded from
+the checkpoint as well as every name the journal assigns during replay,
+including to layers the replay then deletes. Matching `@string/layer_default N`
+only, since a user-typed name carries no number to honour. The scan assumes
+`@string/layer_default` is not localized; the app ships `values/` and
+`values-b+zh+Hans/`, so if that string is ever translated, names written under
+one locale stop matching the pattern under another and the scan under-recovers.
+`max(persisted, high-water + 1)` still floors it at the last checkpoint, but
+names added since could be reissued — so mark the string
+`translatable="false"`. Persisting the counter at add time is *not* the
+alternative it looks like: it would mean writing `project.json` off-checkpoint
+or journalling the counter, and this paragraph rules out both. Taking the replayed
+names alone would be wrong in the commonest case this step tests: a kill with
+no layer adds since the checkpoint replays no adds at all, so the high-water
+mark is empty and the counter would reset to 1 beside a checkpoint that already
+holds a "Layer 1".
 
 **Depends on.** Step 2 (tiles and readback are what gets saved).
 

@@ -19,7 +19,12 @@ data class CanvasPreset(
 ) {
     val isSquare: Boolean get() = size.width == size.height
 
-    /** The same preset with its longer side horizontal ([landscape]) or vertical. */
+    /**
+     * This preset's *size* with its longer side horizontal ([landscape]) or
+     * vertical — not a preset: `id`, `maxLayers` and `enabled` are dropped.
+     * Feed the result through [CanvasPresets.custom] to get a validated,
+     * annotated preset back.
+     */
     fun oriented(landscape: Boolean): CanvasSize {
         val long = maxOf(size.width, size.height)
         val short = minOf(size.width, size.height)
@@ -60,7 +65,7 @@ object CanvasPresets {
         CanvasPreset(
             id = id,
             size = size,
-            maxLayers = MemoryBudget.maxLayersFor(result.gpuTileBudgetBytes, size),
+            maxLayers = MemoryBudget.maxLayersFor(result.poolCapacityBytes, size),
             enabled = fits(size, result),
         )
     }
@@ -107,7 +112,7 @@ object CanvasPresets {
             CanvasPreset(
                 id = CanvasPresetId.CUSTOM,
                 size = size,
-                maxLayers = MemoryBudget.maxLayersFor(result.gpuTileBudgetBytes, size),
+                maxLayers = MemoryBudget.maxLayersFor(result.poolCapacityBytes, size),
                 enabled = true,
             ),
         )

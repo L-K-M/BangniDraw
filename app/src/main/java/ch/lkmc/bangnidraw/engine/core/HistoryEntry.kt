@@ -124,6 +124,12 @@ sealed interface HistoryEntry {
      * *all* of the lower layer's keys when its opacity was not 1, because the
      * merge then rewrites every one of them and undo has to be able to put
      * them back (AGENTS.md, "Deviations discovered while building").
+     *
+     * Undo must therefore restore [lowerTiles] on the lower layer **and delete
+     * `upperTiles − lowerTiles` from it**, which reconstructs its tile set as
+     * exactly what it was before the merge. Rebuilding that set from
+     * [lowerTiles] alone would orphan every tile the upper layer did not
+     * cover — silent data loss on the next save.
      */
     data class LayerMerge(
         override val seq: Long = UNSTAMPED,

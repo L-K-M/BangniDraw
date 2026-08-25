@@ -74,6 +74,19 @@ class TileGridTest {
     }
 
     @Test
+    fun `a dab that is not finite and positive is refused rather than dropped`() {
+        // floor(NaN).toInt() is 0 and a negative radius inverts the rect; both
+        // yield an empty rect, i.e. a stroke gap with nothing to trace it to.
+        for (bad in listOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY)) {
+            assertFailsWith<IllegalArgumentException> { IntRect.forDab(bad, 0f, 4f) }
+            assertFailsWith<IllegalArgumentException> { IntRect.forDab(0f, bad, 4f) }
+            assertFailsWith<IllegalArgumentException> { IntRect.forDab(0f, 0f, bad) }
+        }
+        assertFailsWith<IllegalArgumentException> { IntRect.forDab(10f, 10f, -1f) }
+        IntRect.forDab(10f, 10f, 0f)
+    }
+
+    @Test
     fun `tile keys are stable and hashable`() {
         val a = TileKey(3, 7)
         val b = TileKey(3, 7)

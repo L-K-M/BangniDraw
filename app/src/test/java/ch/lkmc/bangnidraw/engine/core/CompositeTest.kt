@@ -139,7 +139,12 @@ class CompositeTest {
             val d = randomPremultiplied(random)
             val out = Composite.erase(d, randomPremultiplied(random))
             assertTrue(Composite.alpha(out) <= Composite.alpha(d), "erasing raised the alpha of ${hex(d)}")
-            assertTrue(Composite.red(out) <= Composite.red(d), "erasing raised the red of ${hex(d)}")
+            assertTrue(
+                Composite.red(out) <= Composite.red(d) &&
+                    Composite.green(out) <= Composite.green(d) &&
+                    Composite.blue(out) <= Composite.blue(d),
+                "erasing raised a colour channel of ${hex(d)}",
+            )
         }
     }
 

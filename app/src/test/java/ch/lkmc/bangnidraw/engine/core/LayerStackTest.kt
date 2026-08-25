@@ -134,23 +134,27 @@ class LayerStackTest {
     @Test
     fun `reorder is a permutation`() {
         val random = Random(42)
-        val stack = stackOf("a", "b", "c", "d", "e")
+        // Chained, not repeated from one arrangement: a state-dependent
+        // ordering bug only shows once the stack has been shuffled.
+        var stack = stackOf("a", "b", "c", "d", "e")
         repeat(500) {
             val from = random.nextInt(stack.size)
             val to = random.nextInt(stack.size)
             if (from == to) return@repeat
-            val moved = ok(stack.move(from, to)).stack
+            val before = stack
+            val moved = ok(before.move(from, to)).stack
             assertEquals(
-                stack.layers.map { it.id.value }.sorted(),
+                before.layers.map { it.id.value }.sorted(),
                 moved.layers.map { it.id.value }.sorted(),
                 "move($from, $to) lost or duplicated a layer",
             )
             assertEquals(
-                stack.layers[from].id,
+                before.layers[from].id,
                 moved.layers[to].id,
                 "move($from, $to) did not land the layer at $to",
             )
             assertEquals(to, moved.activeIndex, "the moved layer follows the drag")
+            stack = moved
         }
     }
 
@@ -421,6 +425,17 @@ class LayerStackTest {
     }
 
     @Test
+    fun `a layer id that is not a single path segment is refused`() {
+        // The id becomes a directory name, and it arrives from project.json —
+        // a file that can be hand-edited or carried between devices.
+        for (bad in listOf("", ".", "..", "../../evil", "a/b", "a\\b", "C:x", "a\u0000b")) {
+            assertFailsWith<IllegalArgumentException>("id \"$bad\" must be refused") { LayerId(bad) }
+        }
+        LayerId("0f9a3c2e-1b4d-4a7e-9c31-2f8b6d5a0e17")
+        LayerId("id-0")
+    }
+
+    @Test
     fun `selection is not an edit`() {
         val stack = stackOf("a", "b", "c")
         assertEquals(2, stack.select(2).activeIndex)
@@ -509,7 +524,7 @@ class LayerStackTest {
 
     private fun randomOperation(stack: LayerStack, random: Random, ids: Ids): StackResult {
         val i = random.nextInt(stack.size)
-        return when (random.nextInt(11)) {
+        return when (random.nextInt(13)) {
             0 -> stack.add(ids, cap)
             1 -> stack.duplicate(i, ids, cap)
             2 -> stack.delete(i)
@@ -520,7 +535,12 @@ class LayerStackTest {
             7 -> stack.setVisible(i, random.nextBoolean())
             8 -> stack.setBlendMode(i, BlendMode.entries[random.nextInt(BlendMode.entries.size)])
             9 -> stack.flatten(ids)
-            else -> stack.rename(i, "name-${random.nextInt(1000)}")
+            10 -> stack.rename(i, "name-${random.nextInt(1000)}")
+            // Without these the exploration never reaches a stack that
+            // *contains* a locked layer, so lock interactions with the
+            // structural ops go untested mid-sequence.
+            11 -> stack.setLocked(i, random.nextBoolean())
+            else -> stack.setAlphaLock(i, random.nextBoolean())
         }
     }
 
@@ -547,10 +567,12 @@ class LayerStackTest {
             }
             is HistoryEntry.LayerProps -> {
                 val at = indexOf(entry.layerId)
+                    .also { check(it >= 0) { "layer ${entry.layerId} is not in the rewound stack" } }
                 layers[at] = layers[at].copy(props = entry.before.toProps())
             }
             is HistoryEntry.LayerClear -> {
                 val at = indexOf(entry.layerId)
+                    .also { check(it >= 0) { "layer ${entry.layerId} is not in the rewound stack" } }
                 layers[at] = layers[at].copy(tiles = entry.tiles.toSet())
             }
             is HistoryEntry.LayerMerge -> {

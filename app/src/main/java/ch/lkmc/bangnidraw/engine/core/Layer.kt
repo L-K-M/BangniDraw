@@ -8,7 +8,24 @@ import kotlinx.serialization.Serializable
  * index (`docs/plan/05-layers.md` §1).
  */
 @JvmInline
-value class LayerId(val value: String)
+value class LayerId(val value: String) {
+    init {
+        // This value becomes a directory name, so it must be one path segment
+        // and nothing else. Enforced here rather than only at the store because
+        // the type's own KDoc promises it, and an id arrives from `project.json`
+        // — a file that can be hand-edited or shipped between devices.
+        //
+        // Deliberately a path-segment floor, not a UUID regex: the security
+        // property is "cannot escape the project folder", and ids in tests and
+        // future fixtures need not be UUIDs to satisfy it.
+        require(
+            value.isNotEmpty() && value != "." && value != ".." &&
+                value.none { it == '/' || it == '\\' || it == ':' || it == '\u0000' }
+        ) {
+            "layer id must be a single safe path segment, was \"$value\""
+        }
+    }
+}
 
 /**
  * Everything about a layer except its pixels — the part that goes into

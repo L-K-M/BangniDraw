@@ -4,8 +4,14 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SHIFT
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 
 /**
- * A tile address in canvas space, packed into one `Int` so the hot paths
- * never box (`docs/plan/03-canvas-engine.md` §1).
+ * A tile address in canvas space, packed into one `Int`
+ * (`docs/plan/03-canvas-engine.md` §1).
+ *
+ * Packing a key into one `Int` keeps it a single field, but it does **not**
+ * make key storage allocation-free: a value class boxes whenever it appears as
+ * a generic argument, so every `MutableList<TileKey>` element is boxed. The
+ * per-frame paths must carry packed `Int`s (an `IntArray`) and wrap only at
+ * the boundary.
  *
  * Coordinates are unsigned 16-bit, so the packing alone would address 65 536
  * tiles — 16 777 216 px — per side. The format's real ceiling of 8192 px is
@@ -47,8 +53,10 @@ data class IntRect(val left: Int, val top: Int, val right: Int, val bottom: Int)
             // would yield an empty rect and silently drop the dab — a gap in a
             // stroke with nothing to trace it back to. Everything else in this
             // file fails loudly; so does this.
-            require(x.isFinite() && y.isFinite() && radius.isFinite()) {
-                "dab must be finite: x=$x, y=$y, radius=$radius"
+            // A negative radius inverts the rect (left > right), which comes
+            // back empty — the same silent drop, by a different route.
+            require(x.isFinite() && y.isFinite() && radius.isFinite() && radius >= 0f) {
+                "dab must be finite with radius >= 0, was x=$x, y=$y, radius=$radius"
             }
             val l = kotlin.math.floor(x - radius - 1f).toInt()
             val t = kotlin.math.floor(y - radius - 1f).toInt()

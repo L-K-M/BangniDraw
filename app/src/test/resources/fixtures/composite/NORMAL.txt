@@ -6,7 +6,8 @@
 # combined per docs/plan/05-layers.md section 4 --
 #   Co = s.rgb*(1 - d.a) + d.rgb*(1 - s.a) + both(s, d)
 #   Ao = s.a + d.a*(1 - s.a)
-# -- with round-to-nearest on store. both(s, d) = s.a*d.a*B(d.rgb/d.a,
+# -- with round-to-nearest on store, ties away from zero (NORMAL.txt's
+# last row is the one that actually discriminates that from half-even). both(s, d) = s.a*d.a*B(d.rgb/d.a,
 # s.rgb/s.a): the mode B is applied to the UNPREMULTIPLIED channels and
 # weighted by the joint coverage. Section 4's table writes that out already
 # simplified into premultiplied terms (e.g. DARKEN's min(s.rgb*d.a,
@@ -26,3 +27,4 @@ FF000000 FFFFFFFF 1.0  FFFFFFFF  # white over black
 40200010 C0603010 1.0  D0683014  # two partly covered pixels
 FF3366AA 80402010 0.75 FF505876  # an odd pixel at three quarters opacity
 FF3366AA 80402010 0.0  FF3366AA  # zero opacity leaves the destination untouched
+00000000 FFFDFDFD 0.5  807F7F7F  # a colour tie: 126.5 stores as 127 (half-up); half-even would give 126

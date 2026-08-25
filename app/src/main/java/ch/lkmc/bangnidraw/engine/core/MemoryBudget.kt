@@ -131,12 +131,16 @@ object MemoryBudget {
     const val SLICES_PER_PAGE = 256
 
     /**
-     * How many layers of [canvas] fit a tile budget of [gpuTileBudgetBytes],
-     * clamped to `MIN_LAYERS..MAX_LAYERS`. `CanvasPresets` annotates every
-     * row with this, so the New Canvas dialog and the layer panel can never
+     * How many layers of [canvas] fit a pool capacity of [poolCapacityBytes],
+     * clamped to `MIN_LAYERS..MAX_LAYERS`. `CanvasPresets` annotates every row
+     * with this, so the New Canvas dialog and the layer panel can never
      * disagree.
+     *
+     * The parameter is named for the *capacity*, not the raw budget: passing
+     * `Result.gpuTileBudgetBytes` here compiles and reads naturally, and is
+     * exactly the over-commit [Result.poolCapacityBytes] exists to prevent.
      */
-    fun maxLayersFor(gpuTileBudgetBytes: Long, canvas: CanvasSize): Int {
+    fun maxLayersFor(poolCapacityBytes: Long, canvas: CanvasSize): Int {
         // A canvas with no area divides by zero below. It is not this
         // function's job to reject one — `CanvasPresets.custom` does that, and
         // `CanvasSize` exists precisely to describe a size in order to refuse
@@ -146,7 +150,7 @@ object MemoryBudget {
         // narrows by truncation, and Long.MAX_VALUE / a small canvas lands on
         // -1, which would answer MIN_LAYERS where the honest answer is the cap.
         val layersThatFit =
-            (gpuTileBudgetBytes / canvas.layerBytesWorstCase)
+            (poolCapacityBytes / canvas.layerBytesWorstCase)
                 .coerceAtMost(Int.MAX_VALUE.toLong())
                 .toInt() - STROKE_BUFFER_RESERVE_LAYERS
         return layersThatFit.coerceIn(MIN_LAYERS, MAX_LAYERS)

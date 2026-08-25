@@ -9,15 +9,29 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
 
 ## Open
 
-- **R-001 🔧 Layer ids reach the filesystem unvalidated.** (PR #7, GLM round 2.)
-  `LayerId` names `layers/<layerId>/` on disk, but nothing checks its shape, so
-  a hand-crafted `project.json` with an id of `../../x` would be a path
-  traversal once `TileStore` exists. Deferred to roadmap step 3, which is the
-  PR that first turns an id into a path — see the decline note below for why
-  the suggested fix was not taken as offered. **Step 3 must not land without
-  it.**
+_Nothing open._
 
 ## Resolved
+
+- **R-001 🟢 Layer ids reach the filesystem unvalidated.** Raised in rounds 2,
+  6, 7 and 8; declined three times, **applied in round 8** — recording the
+  change of position rather than making it silently. My decline rested on one
+  claim: that a `require` at the deserialization boundary contradicts
+  `06-document-and-persistence.md` §4's "one bad tile must never fail an open".
+  Round 8 rebutted exactly that claim, and it is right: §4's degrade rule is
+  about values with a sane fallback — a tile degrades to transparent, an
+  opacity to 1 — whereas a malformed layer *id* has no meaningful degraded
+  value at all, because it is the key every history reference and tile lookup
+  is resolved through. A document with one is corrupt, not partially readable.
+  That is new reasoning, not repetition, so it is not a flip-flop.
+  `LayerId` now enforces the single-path-segment contract its own KDoc already
+  promised. Deliberately a path-segment floor (no `/`, `\`, `:`, NUL, not
+  empty, not `.`/`..`) rather than the suggested UUID regex: the security
+  property is "cannot escape the project folder", and a UUID check would break
+  every fixture id for no added safety. The architectural half of the original
+  decline still stands and stays in the roadmap: step 3 must not build a path
+  by concatenating untrusted text, and `ProjectStore.load` must catch this per
+  layer and drop it into §4's unreadable tally rather than failing the open.
 
 - **R-004 🟢 Gate PR 2.5 on `PredictorTest` and `TailBufferTest`.** (PR #7, GLM
   round 4.) The *observation* was right and was acted on: 2.5 was the only row
@@ -55,23 +69,28 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
 
 ## Declined, with reasons
 
-- **R-001 ⏸️ Throwing on a malformed layer id in `LayerRecord.init`** (PR #7,
-  GLM round 2). The *concern* is real and is tracked as open above; the
-  *suggested fix* is not the right shape and is declined. Three reasons.
-  (1) It contradicts the plan's stated posture for corrupt data:
-  `06-document-and-persistence.md` §4 says "one bad tile must never fail an
-  open" and §13 says an unreadable field degrades with a log line — a
-  `require` in the deserialization constructor makes one bad id fail the whole
-  document, which is exactly the failure mode the plan forbids. The right
-  degrade is to drop the malformed layer and count it in the unreadable tally
-  §4 already defines, and that is `ProjectStore.load` code, which does not
-  exist yet. (2) There is no filesystem in this PR at all, so there is nothing
-  to traverse; the mitigation has to live at the boundary that builds the path,
-  not two layers above it. (3) The threat needs write access to app-private
-  storage (`filesDir/projects/`) to plant the file, which on a non-rooted
-  device means the attacker is already inside the sandbox. Revisit in step 3,
-  where the fix is "validate the shape *and* never build a path by
-  concatenating untrusted text", not a constructor throw.
+- **R-001 ⏸️→🟢 Throwing on a malformed layer id in `LayerRecord.init`** (PR
+  #7, rounds 2, 6, 7). Declined three times on the reasoning below, then
+  **superseded in round 8** — see R-001 under *Resolved* for the argument that
+  changed the position and what was actually implemented. Kept here so the
+  history of the decision is legible rather than rewritten.
+
+  *Original reasoning:* the concern was real but the suggested fix was the
+  wrong shape. (1) A `require` in the deserialization constructor makes one bad
+  id fail the whole document open, which `06-document-and-persistence.md` §4
+  forbids for tiles. (2) There was no filesystem in this PR to traverse. (3)
+  The threat needs write access to app-private storage to plant the file. Point
+  (1) is the one round 8 rebutted: §4's rule is about values with a sane
+  fallback, and an id has none. Points (2) and (3) still hold, which is why the
+  *path-construction* obligation remains step 3's and is written into the
+  roadmap.
+
+- **R-013 ⏸️ `TileGrid.MAX_EDGE + 1` could itself overflow in the test.**
+  Declined: the premise is false. `MAX_EDGE` is `8192`, so `MAX_EDGE + 1` is
+  `8193` and cannot wrap. The finding hedges on "if `TileGrid.MAX_EDGE` is
+  defined as `Int.MAX_VALUE`" — it is not, and it is a `const val` two files
+  away. Guarding against a constant that does not have that value would add a
+  branch no test can reach.
 
 - **R-010 ⏸️ Round 7's BLOCKER: "`assertIs` return value ignored, so
   `CanvasPresetsTest` does not compile".** Refuted. `kotlin.test.assertIs` is

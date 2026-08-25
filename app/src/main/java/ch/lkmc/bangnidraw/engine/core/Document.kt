@@ -23,15 +23,21 @@ data class Document(
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
 ) {
-    /** The tile geometry of this canvas. Built once; not part of `equals`. */
-    val grid: TileGrid = TileGrid(width, height)
-
+    // Kotlin runs initialisers in declaration order, so this block has to come
+    // before `grid`: otherwise a bad size reaches TileGrid's constructor first
+    // and the caller sees its message instead of this one.
     init {
         require(width in MIN_EDGE..MAX_EDGE && height in MIN_EDGE..MAX_EDGE) {
             "canvas ${width}x$height is outside $MIN_EDGE..$MAX_EDGE per side"
         }
         // dpi divides in every px -> mm/inch conversion export and the UI do.
         require(dpi > 0) { "dpi must be positive, was $dpi" }
+    }
+
+    /** The tile geometry of this canvas. Built once; not part of `equals`. */
+    val grid: TileGrid = TileGrid(width, height)
+
+    init {
         require(grid.tileCount <= TileGrid.MAX_TILES) {
             "canvas ${width}x$height needs ${grid.tileCount} tiles, over the ${TileGrid.MAX_TILES} the format allows"
         }

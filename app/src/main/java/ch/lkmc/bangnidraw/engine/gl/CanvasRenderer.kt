@@ -119,6 +119,9 @@ class CanvasRenderer(
      * Canvas refuses to open. Not expected to fire on any API-29 hardware.
      */
     fun onContextCreated(strict: Boolean): Boolean {
+        // Process-wide: with more than one GL context the last caller wins for
+        // all of them. Fine while the app has a single canvas; revisit before a
+        // second GL surface (a thumbnail renderer) exists.
         GlErrors.strict = strict
         GlErrors.reset()
         state.invalidate()
@@ -131,9 +134,23 @@ class CanvasRenderer(
             isReady = false
             return false
         }
-        val compositeProgram = GlProgram.link(Shaders.COMPOSITE)
-        val presentProgram = GlProgram.link(Shaders.PRESENT)
-        val checkerProgram = GlProgram.link(Shaders.CHECKER)
+        // §13 calls a link failure "fatal for the Canvas ... a crash-report-worthy
+        // bug, not a device condition". Fatal for the Canvas is what returning
+        // false does — the Studio still works and the Canvas refuses to open —
+        // and it is strictly better than letting the exception escape a GL
+        // callback, which crashes the app and reports the same information.
+        val compositeProgram: GlProgram
+        val presentProgram: GlProgram
+        val checkerProgram: GlProgram
+        try {
+            compositeProgram = GlProgram.link(Shaders.COMPOSITE)
+            presentProgram = GlProgram.link(Shaders.PRESENT)
+            checkerProgram = GlProgram.link(Shaders.CHECKER)
+        } catch (e: GlProgramException) {
+            Log.e(GL_TAG, "shader link failed on ${probed.describe()}", e)
+            isReady = false
+            return false
+        }
         composite = compositeProgram
         present = presentProgram
         checker = checkerProgram
@@ -172,8 +189,15 @@ class CanvasRenderer(
     fun setStack(next: LayerStack) {
         val previous = stack
         stack = next
-        for (layer in next.layers) {
-            layers.getOrPut(layer.id) { LayerTextures(grid, pool ?: return) }
+        // A `return` inside the getOrPut lambda is a NON-LOCAL return: with a
+        // null pool it abandoned setStack after `stack` was already assigned,
+        // skipping the stale-layer release, `observe` and the invalidate below.
+        // Benign only because pool and sandwich are created together today.
+        val tiles = pool
+        if (tiles != null) {
+            for (layer in next.layers) {
+                layers.getOrPut(layer.id) { LayerTextures(grid, tiles) }
+            }
         }
         // A layer that left the stack takes its slices with it; leaving them
         // allocated is how a pool runs dry over a long editing session.
@@ -225,10 +249,25 @@ class CanvasRenderer(
         bufferHeight: Int,
         bufferTransform: FloatArray,
     ) {
-        val current = stack ?: return
-        val screenTransform = screen ?: return
-        val pass = compositePass ?: return
-        if (!isReady || !accum.isAllocated) return
+        val current = stack
+        val screenTransform = screen
+        val pass = compositePass
+        if (current == null || screenTransform == null || pass == null ||
+            !isReady || !accum.isAllocated
+        ) {
+            // graphics-core presents this buffer as-is once the callback
+            // returns, and does not promise it was cleared. Returning without
+            // touching it shows whatever it held — undefined content, or the
+            // frame from two buffers ago — for the frames between surface
+            // creation and the first fully valid state.
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, frameBufferId)
+            GLES30.glColorMask(true, true, true, true)
+            GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
+            GLES30.glClearColor(0f, 0f, 0f, 0f)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+            state.invalidate()
+            return
+        }
 
         // graphics-core runs this with a framebuffer already bound and may have
         // touched state between frames, so the shadow starts each frame empty.
@@ -243,10 +282,14 @@ class CanvasRenderer(
         state.scissorOff()
 
         val cache = sandwich
-        val useSandwich = cache != null && cache.aboveAvailable
+        // Both halves: they become unavailable independently — `above` on
+        // associativity, `below` on the missing ping-pong — and using the
+        // sandwich with one of them unusable composites a half that was never
+        // built.
+        val useSandwich = cache != null && cache.aboveAvailable && cache.belowAvailable
         val fullCanvas = IntRect(0, 0, canvas.width, canvas.height)
 
-        drawPaper(screenTransform, bakedIntoBelow = useSandwich)
+        drawPaper(bakedIntoBelow = useSandwich)
 
         if (useSandwich && cache != null) {
             pass.draw(
@@ -290,13 +333,17 @@ class CanvasRenderer(
             // sampled from there. Both are viewport-oriented, which is the one
             // case §3.2 allows a blit for.
             copyAccumToScratch()
+            // BEFORE the draw, not after. The blit leaves Scratch as the draw
+            // target, so drawing here without rebinding composites the layer
+            // into its own backdrop copy — and samples Scratch at the same
+            // time, which is a feedback loop on top of drawing into the wrong
+            // texture. Accum would simply never receive the layer.
+            if (!fbo.bindTexture2d(accum.texture)) return
         }
         pass.draw(
             textures, props.blendMode, props.opacity, screenTransform, projection, identity,
             rect, scratch.texture,
         )
-        // The blit above replaced our framebuffer binding.
-        if (props.blendMode != BlendMode.NORMAL) fbo.bindTexture2d(accum.texture)
     }
 
     /**
@@ -309,20 +356,31 @@ class CanvasRenderer(
      */
     private fun copyAccumToScratch() {
         if (!scratch.isAllocated) return
+        // Same size, or the blit silently rescales the backdrop and every
+        // non-normal layer blends against a stretched copy — no GL error, and
+        // a picture that is subtly wrong rather than obviously broken. They are
+        // allocated together in onSurfaceChanged, so this only fires if one
+        // allocation failed.
+        if (accum.width != scratch.width || accum.height != scratch.height) return
         if (!readFbo.bindTexture2d(accum.texture, GLES30.GL_READ_FRAMEBUFFER)) return
-        if (!fbo.bindTexture2d(scratch.texture, GLES30.GL_DRAW_FRAMEBUFFER)) return
-        GLES30.glBlitFramebuffer(
-            0, 0, accum.width, accum.height,
-            0, 0, scratch.width, scratch.height,
-            GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST,
-        )
-        // The read binding is ours and must not outlive the blit: the next
-        // pass binds GL_FRAMEBUFFER, which would leave this FBO as the read
-        // source of whatever runs after it.
-        GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, 0)
+        try {
+            if (!fbo.bindTexture2d(scratch.texture, GLES30.GL_DRAW_FRAMEBUFFER)) return
+            GLES30.glBlitFramebuffer(
+                0, 0, accum.width, accum.height,
+                0, 0, scratch.width, scratch.height,
+                GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST,
+            )
+        } finally {
+            // On EVERY path once the read side is bound. The binding is ours
+            // and must not outlive the blit: the next pass binds
+            // GL_FRAMEBUFFER, which leaves this FBO as the read source of
+            // whatever runs after it — including the failure path, where the
+            // invariant is hardest to notice.
+            GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, 0)
+        }
     }
 
-    private fun drawPaper(screenTransform: ScreenTransform, bakedIntoBelow: Boolean) {
+    private fun drawPaper(bakedIntoBelow: Boolean) {
         val transparent = (paperColor ushr 24) == 0
         if (bakedIntoBelow || transparent) {
             // Below already carries the paper, so Accum starts empty and Below
@@ -384,11 +442,16 @@ class CanvasRenderer(
         bufferTransform: FloatArray,
     ) {
         val program = present ?: return
+        if (bufferWidth <= 0 || bufferHeight <= 0) return
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, frameBufferId)
         state.viewport(0, 0, bufferWidth, bufferHeight)
         state.scissorOff()
         state.blendOff()
         state.useProgram(program)
+        // Bound directly rather than through `state`: GlState caches sampler
+        // FILTERS per texture id, not bindings, so there is no binding cache to
+        // keep in sync here. If it ever gains one, this is a call site to route
+        // through it.
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, accum.texture)
         program.uniform1i("u_source", 0)
@@ -406,11 +469,15 @@ class CanvasRenderer(
 
     private fun rebuildSandwichIfNeeded(current: LayerStack, screenTransform: ScreenTransform) {
         val cache = sandwich ?: return
+        // onContextLost() nulls the pool while leaving the cache in place, so
+        // this window is reachable — and `!!` there would throw from inside a
+        // render callback on surface recreation.
+        val tiles = pool ?: return
         // Viewport-first, plus a margin so a small pan does not stall on a
         // rebuild (`docs/plan/10-performance.md` §2.6).
         val visible = visibleCanvasRect(screenTransform)
         cache.rebuild(visible, current, paperColor) { index ->
-            textures(current.layers[index].id) ?: LayerTextures(grid, pool!!)
+            textures(current.layers[index].id) ?: LayerTextures(grid, tiles)
         }
     }
 

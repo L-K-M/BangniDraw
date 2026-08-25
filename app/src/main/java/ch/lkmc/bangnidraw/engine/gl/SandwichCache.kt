@@ -82,13 +82,29 @@ class SandwichCache(
         private set
 
     /**
+     * False when a non-Normal layer sits **below** the active one.
+     *
+     * Not symmetric with [aboveAvailable] in its reason: `Above` is limited by
+     * associativity, `Below` by the missing ping-pong of §4 — [buildTile]
+     * blends straight into the cache slice, so a mode that needs a backdrop has
+     * none. Both answers are "take the per-layer path", which is always
+     * correct.
+     */
+    var belowAvailable: Boolean = true
+        private set
+
+    /**
      * Recomputes [aboveAvailable] for [stack]. Cheap, and called whenever the
      * stack or the active layer changes.
      */
     fun observe(stack: LayerStack) {
         val activeIndex = stack.activeIndex
+        val size = stack.layers.size
         aboveAvailable = SandwichPolicy.aboveIsCacheable(
-            stack.layers.subList((activeIndex + 1).coerceAtMost(stack.layers.size), stack.layers.size),
+            stack.layers.subList((activeIndex + 1).coerceIn(0, size), size),
+        )
+        belowAvailable = SandwichPolicy.belowIsCacheable(
+            stack.layers.subList(0, activeIndex.coerceIn(0, size)),
         )
     }
 
@@ -137,11 +153,18 @@ class SandwichCache(
      * on screen and the rest arrives as it is scrolled into view.
      */
     fun rebuild(rect: IntRect, stack: LayerStack, paper: Int, layerTextures: (Int) -> LayerTextures) {
-        if (!belowStale && !aboveStale) return
+        // An unavailable half never fills its built set, so its stale flag can
+        // never clear — without the availability terms this early return never
+        // fires again and every frame pays a keysFor allocation and a walk for
+        // zero work, in the standing configuration where a non-Normal layer
+        // sits next to the active one.
+        val belowPending = belowStale && belowAvailable
+        val abovePending = aboveStale && aboveAvailable
+        if (!belowPending && !abovePending) return
         val activeIndex = stack.activeIndex
         val keys = grid.keysFor(rect)
         for (key in keys) {
-            if (belowStale && belowBuilt.add(key.packed)) {
+            if (belowPending && belowBuilt.add(key.packed)) {
                 buildTile(
                     key,
                     target = below,
@@ -152,7 +175,7 @@ class SandwichCache(
                     layerTextures = layerTextures,
                 )
             }
-            if (aboveStale && aboveAvailable && aboveBuilt.add(key.packed)) {
+            if (abovePending && aboveBuilt.add(key.packed)) {
                 buildTile(
                     key,
                     target = above,
@@ -172,12 +195,22 @@ class SandwichCache(
     /**
      * Composites one tile of a half, in canvas space.
      *
-     * Ping-pong between two scratch slices, one pass per contributing layer,
-     * with the last pass writing straight into the cache's own slice. Both
-     * scratch slices are taken with `allocateNotOn` against each other and
-     * against the pages being sampled — §2.1's rule that a pass may not render
-     * into a slice of a page it samples, which is per texture *object*, not
-     * per slice.
+     * One pass per contributing layer, each blending **straight into the
+     * cache's own slice** with hardware source-over.
+     *
+     * §4 describes a ping-pong between two scratch slices taken with
+     * `allocateNotOn`, so that a non-Normal layer has the partial composite to
+     * read as a backdrop. That is **not what this does**, and the difference is
+     * why [belowAvailable] and [aboveAvailable] exist: a half containing a
+     * non-Normal layer is reported unavailable and the compositor composites
+     * those layers individually instead. Every pass that reaches here is
+     * therefore source-over, which needs no backdrop and no ping-pong — and
+     * §2.1's "never render into a page you sample" rule is satisfied because
+     * nothing is sampled but the layer pages, which are not the target.
+     *
+     * Implementing the ping-pong would restore the cached path for non-Normal
+     * layers; it is a performance win over a correct fallback, not a
+     * correctness fix, and is carried in `12-roadmap.md`.
      */
     private fun buildTile(
         key: TileKey,
@@ -188,7 +221,14 @@ class SandwichCache(
         layerTextures: (Int) -> LayerTextures,
     ) {
         val destination = target.sliceForWrite(key)
-        if (!fbo.bindArrayLayer(target.pageTexture(destination.page), destination.slice)) return
+        if (!fbo.bindArrayLayer(target.pageTexture(destination.page), destination.slice)) {
+            // Un-mark it, or the tile keeps stale content forever: the caller
+            // adds the key to the built set BEFORE calling this, and if this
+            // was the last missing tile the tail check would clear the stale
+            // flag and the half would never be retried.
+            if (target === below) belowBuilt.remove(key.packed) else aboveBuilt.remove(key.packed)
+            return
+        }
         GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
         GLES30.glViewport(0, 0, TILE_SIZE, TILE_SIZE)
         fbo.clear(
@@ -204,14 +244,13 @@ class SandwichCache(
         for (i in indices) {
             val props = stack.layers[i].props
             if (!props.visible || props.opacity <= 0f) continue
-            // A non-normal layer inside a cache half would need the half's own
-            // partial result as a backdrop, which is the ping-pong §4
-            // describes. `below` is built bottom-up so the backdrop is always
-            // what has been written so far — and for `above`, availability
-            // already guaranteed every mode here is Normal.
+            // Always NORMAL: a half is only built when every visible layer in
+            // it is Normal (see the KDoc above), so `props.blendMode` here is
+            // Normal by construction — passing it would merely invite the next
+            // reader to assume a backdrop exists.
             pass.draw(
                 textures = layerTextures(i),
-                mode = if (target === above) BlendMode.NORMAL else props.blendMode,
+                mode = BlendMode.NORMAL,
                 opacity = props.opacity,
                 screen = tileScreen,
                 projection = tileProjection,

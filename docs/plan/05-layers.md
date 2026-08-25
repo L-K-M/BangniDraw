@@ -618,7 +618,7 @@ with `a` = active index before the operation and `i` the operated index:
 | … on `i > a` | — | stale | |
 | … on `i == a` | — | — | the active layer is composited live between the two halves; opacity/mode of the active layer are uniforms of that pass |
 | `setAlphaLock / setLocked / rename` | — | — | no pixels change |
-| `move(a, to)` | stale if `to < a` | stale if `to > a` | the moved layer stays active; only the side it crossed into changed membership |
+| `move(a, to)`, `to != a` | stale | stale | **corrected 2026-08-25** — every layer the active one crosses leaves one half and joins the other, even for an adjacent move. The old rule ("only the side it crossed into") tracked the *moved* layer, which is in neither half; in `[L0, L1(active), L2]`, `move(1, 0)` puts L0 into `above`, and staling only `below` left L0 in neither half, so it vanished from the canvas. Found by review on PR #11 |
 | `move(from, to)`, `from != a` | stale | stale | the moved layer becomes active (§3.1), so `a` changes |
 | `add()` | stale | — | the new (empty) layer becomes active; the old active joins `below` (see note) |
 | `duplicate(a)` | stale | — | as `add`: the copy sits at `a + 1` and becomes active; `above` is unchanged |

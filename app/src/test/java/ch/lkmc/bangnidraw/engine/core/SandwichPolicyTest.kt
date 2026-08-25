@@ -50,9 +50,20 @@ class SandwichPolicyTest {
     }
 
     @Test
-    fun `moving the active layer stales only the side it crossed into`() {
-        assertEquals(Stale.BELOW, stale(Op.Move(from = a, to = 0)))
-        assertEquals(Stale.ABOVE, stale(Op.Move(from = a, to = 7)))
+    fun `moving the active layer stales both halves, because crossed layers swap sides`() {
+        // The rule this replaced — "only the side it crossed into" — was
+        // transcribed from `05-layers.md` §8 and was wrong in the plan itself.
+        // It tracks the moved layer, which is in neither half; every layer it
+        // CROSSES leaves one half and joins the other. With a = 3, moving the
+        // active layer to 0 empties `below` and adds three layers to `above`.
+        // Staling only `below` leaves those three in neither the reused half
+        // nor the live pass — they vanish from the canvas.
+        assertEquals(Stale.BOTH, stale(Op.Move(from = a, to = 0)))
+        assertEquals(Stale.BOTH, stale(Op.Move(from = a, to = 7)))
+        // Adjacent counts: one layer still crosses.
+        assertEquals(Stale.BOTH, stale(Op.Move(from = a, to = a - 1)))
+        assertEquals(Stale.BOTH, stale(Op.Move(from = a, to = a + 1)))
+        // Only a move that moves nothing is free.
         assertEquals(Stale.NEITHER, stale(Op.Move(from = a, to = a)))
     }
 
@@ -150,7 +161,21 @@ class SandwichPolicyTest {
             Op.PixelEdit(0),
         )
         val kinds = covered.map { it::class.simpleName }.toSet()
-        assertEquals(14, kinds.size, "duplicate or missing Op kind in $kinds")
+        // Derived from the sealed hierarchy, not hardcoded. A literal count is
+        // exactly the vacuous guard this test exists to prevent: a fifteenth Op
+        // with a hasty `-> Stale.NEITHER` arm would leave the literal correct
+        // and the assertion green.
+        //
+        // `permittedSubclasses` rather than Kotlin's `sealedSubclasses`, which
+        // needs kotlin-reflect at runtime — a dependency this module does not
+        // carry and would not be worth adding for one assertion. A Kotlin
+        // sealed interface compiles to a JVM sealed interface, so the JDK's own
+        // list is the same list.
+        assertEquals(
+            Op::class.java.permittedSubclasses.size,
+            kinds.size,
+            "an Op kind is missing from `covered` (or listed twice): $kinds",
+        )
         // Every one of them must be a decision this test actually made, i.e.
         // the policy must answer without throwing for all of them.
         for (op in covered) SandwichPolicy.stale(op, activeIndex = a)

@@ -5,6 +5,7 @@ import android.content.Context
 import android.view.SurfaceView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -44,6 +45,13 @@ fun CanvasSurface(
     val budget = remember(canvas) { MemoryBudget.compute(readDeviceMemory(context), canvas) }
     val sessionHolder = remember { arrayOfNulls<EngineSession>(1) }
 
+    // `key(canvas)` because the session takes its CanvasSize and its budget at
+    // construction and has no resize path: without this, the New Canvas dialog
+    // (roadmap step 3) changing the size would leave the engine rendering the
+    // old dimensions against a pool sized from a freshly computed, mismatched
+    // budget. The `remember(canvas)` above already anticipates the change; this
+    // is what makes the SurfaceView, the session and the budget move together.
+    key(canvas) {
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -75,6 +83,7 @@ fun CanvasSurface(
             sessionHolder[0]?.release()
             sessionHolder[0] = null
         }
+    }
     }
 }
 

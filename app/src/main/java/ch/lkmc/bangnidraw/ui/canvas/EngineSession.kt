@@ -39,13 +39,28 @@ class EngineSession(
     val renderer = CanvasRenderer(canvas, budget)
 
     /**
-     * Null until the first frame: `GLFrontBufferedRenderer` starts its GL
-     * thread from the constructor, so this reference is assigned before any
-     * callback can run only because the callback is `this`.
+     * `GLFrontBufferedRenderer` starts its GL thread inside its own
+     * constructor, so a callback can fire before this line finishes assigning.
+     *
+     * That is safe only because [renderer] is declared *above* it and the
+     * callbacks read [renderer] and the flags — never `frontBuffered` itself.
+     * Reordering these two declarations would let a callback observe a null
+     * `renderer`. (An earlier version of this KDoc said "null until the first
+     * frame", which described a nullable field that never existed.)
      */
     private val frontBuffered = GLFrontBufferedRenderer(surface, this)
 
-    /** True once the device has been probed and can run the engine (§13). */
+    /**
+     * True once the device has been probed and can run the engine (§13).
+     *
+     * `@Volatile` because it is written on the GL thread (from [ensureContext],
+     * inside the draw callback) and read on the main thread by the UI that
+     * decides whether to show the unsupported-device screen. Without it the JMM
+     * permits the main thread to keep observing the initial `true`
+     * indefinitely, so that screen would never appear — the user would get a
+     * blank canvas and no explanation.
+     */
+    @Volatile
     var isSupported: Boolean = true
         private set
 

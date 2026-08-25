@@ -82,16 +82,24 @@ object SandwichPolicy {
 
         Op.SetInertProperty -> Stale.NEITHER
 
-        // The moved layer stays active, so only the side it crossed into
-        // changed membership — unless the move makes a DIFFERENT layer active
-        // (§3.1), which changes `a` and stales both.
+        // Both halves, for any move that moves anything.
+        //
+        // `05-layers.md` §8 used to say a move of the ACTIVE layer stales only
+        // "the side it crossed into", and this transcribed it. That rationale
+        // tracks the moved layer — which is in neither half, before or after —
+        // and forgets the layers it crosses, every one of which leaves one half
+        // and joins the other. In `[L0, L1(active), L2]`, `move(1, 0)` puts L0
+        // into `above`: `below` correctly rebuilds to empty, `above` keeps its
+        // stale composite of L2 alone, and **L0 is in neither half and vanishes
+        // from the canvas** until some unrelated edit stales `above`. Even an
+        // adjacent move swaps one layer across. The table has been corrected;
+        // this comment stays because the wrong rule is the intuitive one.
+        //
+        // A move of a non-active layer stales both anyway: §3.1 makes the moved
+        // layer active, which redefines both memberships.
         is Op.Move ->
-            if (op.from != activeIndex) Stale.BOTH
-            else when {
-                op.to < activeIndex -> Stale.BELOW
-                op.to > activeIndex -> Stale.ABOVE
-                else -> Stale.NEITHER
-            }
+            if (op.from == activeIndex && op.to == activeIndex) Stale.NEITHER
+            else Stale.BOTH
 
         Op.Add -> Stale.BELOW
 
@@ -158,4 +166,25 @@ object SandwichPolicy {
      */
     fun aboveIsCacheable(layersAbove: List<Layer>): Boolean =
         layersAbove.none { it.props.visible && it.props.blendMode != BlendMode.NORMAL }
+
+    /**
+     * Whether the layers below the active one can be cached.
+     *
+     * Same condition as [aboveIsCacheable], for a different reason. `Above`'s
+     * limit is associativity; `Below`'s is that a non-Normal layer needs to
+     * read the partial composite beneath it as a backdrop, and a fragment
+     * shader cannot read the attachment it is writing. `03-canvas-engine.md`
+     * §4 answers that with a ping-pong between two scratch slices — which is
+     * **not implemented**: the cache builds each tile by blending straight
+     * into its own slice, which is exactly right for source-over and has no
+     * backdrop to offer a blend mode that needs one.
+     *
+     * So until the ping-pong lands, a non-Normal layer below the active one
+     * makes `Below` unavailable and the compositor takes the per-layer path of
+     * §12 step 3 — slower, and correct. Reporting it here rather than building
+     * a wrong cache is the whole point of having this be a decision the JVM can
+     * test.
+     */
+    fun belowIsCacheable(layersBelow: List<Layer>): Boolean =
+        layersBelow.none { it.props.visible && it.props.blendMode != BlendMode.NORMAL }
 }

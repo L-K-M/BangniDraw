@@ -6,6 +6,7 @@ import ch.lkmc.bangnidraw.engine.core.FilterPolicy
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
+import ch.lkmc.bangnidraw.engine.core.SliceHandle
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import java.nio.ByteBuffer
@@ -104,6 +105,14 @@ class CompositePass(
         ensureBuffers()
         if (keyScratch.size < textures.grid.tileCount) keyScratch = IntArray(textures.grid.tileCount)
         val count = textures.visibleKeys(dirtyRect, keyScratch)
+        // The vertex buffer is sized from TileGrid.MAX_TILES while keyScratch
+        // is sized from the grid, so correctness rests on a grid never holding
+        // more than MAX_TILES tiles. It cannot today — TileGrid caps each side
+        // at 8192 px, i.e. 32 tiles, i.e. 1024 — and if that ever changes this
+        // says so instead of throwing a bare BufferOverflowException mid-frame.
+        check(count <= TileGrid.MAX_TILES) {
+            "$count visible keys exceed MAX_TILES ${TileGrid.MAX_TILES}; the vertex buffer would overflow"
+        }
         if (count == 0) return 0
 
         state.useProgram(program)
@@ -149,12 +158,29 @@ class CompositePass(
             val page = textures.slice(TileKey(keyScratch[i])).page
             var end = i
             vertexBuffer.clear()
-            while (end < count && textures.slice(TileKey(keyScratch[end])).page == page) {
-                appendQuad(textures, TileKey(keyScratch[end]))
+            while (end < count) {
+                // One lookup per tile: the grouping condition and the quad both
+                // need the handle, and this is the hottest loop in the
+                // compositor — every visible tile of every layer, every frame.
+                val key = TileKey(keyScratch[end])
+                val handle = textures.slice(key)
+                if (handle.page != page) break
+                appendQuad(textures, key, handle)
                 end++
             }
             val tiles = end - i
             vertexBuffer.flip()
+            // Orphan the storage first. Writing into a range the previous
+            // page's glDrawArrays is still reading makes a tiler driver stall
+            // the CPU until the GPU catches up, instead of renaming the buffer
+            // — the classic per-frame hitch, on exactly the multi-page,
+            // multi-layer path this pass exists to make cheap.
+            GLES30.glBufferData(
+                GLES30.GL_ARRAY_BUFFER,
+                vertexBuffer.capacity() * 4,
+                null,
+                GLES30.GL_STREAM_DRAW,
+            )
             GLES30.glBufferSubData(
                 GLES30.GL_ARRAY_BUFFER,
                 0,
@@ -184,7 +210,7 @@ class CompositePass(
      * 256 px would paint whatever the slice holds past the canvas boundary,
      * which for a tile created by a stroke near the edge is real paint.
      */
-    private fun appendQuad(textures: LayerTextures, key: TileKey) {
+    private fun appendQuad(textures: LayerTextures, key: TileKey, handle: SliceHandle) {
         val rect = textures.grid.tileRect(key)
         val origin = textures.grid.origin(key)
         val w = TILE_SIZE.toFloat()
@@ -196,7 +222,7 @@ class CompositePass(
         val v0 = (rect.top - origin.y) / w
         val u1 = (rect.right - origin.x) / w
         val v1 = (rect.bottom - origin.y) / w
-        val slice = textures.slice(key).slice.toFloat()
+        val slice = handle.slice.toFloat()
         // Two triangles, counter-clockwise in a y-down space. Culling is off
         // throughout this engine, so winding is documentation rather than
         // enforcement — but consistent winding is what lets it be turned on.

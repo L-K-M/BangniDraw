@@ -20,6 +20,31 @@ unreadable.
 
 ## Resolved
 
+- **R-046 ⏸️ `presentToWindow` should bind its texture through `GlState`.**
+  (PR #11, GLM round 1, info: "`onContextLost()` calling
+  `state.forgetAllTextures()` strongly suggests `GlState` caches texture
+  bindings".) **Refuted:** it does not. `GlState`'s only per-texture state is
+  the sampler **filter** (`GL_NEAREST` vs `GL_LINEAR`, §3.4), and
+  `forgetAllTextures` exists because a deleted texture's id can be recycled
+  while the filter map still claims that id was configured — the hazard
+  `TilePool.release` takes a `GlState` for. There is no binding cache to go
+  stale, so routing the present bind through `GlState` would add an indirection
+  that tracks nothing. A comment now says so at the call site, since the
+  inference is a reasonable one to make twice.
+
+- **R-045 ⏸️ Programs sharing a VAO must pin attribute locations with
+  `glBindAttribLocation`.** (PR #11, GLM round 1, info, outside the diff.)
+  **Refuted:** they are already pinned, in the shader source rather than at link
+  time. `Shaders.COMPOSITE_VERT` declares
+  `layout(location = $ATTR_POS) in vec2 a_canvas` and
+  `layout(location = $ATTR_UV) in vec3 a_uvw`, interpolated from the same Kotlin
+  constants the VAOs bind, and `GlShaderContractTest` asserts both lines
+  literally plus `ATTR_POS != ATTR_UV`, and `GlslDeclarationOrderTest` fails any
+  vertex `in` that has no `layout(location = …)` at all and any location claimed
+  twice. `glBindAttribLocation` would be a second, weaker statement of a
+  contract three tests already hold.
+
+
 - **R-043 ⏸️ `LayerTextures.upload` should require a *direct* `ByteBuffer`.**
   (PR #10, GLM round 1, minor.) **Refuted.** The premise — "`glTexSubImage3D`
   requires a direct `ByteBuffer`" — is not true of the `android.opengl`

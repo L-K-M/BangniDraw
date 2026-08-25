@@ -37,7 +37,11 @@ class OffscreenTarget(val label: String) {
      * changing its size in place.
      */
     fun ensure(width: Int, height: Int, state: GlState): Boolean {
-        require(width > 0 && height > 0) { "$label needs a positive size, was ${width}x$height" }
+        // A `require` here would crash the GL thread: surface callbacks can
+        // deliver a zero dimension transiently during teardown and rotation,
+        // and this method's own contract is to return false so the caller skips
+        // the frame. A recoverable condition must not become a crash.
+        if (width <= 0 || height <= 0) return false
         if (isAllocated && width == this.width && height == this.height) return true
         release(state)
         GLES30.glGenTextures(1, ids, 0)

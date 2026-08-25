@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,15 +77,20 @@ fun CanvasScreen(onBack: () -> Unit) {
             view = view,
             modifier = Modifier.fillMaxSize(),
             debugBuild = BuildConfig.DEBUG,
-            onSession = { attached ->
-                session = attached
-                attached?.setCheckerboard(
-                    checkerPx = with(density) { CHECKER_DP.dp.toPx() },
-                    colorA = checkerA,
-                    colorB = checkerB,
-                )
-            },
+            onSession = { attached -> session = attached },
         )
+
+        // Not in `onSession`: that fires once, from the AndroidView factory, so
+        // a dark-mode toggle kept the old theme's checkerboard until the screen
+        // was torn down and a density change kept the old square size. These
+        // three recompose; the engine has to be told.
+        LaunchedEffect(session, checkerA, checkerB, density) {
+            session?.setCheckerboard(
+                checkerPx = with(density) { CHECKER_DP.dp.toPx() },
+                colorA = checkerA,
+                colorB = checkerB,
+            )
+        }
 
         Box(
             modifier = Modifier

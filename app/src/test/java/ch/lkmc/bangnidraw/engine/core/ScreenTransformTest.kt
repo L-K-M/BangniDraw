@@ -128,7 +128,8 @@ class ScreenTransformTest {
         // for a canvas that exactly fills the viewport — where the fit offset
         // is zero — and wrong for every letterboxed one, which is every canvas
         // whose aspect differs from the window's. A square canvas in a 3:2
-        // viewport letterboxes by 88 px, so this test would catch it.
+        // viewport pillarboxes by 200 px a side (fit.scale = 800/1024, so the
+        // fitted width is 800 and the offset is (1200-800)/2), so this catches it.
         val view = ViewTransform(scale = 1.5f, rotation = 0.4f, tx = 30f, ty = -12f)
         val screen = ScreenTransform.of(fit, view)
         assertTrue(fit.offsetX != 0f, "the fixture must letterbox or this proves nothing")
@@ -159,12 +160,23 @@ class ScreenTransformTest {
             assertTrue(cx >= bounds.left && cx <= bounds.right, "corner x $cx outside $bounds")
             assertTrue(cy >= bounds.top && cy <= bounds.bottom, "corner y $cy outside $bounds")
         }
-        // And it is a genuine box, not the degenerate two-corner span: under a
-        // 0.6 rad rotation the box is strictly taller than the two-corner one.
-        val twoCornerTop = minOf(corners[0].second, corners[2].second)
+        // And the FIXTURE genuinely breaks a two-corner span — otherwise the
+        // containment loop above is checking a box that a two-corner
+        // implementation would also produce. The previous version of this
+        // assertion compared `bounds.top` (floored and inflated) against the
+        // raw corner y, and at this rotation the topmost corner IS corners[0],
+        // so it passed on the 1 px of inflation alone and proved nothing.
+        val twoCornerLeft = floor(minOf(corners[0].first, corners[2].first)).toInt() - 1
+        val twoCornerTop = floor(minOf(corners[0].second, corners[2].second)).toInt() - 1
+        val twoCornerRight = ceil(maxOf(corners[0].first, corners[2].first)).toInt() + 1
+        val twoCornerBottom = ceil(maxOf(corners[0].second, corners[2].second)).toInt() + 1
         assertTrue(
-            bounds.top < twoCornerTop,
-            "the box must reach above the two-corner span ($twoCornerTop)",
+            listOf(corners[1], corners[3]).any { (cx, cy) ->
+                cx < twoCornerLeft || cx > twoCornerRight ||
+                    cy < twoCornerTop || cy > twoCornerBottom
+            },
+            "a corner of the other diagonal must escape the two-corner span, " +
+                "or this fixture proves nothing",
         )
     }
 

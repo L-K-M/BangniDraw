@@ -27,26 +27,28 @@ change both or neither.
 - **One** round is **empty**: a coherent review arrived and raised nothing —
   no findings, or only restatements and self-answered "✅ fine" items. One is
   enough — don't spend a CI cycle re-confirming it,
-- **two consecutive** rounds are **nits only**: everything applied was cosmetic
-  (wording, a comment, a rename, a test message), no blocker and nothing you
-  would have wanted to know, and no substantive claim was declined — a round
+- **two consecutive** rounds are **nits only**: you applied something, every
+  applied finding was cosmetic (wording, a comment, a rename, a test message),
+  and the review raised no substantive claim you declined or deferred — a round
   that applies a typo while refusing a blocker is dismissed only, not this,
-- **two consecutive** rounds are **dismissed only**: the review raised real
-  claims and you applied none of them — declined, refuted, or deferred as
-  out-of-scope follow-ups. Two, not one — you are grading your own dismissals,
-  so a single such round is not evidence of anything. Restatements and "✅ fine"
-  items are not real claims; a round of only those is empty, not this,
+- **two consecutive** rounds are **dismissed only**: no substantive finding was
+  applied — every one declined, refuted, or deferred — or nothing was applied at
+  all. Two, not one: you are grading your own dismissals, so a single such round
+  is not evidence of anything. Restatements and "✅ fine" items are not findings;
+  a round of only those is empty, not this,
 - feedback integration failed in two consecutive rounds (you applied something
   and could not get CI green with one follow-up fix, or had to revert it),
-- the reviewer re-raises items already declined with reasons, or contradicts
-  its own earlier feedback,
 - everything remaining is out of scope for the PR (pre-existing behavior,
   product decisions) — collect those as follow-up suggestions instead.
 
-**A re-raise carrying a new argument is not a repeat** and does not fire that
-rule. PR #7 declined two findings three times each and was right to apply them
-on the fourth, when the argument changed; both were path traversal through an
-unvalidated layer id. Re-read the reasoning before counting the raising.
+**A re-raise is a prompt to re-read, not a reason to stop.** There is
+deliberately no rule here for "the reviewer repeated something you declined".
+Re-check the decline against the code instead; the repetition is never evidence
+you were right. A stuck reviewer still terminates via the dismissed-only rule
+above, on the same two-round budget. PR #7 declined R-001 in rounds 2, 6 and 7
+and applied it in round 8; R-005 in rounds 5, 7 and 9, applied in round 10.
+Both were path traversal through an unvalidated layer id. A rule firing on the
+first re-raise would have merged at round 6 with both holes open.
 
 A round where **no usable review arrived** — the action errored, timed out, was
 cancelled, finished without posting its report, or posted a blank, truncated or

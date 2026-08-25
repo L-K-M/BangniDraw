@@ -84,27 +84,44 @@ For each round:
    Comments from **human** users are always addressed and never subject to the cutoff below.
 4. If you applied anything: commit, push, run tests/lint, and wait for CI on the new commit.
    This push starts the next round.
-5. Score the round:
-   - "**useful feedback**" = at least one finding was applied AND the resulting push went green.
+5. Score the round into exactly **one** bucket. They are ordered — the first that matches
+   wins, so a round that is both "applied something" and "all of it cosmetic" is *nits only*,
+   not *useful feedback*.
+   - "**no review**" = the review never arrived: the action errored, timed out, or posted
+     nothing. This is an infrastructure failure, not a verdict on the diff. Re-run it once. If
+     it fails again, say so on the PR and score the round *dismissed only* — never treat a
+     review that did not run as evidence the code is clean.
    - "**integration failed**" = you applied feedback and either CI went red and you could not make
      it green with one follow-up fix commit, or the applied change had to be reverted because
      it broke behavior or contradicted `PLAN.md`. Revert to the last green state before continuing.
    - "**nits only**" = findings were applied and went green, but every one of them was
      cosmetic — wording, a comment, a rename, a test message. Nothing changed behavior, closed
-     a hole, or corrected a claim. A round with no BLOCKER and nothing you would have wanted
-     to know is a nits-only round even if the diff is large.
-   - Otherwise the round yielded **no useful feedback** (only restatements, declined or
-     refuted items, or no review at all).
+     a hole, or corrected a claim. A round can apply a dozen findings and still be nits only;
+     the measure is what changed, not how much.
+   - "**useful feedback**" = at least one finding you applied was substantive — it changed
+     behavior, closed a hole, or corrected a false claim — and the push went green.
+   - "**dismissed only**" = nothing was applied, because every finding was a restatement, a
+     self-answered "✅ fine", or an item you declined or refuted.
+   - "**empty**" = the reviewer ran and raised nothing, or only restatements and "✅ fine"
+     items. Distinct from *dismissed only*: there, the reviewer made real claims and **you**
+     judged them wrong.
 
 **Steady state is reached when ANY of these hold**
-- **one** round yielded no useful feedback, **OR**
+- **one** round was empty, **OR**
 - **two consecutive** rounds were nits only — no blocker, nothing genuinely helpful, **OR**
+- **two consecutive** rounds were dismissed only, **OR**
 - feedback integration failed in two consecutive rounds.
 
-The first rule is deliberately a hair trigger. A round that finds nothing is evidence the
-reviewer has run out of things to say about this diff, and a further round costs a CI cycle
-and a review cycle to re-confirm that. Do not wait for a second empty round to be polite to
-the process.
+The first rule is deliberately a hair trigger. A reviewer that raises nothing has run out of
+things to say about this diff, and a further round costs a CI cycle and a review cycle to
+re-confirm that. Do not wait for a second empty round to be polite to the process.
+
+The third rule is deliberately *not* a hair trigger, for the opposite reason: you are grading
+your own dismissals. The same agent wrote the code, decided the finding was wrong, and scored
+the round — so one round of self-graded refusal is not evidence of anything, and ending the
+loop on it would make the review optional whenever you disagreed with it. Two rounds is the
+cheapest check on that available here. If you find yourself refuting a whole round, re-read
+the findings against the code before you score it, not after.
 
 Human comments are never subject to any of these cutoffs — address them however late they
 arrive.
@@ -150,6 +167,7 @@ Start a session in `/work/GitHub/BangniDraw` and give the agent this prompt:
 
 > Read `docs/EXECUTION.md` in this repository and follow it exactly. It tells you how to
 > implement the plan in `PLAN.md` as a sequence of reviewed pull requests, how to run the
-> review loop, when a PR has reached steady state (one round without useful feedback, two
-> consecutive nits-only rounds, or two consecutive failed feedback integrations), when to
-> merge, and how to move on to the next roadmap step. Begin with Step A.
+> review loop, when a PR has reached steady state (one empty round, two consecutive
+> nits-only rounds, two consecutive rounds you dismissed entirely, or two consecutive failed
+> feedback integrations), when to merge, and how to move on to the next roadmap step. Begin
+> with Step A.

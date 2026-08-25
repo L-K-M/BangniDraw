@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v7
 
       # Supply-chain gate: reject a tampered gradle-wrapper.jar.
-      - uses: gradle/actions/wrapper-validation@v5
+      - uses: gradle/actions/wrapper-validation@v6
 
       - uses: actions/setup-java@v5
         with:
@@ -40,7 +40,7 @@ jobs:
       # No explicit SDK install step: the ubuntu runner image ships the Android
       # SDK, and AGP resolves compileSdk android-37.0 against it (paired with
       # android.suppressUnsupportedCompileSdk in gradle.properties).
-      - uses: gradle/actions/setup-gradle@v5
+      - uses: gradle/actions/setup-gradle@v6
 
       - name: Test, lint, and assemble
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug

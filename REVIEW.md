@@ -779,3 +779,27 @@ unreadable.
   Worth spelling out because this is the same class of defect the reviewer has
   been most valuable at finding in *this* PR's tests — an assertion that reads
   as coverage and cannot fail — arriving this time in its own suggestion.
+
+## PR #12 (roadmap 2.4a) — GLM round 5
+
+- **R-052 ⏸️ Assert `assertEquals(viewBeforeCancel, h.view)` rather than
+  `h.view.isIdentity`** (PR #12, GLM round 5, Minor). Correct, and **deferred to
+  2.4b** rather than declined — it is a real improvement that arrived after
+  steady state was declared.
+
+  The point stands: `isIdentity` pins the fixture's *starting value*, while the
+  assertion's own message names the *property* "cancel left the view alone".
+  They coincide only because this test starts from an identity view, so a future
+  pan/zoom preamble would break the assertion spuriously. Capturing the view
+  before the cancel and comparing expresses the invariant directly.
+
+  Not applied here because the round that raised it is the third consecutive
+  nits-only round, and the finding itself concedes "the mutation-catching power
+  is identical as written" — the R-051 mutation (mutate the transform, emit
+  nothing) fails the assertion either way, so today this changes robustness and
+  intent, not coverage. Steady state was declared on rounds 3 and 4; taking one
+  more cosmetic round would restart the cycle on exactly the reasoning the stop
+  rules exist to bound, and the same argument would then apply to round 6.
+
+  Carried in `docs/plan/12-roadmap.md` as a 2.4b carry-in, to be done when that
+  file is next touched.

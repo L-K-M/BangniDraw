@@ -180,6 +180,20 @@ parser's to keep — kotlinx throws on an unknown key by default. The store must
 also decide what a preset that fails `init` does on load; dropping it with a
 log, as `ProjectStore` does for a corrupt layer, is the shape to follow.
 
+**Carried in from PR 2.4a's review.** Two items, both raised after steady state
+and neither affecting coverage today. `NavigationStep.applyTo` returns
+`view.gesture(...)` and the snap then re-`copy`s it, so a navigation step
+allocates two `ViewTransform`s — measured at 64.5 bytes per move, which is the
+floor `CanvasTouchHandlerTest`'s allocation gate is set just above. An in-place
+`applyTo(view, out)` would take the touch path to zero, but it needs a mutable
+`ViewTransform`, and that immutability is relied on well outside the touch path
+(`isIdentity`, the reset lerp, every `copy` call site) — so it is a deliberate
+follow-up, not a 2.4a omission. Separately, `CanvasTouchHandlerTest`'s
+`cancel rolls the stroke back and leaves the view alone` asserts
+`h.view.isIdentity`, which pins the fixture's starting value rather than the
+invariance its message names (REVIEW.md R-052); capture the view before the
+cancel and `assertEquals` against it when that file is next touched.
+
 *Why the predicted-tail cases and nothing else in 2.5.* The tail runs through a
 *copy* of the stabilizer state (`04-tools.md` §4), so "continues the stabilized
 line" and "never advances the real state" are pure claims, and they are the "no

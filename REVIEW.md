@@ -20,6 +20,22 @@ unreadable.
 
 ## Resolved
 
+- **R-038 🟢 `DabGenerator`'s radius clamp threw on a sub-pixel preset.** (PR
+  #9, GLM round 4, raised as a BLOCKER.) Real, and a crash on the drawing
+  path: `minRadius` was floored at `Dab.MIN_RADIUS` and `maxRadius` ceiled at
+  `Dab.MAX_RADIUS` with nothing keeping the two in order, so
+  `coerceIn(minRadius, maxRadius)` threw `Cannot coerce value to an empty
+  range` on the *first dab of every stroke* for such a preset.
+  `BrushPreset.MIN_SIZE` is half a pixel of **diameter** while `Dab.MIN_RADIUS`
+  is half a pixel of **radius**, so a perfectly legal brush of 0.5..0.6 px gave
+  a min of 0.5 against a max of 0.3. Reproduced before fixing.
+  The finding's own stated path — `sizeMin / 2 > Dab.MAX_RADIUS` — is
+  unreachable, since `BrushPreset.MAX_SIZE / 2` is exactly `Dab.MAX_RADIUS`;
+  the small end is where it bites, which is the half the finding did name.
+  Fixed by flooring `maxRadius` at `minRadius`: a brush smaller than the shader
+  can draw means "always the smallest dab", not an error. `DabGeneratorTest`
+  pins it.
+
 - **R-001 🟢 Layer ids reach the filesystem unvalidated.** Raised in rounds 2,
   6, 7 and 8; declined three times, **applied in round 8** — recording the
   change of position rather than making it silently. My decline rested on one
@@ -101,6 +117,157 @@ unreadable.
   convention rather than left as a surprise.
 
 ## Declined, with reasons
+
+- **R-010 ⏸️ (third raising, first on PR #9) "`assertIs` does not smart-cast,
+  so `kind.preset` no longer resolves and the test source set fails to
+  compile."** Refuted, and this raising is the easiest of the three to settle
+  because it predicts something checkable about the very commit it is
+  reviewing. `019a22e`'s `android` check is **green**, and
+  `TEST-…BrushPresetTest.xml` records `an erase preset is a preset, not a
+  kind` running in 0.014 s — the file the finding says cannot compile compiled,
+  and the test it says never runs ran. The mechanism is the same one refuted on
+  PR #7 in rounds 7 and 11: `kotlin.test.assertIs` is declared
+  `contract { returns() implies (value is T) }`, which *is* a smart cast, and
+  discarding the return value does not discard the contract.
+  The suggested shape — `val brush = assertIs<ToolKind.Brush>(kind)` — is
+  perfectly good Kotlin and would compile too. It is declined anyway, because
+  the reason offered for it is false, and rewriting working code to satisfy a
+  claim that CI disproves on the same SHA is how a false finding becomes
+  precedent.
+
+- **R-040 ⏸️ Round 5: "`notePressure`'s KDoc contradicts the implementation
+  quoted in REVIEW.md".** Refuted on the code, and the finding's own fallback
+  applied. It reads `if (x.isNaN()) 0f else …` as a literal return, and it is
+  not: the `0f` is assigned to `t`, the x coordinate the lookup falls back to,
+  and `lut[t]` — `lut[0]` — is returned. So NaN really does map to the curve
+  *at* x = 0, not to zero: on `Curve.floor(0.3f)`, `lookup(lut, NaN)` is
+  `0.3`. Verified by running it before answering. The KDoc stands as written;
+  the finding says "if it instead returns the curve's value at x=0, leave the
+  KDoc unchanged and fix the quoted snippet in R-039" — which is exactly the
+  case, and R-039's quote is now the full expression rather than its first
+  half.
+
+- **R-039 ⏸️ Round 4's major: "NaN pressure is sanitized in `notePressure` but
+  fed raw into the spacing math, permanently poisoning `carry`".** Refuted, by
+  running it. The finding is explicit about its premise — "*If* `Curve.lookup`
+  propagates NaN (as a plain interpolation would)" — and it does not.
+  `lookup` opens with `val t = if (x.isNaN()) 0f else x.coerceIn(0f, 1f)`, and
+  that `0f` is the *x coordinate* it falls back to, not the value it returns:
+  it then returns `lut[t]`, the curve **at** x = 0. On `Curve.floor(0.3f)`,
+  `lookup(lut, NaN)` is `0.3`, not zero. (Round 5 read the shorter quote that
+  stood here as a literal return and filed the mismatch as R-040; the quote
+  was the misleading half, so it is written out in full now.) Fed a NaN-pressure
+  sample mid-stroke, the generator emitted 11 → 111 → 211 dabs across the
+  segments before, during and after it, and no dab had a non-finite radius.
+  The reasoning about what a NaN `carry` *would* do is correct and is exactly
+  why the guard sits where it does. `notePressure` guards separately because
+  it feeds a `max` rather than a curve — now said in its KDoc, since the
+  asymmetry is what made this look like an omission.
+
+- **R-029 ⏸️ (second raising) `velocity / fastPxPerMs` is 0/0 when
+  `fastPxPerMs` is 0.** Refuted again on the same ground, now checked rather
+  than argued: `VelocityEffect(sizeAtFast = 0.5f, fastPxPerMs = 0f)` throws
+  `velocity fastPxPerMs must be positive, was 0.0` from the type's own `init`.
+  The zero cannot reach the division. The general point that `coerceIn` does
+  not filter NaN remains true and remains the reason the surrounding code
+  tests `isNaN` explicitly.
+
+- **R-037 ⏸️ Guard the golden harness's deferred read with
+  `check(dabs.size == total)`.** The concern is fair; the suggested check
+  cannot fail. `total` is `batches.sumOf { it.count }` and `dabs` is
+  `batches.flatMap { b -> List(b.count) { … } }`, so `dabs.size` *is* that
+  same sum, by construction — the two sides are one expression written twice.
+  It would not even catch the recycling it is for: a batch cleared after
+  publication would report its new count on both sides and the equality would
+  still hold. Applied in the form that does work: each batch's count is
+  recorded when it is published and compared when it is read, so a count that
+  moved in between fails with both numbers. Worth noting that this is the same
+  defect class the round-1 review caught in the batch-split test and that
+  three of this PR's own tests had — an assertion whose two sides come from
+  one computation.
+
+- **R-036 ⏸️ (deferred) `BrushPresetStore`'s `Json` must set
+  `ignoreUnknownKeys = true`, and decide what a preset failing `init` does on
+  load.** Correct, and not declinable — the store does not exist yet, which is
+  why `BrushPreset`'s KDoc names the debt rather than paying it. The finding
+  observes that the load path got *stricter* this round (the `Curve` knot range
+  and the `eraseMode && mixing` check), which makes the store's throw-handling
+  matter more: a hand-edited preset now has more ways to fail construction, and
+  whether that drops one brush or fails the whole load is the store's call.
+  Both are now in `docs/plan/12-roadmap.md` as gates on that PR, alongside the
+  RMW spacing floor. Deferred, like R-020 and R-029 before it, rather than
+  declined.
+
+- **R-035 ⏸️ Round 2's two BLOCKERs: "Use of eval() detected" at REVIEW.md:105
+  and :108.** Refuted, and self-demonstrating: those two lines are R-034's
+  entry *explaining why the eval finding is a false positive*, and they match
+  because they contain the string `Curve.eval`. The scanner has now flagged the
+  prose refuting it. Nothing to apply, in a Markdown file the JVM never loads.
+
+- **R-034 ⏸️ PR #9 round 1's 26 BLOCKERs: "Use of eval() detected. This is
+  unsafe and should be avoided."** Refuted, all twenty-six. They are a
+  substring match on the identifier `eval`, which here is
+  `Curve.eval(x: Float): Float` — a Catmull-Rom evaluation of four float
+  knots, on a `@Serializable data class` in a module that has no scripting
+  engine, no `ScriptEngineManager`, no reflection and no dynamic loading. The
+  JVM has no `eval` to call. Fourteen of the twenty-six are in a *test file*
+  calling that same method. Nothing was changed, and nothing could be: the
+  only "fix" is renaming a well-named method to evade a regex.
+
+- **R-033 ⏸️ Raise `SmudgeParams.spacing`'s default to the RMW floor of
+  0.25·r.** Declined: the plan writes the default as `0.16f` *and* the floor
+  as 0.25·r, and both on purpose. `03-canvas-engine.md` §7.6 says
+  "`DabGenerator` therefore enforces a minimum spacing of 0.25·r for RMW tools
+  **regardless of preset**" — the floor is the generator's, applied to
+  whatever the preset stores, exactly as the dab step is already floored at
+  half a pixel for brushes. Raising the stored default would deviate from a
+  normative table to duplicate a rule that belongs one layer down. Carried
+  forward instead: the RMW branch of `DabGenerator` owes that floor when
+  smudge and blur land, and it is now in the roadmap's step-4 notes.
+
+- **R-032 ⏸️ Make `DabRing.release` ignore a batch it never handed out.** The
+  hazard is real and the fix is wrong for it. The finding's case is the
+  allocating fallback batch from `acquire`'s backpressure path being routed
+  back into `release`; returning silently would make that a no-op. But a batch
+  arriving at `release` that the ring never owned means the caller has lost
+  track of which batches are pooled, and the next thing it loses track of is a
+  real slot — which leaks silently and starves the ring under exactly the load
+  that produced the fallback. The throw is the guard. Applied instead: the
+  KDoc now states that the fallback batch never returns through `release`, so
+  the contract is written down rather than inferred.
+
+- **R-031 ⏸️ Guard `dilution > 0` when `mixing` is false.** Half declined. The
+  `eraseMode && mixing` half is a genuine contradiction — two different merges
+  — and is applied. `dilution` with mixing off is not a contradiction, it is
+  an inert field: it reads as "if this brush ever mixes, yield this much".
+  Requiring it would make the settings sheet's own mixing toggle throw, since
+  a `copy(mixing = false)` on a diluted preset would no longer construct — the
+  finding says as much, and asks the UI to compensate. A validation whose
+  precondition is "and change every caller so it cannot fire" is not a
+  validation.
+
+- **R-030 ⏸️ Round 1's major: "Tap fix-up raises the dab's flow but not
+  `pressureOpacityMax`".** Refuted. The finding says the only `notePressure`
+  before `end()` came from `emit` with the down sample — but `advance` calls
+  `notePressure(next.pressure)` on every sample, as its first statement,
+  precisely so a peak falling between two dabs is not lost. For the tap the
+  finding describes, the ramp sample reaches `advance`, the ceiling is already
+  at the ramp's pressure, and `end()` has nothing left to raise. The
+  underlying worry — a tap that produces no `ACTION_MOVE` at all — is real but
+  is not a bug here: if no sample ever reported a higher pressure, there is no
+  higher pressure to recover. What the code did owe was saying whose job the
+  pen-up sample is, and `end()`'s KDoc now says it.
+
+- **R-029 ⏸️ Round 1's major: "NaN velocity ratio when `fastPxPerMs` is
+  non-positive".** Refuted on the premise. `VelocityEffect`'s `init` requires
+  `fastPxPerMs.isFinite() && fastPxPerMs > 0f`, so the zero the finding
+  divides by cannot reach the field — "left uninitialized in a bad preset" is
+  not a state this type has. The general observation is correct and worth
+  keeping in mind: `Float.coerceIn` does *not* sanitise NaN, because both of
+  its comparisons are false for it. That is why `tiltFraction` and
+  `notePressure` test `isNaN` explicitly rather than relying on the clamp, and
+  why a non-finite coordinate is refused at `IntRect.forDab` rather than
+  clamped there.
 
 - **R-025 ⏸️ `isIdentifierIgnorable` misses part of the Cf category
   (U+00AD, U+061C).** Refuted, by execution rather than by reading. The finding

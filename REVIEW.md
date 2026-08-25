@@ -753,3 +753,29 @@ unreadable.
   change and later for its revert, on code whose behaviour has not changed
   between the two rounds, must not be able to walk a decision back and forth by
   repetition.
+
+## PR #12 (roadmap 2.4a) — GLM round 4
+
+- **R-051 ⚠️ Applied in substance, refuted in mechanism: assert
+  `host.view.isIdentity` after a cancel** (PR #12, GLM round 4, Minor). The
+  observation is right and the fix is wrong. `cancel rolls the stroke back and
+  leaves the view alone` really did assert only the host events, leaving the
+  second half of its own name unchecked, so an assertion belongs there.
+
+  But the suggested one cannot fail. `Host.view` is written *only* by
+  `onViewChanged`, and the line immediately above it —
+  `assertEquals(listOf("cancel"), host.events)` — already proves no `"view"`
+  event was emitted. `host.view.isIdentity` is therefore implied by the
+  preceding assertion and adds no coverage at all. Worse, it is specifically
+  blind to the regression the finding names: "changed it without emitting
+  `onViewChanged`" is the one case where the handler's transform moves and the
+  host's copy does not.
+
+  Mutation-checked both ways. With `handleCancel` made to do
+  `view = view.copy(tx = view.tx + 1f)` and emit nothing, the suggested
+  `host.view` assertion leaves the suite green; `h.view.isIdentity` fails it.
+  The assertion is on the handler's own view, with a comment recording why.
+
+  Worth spelling out because this is the same class of defect the reviewer has
+  been most valuable at finding in *this* PR's tests — an assertion that reads
+  as coverage and cannot fail — arriving this time in its own suggestion.

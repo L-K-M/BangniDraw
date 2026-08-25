@@ -160,6 +160,16 @@ class CanvasTouchHandlerTest {
         host.events.clear()
         h.handleCancel(ms(200))
         assertEquals(listOf("cancel"), host.events)
+        // The second half of this test's own name, which it did not check.
+        //
+        // On the HANDLER's view, not the host's. host.view is only ever written
+        // by onViewChanged, and the assertion above already proves no "view"
+        // event fired — so host.view.isIdentity is implied by it and cannot
+        // fail independently. Asserting there would read as coverage while
+        // adding none, and would be blind to exactly the case worth pinning:
+        // a cancel that mutates the transform WITHOUT emitting. Mutation-checked
+        // both ways (REVIEW.md R-051).
+        assertTrue(h.view.isIdentity, "a cancel must not nudge the view")
     }
 
     @Test

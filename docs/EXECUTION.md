@@ -84,13 +84,13 @@ For each round:
    Comments from **human** users are always addressed and never subject to the cutoff below.
 4. If you applied anything: commit, push, run tests/lint, and wait for CI on the new commit.
    This push starts the next round.
-5. Score the round into exactly **one** bucket. They are ordered — the first that matches
-   wins, so a round that is both "applied something" and "all of it cosmetic" is *nits only*,
-   not *useful feedback*.
-   - "**no review**" = the review never arrived: the action errored, timed out, or posted
-     nothing. This is an infrastructure failure, not a verdict on the diff. Re-run it once. If
-     it fails again, say so on the PR and score the round *dismissed only* — never treat a
-     review that did not run as evidence the code is clean.
+5. Score the round into exactly **one** bucket. The six are pairwise disjoint; check them in
+   this order and the first match is the answer.
+   - "**no review**" = no completed review arrived — the action errored, timed out, was
+     cancelled, or finished without posting its report. An infrastructure failure, not a
+     verdict on the diff. Re-run it once. **If the re-run also fails, stop: do not merge, and
+     tell the user.** This bucket is not a score — it counts toward nothing and it breaks any
+     streak it interrupts. Never treat a review that did not run as evidence the code is clean.
    - "**integration failed**" = you applied feedback and either CI went red and you could not make
      it green with one follow-up fix commit, or the applied change had to be reverted because
      it broke behavior or contradicted `PLAN.md`. Revert to the last green state before continuing.
@@ -100,17 +100,22 @@ For each round:
      the measure is what changed, not how much.
    - "**useful feedback**" = at least one finding you applied was substantive — it changed
      behavior, closed a hole, or corrected a false claim — and the push went green.
-   - "**dismissed only**" = nothing was applied, because every finding was a restatement, a
-     self-answered "✅ fine", or an item you declined or refuted.
-   - "**empty**" = the reviewer ran and raised nothing, or only restatements and "✅ fine"
-     items. Distinct from *dismissed only*: there, the reviewer made real claims and **you**
-     judged them wrong.
+   - "**dismissed only**" = the review raised real claims, you declined or refuted **every one
+     of them**, and so applied nothing. Restatements and "✅ fine" items are not real claims —
+     a round of only those is *empty*, not this.
+   - "**empty**" = a completed review arrived and raised nothing: no findings at all, or only
+     restatements and "✅ fine" items.
 
 **Steady state is reached when ANY of these hold**
 - **one** round was empty, **OR**
 - **two consecutive** rounds were nits only — no blocker, nothing genuinely helpful, **OR**
 - **two consecutive** rounds were dismissed only, **OR**
 - feedback integration failed in two consecutive rounds.
+
+Only rounds where a review actually ran count toward these. A *no review* round earns nothing
+and breaks any streak it interrupts, so nits only → no review → nits only is **not** two
+consecutive nits-only rounds. Two *no review* rounds running is not steady state either: it is
+the stop-and-tell-the-user case above.
 
 The first rule is deliberately a hair trigger. A reviewer that raises nothing has run out of
 things to say about this diff, and a further round costs a CI cycle and a review cycle to

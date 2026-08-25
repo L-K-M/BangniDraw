@@ -21,23 +21,28 @@ review feedback under this policy:
   chat summaries carry the record.
 
 ### Declare steady-state and stop when any of these hold
-- **One** round is **empty**: the reviewer ran and raised nothing, or only
-  restatements and self-answered "✅ fine" items. One is enough — don't spend a
-  CI cycle re-confirming it,
+- **One** round is **empty**: a completed review arrived and raised nothing —
+  no findings, or only restatements and self-answered "✅ fine" items. One is
+  enough — don't spend a CI cycle re-confirming it,
 - **two consecutive** rounds are **nits only**: everything applied was cosmetic
   (wording, a comment, a rename, a test message), no blocker and nothing you
   would have wanted to know,
-- **two consecutive** rounds are **dismissed only**: you applied nothing because
-  you declined or refuted it all. Two, not one — you are grading your own
-  dismissals, so a single such round is not evidence of anything,
+- **two consecutive** rounds are **dismissed only**: the review raised real
+  claims and you declined or refuted every one, so applied nothing. Two, not
+  one — you are grading your own dismissals, so a single such round is not
+  evidence of anything. Restatements and "✅ fine" items are not real claims;
+  a round of only those is empty, not this,
 - the reviewer re-raises items already declined with reasons, or contradicts
   its own earlier feedback,
 - everything remaining is out of scope for the PR (pre-existing behavior,
   product decisions) — collect those as follow-up suggestions instead.
 
-A round where the review **never ran** (the action errored or timed out) is an
-infrastructure failure, not an empty round. Re-run it once; never merge on the
-strength of a review that did not happen.
+A round where the review **never ran** — the action errored, timed out, was
+cancelled, or finished without posting its report — is an infrastructure
+failure, not an empty round. Re-run it once; if the re-run also fails, stop and
+tell the user rather than merging. Such a round counts toward none of the rules
+above and breaks any streak it interrupts. Never merge on the strength of a
+review that did not happen.
 
 At steady-state: post a short scorecard in chat (what was real, what was
 refuted, what's deferred), then merge the PR into `main` once its build checks

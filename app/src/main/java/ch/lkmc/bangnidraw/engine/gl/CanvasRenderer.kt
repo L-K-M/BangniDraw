@@ -76,7 +76,17 @@ class CanvasRenderer(
     private var present: GlProgram? = null
     private var checker: GlProgram? = null
     private var compositePass: CompositePass? = null
-    private val fullRect = FullRectQuad()
+    /**
+     * One per pass, not one shared.
+     *
+     * `FullRectQuad` caches the last size it uploaded, and these two draw at
+     * different sizes: the present quad spans the window buffer, the
+     * checkerboard spans `Accum`. Those differ whenever the buffer is
+     * pre-rotated, so one shared instance would re-upload its geometry twice a
+     * frame, for every frame, on a transparent-paper canvas.
+     */
+    private val presentQuad = FullRectQuad()
+    private val checkerQuad = FullRectQuad()
     private var sandwich: SandwichCache? = null
 
     private val layers = LinkedHashMap<LayerId, LayerTextures>()
@@ -129,6 +139,7 @@ class CanvasRenderer(
         GlErrors.reset()
         state.invalidate()
         state.forgetAllTextures()
+        loggedBackdropFailure = false
         val probed = GlCaps.probe()
         caps = probed
         Log.i(GL_TAG, "GL context: ${probed.describe()}")
@@ -440,7 +451,7 @@ class CanvasRenderer(
         setColorUniform(program, "u_checkerA", checkerA)
         setColorUniform(program, "u_checkerB", checkerB)
         state.blendOff()
-        fullRect.draw(accum.width.toFloat(), accum.height.toFloat())
+        checkerQuad.draw(accum.width.toFloat(), accum.height.toFloat())
     }
 
     private fun setColorUniform(program: GlProgram, name: String, argb: Int) {
@@ -491,7 +502,7 @@ class CanvasRenderer(
         // The quad spans the BUFFER, not Accum: when graphics-core hands us a
         // pre-rotated buffer its width and height are swapped relative to the
         // viewport, and u_bufferTransform is what maps one onto the other.
-        fullRect.draw(bufferWidth.toFloat(), bufferHeight.toFloat())
+        presentQuad.draw(bufferWidth.toFloat(), bufferHeight.toFloat())
     }
 
     private fun rebuildSandwichIfNeeded(current: LayerStack, screenTransform: ScreenTransform) {
@@ -549,6 +560,11 @@ class CanvasRenderer(
         sandwich?.forgetAll()
         pool = null
         isReady = false
+        // Per context, like GlFbo.loggedIncomplete and
+        // TilePool.loggedClearBindFailure: a genuinely new failure under a new
+        // context must still be reported, or the flag silences the diagnostics
+        // it exists to provide.
+        loggedBackdropFailure = false
         state.forgetAllTextures()
         state.invalidate()
         GlErrors.reset()
@@ -560,7 +576,8 @@ class CanvasRenderer(
         layers.clear()
         sandwich?.release()
         compositePass?.release()
-        fullRect.release()
+        presentQuad.release()
+        checkerQuad.release()
         composite?.release()
         present?.release()
         checker?.release()

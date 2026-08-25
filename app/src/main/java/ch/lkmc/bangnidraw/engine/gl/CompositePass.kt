@@ -64,20 +64,32 @@ class CompositePass(
      * turns a relaxed grid cap into an exception thrown from inside a render
      * callback, in the same PR that removed a `require` from
      * `OffscreenTarget.ensure` for exactly that reason; and an early `return 0`
-     * silently drops the layer from every frame. Growing has no failure mode.
+     * silently drops the layer from every frame.
+     *
+     * Returns false when the GPU store could not grow — `GL_OUT_OF_MEMORY` is
+     * the one way this fails, and an earlier version of this KDoc wrongly said
+     * there was none. **The new capacity is committed only after the driver
+     * confirms it**: assigning first meant one OOM left the pass believing it
+     * had room it did not, so every later frame skipped the grow and uploaded
+     * past the real store. The caller skips the layer for this frame instead,
+     * and the next frame retries the growth.
      */
-    private fun ensureCapacity(tiles: Int) {
-        if (tiles <= capacityTiles) return
-        capacityTiles = tiles
-        vertexBuffer = allocate(tiles)
+    private fun ensureCapacity(tiles: Int): Boolean {
+        if (tiles <= capacityTiles) return true
+        val grown = allocate(tiles)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo[0])
         GLES30.glBufferData(
             GLES30.GL_ARRAY_BUFFER,
-            vertexBuffer.capacity() * 4,
+            grown.capacity() * 4,
             null,
             GLES30.GL_STREAM_DRAW,
         )
-        GlErrors.checkAllocation("composite VBO grown to $tiles tiles")
+        if (GlErrors.checkAllocation("composite VBO grown to $tiles tiles") != GLES30.GL_NO_ERROR) {
+            return false
+        }
+        vertexBuffer = grown
+        capacityTiles = tiles
+        return true
     }
 
     private fun ensureBuffers() {
@@ -131,7 +143,7 @@ class CompositePass(
         if (keyScratch.size < textures.grid.tileCount) keyScratch = IntArray(textures.grid.tileCount)
         val count = textures.visibleKeys(dirtyRect, keyScratch)
         if (count == 0) return 0
-        ensureCapacity(count)
+        if (!ensureCapacity(count)) return 0
 
         state.useProgram(program)
         program.uniform4f("u_screen", screen.a, screen.b, screen.tx, screen.ty)

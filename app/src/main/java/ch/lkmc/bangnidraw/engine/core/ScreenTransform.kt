@@ -49,9 +49,23 @@ data class ScreenTransform(
     /** Canvas px per screen px — `u_canvasPerScreen`, and the supersample step. */
     val canvasPerScreen: Float get() = if (effectiveScale > 0f) 1f / effectiveScale else 0f
 
+    /**
+     * The x of where canvas point ([x], [y]) appears, in view px.
+     *
+     * Scalar, and the single definition of this half of the transform: [apply]
+     * delegates to it, [screenBoundsOf]'s corner walk calls it directly to stay
+     * allocation-free, and the shader is handed the same four floats as
+     * `u_screen`. Three inlined copies of `a·x − b·y + tx` would hold the
+     * scissor rect and the geometry it clips together by coincidence — and a
+     * scissor that disagrees with the draw clips content invisibly.
+     */
+    fun screenX(x: Float, y: Float): Float = a * x - b * y + tx
+
+    /** The y of [screenX]'s point. Same reasoning; see there. */
+    fun screenY(x: Float, y: Float): Float = b * x + a * y + ty
+
     /** Where canvas point ([x], [y]) appears, in view px. */
-    fun apply(x: Float, y: Float): Pair<Float, Float> =
-        Pair(a * x - b * y + tx, b * x + a * y + ty)
+    fun apply(x: Float, y: Float): Pair<Float, Float> = Pair(screenX(x, y), screenY(x, y))
 
     /**
      * The inverse of [apply]: a view point back to canvas px — what
@@ -90,11 +104,11 @@ data class ScreenTransform(
      */
     fun screenBoundsOf(rect: IntRect, viewportWidth: Int, viewportHeight: Int): IntRect {
         if (rect.isEmpty || viewportWidth <= 0 || viewportHeight <= 0) return IntRect.EMPTY
-        // NOT named l/t/r/b. `b` would shadow this class's own `b` — the
-        // matrix coefficient — and the inlined corner math below would then
-        // multiply by the rect's bottom edge instead. Kotlin resolves the
-        // innermost binding and says nothing; the tests caught it, which is
-        // the only reason this comment exists rather than a silent bug.
+        // NOT named l/t/r/b: `b` would shadow this class's own `b`, the matrix
+        // coefficient. That is no longer load-bearing now that the corner walk
+        // calls [screenX]/[screenY] instead of inlining the math, but it cost a
+        // real bug once — Kotlin resolves the innermost binding and says
+        // nothing — and the names stay unambiguous.
         val x0 = rect.left.toFloat()
         val y0 = rect.top.toFloat()
         val x1 = rect.right.toFloat()
@@ -114,8 +128,9 @@ data class ScreenTransform(
         // rect is not axis-aligned, and two opposite corners clip the others.
         var ok = true
         fun corner(cx: Float, cy: Float) {
-            val sx = a * cx - b * cy + tx
-            val sy = b * cx + a * cy + ty
+            // The scalar helpers, not `apply`: same formula, no Pair.
+            val sx = screenX(cx, cy)
+            val sy = screenY(cx, cy)
             if (!sx.isFinite() || !sy.isFinite()) {
                 ok = false
                 return

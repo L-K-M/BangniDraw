@@ -51,10 +51,15 @@ A round where **no usable review arrived** — the action errored, timed out, wa
 cancelled, finished without posting its report, or posted a blank, truncated or
 error-shaped one — is an infrastructure failure, not an empty round. A
 malfunctioning reviewer that says nothing looks exactly like a clean bill of
-health. Re-run it once; if the re-run also fails, stop and tell the user rather
-than merging. Such a round counts toward none of the rules above and breaks any
-streak it interrupts. Never merge on the strength of a review that did not
-happen.
+health, so never score it as one. Re-run it once; a round the re-run fixed
+counts toward none of the rules above and breaks any streak it interrupts.
+
+If the re-run also fails, **merge anyway — do not stop work because the
+reviewer is down.** CI must still be green, you must re-read your own diff
+adversarially first (you are the only check left), and the scorecard and merge
+commit must both say that no review ran. An unreviewed merge is fine to do and
+bad to hide. If three PRs running merge unreviewed, tell the user: that is a
+broken reviewer, not a flaky one.
 
 At steady-state: post a short scorecard in chat (what was real, what was
 refuted, what's deferred), then merge the PR into `main` once its build checks

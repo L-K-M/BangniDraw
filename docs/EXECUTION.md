@@ -90,10 +90,12 @@ For each round:
      cancelled, finished without posting its report, **or posted a report that is blank,
      truncated, or error-shaped** — a rate-limit stub, an empty body, a finding cut off
      mid-sentence. A malfunctioning reviewer that says nothing looks exactly like a clean
-     bill of health, so it must not be scored as one. An infrastructure failure, not a
-     verdict. Re-run it once. **If the re-run also fails, stop: do not merge, and tell the
-     user.** Counts toward no rule below, and breaks any streak it interrupts. Never treat a
-     review that did not run as evidence the code is clean.
+     bill of health, so it is never scored as one: this is not *empty*.
+
+     Re-run it once — most failures are transient. If the re-run also fails, **do not stop
+     the pipeline**: a broken reviewer is not a reason to leave finished work unmerged. Score
+     the round *unreviewed* and proceed under the rule below. A single *no review* round that
+     the re-run fixed counts toward nothing and breaks any streak it interrupts.
    - "**integration failed**" = you applied feedback and either CI went red and you could not make
      it green with one follow-up fix commit, or the applied change had to be reverted because
      it broke behavior or contradicted `PLAN.md`. Revert to the last green state before continuing.
@@ -128,8 +130,20 @@ raising would have shipped both. Re-read the reasoning before you count the rais
 
 Only rounds where a review actually ran count toward these. A *no review* round earns nothing
 and breaks any streak it interrupts, so nits only → no review → nits only is **not** two
-consecutive nits-only rounds. Two *no review* rounds running is not steady state either: it is
-the stop-and-tell-the-user case above.
+consecutive nits-only rounds.
+
+**Unreviewed merges.** If a round scores *no review* and the re-run also fails, the reviewer
+is unavailable, not silent, and waiting for it is a work stoppage. Merge anyway, on these
+terms:
+- CI must still be green. "Never merge red CI" is not what this rule relaxes.
+- Re-read your own diff adversarially first — the reviewer was the outside check and it is
+  gone, so you are the only one left. Budget real minutes for it, not a glance.
+- Say plainly, in the PR scorecard and in the merge commit, that no review ran and why. An
+  unreviewed merge is a fine thing to do and a bad thing to hide: the record is what lets
+  someone come back and look at this diff on purpose.
+- Do not let it become the habit. If three PRs in a row merge unreviewed, the reviewer is
+  broken rather than flaky — say so to the user, who can decide whether to fix it before the
+  next step.
 
 The first rule is deliberately a hair trigger. A reviewer that raises nothing has run out of
 things to say about this diff, and a further round costs a CI cycle and a review cycle to

@@ -345,13 +345,30 @@ class DabGeneratorTest {
         // Dividing by that zero would be an infinite speed and a dab clamped
         // to the wrong end of its range.
         val quick = plain.copy(velocity = VelocityEffect(sizeAtFast = 0.5f, fastPxPerMs = 2f))
-        val path = List(20) { sample(it * 15f, 0f, timeMs = 0L) }
-        val dabs = run(quick, path)
-        assertTrue(dabs.isNotEmpty())
-        for (dab in dabs) {
-            assertTrue(dab.radius.isFinite(), "a shared timestamp produced ${dab.radius}")
-            assertEquals(plain.baseRadius, dab.radius, 1e-3f, "velocity should have stayed at zero")
+
+        // Cold start: nothing has moved yet, so the velocity must *stay* at
+        // zero rather than dividing by the zero delta and snapping to the fast
+        // end of the range.
+        val cold = run(quick, List(20) { sample(it * 15f, 0f, timeMs = 0L) })
+        assertTrue(cold.isNotEmpty())
+        for (dab in cold) {
+            assertEquals(plain.baseRadius, dab.radius, 1e-3f, "a shared timestamp gave ${dab.radius}")
         }
+
+        // And mid-stroke, which is what the name actually promises: the walk
+        // above cannot tell "keep the previous velocity" from "reset it to
+        // zero", because the previous velocity is zero in both readings. Give
+        // the stroke a real speed first, then freeze the clock: keeping it
+        // leaves the stroke thinned, resetting widens it back out. A device
+        // that stamps a whole historical run with the batch's event time would
+        // otherwise visibly fatten a stroke mid-gesture with nothing failing.
+        val warm = listOf(sample(0f, 0f), sample(30f, 0f, timeMs = 10))
+        val frozen = List(20) { sample(30f + it * 15f, 0f, timeMs = 10L) }
+        val dabs = run(quick, warm + frozen)
+        assertTrue(
+            dabs.last().radius < plain.baseRadius - 1e-3f,
+            "the frozen clock reset the velocity instead of keeping it: ${dabs.last().radius}",
+        )
     }
 
     // -------------------------------------------------------------- shape

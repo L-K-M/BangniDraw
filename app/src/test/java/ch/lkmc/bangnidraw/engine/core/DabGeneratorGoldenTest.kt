@@ -84,7 +84,7 @@ class DabGeneratorGoldenTest {
      * same thing. A spacing carry that reset per batch would have passed it.
      */
     private fun runStroke(chunk: Int): List<GoldenDab> {
-        // Not decoration: at `chunk <= 0`, `end` equals `i`, the inner loop
+        // Not decoration: at `chunk <= 0`, `end` never gets past `i`, the inner loop
         // never runs, `i` never advances, and the outer loop spins allocating
         // a fresh 8192-dab batch every pass — CI would hang and then die of
         // memory rather than fail. Every call site passes a positive literal

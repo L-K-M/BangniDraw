@@ -28,6 +28,7 @@ sealed interface PixelOp {
 
     data class Clear(val layer: LayerId) : PixelOp
     data class Delete(val layer: LayerId) : PixelOp
+
     /**
      * Composite [order] — the **visible** layers, bottom to top, over
      * transparent (`docs/plan/05-layers.md` §4.4) — into a fresh layer

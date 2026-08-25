@@ -157,7 +157,10 @@ class CanvasPresetsTest {
             CanvasSize(TileGrid.MAX_EDGE, TileGrid.MAX_EDGE),
             MemoryBudget.compute(device(64.0), CanvasSize(2048, 2048)),
         )
-        // Refused for the device's budget, never for the format's.
+        // Refused, but by maxCanvasEdge — which v1 caps at MAX_CANVAS_EDGE_V1
+        // = 4096 on every device, however much memory it has — and not by
+        // either format ceiling. That is the point: 8192 square is legal for
+        // the format and simply not offered yet.
         assertIs<CustomSizeResult.Refused>(largest)
         assertEquals(SizeRefusal.TOO_LARGE_FOR_DEVICE, largest.reason)
     }

@@ -14,6 +14,13 @@ enum class CanvasPresetId { PHONE_SKETCH, SQUARE_2048, TABLET, LARGE_4096, CUSTO
 data class CanvasPreset(
     val id: CanvasPresetId,
     val size: CanvasSize,
+    /**
+     * How many layers this size holds on this device — **meaningful only when
+     * [enabled]**. `MemoryBudget.maxLayersFor` clamps up to `MIN_LAYERS`, so a
+     * row that is over the device's ceiling still carries a number, and it is
+     * the floor rather than an offer. A greyed row shows its reason, not its
+     * layer count.
+     */
     val maxLayers: Int,
     val enabled: Boolean,
 ) {

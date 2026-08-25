@@ -139,12 +139,14 @@ object MemoryBudget {
      * disagree.
      *
      * The clamp raises as well as lowers: a canvas so large that not even one
-     * layer fits still answers [MIN_LAYERS], never 0 — a document always has a
-     * layer, so 0 would describe a canvas that cannot be opened rather than
-     * one that may run out of pages. **Callers must therefore reject a size
-     * above [Result.maxCanvasEdge] before asking**, or they will advertise
-     * layers the pool cannot back: the same over-commit [Result.poolCapacityBytes]
-     * exists to prevent, arriving from the other side.
+     * layer fits still answers [MIN_LAYERS], never 0. A document always has a
+     * layer, so 0 would not mean "paint with fewer" — it would mean "this
+     * canvas cannot be opened", which is a different question, answered
+     * separately by `CanvasPresets.fits`. **So this number is only meaningful
+     * for a size that clears [Result.maxCanvasEdge]**; for anything larger it
+     * is the floor, not a promise, and a caller that shows it as one advertises
+     * layers the pool cannot back. `CanvasPreset` pairs it with `enabled` for
+     * exactly that reason.
      *
      * The parameter is named for the *capacity*, not the raw budget: passing
      * `Result.gpuTileBudgetBytes` here compiles and reads naturally, and is

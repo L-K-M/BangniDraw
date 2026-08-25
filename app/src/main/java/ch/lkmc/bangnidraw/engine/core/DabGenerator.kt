@@ -33,8 +33,15 @@ class DabGenerator(
     private val opacityLut = preset.pressureOpacity.lut()
     private val flowLut = preset.pressureFlow.lut()
 
-    private val minRadius = (preset.sizeMin / 2f).coerceAtLeast(Dab.MIN_RADIUS)
-    private val maxRadius = (preset.sizeMax / 2f).coerceAtMost(Dab.MAX_RADIUS)
+    // Both clamps, and `maxRadius` floored at `minRadius` — otherwise the two
+    // can cross and every `coerceIn` below throws on an empty range. A preset
+    // is allowed to be smaller than the engine can draw: `BrushPreset.MIN_SIZE`
+    // is 0.5 px of *diameter*, while `Dab.MIN_RADIUS` is 0.5 px of *radius*, so
+    // a legal brush of 0.5..0.6 px gave minRadius 0.5 against maxRadius 0.3 and
+    // crashed on its first dab. Such a brush means "always the smallest dab the
+    // shader can draw", which is what an equal pair produces, not an error.
+    private val minRadius = (preset.sizeMin / 2f).coerceIn(Dab.MIN_RADIUS, Dab.MAX_RADIUS)
+    private val maxRadius = (preset.sizeMax / 2f).coerceIn(minRadius, Dab.MAX_RADIUS)
 
     private val last = StrokeInput()
     private var started = false
@@ -326,7 +333,16 @@ class DabGenerator(
     private fun tiltFraction(tilt: Float): Float =
         if (tilt.isNaN()) 0f else (tilt / HALF_PI).coerceIn(0f, 1f)
 
-    /** Folds one input pressure into the stroke's peak and its opacity ceiling. */
+    /**
+     * Folds one input pressure into the stroke's peak and its opacity ceiling.
+     *
+     * Guards NaN itself because it feeds a `max`, not a curve. Every *other*
+     * pressure path in this class reaches [Curve.lookup], which maps NaN to
+     * the curve at x = 0 — so the spacing walk and the dab dynamics can pass
+     * raw values through without a NaN sample poisoning `step`, `carry` or a
+     * radius. The guard sits at the point they all funnel into rather than at
+     * each caller.
+     */
     private fun notePressure(pressure: Float) {
         val p = if (pressure.isNaN()) 0f else pressure.coerceIn(0f, 1f)
         maxPressure = maxOf(maxPressure, p)

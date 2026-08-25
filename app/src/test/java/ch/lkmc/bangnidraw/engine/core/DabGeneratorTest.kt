@@ -518,6 +518,47 @@ class DabGeneratorTest {
     }
 
     @Test
+    fun `a brush smaller than the engine can draw still draws`() {
+        // `BrushPreset.MIN_SIZE` is half a pixel of *diameter* while
+        // `Dab.MIN_RADIUS` is half a pixel of *radius*, so a legal preset can
+        // ask for a brush the shader floors. That must be the smallest dab, not
+        // a crash: this range used to make the generator's own min exceed its
+        // max and every `coerceIn` threw on the first dab of every stroke.
+        val subPixel = BrushPreset(id = "t.tiny", name = "Tiny", size = 0.55f, sizeMin = 0.5f, sizeMax = 0.6f)
+        val dabs = run(subPixel, straightPath(0f, 40f, 20))
+        assertTrue(dabs.isNotEmpty(), "a sub-pixel brush must still leave dabs")
+        for (dab in dabs) {
+            assertEquals(Dab.MIN_RADIUS, dab.radius, 1e-4f, "the smallest dab the shader can draw")
+        }
+    }
+
+    @Test
+    fun `a NaN pressure is no pressure, and the stroke keeps going`() {
+        // The digitizer can report one. Every pressure path funnels through
+        // `Curve.lookup`, which maps NaN to the curve at x = 0, so the sample
+        // is treated as no pressure rather than propagating into `step` — where
+        // a NaN would make `carry` NaN and silently end the stroke's dabs for
+        // good, with nothing failing.
+        val preset = plain.copy(pressureSize = Curve.Linear, pressureFlow = Curve.Linear)
+        val generator = DabGenerator(preset, seed = 1L)
+        val batch = DabBatch(4096)
+        generator.begin(sample(0f, 0f), batch)
+        generator.advance(sample(50f, 0f, timeMs = 8), batch)
+        val beforeNaN = batch.count
+        generator.advance(sample(100f, 0f, pressure = Float.NaN, timeMs = 16), batch)
+        val afterNaN = batch.count
+        generator.advance(sample(150f, 0f, timeMs = 24), batch)
+        assertTrue(afterNaN > beforeNaN, "the NaN segment must still emit dabs")
+        assertTrue(batch.count > afterNaN, "and the stroke must keep emitting after it")
+        for (i in 0 until batch.count) {
+            val dab = batch[i]
+            assertTrue(dab.radius.isFinite(), "dab $i has a ${dab.radius} radius")
+            assertTrue(dab.flow.isFinite(), "dab $i has a ${dab.flow} flow")
+            assertTrue(dab.x.isFinite() && dab.y.isFinite(), "dab $i is at ${dab.x},${dab.y}")
+        }
+    }
+
+    @Test
     fun `advancing without beginning starts the stroke`() {
         // Defensive, but the input path can drop an ACTION_DOWN when a
         // gesture is reclassified mid-flight, and losing the whole stroke

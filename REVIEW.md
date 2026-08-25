@@ -20,6 +20,22 @@ unreadable.
 
 ## Resolved
 
+- **R-038 🟢 `DabGenerator`'s radius clamp threw on a sub-pixel preset.** (PR
+  #9, GLM round 4, raised as a BLOCKER.) Real, and a crash on the drawing
+  path: `minRadius` was floored at `Dab.MIN_RADIUS` and `maxRadius` ceiled at
+  `Dab.MAX_RADIUS` with nothing keeping the two in order, so
+  `coerceIn(minRadius, maxRadius)` threw `Cannot coerce value to an empty
+  range` on the *first dab of every stroke* for such a preset.
+  `BrushPreset.MIN_SIZE` is half a pixel of **diameter** while `Dab.MIN_RADIUS`
+  is half a pixel of **radius**, so a perfectly legal brush of 0.5..0.6 px gave
+  a min of 0.5 against a max of 0.3. Reproduced before fixing.
+  The finding's own stated path — `sizeMin / 2 > Dab.MAX_RADIUS` — is
+  unreachable, since `BrushPreset.MAX_SIZE / 2` is exactly `Dab.MAX_RADIUS`;
+  the small end is where it bites, which is the half the finding did name.
+  Fixed by flooring `maxRadius` at `minRadius`: a brush smaller than the shader
+  can draw means "always the smallest dab", not an error. `DabGeneratorTest`
+  pins it.
+
 - **R-001 🟢 Layer ids reach the filesystem unvalidated.** Raised in rounds 2,
   6, 7 and 8; declined three times, **applied in round 8** — recording the
   change of position rather than making it silently. My decline rested on one
@@ -101,6 +117,27 @@ unreadable.
   convention rather than left as a surprise.
 
 ## Declined, with reasons
+
+- **R-039 ⏸️ Round 4's major: "NaN pressure is sanitized in `notePressure` but
+  fed raw into the spacing math, permanently poisoning `carry`".** Refuted, by
+  running it. The finding is explicit about its premise — "*If* `Curve.lookup`
+  propagates NaN (as a plain interpolation would)" — and it does not:
+  `lookup` opens with `if (x.isNaN()) 0f else …`, so
+  `Curve.lookup(Curve.Linear.lut(), NaN)` returns `0.0`. Fed a NaN-pressure
+  sample mid-stroke, the generator emitted 11 → 111 → 211 dabs across the
+  segments before, during and after it, and no dab had a non-finite radius.
+  The reasoning about what a NaN `carry` *would* do is correct and is exactly
+  why the guard sits where it does. `notePressure` guards separately because
+  it feeds a `max` rather than a curve — now said in its KDoc, since the
+  asymmetry is what made this look like an omission.
+
+- **R-029 ⏸️ (second raising) `velocity / fastPxPerMs` is 0/0 when
+  `fastPxPerMs` is 0.** Refuted again on the same ground, now checked rather
+  than argued: `VelocityEffect(sizeAtFast = 0.5f, fastPxPerMs = 0f)` throws
+  `velocity fastPxPerMs must be positive, was 0.0` from the type's own `init`.
+  The zero cannot reach the division. The general point that `coerceIn` does
+  not filter NaN remains true and remains the reason the surrounding code
+  tests `isNaN` explicitly.
 
 - **R-037 ⏸️ Guard the golden harness's deferred read with
   `check(dabs.size == total)`.** The concern is fair; the suggested check

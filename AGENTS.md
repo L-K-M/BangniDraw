@@ -37,7 +37,10 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   `ANDROID_HOME`. Agent sessions: `.claude/setup-android.sh` bootstraps the
   SDK idempotently (wired as a SessionStart hook). Note that the SDK's
   `aapt2` is x86_64-only — an arm64 Linux sandbox cannot assemble; CI is
-  the source of truth there.
+  the source of truth there. On an x86_64 sandbox the whole pipeline
+  (`testDebugUnitTest lintDebug assembleDebug`) runs locally; the first
+  invocation downloads the Gradle distribution and the dependency graph and
+  takes a few minutes, every later one is seconds.
 - Versions are pinned ONLY in `gradle/libs.versions.toml`. Never add an
   ad-hoc version to a build file; never restate catalog versions in docs.
 
@@ -120,6 +123,122 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   graduates into `docs/plan/12-roadmap.md`, a declined one stays with its
   status flipped so the reasoning isn't lost.
 
+## Deviations discovered while building
+
+Recorded per PLAN.md's rule: when the plan contradicts itself, PLAN.md wins
+and the contradiction is noted here.
+
+- **`maxCanvasEdge` is not bounded by `GL_MAX_TEXTURE_SIZE`.**
+  `docs/plan/11-testing.md` §3.11 lists `maxCanvasEdge <= glMaxTextureSize`
+  as a `MemoryBudgetTest` claim, but `docs/plan/10-performance.md` §4 — which
+  owns `MemoryBudget` — states the opposite in a code comment ("never bounded
+  by `glMaxTextureSize` … tiles are 256"), and it is right: a canvas is never
+  a texture, only a grid of 256 px slices, so a device with the ES 3.0
+  minimum `GL_MAX_TEXTURE_SIZE` of 2048 can still hold a 4096 canvas. PLAN.md
+  §3.1 and decision 1 side with 10 §4. `MemoryBudgetTest` therefore asserts
+  the two claims that are real (the pool spans enough slices for every layer,
+  and `poolArraySlices <= glMaxArrayLayers` once queried) and not the third.
+  `glMaxTextureSize` stays in `DeviceMemory` because the viewport-sized
+  `Accum`/`Scratch` targets of `03-canvas-engine.md` §3.2 are real textures
+  and will need it.
+
+- **Merge down bakes the lower layer's opacity into *every* one of its tiles.**
+  `docs/plan/05-layers.md` §4.1 contradicts itself: its mechanism says
+  "bottom's tiles at keys the top does not have are untouched", while its
+  appearance rule says "bottom's opacity is baked into the merged pixels" and
+  "a normal bottom at *any* opacity merges exactly". Both cannot hold — the
+  merged layer is reset to Normal at 100 %, so an untouched tile of a 50 %
+  bottom layer jumps to fully opaque. The guarantee wins (it is also the
+  stronger promise to the user, and PLAN.md decision 10 only requires the
+  weaker one), so `mergeDown` widens `PixelOp.Merge.keys` and
+  `HistoryEntry.LayerMerge.lowerTiles` to all of the bottom layer's tiles
+  **when its opacity is not 1**. Blend mode alone never widens them: a
+  bottom-only tile is composited over transparent, where every *separable*
+  blend mode reduces to source-over — which is all eight of ours. A
+  Porter-Duff compositing operator would not: `source-in` over a transparent
+  destination is transparent, not the source, so a bottom-only tile would not
+  survive the merge and undo would be lossy. `erase` and `alphaLocked` are
+  such operators, but they are tool operations in `Composite`, not entries in
+  `BlendMode`, and `mergeDown` never routes through them. Revisit this rule if
+  one ever becomes a layer blend mode. So the ordinary bottom-at-100 % merge still rewrites only the
+  shared tiles, exactly as 05 §4.1 and `06-document-and-persistence.md` §5.2
+  describe, and 06 §5.2's "lower's tiles at upper's keys only" is a superset
+  violation only in the faded case, where undo would otherwise be unable to
+  restore what the merge overwrote. `PixelOp.Merge` also carries
+  `bottomProps`, because the model already holds the reset props by the time
+  the GL thread runs the op.
+- **`LayerStack.nextName` cannot survive undo or reopen on its own.** The
+  counter that names "Layer N" only grows along a chain of operations, but no
+  `HistoryEntry` variant carries it and `ProjectFile`
+  (`06-document-and-persistence.md` §3) has no field for it — so an
+  add → undo → add sequence, or simply closing and reopening a painting,
+  reissues a default name that 05 §1 says is never reused. Nothing in v1 keys
+  off a generated name yet, so this is recorded rather than fixed here.
+  **Roadmap step 3 owns it** — and `12-roadmap.md` has since settled the
+  mechanism: the counter stays on `LayerStack`, `project.json` gains a field
+  for it, and undo never restores it. Two tests, because the note above
+  describes two distinct failures: `add → undo → add` yields a fresh name
+  (the journal half), and **save → reopen → add** yields a fresh name (the
+  persistence half). A design that fixes only the first still reissues "Layer
+  3" the next morning.
+
+## Conventions the plan leaves open
+
+- **What "`engine/core` is pure JVM" actually forbids.**
+  `docs/plan/02-architecture.md` §1 writes the rule as "`kotlin.*` and
+  `java.util` only", but the plan itself puts `@Serializable` on two
+  `engine/core` types — `LayerRecord` (`06-document-and-persistence.md` §3)
+  and `BrushPreset` (`04-tools.md` §2). The operative rule is therefore: **no
+  `android.*`, no Compose, no coroutines, no GL, and nothing that needs a
+  device to run** — kotlinx-serialization annotations are allowed exactly
+  where the plan declares a core type serializable, because they are pure JVM
+  and the JVM test suite still runs the class unchanged. Anything else from
+  the serialization ecosystem (custom serializers, `Json` instances, file
+  IO) stays at the `data/` boundary.
+- **`HistoryEntry.LayerProps` deliberately shares its name with the model's
+  `LayerProps`.** `docs/plan/06-document-and-persistence.md` §5.2 is normative
+  for the entry kinds' *names*, and it calls the props-change entry
+  `LayerProps`. A file that touches both types qualifies the entry
+  (`HistoryEntry.LayerProps`) or aliases on import; do not rename the nested
+  class to resolve the collision.
+- **The entries' id fields are `LayerId`, not `String`.**
+  `06-document-and-persistence.md` §5.2 writes them as strings, and it is
+  normative — but for the *encoding*, and the encoding is unchanged:
+  `LayerId` is a `@JvmInline value class` over the same string, so
+  `history/<seq>.entry` holds exactly what §5.2 says. What the type buys is
+  the trust boundary: an entry decoded from a hand-edited file cannot hand an
+  unvalidated id to a path join, which is the same reason `LayerId` carries a
+  constructor guard at all. The claim is pinned, not just asserted:
+  `LayerStackTest`'s "a layer id that is not a single path segment is refused"
+  runs `LayerRecord(id = "../../evil").toProps()` and requires it to throw. The
+  serialized type is `LayerRecord`, whose `id` is a plain `String`, so the guard
+  runs where `toProps` constructs the `LayerId` — no serializer ever sees the
+  value class, and a future custom serializer for it would still have to keep
+  that test green. This reverses an earlier reading recorded here, which took
+  §5.2's field types as binding on the in-memory shape too.
+- **Generated layer names are a closed grammar, not a prefix.** Only three
+  stored forms resolve through resources at display time:
+  `@string/layer_flattened`, `@string/layer_default <int>`, and
+  `<name> @string/layer_copy_suffix` — where `<name>` is resolved by this same
+  grammar, **recursively**, so a copy of a copy of a default-named layer still
+  shows localized text plus two suffixes rather than a raw resource token.
+  Duplication appends the suffix to the stored name, so the suffixes do stack
+  and the inner substring matches the third form, not the first two. Anything else is shown verbatim — which
+  is what lets a user type `"@string/app_name"` as a layer name and see it
+  back unchanged, and what keeps a duplicate of a default-named layer
+  translatable (`01-product.md` §8: no English text in a stored name). A
+  user-typed name survives unless it exactly matches one of the three forms —
+  `"@string/layer_default 7"` is indistinguishable from a generated name and
+  resolves as one — nearly free, since it displays as the text it already reads
+  as, with one real cost: because the stored string resolves through resources
+  at display time, a later locale switch re-renders a name the user typed by
+  hand. The resolver arrives with the layer panel in step 6 and
+  must implement exactly that grammar, not "resolve any `@string/` token".
+- **Test fixtures live in `app/src/test/resources/fixtures/…`**, addressed
+  through `javaClass.getResourceAsStream("/fixtures/…")`.
+  `docs/plan/11-testing.md` §2 names the folder but not its root, and only a
+  resources root is on the test classpath.
+
 ## CI/CD
 
 Three workflows (details: [CICD.md](CICD.md)): `ci.yml` (tests + lint +
@@ -143,3 +262,21 @@ PRs are reviewed by GLM automatically. Findings are triaged
 apply/decline/refute per [CLAUDE.md](CLAUDE.md); declined findings and
 their reasons accumulate in [REVIEW.md](REVIEW.md) so later rounds (and
 later agents) don't flip-flop.
+
+The repository defaults to **hybrid** review: the first review is full, then
+follow-ups review changes since the last completed review plus a rotating
+sample of older PR changes. Keep hybrid for normal review/fix cycles.
+
+Before the next review-triggering push, an implementer may apply exactly one
+scope label:
+
+- `zai-review:full` — use for high-risk changes, after a force push, or for a
+  deliberate final deep audit.
+- `zai-review:hybrid` — restore the normal delta-plus-rotating-audit mode.
+- `zai-review:incremental` — use only for a low-risk, latency-sensitive
+  follow-up after a completed full review; it omits the rotating old-code audit.
+
+Labels override the workflow setting but do not themselves start a review; the
+next synchronize, reopen, or other configured PR event does. Remove an override
+to return to the repository's hybrid default. Missing/incomplete state or
+non-ancestor history automatically falls back to a full review.

@@ -296,8 +296,9 @@ terms:
   a notification. Telling them is not stopping: keep going.
 - Before concluding the reviewer is broken, check the shape of its output. Reports that look
   complete but no longer open with the expected line ("Actionable suggestions identified: N")
-  or close with the expected HTML marker comment mean
-  its *template* changed and the matcher needs updating — a one-line fix. Calling that a
+  or end with a structurally closed template tail mean its *template* changed and the matcher
+  needs updating — a one-line fix. Raw Markdown also carries an HTML marker, but GitHub MCP may
+  strip comments, so never require that marker through an MCP client. Calling that a
   broken reviewer sends the user looking in the wrong place, and this integrity check is the
   only thing separating a silent malfunction from a clean bill of health.
 - Otherwise, if three PRs in a row merge unreviewed, the reviewer is broken rather than

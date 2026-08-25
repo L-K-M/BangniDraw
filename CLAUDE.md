@@ -98,11 +98,12 @@ cancelled, finished without posting its report, or posted a blank, truncated or
 error-shaped one — is an infrastructure failure, not an empty round. A
 malfunctioning reviewer that says nothing looks exactly like a clean bill of
 health, so never score it as one. This reviewer's reports open with
-"Actionable suggestions identified: N" and close with an HTML marker comment
-(if that format ever changes, this line, EXECUTION.md and the matcher move in
-one commit — otherwise every report reads as truncated and the pipeline quietly
-converts to unreviewed merges);
-a report missing either end was cut off, whatever it appears to say. Re-run it
+"Actionable suggestions identified: N" and end with a structurally closed
+template tail. Raw Markdown also carries an HTML marker, but GitHub MCP may
+strip comments, so the marker is corroboration rather than a requirement (if
+the format changes, this line, EXECUTION.md and the matcher move in one commit —
+otherwise the pipeline quietly converts to unreviewed merges). A report missing
+the opening line or cut off mid-structure was truncated. Re-run it
 once; a round the re-run fixed is
 scored on the re-run's review and counts like any other, and only a round still
 unreviewed after the re-run earns nothing and *pauses* a streak rather than
@@ -119,7 +120,7 @@ bad to hide, so tell the user in the report for that PR — the first one is wha
 they would most want to know about, and a scorecard they never open is not a
 notification. Telling them is not stopping; keep going. If three PRs in a row
 merge unreviewed, check one thing before blaming the reviewer: if the reports
-look complete but no longer carry the expected opening line or closing marker,
+look complete but no longer carry the expected opening line or a structurally closed tail,
 its *template* changed and the matcher needs updating — a one-line fix, not a
 broken pipeline. Otherwise say plainly that the reviewer is broken rather than
 flaky, and keep merging: they decide whether to fix it before the next step.

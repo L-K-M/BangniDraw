@@ -51,7 +51,7 @@ class DabGeneratorGoldenTest {
 
     private fun samples(): List<GoldenSample> {
         val text = checkNotNull(
-            javaClass.getResourceAsStream("/$INPUT_RESOURCE")?.bufferedReader()?.readText(),
+            javaClass.getResourceAsStream("/$INPUT_RESOURCE")?.bufferedReader()?.use { it.readText() },
         ) { "missing golden fixture $INPUT_RESOURCE" }
         return json.decodeFromString(text)
     }
@@ -72,18 +72,32 @@ class DabGeneratorGoldenTest {
     }
 
     /**
-     * The pipeline under test, fed in chunks of [chunk] samples. The chunking
-     * is what makes this a batch-split test as well as a value test: a real
-     * `MotionEvent` delivers a run of historical samples plus the current one,
-     * and the run length is whatever the digitizer happened to buffer.
+     * The pipeline under test, fed in chunks of [chunk] samples — **each chunk
+     * into its own [DabBatch]**, which is what a `MotionEvent` does: the
+     * handler fills one batch per event, publishes it, and takes the next ring
+     * slot.
+     *
+     * The batch per chunk is the whole point. An earlier version advanced the
+     * loop in chunks but kept one batch, so nothing observable happened at a
+     * boundary — the generator saw an identical call sequence for every chunk
+     * size, and the "batch-split invariant" test was comparing two runs of the
+     * same thing. A spacing carry that reset per batch would have passed it.
      */
     private fun runStroke(chunk: Int): List<GoldenDab> {
         val input = samples()
         val stabilizer = Stabilizer(preset.stabilizer)
         val generator = DabGenerator(preset, seed)
-        val batch = DabBatch(capacity = 8192)
         val smoothed = StrokeInput()
+        val dabs = mutableListOf<GoldenDab>()
 
+        fun drain(batch: DabBatch) {
+            for (i in 0 until batch.count) {
+                val d = batch[i]
+                dabs += GoldenDab(d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed)
+            }
+        }
+
+        var batch = DabBatch(capacity = 8192)
         val first = input.first().toInput()
         stabilizer.reset(first)
         generator.begin(first, batch)
@@ -96,14 +110,14 @@ class DabGeneratorGoldenTest {
                 if (stabilizer.push(raw, smoothed)) generator.advance(smoothed, batch)
                 i++
             }
+            drain(batch)
+            batch = DabBatch(capacity = 8192)
         }
         stabilizer.finish(generator.currentStep(), smoothed) { generator.advance(it, batch) }
         generator.end(batch)
+        drain(batch)
 
-        return List(batch.count) {
-            val d = batch[it]
-            GoldenDab(d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed)
-        }
+        return dabs
     }
 
     /**
@@ -138,8 +152,15 @@ class DabGeneratorGoldenTest {
         }
         .toList()
 
-    /** Six decimals: well inside [PX_EPS], and stable across platforms. */
-    private fun fixed(v: Float): String = String.format(java.util.Locale.ROOT, "%.6f", v)
+    /**
+     * Four decimals. The comparison is by [PX_EPS] tolerance rather than by
+     * text, so precision beyond that buys nothing and costs diff noise: the
+     * last digits of a float move with the FPU, the libm, and the
+     * architecture, so a six-decimal dump churns on machines where the stroke
+     * is identical. 1e-4 quantisation sits an order of magnitude inside the
+     * 1e-3 tolerance the test actually applies.
+     */
+    private fun fixed(v: Float): String = String.format(java.util.Locale.ROOT, "%.4f", v)
 
     @Test
     fun `the golden stroke produces the pinned dabs`() {
@@ -152,7 +173,7 @@ class DabGeneratorGoldenTest {
             return
         }
         val text = checkNotNull(
-            javaClass.getResourceAsStream("/$GOLDEN_RESOURCE")?.bufferedReader()?.readText(),
+            javaClass.getResourceAsStream("/$GOLDEN_RESOURCE")?.bufferedReader()?.use { it.readText() },
         ) { "missing golden $GOLDEN_RESOURCE — regenerate with -Dbangni.updateGolden=true" }
         val expected: List<GoldenDab> = parse(text)
 
@@ -184,10 +205,10 @@ class DabGeneratorGoldenTest {
             val other = runStroke(chunk)
             assertEquals(reference.size, other.size, "chunk $chunk changed the dab count")
             for (i in reference.indices) {
-                assertClose(reference[i].x, other[i].x, "chunk $chunk, dab $i x")
-                assertClose(reference[i].y, other[i].y, "chunk $chunk, dab $i y")
-                assertClose(reference[i].radius, other[i].radius, "chunk $chunk, dab $i radius")
-                assertClose(reference[i].flow, other[i].flow, "chunk $chunk, dab $i flow")
+                // All eight fields: an angle or aspect that depended on where a
+                // batch boundary fell would be exactly the sort of bug this
+                // test is named for, and four of them went unchecked.
+                assertEquals(reference[i], other[i], "chunk $chunk, dab $i")
             }
         }
     }
@@ -205,8 +226,8 @@ class DabGeneratorGoldenTest {
             "the stroke must taper: radii ran ${radii.min()}..${radii.max()}",
         )
         assertTrue(
-            dabs.map { it.y }.distinct().size > 50,
-            "the stroke must curve, not run along one axis",
+            dabs.map { it.y }.distinct().size > 50 && dabs.map { it.x }.distinct().size > 50,
+            "the stroke must curve: a straight line along either axis is not a loop",
         )
         // And it must stay inside what the preset allows, so a golden can
         // never pin a dab the model would refuse.

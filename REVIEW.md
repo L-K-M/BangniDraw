@@ -102,6 +102,71 @@ unreadable.
 
 ## Declined, with reasons
 
+- **R-034 ⏸️ PR #9 round 1's 26 BLOCKERs: "Use of eval() detected. This is
+  unsafe and should be avoided."** Refuted, all twenty-six. They are a
+  substring match on the identifier `eval`, which here is
+  `Curve.eval(x: Float): Float` — a Catmull-Rom evaluation of four float
+  knots, on a `@Serializable data class` in a module that has no scripting
+  engine, no `ScriptEngineManager`, no reflection and no dynamic loading. The
+  JVM has no `eval` to call. Fourteen of the twenty-six are in a *test file*
+  calling that same method. Nothing was changed, and nothing could be: the
+  only "fix" is renaming a well-named method to evade a regex.
+
+- **R-033 ⏸️ Raise `SmudgeParams.spacing`'s default to the RMW floor of
+  0.25·r.** Declined: the plan writes the default as `0.16f` *and* the floor
+  as 0.25·r, and both on purpose. `03-canvas-engine.md` §7.6 says
+  "`DabGenerator` therefore enforces a minimum spacing of 0.25·r for RMW tools
+  **regardless of preset**" — the floor is the generator's, applied to
+  whatever the preset stores, exactly as the dab step is already floored at
+  half a pixel for brushes. Raising the stored default would deviate from a
+  normative table to duplicate a rule that belongs one layer down. Carried
+  forward instead: the RMW branch of `DabGenerator` owes that floor when
+  smudge and blur land, and it is now in the roadmap's step-4 notes.
+
+- **R-032 ⏸️ Make `DabRing.release` ignore a batch it never handed out.** The
+  hazard is real and the fix is wrong for it. The finding's case is the
+  allocating fallback batch from `acquire`'s backpressure path being routed
+  back into `release`; returning silently would make that a no-op. But a batch
+  arriving at `release` that the ring never owned means the caller has lost
+  track of which batches are pooled, and the next thing it loses track of is a
+  real slot — which leaks silently and starves the ring under exactly the load
+  that produced the fallback. The throw is the guard. Applied instead: the
+  KDoc now states that the fallback batch never returns through `release`, so
+  the contract is written down rather than inferred.
+
+- **R-031 ⏸️ Guard `dilution > 0` when `mixing` is false.** Half declined. The
+  `eraseMode && mixing` half is a genuine contradiction — two different merges
+  — and is applied. `dilution` with mixing off is not a contradiction, it is
+  an inert field: it reads as "if this brush ever mixes, yield this much".
+  Requiring it would make the settings sheet's own mixing toggle throw, since
+  a `copy(mixing = false)` on a diluted preset would no longer construct — the
+  finding says as much, and asks the UI to compensate. A validation whose
+  precondition is "and change every caller so it cannot fire" is not a
+  validation.
+
+- **R-030 ⏸️ Round 1's major: "Tap fix-up raises the dab's flow but not
+  `pressureOpacityMax`".** Refuted. The finding says the only `notePressure`
+  before `end()` came from `emit` with the down sample — but `advance` calls
+  `notePressure(next.pressure)` on every sample, as its first statement,
+  precisely so a peak falling between two dabs is not lost. For the tap the
+  finding describes, the ramp sample reaches `advance`, the ceiling is already
+  at the ramp's pressure, and `end()` has nothing left to raise. The
+  underlying worry — a tap that produces no `ACTION_MOVE` at all — is real but
+  is not a bug here: if no sample ever reported a higher pressure, there is no
+  higher pressure to recover. What the code did owe was saying whose job the
+  pen-up sample is, and `end()`'s KDoc now says it.
+
+- **R-029 ⏸️ Round 1's major: "NaN velocity ratio when `fastPxPerMs` is
+  non-positive".** Refuted on the premise. `VelocityEffect`'s `init` requires
+  `fastPxPerMs.isFinite() && fastPxPerMs > 0f`, so the zero the finding
+  divides by cannot reach the field — "left uninitialized in a bad preset" is
+  not a state this type has. The general observation is correct and worth
+  keeping in mind: `Float.coerceIn` does *not* sanitise NaN, because both of
+  its comparisons are false for it. That is why `tiltFraction` and
+  `notePressure` test `isNaN` explicitly rather than relying on the clamp, and
+  why a non-finite coordinate is refused at `IntRect.forDab` rather than
+  clamped there.
+
 - **R-025 ⏸️ `isIdentifierIgnorable` misses part of the Cf category
   (U+00AD, U+061C).** Refuted, by execution rather than by reading. The finding
   states the predicate "only covers a fixed subset of Cf: U+200B–U+200F,

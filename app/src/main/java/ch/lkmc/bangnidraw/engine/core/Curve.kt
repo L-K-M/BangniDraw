@@ -24,6 +24,14 @@ data class Curve(val p0: Float, val p1: Float, val p2: Float, val p3: Float) {
         require(p0.isFinite() && p1.isFinite() && p2.isFinite() && p3.isFinite()) {
             "curve knots must be finite, was ($p0, $p1, $p2, $p3)"
         }
+        // The class contract says "four knots on [0,1]" and nothing enforced
+        // it. Percent-scale knots — `Curve(15, 30, 60, 100)`, an easy
+        // authoring slip in a hand-written preset — construct fine and then
+        // `eval`'s output clamp flattens the whole curve to 1, so every
+        // pressure reads as full with no error anywhere near the preset.
+        require(p0 in 0f..1f && p1 in 0f..1f && p2 in 0f..1f && p3 in 0f..1f) {
+            "curve knots must be 0..1, was ($p0, $p1, $p2, $p3)"
+        }
     }
 
     @Transient
@@ -111,7 +119,10 @@ data class Curve(val p0: Float, val p1: Float, val p2: Float, val p3: Float) {
          */
         fun lookup(lut: FloatArray, x: Float): Float {
             val t = if (x.isNaN()) 0f else x.coerceIn(0f, 1f)
-            return lut[(t * (LUT_SIZE - 1) + 0.5f).toInt().coerceIn(0, LUT_SIZE - 1)]
+            // The table's own bounds, not [LUT_SIZE]: identical for the
+            // documented 256-entry contract, and safe for a caller that hands
+            // over a differently sized table rather than overrunning it.
+            return lut[(t * (lut.size - 1) + 0.5f).toInt().coerceIn(0, lut.lastIndex)]
         }
     }
 }

@@ -40,7 +40,13 @@ class StrokeInput {
     /** Radians, canvas-relative: the stylus azimuth minus the view rotation. */
     var orientation = 0f
 
-    /** Event time in nanoseconds. Monotonic within a stroke by construction. */
+    /**
+     * Event time in nanoseconds. Non-decreasing within a stroke, and not
+     * strictly increasing: a device may stamp a whole historical run with the
+     * batch's event time, and `Stabilizer.finish` synthesizes its catch-up
+     * samples at the single instant the pen lifted. Anything deriving speed
+     * from it owes a zero-delta branch.
+     */
     var timeNs = 0L
 
     var source = StrokeSource.STYLUS

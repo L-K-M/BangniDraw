@@ -44,12 +44,25 @@ class StabilizerTest {
         val out = StrokeInput()
         stabilizer.reset(sample(0f, 0f))
         for (i in 1..20) {
-            val raw = sample(i * 7f, i * -3f, pressure = i / 20f, tilt = i / 40f)
+            // Every channel, not the four obvious ones: orientation is the one
+            // with its own wrap-around easing, and timeNs is what velocity
+            // dynamics downstream are computed from — a pass-through that
+            // dropped either would still have passed.
+            val raw = sample(
+                i * 7f,
+                i * -3f,
+                pressure = i / 20f,
+                tilt = i / 40f,
+                orientation = i / 10f,
+                timeNs = i * 8_000_000L,
+            )
             stabilizer.push(raw, out)
             assertEquals(raw.x, out.x, eps, "x at $i")
             assertEquals(raw.y, out.y, eps, "y at $i")
             assertEquals(raw.pressure, out.pressure, eps, "pressure at $i")
             assertEquals(raw.tilt, out.tilt, eps, "tilt at $i")
+            assertEquals(raw.orientation, out.orientation, eps, "orientation at $i")
+            assertEquals(raw.timeNs, out.timeNs, "timeNs at $i")
         }
     }
 
@@ -61,12 +74,17 @@ class StabilizerTest {
         for (strength in listOf(0f, 0.3f, 0.7f, 1f)) {
             val stabilizer = Stabilizer(strength)
             val out = StrokeInput()
-            val first = sample(123.5f, -47.25f, pressure = 0.4f, tilt = 0.9f)
+            val first = sample(123.5f, -47.25f, pressure = 0.4f, tilt = 0.9f, orientation = 2.1f)
             stabilizer.reset(first)
             stabilizer.current(out)
             assertEquals(first.x, out.x, eps, "strength $strength")
             assertEquals(first.y, out.y, eps, "strength $strength")
             assertEquals(first.pressure, out.pressure, eps, "strength $strength")
+            // tilt and orientation too: reset is a field-by-field copy, and a
+            // missed one would give a chisel tip the wrong angle on the first
+            // dab of every stroke.
+            assertEquals(first.tilt, out.tilt, eps, "strength $strength")
+            assertEquals(first.orientation, out.orientation, eps, "strength $strength")
         }
     }
 

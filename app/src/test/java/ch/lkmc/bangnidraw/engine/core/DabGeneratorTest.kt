@@ -448,6 +448,11 @@ class DabGeneratorTest {
             val dab = batch[i]
             assertTrue(dab.x - dab.radius >= r.left - 1f, "dab $i escaped the dirty rect on the left")
             assertTrue(dab.x + dab.radius <= r.right + 1f, "dab $i escaped it on the right")
+            // The vertical extent too. This path runs along y = 0, so a union
+            // that only accumulated x would still cover every dab horizontally
+            // and leave ghosting above and below the repainted strip.
+            assertTrue(dab.y - dab.radius >= r.top - 1f, "dab $i escaped it on the top")
+            assertTrue(dab.y + dab.radius <= r.bottom + 1f, "dab $i escaped it on the bottom")
         }
     }
 
@@ -462,6 +467,13 @@ class DabGeneratorTest {
         for (i in 1 until path.size) generator.advance(path[i], batch)
         assertEquals(4, batch.count, "the batch must fill exactly to capacity")
         assertEquals(4, generator.dabCount, "the generator must not count dabs it could not place")
+        // And the dabs that landed are the right ones. Counting alone would
+        // pass for a batch whose slots were overwritten or left unwritten,
+        // which is the realistic failure when a ring buffer hits capacity.
+        val step = plain.spacing * plain.baseRadius
+        for (i in 0 until batch.count) {
+            assertEquals(i * step, batch[i].x, pxEps, "dab $i must have landed at its step")
+        }
     }
 
     @Test

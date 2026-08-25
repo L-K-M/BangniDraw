@@ -51,11 +51,15 @@ class DabRingTest {
         batch.add(200f, 50f, 8f, 1f, 1f, 0f, 1f, 0f)
         val both = batch.dirty
         val expected = IntRect.forDab(200f, 50f, 8f)
-        assertTrue(both.left <= minOf(single.left, expected.left), "union lost the left edge")
-        assertTrue(both.top <= minOf(single.top, expected.top), "union lost the top edge")
-        assertTrue(both.right >= maxOf(single.right, expected.right), "union lost the right edge")
-        assertTrue(
-            both.bottom >= maxOf(single.bottom, expected.bottom),
+        // Exact, not one-sided. A `dirty` that always returned the whole
+        // canvas would satisfy every "covers both dabs" assertion while
+        // defeating the partial-repaint tracking this rect exists for.
+        assertEquals(minOf(single.left, expected.left), both.left, "union lost the left edge")
+        assertEquals(minOf(single.top, expected.top), both.top, "union lost the top edge")
+        assertEquals(maxOf(single.right, expected.right), both.right, "union lost the right edge")
+        assertEquals(
+            maxOf(single.bottom, expected.bottom),
+            both.bottom,
             "union lost the bottom edge",
         )
     }
@@ -127,11 +131,18 @@ class DabRingTest {
         val ring = DabRing(slots = 1, capacity = 4)
         val first = assertNotNull(ring.acquire())
         first.add(5f, 5f, 2f, 1f, 1f, 0f, 1f, 0f)
+        first.markPredictedFromHere()
         first.strokeId = 42L
         ring.release(first)
         val again = assertNotNull(ring.acquire())
         assertSame(first, again, "the premise: a one-slot ring reuses its slot")
         assertEquals(0, again.count, "a reused slot still held the last stroke's dabs")
+        // All four fields, not two: a recycled slot that inherited the last
+        // stroke's dirty rect inflates damage tracking for every stroke after
+        // it, and one that inherited a tail marker would refuse to commit
+        // dabs the new stroke means to keep.
+        assertEquals(-1, again.predictedFrom, "a reused slot still held a tail marker")
+        assertEquals(IntRect.EMPTY, again.dirty, "a reused slot still held a dirty rect")
         assertEquals(0L, again.strokeId)
     }
 

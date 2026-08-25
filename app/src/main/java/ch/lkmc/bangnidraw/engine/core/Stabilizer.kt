@@ -22,6 +22,17 @@ import kotlin.math.sqrt
  */
 class Stabilizer(strength: Float, zoom: Float = 1f) {
 
+    // Before the derived properties below, not after them: Kotlin runs
+    // initializers in declaration order, so an `init` placed further down
+    // would let a NaN strength or a zero zoom through `kOf` and `leashOf`
+    // first — dividing by that zoom — and only then reject it.
+    init {
+        require(strength.isFinite() && strength in 0f..1f) {
+            "stabilizer strength must be 0..1, was $strength"
+        }
+        require(zoom.isFinite() && zoom > 0f) { "zoom must be positive, was $zoom" }
+    }
+
     var strength: Float = strength
         private set
 
@@ -43,13 +54,6 @@ class Stabilizer(strength: Float, zoom: Float = 1f) {
     private val state = StrokeInput()
     private val raw = StrokeInput()
     private var started = false
-
-    init {
-        require(strength.isFinite() && strength in 0f..1f) {
-            "stabilizer strength must be 0..1, was $strength"
-        }
-        require(zoom.isFinite() && zoom > 0f) { "zoom must be positive, was $zoom" }
-    }
 
     /**
      * Retunes for a new zoom or a new preset mid-stroke without moving the
@@ -133,6 +137,12 @@ class Stabilizer(strength: Float, zoom: Float = 1f) {
      * a visibly short line. The catch-up samples carry the pressure decayed
      * linearly to the final raw pressure, so the tail tapers instead of
      * ending in a blob.
+     *
+     * Every catch-up sample carries the pen-up timestamp: they are synthesized
+     * at one instant, not observed over time. `StrokeInput.timeNs` is
+     * therefore non-decreasing across a stroke rather than strictly
+     * increasing, and a consumer deriving speed from it must treat a zero
+     * delta as "no new information" — which is what `DabGenerator` does.
      */
     fun finish(step: Float, out: StrokeInput, emit: (StrokeInput) -> Unit): Int {
         require(step.isFinite() && step > 0f) { "catch-up step must be positive, was $step" }
@@ -144,7 +154,14 @@ class Stabilizer(strength: Float, zoom: Float = 1f) {
             started = false
             return 0
         }
-        val steps = kotlin.math.ceil(remaining / step).toInt().coerceAtLeast(1)
+        // Bounded above as well as below. The whole burst runs inside one
+        // input callback, and nothing constrains how small a caller's step
+        // is — a hair brush's half-pixel step against a leash that reaches
+        // ~96 canvas px when zoomed out would synthesize nearly two thousand
+        // samples on the single frame the pen lifts. The last step still lands
+        // exactly on the pen, because the walk is parameterised by `i / steps`.
+        val steps = kotlin.math.ceil(remaining / step).toInt()
+            .coerceIn(1, MAX_CATCHUP_STEPS)
         val fromX = state.x
         val fromY = state.y
         val fromPressure = state.pressure
@@ -198,6 +215,9 @@ class Stabilizer(strength: Float, zoom: Float = 1f) {
 
         /** `k` at full strength: the heaviest smoothing the slider can ask for. */
         const val MIN_K = 0.05f
+
+        /** Ceiling on one pen-up's catch-up samples; see [finish]. */
+        const val MAX_CATCHUP_STEPS = 256
 
         fun effectiveStrengthOf(strength: Float, zoom: Float): Float =
             strength * (1f / zoom).coerceIn(MIN_ZOOM_FACTOR, 1f)

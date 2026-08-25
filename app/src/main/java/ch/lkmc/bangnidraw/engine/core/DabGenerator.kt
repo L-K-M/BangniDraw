@@ -54,6 +54,9 @@ class DabGenerator(
     /** Canvas px per ms, an EMA over about the last three samples. */
     private var velocity = 0f
 
+    /** Travel from samples that shared a timestamp, waiting for a dated one. */
+    private var pendingDistance = 0f
+
     /**
      * The stroke's opacity ceiling so far: the **maximum** pressure-opacity
      * seen, not the latest (`04-tools.md` §3.3). A stroke that starts light
@@ -83,6 +86,7 @@ class DabGenerator(
         dabIndex = 0
         dabCount = 0
         velocity = 0f
+        pendingDistance = 0f
         pressureOpacityMax = 0f
         maxPressure = 0f
         firstBatch = null
@@ -127,7 +131,14 @@ class DabGenerator(
         val meanTilt = (last.tilt + next.tilt) * 0.5f
         val step = stepFor(meanPressure, meanTilt)
 
-        var t = (step - carry) / len
+        // Clamped at zero. `carry` is bounded by the *previous* segment's
+        // step, and `step` is recomputed here from this segment's mean
+        // pressure and tilt — so a pressure drop mid-stroke can leave
+        // `step < carry` and a negative `t`, which emits dabs *behind* `last`,
+        // extrapolated along a direction the pen never travelled. Zero is the
+        // right floor rather than a skip: a dab that is overdue is due at the
+        // segment start.
+        var t = ((step - carry) / len).coerceAtLeast(0f)
         while (t <= 1f) {
             val x = last.x + dx * t
             val y = last.y + dy * t
@@ -136,7 +147,13 @@ class DabGenerator(
             // from the segment rather than from consecutive dabs so it is
             // defined for the very first dab of a segment too.
             interpolated.strokeAngle = atan2(dy, dx)
-            if (emit(x, y, interpolated, out)) emitted++
+            // Stop rather than keep walking: past a full batch every further
+            // iteration burns a lerp, an atan2 and a noise draw, consumes the
+            // seed stream, and leaves `carry` computed as though the dabs had
+            // landed — so the gap the overflow already caused would be
+            // compounded by a spacing error after it.
+            if (!emit(x, y, interpolated, out)) break
+            emitted++
             t += step / len
         }
         // What is left of the segment beyond the last dab, kept so the next
@@ -153,6 +170,11 @@ class DabGenerator(
      *
      * The residual [carry] deliberately does *not* emit: it would double-dot
      * every tap, since [begin] already placed a dab at the start.
+     *
+     * **The caller owes the pen-up sample to [advance] first.** This method
+     * takes none, and the fix-up can only restore a pressure some sample
+     * actually reported: a tap that produced no `ACTION_MOVE` at all has only
+     * the down sample's pressure to work with, and would stay faint.
      */
     fun end(out: DabBatch): Int {
         if (!started) return 0
@@ -316,9 +338,18 @@ class DabGenerator(
         // on devices whose historical samples all carry the batch's event
         // time. Keeping the previous velocity is right: the pen did move, we
         // just cannot say how fast from this pair.
-        if (elapsedNs <= 0L) return
+        if (elapsedNs <= 0L) {
+            // Defer rather than discard. Dropping the distance would lose the
+            // pen's travel across a run of same-timestamp samples entirely, so
+            // the next dated sample would report only its own segment and the
+            // stroke would read as slower on those devices than the identical
+            // gesture does elsewhere.
+            pendingDistance += distance
+            return
+        }
         val ms = elapsedNs / 1_000_000f
-        val instant = distance / ms
+        val instant = (distance + pendingDistance) / ms
+        pendingDistance = 0f
         velocity += (instant - velocity) * VELOCITY_EMA_ALPHA
     }
 

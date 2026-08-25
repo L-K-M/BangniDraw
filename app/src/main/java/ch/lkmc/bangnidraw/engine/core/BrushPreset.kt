@@ -134,7 +134,10 @@ enum class BufferMode {
 /**
  * Every parameter a brush can have (`docs/plan/04-tools.md` §2). All
  * serializable, all defaulted, so a preset JSON can omit what it does not
- * care about and an older build can open a newer preset.
+ * care about — and an older build can open a newer preset *provided the
+ * parser sets* `ignoreUnknownKeys = true`. The defaults here only cover
+ * omitted fields; an unknown key still throws under kotlinx's default
+ * configuration, so `BrushPresetStore` owes that setting.
  *
  * Sizes are **canvas** pixels — never screen px, never dp. A pencil is the
  * same width on the paper at any zoom.
@@ -228,6 +231,14 @@ data class BrushPreset(
         }
         require(dilution.isFinite() && dilution in 0f..1f) {
             "preset $id: dilution must be 0..1, was $dilution"
+        }
+        // Two merges, not one: `04` §3.7's eraser scales the destination's
+        // alpha down, `09` §3.1's mixing blends pigment into it. A preset
+        // asking for both leaves whichever branch the merge tests first
+        // silently winning, and the misbehaviour surfaces in the merge pass
+        // rather than at the preset that caused it.
+        require(!(eraseMode && mixing)) {
+            "preset $id: eraseMode and mixing are different merges (04 §3.7, 09 §3.1)"
         }
         require(grain == null || grain.isNotBlank()) {
             "preset $id: grain must be a key or absent, not blank"

@@ -95,6 +95,14 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         aspect: Float,
         seed: Float,
     ): Boolean {
+        // [Dab]'s documented range, enforced where it is written rather than
+        // only promised. An oversized radius is not a wrong-looking dab, it is
+        // a [dirty] rect inflated for the whole batch — which turns partial
+        // redraw into a full-canvas repaint with nothing pointing at the dab
+        // that caused it. One comparison against work already being done here.
+        require(radius >= Dab.MIN_RADIUS && radius <= Dab.MAX_RADIUS) {
+            "dab radius $radius is outside ${Dab.MIN_RADIUS}..${Dab.MAX_RADIUS}"
+        }
         if (isFull) return false
         val i = count
         this.x[i] = x
@@ -172,7 +180,12 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
  *
  * [acquire] returning `null` is backpressure, not an error: the producer
  * falls back to an allocating batch and logs it in debug. If that ever fires
- * in practice the slot count is wrong, not the design.
+ * in practice the slot count is wrong, not the design. **That fallback batch
+ * never comes back through [release]** — it belongs to no slot, and the GC
+ * reclaims it. [release] throws on one rather than ignoring it: a batch this
+ * ring never handed out arriving at [release] means the caller has lost track
+ * of which batches are pooled, and that is worth a stack trace at the moment
+ * it happens rather than a silent no-op and a later slot leak.
  */
 class DabRing(
     slots: Int = DAB_RING_SLOTS,
@@ -224,7 +237,19 @@ class DabRing(
         free[i] = true
     }
 
-    /** Releases every slot of [strokeId]; a cancelled stroke is never replayed. */
+    /**
+     * Releases every slot of [strokeId]; a cancelled stroke is never replayed.
+     *
+     * **Call this on the GL thread**, as `02-architecture.md` §3.2 specifies:
+     * `cancelStroke()` posts it through `execute {}` right after
+     * `renderer.cancel()`. That placement is what makes it safe, and the
+     * safety does not survive being moved. Called from the producer instead,
+     * it frees slots the GL thread may still be replaying: a later
+     * `release(batch)` would either hit [release]'s double-release guard and
+     * throw on the render thread, or — worse, if a new stroke has already
+     * acquired the slot — free a batch that stroke is filling, and two
+     * producers would write one batch.
+     */
     @Synchronized
     fun releaseStroke(strokeId: Long) {
         for (i in batches.indices) {

@@ -21,28 +21,40 @@ review feedback under this policy:
   chat summaries carry the record.
 
 ### Declare steady-state and stop when any of these hold
-- **One** round is **empty**: a completed review arrived and raised nothing —
+`docs/EXECUTION.md` carries the same list with the full round-scoring rules —
+change both or neither.
+
+- **One** round is **empty**: a coherent review arrived and raised nothing —
   no findings, or only restatements and self-answered "✅ fine" items. One is
   enough — don't spend a CI cycle re-confirming it,
 - **two consecutive** rounds are **nits only**: everything applied was cosmetic
   (wording, a comment, a rename, a test message), no blocker and nothing you
   would have wanted to know,
 - **two consecutive** rounds are **dismissed only**: the review raised real
-  claims and you declined or refuted every one, so applied nothing. Two, not
-  one — you are grading your own dismissals, so a single such round is not
-  evidence of anything. Restatements and "✅ fine" items are not real claims;
-  a round of only those is empty, not this,
+  claims and you applied none of them — declined, refuted, or deferred as
+  out-of-scope follow-ups. Two, not one — you are grading your own dismissals,
+  so a single such round is not evidence of anything. Restatements and "✅ fine"
+  items are not real claims; a round of only those is empty, not this,
+- feedback integration failed in two consecutive rounds (you applied something
+  and could not get CI green with one follow-up fix, or had to revert it),
 - the reviewer re-raises items already declined with reasons, or contradicts
   its own earlier feedback,
 - everything remaining is out of scope for the PR (pre-existing behavior,
   product decisions) — collect those as follow-up suggestions instead.
 
-A round where the review **never ran** — the action errored, timed out, was
-cancelled, or finished without posting its report — is an infrastructure
-failure, not an empty round. Re-run it once; if the re-run also fails, stop and
-tell the user rather than merging. Such a round counts toward none of the rules
-above and breaks any streak it interrupts. Never merge on the strength of a
-review that did not happen.
+**A re-raise carrying a new argument is not a repeat** and does not fire that
+rule. PR #7 declined two findings three times each and was right to apply them
+on the fourth, when the argument changed; both were path traversal through an
+unvalidated layer id. Re-read the reasoning before counting the raising.
+
+A round where **no usable review arrived** — the action errored, timed out, was
+cancelled, finished without posting its report, or posted a blank, truncated or
+error-shaped one — is an infrastructure failure, not an empty round. A
+malfunctioning reviewer that says nothing looks exactly like a clean bill of
+health. Re-run it once; if the re-run also fails, stop and tell the user rather
+than merging. Such a round counts toward none of the rules above and breaks any
+streak it interrupts. Never merge on the strength of a review that did not
+happen.
 
 At steady-state: post a short scorecard in chat (what was real, what was
 refuted, what's deferred), then merge the PR into `main` once its build checks

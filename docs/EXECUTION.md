@@ -84,13 +84,16 @@ For each round:
    Comments from **human** users are always addressed and never subject to the cutoff below.
 4. If you applied anything: commit, push, run tests/lint, and wait for CI on the new commit.
    This push starts the next round.
-5. Score the round into exactly **one** bucket. The six are pairwise disjoint; check them in
-   this order and the first match is the answer.
-   - "**no review**" = no completed review arrived — the action errored, timed out, was
-     cancelled, or finished without posting its report. An infrastructure failure, not a
-     verdict on the diff. Re-run it once. **If the re-run also fails, stop: do not merge, and
-     tell the user.** This bucket is not a score — it counts toward nothing and it breaks any
-     streak it interrupts. Never treat a review that did not run as evidence the code is clean.
+5. Score the round into exactly **one** of the buckets below, checking them in order. Only
+   the last five are verdicts on the diff; *no review* means the round told you nothing.
+   - "**no review**" = no usable review arrived. The action errored, timed out, was
+     cancelled, finished without posting its report, **or posted a report that is blank,
+     truncated, or error-shaped** — a rate-limit stub, an empty body, a finding cut off
+     mid-sentence. A malfunctioning reviewer that says nothing looks exactly like a clean
+     bill of health, so it must not be scored as one. An infrastructure failure, not a
+     verdict. Re-run it once. **If the re-run also fails, stop: do not merge, and tell the
+     user.** Counts toward no rule below, and breaks any streak it interrupts. Never treat a
+     review that did not run as evidence the code is clean.
    - "**integration failed**" = you applied feedback and either CI went red and you could not make
      it green with one follow-up fix commit, or the applied change had to be reverted because
      it broke behavior or contradicted `PLAN.md`. Revert to the last green state before continuing.
@@ -100,17 +103,28 @@ For each round:
      the measure is what changed, not how much.
    - "**useful feedback**" = at least one finding you applied was substantive — it changed
      behavior, closed a hole, or corrected a false claim — and the push went green.
-   - "**dismissed only**" = the review raised real claims, you declined or refuted **every one
-     of them**, and so applied nothing. Restatements and "✅ fine" items are not real claims —
-     a round of only those is *empty*, not this.
-   - "**empty**" = a completed review arrived and raised nothing: no findings at all, or only
+   - "**dismissed only**" = the review raised real claims and you applied **none** of them —
+     every one declined, refuted, or deferred as an out-of-scope follow-up. Restatements and
+     "✅ fine" items are not real claims; a round of only those is *empty*, not this.
+   - "**empty**" = a coherent review arrived and raised nothing: no findings at all, or only
      restatements and "✅ fine" items.
 
-**Steady state is reached when ANY of these hold**
+**Steady state is reached when ANY of these hold** (`CLAUDE.md` carries the same list; change
+both or neither)
 - **one** round was empty, **OR**
 - **two consecutive** rounds were nits only — no blocker, nothing genuinely helpful, **OR**
 - **two consecutive** rounds were dismissed only, **OR**
-- feedback integration failed in two consecutive rounds.
+- feedback integration failed in two consecutive rounds, **OR**
+- the reviewer re-raises items already declined with reasons, or contradicts its own earlier
+  feedback, **OR**
+- everything left is out of scope for this PR (pre-existing behavior, product decisions) —
+  collect those as follow-up suggestions instead.
+
+**A re-raise that carries a new argument is not a repeat**, and does not fire the fifth rule.
+This matters more than it sounds: PR #7 declined the same two findings three times each and
+was right to apply them on the fourth, when the argument finally changed — both were path
+traversal through an unvalidated layer id, and a re-raise counter that fired on the third
+raising would have shipped both. Re-read the reasoning before you count the raising.
 
 Only rounds where a review actually ran count toward these. A *no review* round earns nothing
 and breaks any streak it interrupts, so nits only → no review → nits only is **not** two

@@ -30,9 +30,10 @@ tiebreaker is how two files drift and both look authoritative.
   no findings, or only restatements and self-answered "✅ fine" items. One is
   enough — don't spend a CI cycle re-confirming it. A restatement repeats
   something already applied or resolved; **a re-raise of something you declined
-  or deferred is never a restatement**, it is a live finding and the round is
-  dismissed only. Otherwise "that's just a restatement" becomes a one-round
-  exit from any finding you don't like,
+  or deferred is never a restatement**: it is a live finding, and the round is
+  dismissed only if you decline it *again* — useful feedback if you apply it,
+  as PR #7 eventually did with both. Otherwise "that's just a restatement"
+  becomes a one-round exit from any finding you don't like,
 - **two consecutive** rounds are **nits only**: you applied something, every
   applied finding was cosmetic (wording, a comment, a rename, a test message),
   and the review raised no substantive claim you declined or deferred — a round

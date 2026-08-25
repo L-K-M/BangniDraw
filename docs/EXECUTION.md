@@ -197,13 +197,15 @@ That is a bound, not a guarantee, and PR #7 shows the difference. It declined R-
 round 10. Both were path traversal through an unvalidated layer id reaching a directory name.
 A stop rule firing on the first re-raise would have merged at round 6 with both holes open —
 but rule 3 would also have fired at round 7 if rounds 6 and 7 had been decline-only. They were
-not: round 6 refused a destructive flatten and round 7 resized the layer cap, so both scored
-`useful feedback` and the streak never started. **The fix survived because the reviewer was
+not: round 6 *applied* a fix making `flatten()` refuse a destructive no-op, and round 7
+applied one resizing the layer cap, so both scored `useful feedback` and the streak never
+started. (Read "refuse" there as what the code now does, not as declining a finding — a round
+that only declined would be `dismissed only`, which is the whole point.) **The fix survived because the reviewer was
 still finding other real things, not because two rounds is a safe budget.** Read a
 dismissed-only streak as "I have stopped learning from this reviewer" and check that it is
 true before you act on it.
 
-Only rounds where a review actually ran count toward the **streak** rules (2, 3, 4) — never
+Only rounds where a review actually ran count toward the **streak** rules (2, 3, 4, 5) — never
 toward rule 6, which fires precisely because no review ran. A *no review* round earns nothing
 and breaks any streak it interrupts, so nits only → no review → nits only is **not** two
 consecutive nits-only rounds.

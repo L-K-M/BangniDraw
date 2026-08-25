@@ -84,6 +84,7 @@ class DabGenerator(
         dabCount = 0
         velocity = 0f
         pressureOpacityMax = 0f
+        maxPressure = 0f
         firstBatch = null
         firstIndex = -1
         return if (emit(first.x, first.y, first, out)) 1 else 0
@@ -96,6 +97,13 @@ class DabGenerator(
      */
     fun advance(next: StrokeInput, out: DabBatch): Int {
         if (!started) return begin(next, out)
+
+        // Before anything else, and deliberately not only inside `emit`: the
+        // peak of a stroke can fall *between* two dabs, and on a tap it
+        // always does — the pen presses and lifts inside one step. Folding
+        // only emitted dabs left the ceiling and the tap fix-up reading the
+        // near-zero pressure of the ACTION_DOWN sample.
+        notePressure(next.pressure)
 
         val dx = next.x - last.x
         val dy = next.y - last.y
@@ -160,10 +168,8 @@ class DabGenerator(
         val i = firstIndex
         if (i < 0 || i >= batch.count) return 0
         val p = maxPressure
-        val radius = radiusFor(p, last.tilt, dabIndexOfFirst)
-        batch.radius[i] = radius
+        batch.radius[i] = radiusFor(p, last.tilt, dabIndexOfFirst)
         batch.flow[i] = flowFor(p, last.tilt)
-        pressureOpacityMax = maxOf(pressureOpacityMax, Curve.lookup(opacityLut, p))
         return 1
     }
 
@@ -202,8 +208,7 @@ class DabGenerator(
 
     private fun emit(x: Float, y: Float, sample: InterpolatedSample, out: DabBatch): Boolean {
         val p = sample.pressure
-        maxPressure = maxOf(maxPressure, p)
-        pressureOpacityMax = maxOf(pressureOpacityMax, Curve.lookup(opacityLut, p))
+        notePressure(p)
 
         val index = dabIndex++
         val radius = radiusFor(p, sample.tilt, index)
@@ -298,6 +303,13 @@ class DabGenerator(
     /** `tilt / (π/2)`, clamped: 0 is perpendicular, 1 is flat against the glass. */
     private fun tiltFraction(tilt: Float): Float =
         if (tilt.isNaN()) 0f else (tilt / HALF_PI).coerceIn(0f, 1f)
+
+    /** Folds one input pressure into the stroke's peak and its opacity ceiling. */
+    private fun notePressure(pressure: Float) {
+        val p = if (pressure.isNaN()) 0f else pressure.coerceIn(0f, 1f)
+        maxPressure = maxOf(maxPressure, p)
+        pressureOpacityMax = maxOf(pressureOpacityMax, Curve.lookup(opacityLut, p))
+    }
 
     private fun updateVelocity(distance: Float, elapsedNs: Long) {
         // A non-positive dt means two samples share a timestamp, which happens

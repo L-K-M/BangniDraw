@@ -111,3 +111,11 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)
 }
+
+tasks.withType<Test>().configureEach {
+    // The golden-stroke test regenerates its pinned file when this is set
+    // (`docs/plan/11-testing.md` §6). Gradle does not forward the launching
+    // JVM's system properties to the test JVM, so it has to be passed through
+    // explicitly or `-Dbangni.updateGolden=true` would silently do nothing.
+    systemProperty("bangni.updateGolden", providers.systemProperty("bangni.updateGolden").getOrElse("false"))
+}

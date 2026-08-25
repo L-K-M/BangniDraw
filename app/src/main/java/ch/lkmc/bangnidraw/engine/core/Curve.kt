@@ -41,14 +41,24 @@ data class Curve(val p0: Float, val p1: Float, val p2: Float, val p3: Float) {
         val span = t * SEGMENTS
         val i = span.toInt().coerceAtMost(SEGMENTS - 1)
         val local = span - i
-        // The end tangents duplicate the end knots, which is the standard
-        // reading of a Catmull-Rom spline over a finite point list: it makes
-        // the curve start and end *at* p0 and p3 rather than shooting past
-        // them, so `eval(0) == p0` and `eval(1) == p3` exactly.
-        val a = knots[(i - 1).coerceAtLeast(0)]
+        // The end tangents come from *reflected* phantom knots
+        // (`2·p0 − p1` before the start, `2·p3 − p2` after the end), not from
+        // duplicating the end knots. Duplicating is the more common recipe and
+        // it is wrong here: it gives the first segment a tangent of half the
+        // straight-line slope, so `Curve.Linear` — knots at 0, 1/3, 2/3, 1 —
+        // would leave the origin visibly flatter than the line through its own
+        // knots and only catch up by the second segment. A curve named Linear
+        // has to *be* linear, and so does `floor(min)`, which is likewise a
+        // straight line. Reflecting makes both exact, and the spline still
+        // passes through all four knots either way.
         val b = knots[i]
         val c = knots[i + 1]
-        val d = knots[(i + 2).coerceAtMost(SEGMENTS)]
+        val a = if (i == 0) 2f * knots[0] - knots[1] else knots[i - 1]
+        val d = if (i == SEGMENTS - 1) {
+            2f * knots[SEGMENTS] - knots[SEGMENTS - 1]
+        } else {
+            knots[i + 2]
+        }
         val t2 = local * local
         val t3 = t2 * local
         val y = 0.5f * (

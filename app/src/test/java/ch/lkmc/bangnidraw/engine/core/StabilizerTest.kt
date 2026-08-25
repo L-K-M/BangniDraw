@@ -44,10 +44,14 @@ class StabilizerTest {
         val out = StrokeInput()
         stabilizer.reset(sample(0f, 0f))
         for (i in 1..20) {
-            // Every channel, not the four obvious ones: orientation is the one
-            // with its own wrap-around easing, and timeNs is what velocity
-            // dynamics downstream are computed from — a pass-through that
-            // dropped either would still have passed.
+            // Every channel, not the four obvious ones: a pass-through that
+            // dropped orientation or timeNs would otherwise still have passed,
+            // and timeNs is what the velocity dynamics downstream are computed
+            // from. The sweep stays inside (-pi, pi] because that is the
+            // documented domain of `orientation` — the input layer wraps it
+            // there (`07-input-and-stylus.md` §2). Wrap-around easing itself
+            // is exercised by `the orientation eases the short way around the
+            // circle` below, not here.
             val raw = sample(
                 i * 7f,
                 i * -3f,
@@ -74,17 +78,26 @@ class StabilizerTest {
         for (strength in listOf(0f, 0.3f, 0.7f, 1f)) {
             val stabilizer = Stabilizer(strength)
             val out = StrokeInput()
-            val first = sample(123.5f, -47.25f, pressure = 0.4f, tilt = 0.9f, orientation = 2.1f)
+            val first = sample(
+                123.5f,
+                -47.25f,
+                pressure = 0.4f,
+                tilt = 0.9f,
+                orientation = 2.1f,
+                timeNs = 1_234_567_890L,
+            )
             stabilizer.reset(first)
             stabilizer.current(out)
             assertEquals(first.x, out.x, eps, "strength $strength")
             assertEquals(first.y, out.y, eps, "strength $strength")
             assertEquals(first.pressure, out.pressure, eps, "strength $strength")
-            // tilt and orientation too: reset is a field-by-field copy, and a
-            // missed one would give a chisel tip the wrong angle on the first
-            // dab of every stroke.
+            // tilt, orientation and timeNs too: reset is a field-by-field
+            // copy, and a missed one would give a chisel tip the wrong angle on
+            // the first dab of every stroke, or start every stroke's velocity
+            // from a zero timestamp.
             assertEquals(first.tilt, out.tilt, eps, "strength $strength")
             assertEquals(first.orientation, out.orientation, eps, "strength $strength")
+            assertEquals(first.timeNs, out.timeNs, "strength $strength")
         }
     }
 

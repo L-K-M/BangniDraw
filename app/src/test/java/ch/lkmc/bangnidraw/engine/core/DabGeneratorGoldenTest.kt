@@ -88,15 +88,16 @@ class DabGeneratorGoldenTest {
         val stabilizer = Stabilizer(preset.stabilizer)
         val generator = DabGenerator(preset, seed)
         val smoothed = StrokeInput()
-        val dabs = mutableListOf<GoldenDab>()
 
-        fun drain(batch: DabBatch) {
-            for (i in 0 until batch.count) {
-                val d = batch[i]
-                dabs += GoldenDab(d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed)
-            }
-        }
-
+        // Every batch is kept and read only after `end()` has run. `end()`
+        // rewrites the stroke's *first* dab for a tap, and on a multi-batch
+        // stroke that dab lives in a batch published several chunks earlier —
+        // so copying values at the chunk boundary would snapshot them before
+        // the fix-up and pin numbers the renderer would never show. Today the
+        // fixture is a long stroke and `end()` does nothing to it; the harness
+        // has to be able to represent it anyway, or a regression in the
+        // fix-up would pass this test.
+        val batches = mutableListOf<DabBatch>()
         var batch = DabBatch(capacity = 8192)
         val first = input.first().toInput()
         stabilizer.reset(first)
@@ -110,14 +111,19 @@ class DabGeneratorGoldenTest {
                 if (stabilizer.push(raw, smoothed)) generator.advance(smoothed, batch)
                 i++
             }
-            drain(batch)
+            batches += batch
             batch = DabBatch(capacity = 8192)
         }
         stabilizer.finish(generator.currentStep(), smoothed) { generator.advance(it, batch) }
         generator.end(batch)
-        drain(batch)
+        batches += batch
 
-        return dabs
+        return batches.flatMap { b ->
+            List(b.count) {
+                val d = b[it]
+                GoldenDab(d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed)
+            }
+        }
     }
 
     /**
@@ -130,6 +136,11 @@ class DabGeneratorGoldenTest {
         appendLine("# The golden stroke: BrushPresets.INK_PEN over ink-pen-loop.json,")
         appendLine("# through Stabilizer -> DabGenerator with stroke seed $seed.")
         appendLine("# Regenerate with -Dbangni.updateGolden=true and review the diff like code.")
+        appendLine("#")
+        appendLine("# Compared by tolerance ($PX_EPS), not by text, which is what makes this")
+        appendLine("# fixture portable: a libm that differs in the last ulp of a sin moves")
+        appendLine("# these values by ~1e-7, four orders of magnitude inside that. A diff")
+        appendLine("# here is a real change in the stroke, not a change of JDK.")
         appendLine("#")
         appendLine("# x y radius flow hardness angle aspect seed")
         for (d in dabs) {

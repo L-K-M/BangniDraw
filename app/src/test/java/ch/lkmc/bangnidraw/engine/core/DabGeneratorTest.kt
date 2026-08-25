@@ -470,6 +470,10 @@ class DabGeneratorTest {
         // And the dabs that landed are the right ones. Counting alone would
         // pass for a batch whose slots were overwritten or left unwritten,
         // which is the realistic failure when a ring buffer hits capacity.
+        // Two invariants ride on this expression, so a future change to either
+        // fails here rather than somewhere less obvious: the stroke's first dab
+        // is at the start point, not one spacing in, and the step is a fraction
+        // of the *radius*, not the diameter.
         val step = plain.spacing * plain.baseRadius
         for (i in 0 until batch.count) {
             assertEquals(i * step, batch[i].x, pxEps, "dab $i must have landed at its step")

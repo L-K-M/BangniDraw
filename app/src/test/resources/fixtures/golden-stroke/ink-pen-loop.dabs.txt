@@ -2,6 +2,11 @@
 # through Stabilizer -> DabGenerator with stroke seed 20260825.
 # Regenerate with -Dbangni.updateGolden=true and review the diff like code.
 #
+# Compared by tolerance (0.001), not by text, which is what makes this
+# fixture portable: a libm that differs in the last ulp of a sin moves
+# these values by ~1e-7, four orders of magnitude inside that. A diff
+# here is a real change in the stroke, not a change of JDK.
+#
 # x y radius flow hardness angle aspect seed
 300.0000 315.0000 0.5000 1.0000 1.0000 0.0000 1.0000 0.6683
 300.4705 314.8307 0.5000 1.0000 1.0000 0.0000 1.0000 0.6110

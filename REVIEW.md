@@ -102,6 +102,24 @@ unreadable.
 
 ## Declined, with reasons
 
+- **R-036 ⏸️ (deferred) `BrushPresetStore`'s `Json` must set
+  `ignoreUnknownKeys = true`, and decide what a preset failing `init` does on
+  load.** Correct, and not declinable — the store does not exist yet, which is
+  why `BrushPreset`'s KDoc names the debt rather than paying it. The finding
+  observes that the load path got *stricter* this round (the `Curve` knot range
+  and the `eraseMode && mixing` check), which makes the store's throw-handling
+  matter more: a hand-edited preset now has more ways to fail construction, and
+  whether that drops one brush or fails the whole load is the store's call.
+  Both are now in `docs/plan/12-roadmap.md` as gates on that PR, alongside the
+  RMW spacing floor. Deferred, like R-020 and R-029 before it, rather than
+  declined.
+
+- **R-035 ⏸️ Round 2's two BLOCKERs: "Use of eval() detected" at REVIEW.md:105
+  and :108.** Refuted, and self-demonstrating: those two lines are R-034's
+  entry *explaining why the eval finding is a false positive*, and they match
+  because they contain the string `Curve.eval`. The scanner has now flagged the
+  prose refuting it. Nothing to apply, in a Markdown file the JVM never loads.
+
 - **R-034 ⏸️ PR #9 round 1's 26 BLOCKERs: "Use of eval() detected. This is
   unsafe and should be avoided."** Refuted, all twenty-six. They are a
   substring match on the identifier `eval`, which here is

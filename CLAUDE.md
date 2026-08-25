@@ -29,7 +29,8 @@ change both or neither.
   enough — don't spend a CI cycle re-confirming it,
 - **two consecutive** rounds are **nits only**: everything applied was cosmetic
   (wording, a comment, a rename, a test message), no blocker and nothing you
-  would have wanted to know,
+  would have wanted to know, and no substantive claim was declined — a round
+  that applies a typo while refusing a blocker is dismissed only, not this,
 - **two consecutive** rounds are **dismissed only**: the review raised real
   claims and you applied none of them — declined, refuted, or deferred as
   out-of-scope follow-ups. Two, not one — you are grading your own dismissals,
@@ -51,14 +52,15 @@ A round where **no usable review arrived** — the action errored, timed out, wa
 cancelled, finished without posting its report, or posted a blank, truncated or
 error-shaped one — is an infrastructure failure, not an empty round. A
 malfunctioning reviewer that says nothing looks exactly like a clean bill of
-health, so never score it as one. Re-run it once; a round the re-run fixed
-counts toward none of the rules above and breaks any streak it interrupts.
+health, so never score it as one. Re-run it once; a round the re-run fixed is
+scored on the re-run's review and counts like any other, and only a round still
+unreviewed after the re-run earns nothing and breaks a streak.
 
 If the re-run also fails, **merge anyway — do not stop work because the
 reviewer is down.** CI must still be green, you must re-read your own diff
 adversarially first (you are the only check left), and the scorecard and merge
 commit must both say that no review ran. An unreviewed merge is fine to do and
-bad to hide. If three PRs running merge unreviewed, tell the user: that is a
+bad to hide. If three PRs in a row merge unreviewed, tell the user: that is a
 broken reviewer, not a flaky one.
 
 At steady-state: post a short scorecard in chat (what was real, what was

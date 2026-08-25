@@ -92,17 +92,23 @@ For each round:
      mid-sentence. A malfunctioning reviewer that says nothing looks exactly like a clean
      bill of health, so it is never scored as one: this is not *empty*.
 
-     Re-run it once — most failures are transient. If the re-run also fails, **do not stop
-     the pipeline**: a broken reviewer is not a reason to leave finished work unmerged. Score
-     the round *unreviewed* and proceed under the rule below. A single *no review* round that
-     the re-run fixed counts toward nothing and breaks any streak it interrupts.
+     Re-run it once — most failures are transient. If the re-run delivers a coherent review,
+     the round is scored on **that** review like any other: it lands in one of the buckets
+     below and counts normally. Only a round that is still *no review* after the re-run earns
+     nothing and breaks any streak it interrupts.
+
+     If the re-run also fails, **do not stop the pipeline**: a broken reviewer is not a
+     reason to leave finished work unmerged. Score the round *unreviewed* and proceed under
+     the rule below.
    - "**integration failed**" = you applied feedback and either CI went red and you could not make
      it green with one follow-up fix commit, or the applied change had to be reverted because
      it broke behavior or contradicted `PLAN.md`. Revert to the last green state before continuing.
-   - "**nits only**" = findings were applied and went green, but every one of them was
-     cosmetic — wording, a comment, a rename, a test message. Nothing changed behavior, closed
-     a hole, or corrected a claim. A round can apply a dozen findings and still be nits only;
-     the measure is what changed, not how much.
+   - "**nits only**" = findings were applied and went green, every one of them was cosmetic
+     — wording, a comment, a rename, a test message — **and no substantive claim was declined
+     or deferred**. A round can apply a dozen findings and still be nits only; the measure is
+     what changed, not how much. But a round that applies a typo *and* refuses a blocker is
+     **dismissed only**, not this: one cosmetic fix must not launder a refused finding into
+     the faster streak.
    - "**useful feedback**" = at least one finding you applied was substantive — it changed
      behavior, closed a hole, or corrected a false claim — and the push went green.
    - "**dismissed only**" = the review raised real claims and you applied **none** of them —
@@ -200,7 +206,6 @@ Start a session in `/work/GitHub/BangniDraw` and give the agent this prompt:
 
 > Read `docs/EXECUTION.md` in this repository and follow it exactly. It tells you how to
 > implement the plan in `PLAN.md` as a sequence of reviewed pull requests, how to run the
-> review loop, when a PR has reached steady state (one empty round, two consecutive
-> nits-only rounds, two consecutive rounds you dismissed entirely, or two consecutive failed
-> feedback integrations), when to merge, and how to move on to the next roadmap step. Begin
-> with Step A.
+> review loop, when a PR has reached steady state (six conditions — that file has the list;
+> do not work from a summary of it), when to merge, and how to move on to the next roadmap
+> step. Begin with Step A.

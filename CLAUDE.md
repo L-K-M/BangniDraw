@@ -20,7 +20,7 @@ review feedback under this policy:
   merge decision (e.g. "this won't compile"); otherwise let commit messages and
   chat summaries carry the record.
 
-### Declare steady-state and stop when any of these hold
+### Declare steady-state: the stop rules, and reviewer failure
 `docs/EXECUTION.md` is the source of truth for this list and for the full
 round-scoring rules; this is a summary. Change both in the same commit — and if
 they ever disagree anyway, EXECUTION.md wins *and the drift is a bug to fix
@@ -49,9 +49,7 @@ scoring procedure, and the reasoning all live in EXECUTION.md.
   that applies a typo while refusing a blocker is dismissed only, not this,
 - **two consecutive** rounds are **dismissed only** (no substantive finding
   applied — all declined, refuted or deferred — or nothing applied at all).
-  Two, not one: you grade your own dismissals. **Except** for a
-  security-relevant decline (path traversal, injection, authz, secrets, data
-  loss) — those never merge on this rule; put them to the user,
+  Two, not one: you grade your own dismissals,
 - feedback integration failed in two consecutive rounds (you applied something
   — of any weight, cosmetic included — and could not get CI green with one
   follow-up fix, or had to revert it),
@@ -69,6 +67,16 @@ scoring procedure, and the reasoning all live in EXECUTION.md.
   and its re-run are one. The scorecard and merge commit say the cap fired and
   what was still open.
 
+**Whatever rule ends the loop**, a security-relevant finding you did not apply
+— path traversal, injection, authz, secrets, data loss — goes to the user for a
+decision before the merge. Not scoped to one rule: the same finding reaches a
+merge through the integration-failure rule, the out-of-scope rule and the cap,
+and whether a declined hole reaches a person must not depend on which exit
+happened to fire.
+
+An unreviewed round **pauses** a streak rather than resetting it — the bullets
+above depend on that; the semantics are in the infrastructure paragraph below.
+
 **When the reviewer contradicts itself** — asks for a change, then for its
 revert, on code you have not touched — re-check both positions against the code
 once, then score the round on its merits and let the dismissed-only rule end it.
@@ -79,14 +87,10 @@ changed its mind on new evidence looks the same from outside.
 deliberately no rule here for "the reviewer repeated something you declined".
 Re-check the decline against the code instead; the repetition is never evidence
 you were right. A stuck reviewer still terminates via the dismissed-only rule
-above — a bound, not a guarantee. PR #7 declined R-001 in rounds 2, 6 and 7 and
-applied it in round 8; R-005 in rounds 5, 7 and 9, applied in round 10. Both
-were path traversal through an unvalidated layer id. A rule firing on the first
-re-raise would have merged at round 6 with both holes open — and the
-dismissed-only rule would have fired at round 7 had rounds 6 and 7 been
-decline-only. They were not, so the streak never started. The fix survived
-because the reviewer was still finding other real things, not because two
-rounds is a safe budget.
+above — a bound, not a guarantee. PR #7 declined R-001 three times before
+applying it, and R-005 three times; both were path traversal through an
+unvalidated layer id. The round-by-round account, and why a stop rule firing on
+the first re-raise would have merged with both holes open, is in EXECUTION.md.
 
 A round where **no usable review arrived** — the action errored, timed out, was
 cancelled, finished without posting its report, or posted a blank, truncated or

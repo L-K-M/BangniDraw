@@ -84,7 +84,8 @@ For each round:
    Comments from **human** users are always addressed and never subject to the cutoff below.
 4. If you applied anything: commit, push, run tests/lint, and wait for CI on the new commit.
    This push starts the next round.
-5. Score the round. Answer these in order; the first "yes" is the score. Every round lands in
+5. Score the round. Answer these in order; each question either names a score or passes you
+   to the next, and (d) always names one. Every round lands in
    exactly one, and the questions are exhaustive by construction rather than by assertion.
 
    a. **Did a usable review arrive?** If not — the action errored, timed out, was cancelled,
@@ -128,7 +129,9 @@ For each round:
         and revert to the last green state before continuing. The outcome decides, not the
         weight of the findings — so a refused blocker must not launder a red head into
         `dismissed only` either. Without this branch the loop could reach steady state under
-        rule 3 with a broken head and no revert.
+        rule 3 with a broken head and no revert. But if you pushed nothing this round there
+        is nothing to revert and nothing you broke: a red head is then the flaky-job or
+        moved-base case below, and this score does not apply.
 
    d. **Did the review raise any finding at all?** Restatements and self-answered "✅ fine"
       items are not findings.
@@ -140,7 +143,7 @@ For each round:
       partial fix (the read path sanitised, the write path still joining the raw string) is a
       live finding, not a restatement. A re-raise of a finding you *declined or deferred* is
       **never** a restatement — it is a live finding
-      you did not apply, and it belongs at (c). This matters because "restatement" is the one
+      you did not apply — at (c) if it was substantive, at (d) if it was a nit. This matters because "restatement" is the one
       word in this procedure that can quietly demote a real finding into the fastest exit in
       the list: call a re-raised blocker a restatement and the round scores `empty`, which
       merges after one round. You would be grading that call yourself, exactly as with a
@@ -155,8 +158,10 @@ For each round:
         does not decide that, the outcome does.
       - Yes, and you applied none: **`dismissed only`**.
 
-      Neither this branch nor `empty` looks at the head, because neither pushed anything — but
-      a red head can still arrive from a flaky job or a moved base. **No score authorizes
+      The applied-none bullet and `empty` do not look at the head — no *review* finding was
+      applied — but that does not mean nothing was pushed: human-comment work lands every
+      round under Step 3 and never scores the round. A red head can also arrive from a flaky
+      job or a moved base. **No score authorizes
       merging a red head.** If the loop would end here with CI red, fix or re-run CI first;
       the exit rules say when reviewing stops, not that the result is mergeable.
 
@@ -185,20 +190,14 @@ are last-resort exits and are not — the scorecard must say which it was. (`CLA
 the same list; change both or neither.)
 1. **one** round was empty, **OR**
 2. **two consecutive** rounds were nits only — no blocker, nothing genuinely helpful, **OR**
-3. **two consecutive** rounds were dismissed only — **except** where a declined or deferred
-   finding is security-relevant (path traversal, injection, authorization, secret handling,
-   data loss). Those never end the loop on this rule: put them in front of the user and let
-   them decide. This project is the argument — R-001 and R-005 were both path traversal
-   through an unvalidated layer id, both declined three times by the same agent that scored
-   the rounds, and both were right. Two self-graded dismissals is not a safety margin for
-   that class, **OR**
+3. **two consecutive** rounds were dismissed only, **OR**
 4. feedback integration failed in two consecutive rounds, **OR**
 5. **two consecutive** rounds scored `dismissed only` in which every declined or deferred
    finding was out of scope for this PR (pre-existing behavior, product decisions) — collect
    those as follow-up suggestions instead. Strictly a special case of rule 3, since (c) scores
    an out-of-scope deferral `dismissed only` and nothing else: it is kept because what you owe
-   the next PR differs (a follow-up list, not a decline record), not because it can fire when
-   rule 3 cannot. Two rounds, for rule 3's reason — "out of scope" is your judgment about the
+   the next PR differs (a follow-up list, not a decline record), not because it fires where
+   rule 3 would not. Two rounds, for rule 3's reason — "out of scope" is your judgment about the
    reviewer's finding, so one round of it is not evidence, and otherwise the cheapest way to
    end a review early is to relabel refusals as scope calls, **OR**
 6. a round scored `no review` and its re-run failed too — merge under *Unreviewed merges*
@@ -211,8 +210,9 @@ the same list; change both or neither.)
    **OR**
 7. **fifteen** rounds have run — scored rounds, where a round and its re-run count as one,
    and a round still `no review` after its re-run counts too (see rule 6). A backstop, not a
-   target. Rules 1-5 all require the reviewer
-   to slow down. Rules 4 and 5 can fire while it is still productive, but a reviewer whose real,
+   target. Rules 1-5 all require something in the loop to have gone wrong — the reviewer to
+   run dry, or your integration of its findings to fail, or the findings to fall outside the
+   PR. A reviewer whose real,
    in-scope findings you keep applying and landing green satisfies none of the five — it is
    neither stuck nor wrong — and that case has no exit at all without a cap. PR #7 took 12
    rounds and PR #8 took 11, so 15 is not a number you should reach often; if you do, the
@@ -246,14 +246,32 @@ because the reviewer was still finding other real things, not because two rounds
 budget.** Read a dismissed-only streak as "I have stopped learning from this reviewer", and
 check that it is true before you act on it.
 
+**One obligation is rule-independent.** If a security-relevant finding — path traversal,
+injection, authorization, secret handling, data loss — was raised and you did not apply it,
+the user sees it and decides, before the merge, whatever rule ended the loop. Scoping this to
+rule 3 was the previous draft's mistake: the same finding also reaches a merge through rule 4
+(a round that declines a blocker and leaves the head red scores `integration failed`), through
+rule 5 (a pre-existing hole is "pre-existing behavior", so it is out of scope *and*
+security-relevant), and through rule 7, which only requires the scorecard to *record* what was
+outstanding. Whether a declined hole reached a person should not depend on which exit happened
+to fire. R-001 and R-005 were both path traversal through an unvalidated layer id, both
+declined three times by the same agent that scored the rounds, and both were right.
+
 Only rounds where a review actually ran count toward the **streak** rules (2, 3, 4, 5) — never
 toward rule 6, which fires precisely because no review ran. A *no review* round earns nothing
-and **pauses** any streak it interrupts rather than resetting it: nits only → no review →
-nits only *is* two consecutive nits-only rounds. A round that carries no information should
-not erase the information in the round before it, and resetting would hand a flaky reviewer an
-indefinite pardon from rule 3 — the rule that exists precisely because you grade your own
-dismissals. Otherwise "consecutive" is strict: any *scored* round of a different kind resets
-the streak.
+and **pauses** any streak it interrupts rather than resetting it: a round that carries no
+information should not erase the information in the round before it, and resetting would hand
+a flaky reviewer an indefinite pardon from rule 3 — the rule that exists precisely because you
+grade your own dismissals. Otherwise "consecutive" is strict: any *scored* round of a
+different kind resets the streak.
+
+That pause only ever matters when the loop continues past the `no review` round, and rule 6
+fires on exactly the condition that produces one. So read rule 6 as the *end of the line*, not
+as a reflex: it applies when the reviewer is the only thing left to wait for. If you still
+have work in hand — a human comment to address, a fix you were mid-way through — do that, push
+it, and take the next round on its merits; the failed round keeps its `no review` score and
+pauses whatever streak it interrupted. Merge unreviewed when there is nothing left but the
+review.
 
 **Unreviewed merges.** If a round scores *no review* and the re-run also fails, the reviewer
 is unavailable, not silent, and waiting for it is a work stoppage. Merge anyway, on these
@@ -268,7 +286,8 @@ terms:
   merge is the one they would most want to know about, and a scorecard they never open is not
   a notification. Telling them is not stopping: keep going.
 - Before concluding the reviewer is broken, check the shape of its output. Reports that look
-  complete but no longer open with the expected line or close with the expected marker mean
+  complete but no longer open with the expected line ("Actionable suggestions identified: N")
+  or close with the expected HTML marker comment mean
   its *template* changed and the matcher needs updating — a one-line fix. Calling that a
   broken reviewer sends the user looking in the wrong place, and this integrity check is the
   only thing separating a silent malfunction from a clean bill of health.

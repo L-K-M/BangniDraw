@@ -20,13 +20,110 @@ review feedback under this policy:
   merge decision (e.g. "this won't compile"); otherwise let commit messages and
   chat summaries carry the record.
 
-### Declare steady-state and stop when any of these hold
-- Two consecutive rounds yield no valid, actionable findings (only nits,
-  restatements, or self-answered "✅ fine" items),
-- the reviewer re-raises items already declined with reasons, or contradicts
-  its own earlier feedback,
-- everything remaining is out of scope for the PR (pre-existing behavior,
-  product decisions) — collect those as follow-up suggestions instead.
+### Declare steady-state: the stop rules, and reviewer failure
+`docs/EXECUTION.md` is the source of truth for this list and for the full
+round-scoring rules; this is a summary. Change both in the same commit — and if
+they ever disagree anyway, EXECUTION.md wins *and the drift is a bug to fix
+before the next round is scored* — not a standing arrangement.
+
+Kept deliberately short. This file is auto-loaded and EXECUTION.md is not, so
+the rules have to be *here* in some form; but every detail duplicated here is a
+detail that can drift, and four separate review rounds caught exactly that. So
+this lists what ends the loop, plus the streak semantics those rules cannot be
+applied without — the round scores, the rest of the scoring procedure, and the
+reasoning all live in EXECUTION.md.
+
+- **One** round is **empty**: a coherent review arrived and raised nothing —
+  no findings, or only restatements and self-answered "✅ fine" items. One is
+  enough — don't spend a CI cycle re-confirming it. A restatement repeats
+  something already applied or resolved — check that against the code before
+  calling a re-raise one, since "I already fixed that" is self-graded like a
+  dismissal and buys the *fastest* exit; a partial fix is a live finding.
+  **A re-raise of something you declined, refuted or deferred is never a restatement**:
+  it is a live finding, and the round is a **dismissed-only** round only if you
+  decline it *again* — useful feedback if you apply it, as PR #7 eventually did
+  with both. Otherwise "that's just a restatement" becomes a one-round exit
+  from any finding you don't like,
+- **two consecutive** rounds are **nits only**: you applied something, every
+  applied finding was cosmetic (wording, a comment, a rename, a test message),
+  and the review raised no substantive claim you declined or deferred — a round
+  that applies a typo while refusing a blocker is dismissed only, not this,
+- **two consecutive** rounds are **dismissed only** (no substantive finding
+  applied — all declined, refuted or deferred — or nothing applied at all).
+  Two, not one: you grade your own dismissals,
+- feedback integration failed in two consecutive rounds (you applied something
+  — of any weight, cosmetic included — and could not get CI green with one
+  follow-up fix, or had to revert it),
+- **two consecutive** rounds where everything remaining is out of scope for the
+  PR (pre-existing behavior, product decisions) — collect those as follow-up
+  suggestions instead. Two, like dismissals: "out of scope" is your judgment
+  about the reviewer's finding, so one round of it is not evidence,
+- a round found no usable review and its re-run failed too — merge unreviewed,
+  per the paragraph below. Listed here because merging is otherwise gated on
+  steady state, and a broken reviewer must not stall the pipeline,
+- **fifteen** rounds have run. A backstop, not a target: every other rule here
+  needs the reviewer to slow down, and one whose real, in-scope findings you keep
+  applying and landing green satisfies none of them — neither stuck nor wrong —
+  so without a cap that case has no exit at all. Counts scored rounds: a round
+  and its re-run are one. The scorecard and merge commit say the cap fired and
+  what was still open.
+
+**Whatever rule ends the loop**, a security-relevant finding you did not apply
+— path traversal, injection, authz, secrets, data loss — goes to the user for a
+decision before the merge. Not scoped to one rule: the same finding reaches a
+merge through the integration-failure rule, the out-of-scope rule and the cap,
+and whether a declined hole reaches a person must not depend on which exit
+happened to fire.
+
+An unreviewed round **pauses** a streak rather than resetting it — the bullets
+above depend on that; the semantics are in the infrastructure paragraph below.
+
+**When the reviewer contradicts itself** — asks for a change, then for its
+revert, on code you have not touched — re-check both positions against the code
+once, then score the round on its merits and let the dismissed-only rule end it.
+Not its own stop rule: that reading is yours, and a reviewer that genuinely
+changed its mind on new evidence looks the same from outside.
+
+**A re-raise is a prompt to re-read, not a reason to stop.** There is
+deliberately no rule here for "the reviewer repeated something you declined".
+Re-check the decline against the code instead; the repetition is never evidence
+you were right. A stuck reviewer still terminates via the dismissed-only rule
+above — a bound, not a guarantee. PR #7 declined R-001 three times before
+applying it, and R-005 three times; both were path traversal through an
+unvalidated layer id. The round-by-round account, and why a stop rule firing on
+the first re-raise would have merged with both holes open, is in EXECUTION.md.
+
+A round where **no usable review arrived** — the action errored, timed out, was
+cancelled, finished without posting its report, or posted a blank, truncated or
+error-shaped one — is an infrastructure failure, not an empty round. A
+malfunctioning reviewer that says nothing looks exactly like a clean bill of
+health, so never score it as one. This reviewer's reports open with
+"Actionable suggestions identified: N" and end with a structurally closed
+template tail. Raw Markdown also carries an HTML marker, but GitHub MCP may
+strip comments, so the marker is corroboration rather than a requirement (if
+the format changes, this line, EXECUTION.md and the matcher move in one commit —
+otherwise the pipeline quietly converts to unreviewed merges). A report missing
+the opening line or cut off mid-structure was truncated. Re-run it
+once; a round the re-run fixed is
+scored on the re-run's review and counts like any other, and only a round still
+unreviewed after the re-run earns nothing and *pauses* a streak rather than
+resetting it — a round that carries no information must not erase the round
+before it, or a flaky reviewer gets an indefinite pardon from the
+dismissed-only rule. Otherwise "consecutive" is strict: any scored round of a
+different kind resets the streak.
+
+If the re-run also fails, **merge anyway — do not stop work because the
+reviewer is down.** CI must still be green, you must re-read your own diff
+adversarially first (you are the only check left), and the scorecard and merge
+commit must both say that no review ran. An unreviewed merge is fine to do and
+bad to hide, so tell the user in the report for that PR — the first one is what
+they would most want to know about, and a scorecard they never open is not a
+notification. Telling them is not stopping; keep going. If three PRs in a row
+merge unreviewed, check one thing before blaming the reviewer: if the reports
+look complete but no longer carry the expected opening line or a structurally closed tail,
+its *template* changed and the matcher needs updating — a one-line fix, not a
+broken pipeline. Otherwise say plainly that the reviewer is broken rather than
+flaky, and keep merging: they decide whether to fix it before the next step.
 
 At steady-state: post a short scorecard in chat (what was real, what was
 refuted, what's deferred), then merge the PR into `main` once its build checks

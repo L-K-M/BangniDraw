@@ -182,6 +182,33 @@ and the contradiction is noted here.
   persistence half). A design that fixes only the first still reissues "Layer
   3" the next morning.
 
+- **Two uniforms in `03-canvas-engine.md` §3.1's vertex shader are dead, and
+  are not in `engine/gl/Shaders.kt`.** `u_viewport` is only ever an input to
+  building `u_projection`, which §3.1 itself says happens on the JVM, and
+  `v_canvas` is declared by the §3.3 fragment snippet and never read by it. A
+  uniform that is declared and never *read* is optimized out by the driver, so
+  `glGetUniformLocation` returns −1 and `GlProgram.link` throws at startup —
+  which means copying the plan's snippet verbatim breaks every device while
+  looking perfectly consistent on the JVM. `GlShaderContractTest` asserts both
+  directions (declared ⇒ listed, listed ⇒ read) and names `u_viewport`
+  explicitly so re-adding it from the plan fails in CI. `v_canvas` comes back
+  with `DabPass`/`MergePass` in roadmap 2.4, where a body reads it.
+- **The blend dispatch in `Shaders.COMPOSITE_FRAG` is generated from
+  `BlendMode`, not written out.** `11-testing.md` §4 asks the contract test to
+  catch "a mode falling through to normal"; generating the GLSL from an
+  exhaustive Kotlin `when` makes that a compile error instead, and the test
+  then checks the generator's output rather than a hand-transcription. Adding
+  a `BlendMode` now fails to build in `Shaders.glslFor` until it has GLSL.
+- **`TilePool` and `LayerTextures` have pure twins in `engine/core`**
+  (`SliceAllocator`/`SliceHandle`, `TileIndex`), which the class map in
+  `03-canvas-engine.md` §15 does not list by name but does require in its
+  closing paragraph: everything decision-shaped gets a pure-JVM twin with
+  tests. Free-list arithmetic and the "never allocate on a page this pass
+  samples" rule are exactly the code that is wrong *silently* — a double free
+  hands one slice to two layers — and none of it needs a GL context to test.
+  Keep new pool logic on the core side; the `engine/gl` classes should stay
+  "call the twin, then issue GL calls".
+
 ## Conventions the plan leaves open
 
 - **What "`engine/core` is pure JVM" actually forbids.**

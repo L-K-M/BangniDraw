@@ -143,3 +143,21 @@ PRs are reviewed by GLM automatically. Findings are triaged
 apply/decline/refute per [CLAUDE.md](CLAUDE.md); declined findings and
 their reasons accumulate in [REVIEW.md](REVIEW.md) so later rounds (and
 later agents) don't flip-flop.
+
+The repository defaults to **hybrid** review: the first review is full, then
+follow-ups review changes since the last completed review plus a rotating
+sample of older PR changes. Keep hybrid for normal review/fix cycles.
+
+Before the next review-triggering push, an implementer may apply exactly one
+scope label:
+
+- `zai-review:full` — use for high-risk changes, after a force push, or for a
+  deliberate final deep audit.
+- `zai-review:hybrid` — restore the normal delta-plus-rotating-audit mode.
+- `zai-review:incremental` — use only for a low-risk, latency-sensitive
+  follow-up after a completed full review; it omits the rotating old-code audit.
+
+Labels override the workflow setting but do not themselves start a review; the
+next synchronize, reopen, or other configured PR event does. Remove an override
+to return to the repository's hybrid default. Missing/incomplete state or
+non-ancestor history automatically falls back to a full review.

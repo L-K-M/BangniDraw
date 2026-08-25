@@ -363,8 +363,12 @@ fingers drifts by ~2 px per step on a rotating pinch, invisible in one frame and
 a visible slide across a gesture. Anchoring at the previous centroid is exact,
 because the anchor point lands at `anchor + pan`, which *is* the current
 centroid by the definition of pan. Pure pan hides the difference — at `zoom = 1`
-and `rotation = 0` the two anchors agree — which is presumably how it came to be
-written this way. `NavigationStepTest`'s random-gesture property pins it.
+and `rotation = 0` the anchor *cancels out* of the transform, which reduces to
+`v + pan`, so either choice gives the same view — which is presumably how it
+came to be written this way. Note the two anchors do **not** agree there: they
+differ by exactly `pan`, which is what makes the gesture a pan at all. What
+makes the bug invisible is the transform ignoring the anchor, not the anchors
+coinciding. `NavigationStepTest`'s random-gesture property pins it.
 
 The point under the fingers stays under the fingers by construction of
 `gesture`, and similarities compose exactly, so a long session of pinches

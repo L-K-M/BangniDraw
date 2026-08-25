@@ -48,8 +48,12 @@ class NavigationStep {
      * point under the fingers before the step lands at `prev + pan`, which is
      * the current centroid by definition of pan.
      *
-     * Pure pan hides it — with `zoom = 1` and `rotation = 0` the two anchors
-     * agree — which is presumably how the snippet came to be written that way.
+     * Pure pan hides it — with `zoom = 1` and `rotation = 0` the anchor cancels
+     * out of `gesture`, which reduces to `v + pan`, so either anchor yields the
+     * same view. The anchors themselves differ by exactly `pan` there, which is
+     * what makes the gesture a pan; it is the transform ignoring the anchor,
+     * not the anchors coinciding, that hides the bug. Presumably how the
+     * snippet came to be written that way.
      */
     var anchorX: Float = 0f
         private set

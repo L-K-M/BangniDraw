@@ -84,6 +84,13 @@ class DabGeneratorGoldenTest {
      * same thing. A spacing carry that reset per batch would have passed it.
      */
     private fun runStroke(chunk: Int): List<GoldenDab> {
+        // Not decoration: at `chunk <= 0`, `end` equals `i`, the inner loop
+        // never runs, `i` never advances, and the outer loop spins allocating
+        // a fresh 8192-dab batch every pass — CI would hang and then die of
+        // memory rather than fail. Every call site passes a positive literal
+        // today; this makes a future "let's test the degenerate batch" fail in
+        // the first millisecond with the number that caused it.
+        require(chunk > 0) { "chunk must be positive, was $chunk" }
         val input = samples()
         val stabilizer = Stabilizer(preset.stabilizer)
         val generator = DabGenerator(preset, seed)
@@ -139,7 +146,7 @@ class DabGeneratorGoldenTest {
     }
 
     /**
-     * One dab per line, six decimals, with a header — the same shape as the
+     * One dab per line, four decimals, with a header — the same shape as the
      * composite fixtures next door. A pretty-printed JSON array of the same
      * dabs is eight lines each and a third of a megabyte, which is not a diff
      * anyone reviews; this is one line per dab and reads as a table.
@@ -217,7 +224,7 @@ class DabGeneratorGoldenTest {
 
     @Test
     fun `the golden stroke is batch-split invariant`() {
-        // The same samples delivered in runs of 1, 7 and 64 must produce
+        // The same samples delivered in runs of 1, 7, 64 and 1000 must produce
         // identical dabs. This is the property that makes a stroke independent
         // of how the digitizer happened to batch it — and it is the one a
         // spacing bug breaks first, because the carry is what crosses a batch

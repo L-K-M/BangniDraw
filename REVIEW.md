@@ -118,6 +118,23 @@ unreadable.
 
 ## Declined, with reasons
 
+- **R-010 ⏸️ (third raising, first on PR #9) "`assertIs` does not smart-cast,
+  so `kind.preset` no longer resolves and the test source set fails to
+  compile."** Refuted, and this raising is the easiest of the three to settle
+  because it predicts something checkable about the very commit it is
+  reviewing. `019a22e`'s `android` check is **green**, and
+  `TEST-…BrushPresetTest.xml` records `an erase preset is a preset, not a
+  kind` running in 0.014 s — the file the finding says cannot compile compiled,
+  and the test it says never runs ran. The mechanism is the same one refuted on
+  PR #7 in rounds 7 and 11: `kotlin.test.assertIs` is declared
+  `contract { returns() implies (value is T) }`, which *is* a smart cast, and
+  discarding the return value does not discard the contract.
+  The suggested shape — `val brush = assertIs<ToolKind.Brush>(kind)` — is
+  perfectly good Kotlin and would compile too. It is declined anyway, because
+  the reason offered for it is false, and rewriting working code to satisfy a
+  claim that CI disproves on the same SHA is how a false finding becomes
+  precedent.
+
 - **R-040 ⏸️ Round 5: "`notePressure`'s KDoc contradicts the implementation
   quoted in REVIEW.md".** Refuted on the code, and the finding's own fallback
   applied. It reads `if (x.isNaN()) 0f else …` as a literal return, and it is

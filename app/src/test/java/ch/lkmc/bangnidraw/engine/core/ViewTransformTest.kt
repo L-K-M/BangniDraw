@@ -60,7 +60,7 @@ class ViewTransformTest {
 
     @Test
     fun `scale clamps and the centroid anchor survives the clamp`() {
-        val v = ViewTransform(scale = 6f)
+        val v = ViewTransform(scale = 8f)
         val stepped = v.gesture(50f, 50f, 0f, 0f, zoom = 10f, rotationDelta = 0f)
         assertEquals(ViewTransform.MAX_SCALE, stepped.scale)
         // Anchor property still holds with the adjusted effective zoom.

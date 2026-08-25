@@ -106,9 +106,11 @@ For each round:
 
    b. **Did you apply a substantive finding** — one that changed behavior, closed a hole, or
       corrected a false claim?
-      - Yes, and the push went green: **`useful feedback`**.
-      - Yes, but CI went red and one follow-up fix commit could not save it, or the change had
-        to be reverted because it broke behavior or contradicted `PLAN.md`:
+      - Yes, and the head ended green — the push was green, or it went red and **one**
+        follow-up fix commit made it green: **`useful feedback`**. A rescued build is a
+        normal round, not a failed one.
+      - Yes, and the head did not end green — one follow-up fix commit could not save it, or
+        the change had to be reverted because it broke behavior or contradicted `PLAN.md`:
         **`integration failed`**. Revert to the last green state before continuing.
 
    c. **Did the review raise a substantive finding you did not apply** — declined, refuted, or
@@ -119,8 +121,8 @@ For each round:
    d. **Did the review raise any finding at all?** Restatements and self-answered "✅ fine"
       items are not findings.
       - No: **`empty`**.
-      - Yes, and you applied at least one: **`nits only`** — every applied finding was
-        cosmetic, or (b) would already have caught it.
+      - Yes, and you applied at least one: **`nits only`**. Every applied finding was
+        cosmetic — a substantive one would have been scored at (b) and never reached here.
       - Yes, and you applied none: **`dismissed only`**.
 
 **Steady state is reached when ANY of these hold** (`CLAUDE.md` carries the same list; change
@@ -217,6 +219,6 @@ Start a session in `/work/GitHub/BangniDraw` and give the agent this prompt:
 
 > Read `docs/EXECUTION.md` in this repository and follow it exactly. It tells you how to
 > implement the plan in `PLAN.md` as a sequence of reviewed pull requests, how to run the
-> review loop, when a PR has reached steady state — that file has the conditions, and a
-> summary of them, this one included, is never authoritative — when to merge, and how to move
-> on to the next roadmap step. Begin with Step A.
+> review loop, when a PR has reached steady state — the conditions live in that file and
+> nowhere else, this prompt included — when to merge, and how to move on to the next roadmap
+> step. Begin with Step A.

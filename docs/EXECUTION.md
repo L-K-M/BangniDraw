@@ -121,9 +121,32 @@ For each round:
    d. **Did the review raise any finding at all?** Restatements and self-answered "✅ fine"
       items are not findings.
       - No: **`empty`**.
-      - Yes, and you applied at least one: **`nits only`**. Every applied finding was
-        cosmetic — a substantive one would have been scored at (b) and never reached here.
+      - Yes, and you applied at least one, and the head ended green: **`nits only`**. Every
+        applied finding was cosmetic — a substantive one would have been scored at (b) and
+        never reached here.
+      - Yes, and you applied at least one, but the head did not end green: **`integration
+        failed`**, exactly as at (b). A cosmetic change that breaks the build past one
+        follow-up fix is a failed integration, not a trivial round; the weight of the finding
+        does not decide that, the outcome does.
       - Yes, and you applied none: **`dismissed only`**.
+
+   Worked examples. Every edit to the questions above has broken at least one of these rows;
+   three of them were found by review rather than by re-reading the prose. Walk the tree
+   against this table before changing it.
+
+   | The round | Score |
+   | --- | --- |
+   | review job errored, re-run fixed it, re-run found nothing | `empty` |
+   | review job errored, re-run errored too | `no review` |
+   | applied a real fix, push green | `useful feedback` |
+   | applied a real fix, push red, one follow-up fix rescued it | `useful feedback` |
+   | applied a real fix, push red, one follow-up fix could not save it | `integration failed` |
+   | applied a typo, **declined a blocker** | `dismissed only` |
+   | declined a blocker, applied nothing | `dismissed only` |
+   | applied only cosmetic fixes, green | `nits only` |
+   | applied only a cosmetic fix, and it broke the build for good | `integration failed` |
+   | review raised only nits, you declined them all | `dismissed only` |
+   | review raised nothing, or only restatements and "✅ fine" | `empty` |
 
 **Steady state is reached when ANY of these hold** (`CLAUDE.md` carries the same list; change
 both or neither)
@@ -132,7 +155,11 @@ both or neither)
 - **two consecutive** rounds were dismissed only, **OR**
 - feedback integration failed in two consecutive rounds, **OR**
 - everything left is out of scope for this PR (pre-existing behavior, product decisions) —
-  collect those as follow-up suggestions instead.
+  collect those as follow-up suggestions instead, **OR**
+- a round scored `no review` and its re-run failed too — merge under *Unreviewed merges*
+  below. Listed here because merging is otherwise gated on steady state, and without this
+  bullet an agent reading that gate literally would stall on a broken reviewer: the one
+  outcome the section it points at exists to forbid.
 
 **A re-raise is a prompt to re-read, not a reason to stop.** There is deliberately no rule
 here that fires when the reviewer repeats a finding you declined. When it does, go back to
@@ -141,11 +168,18 @@ evidence you were right the first time.
 
 A genuinely stuck reviewer still terminates, through rule 3 rather than a rule of its own: if
 it only re-raises declined items and you decline them again, those rounds score `dismissed
-only`, and two running end the loop. That is the same two-round budget, without the failure
-mode — PR #7 declined R-001 in rounds 2, 6 and 7 and applied it in round 8, and declined
-R-005 in rounds 5, 7 and 9 and applied it in round 10. Both were path traversal through an
-unvalidated layer id reaching a directory name. A stop rule firing on the first re-raise would
-have merged at round 6 with both holes open.
+only`, and two running end the loop.
+
+That is a bound, not a guarantee, and PR #7 shows the difference. It declined R-001 in rounds
+2, 6 and 7 and applied it in round 8; it declined R-005 in rounds 5, 7 and 9 and applied it in
+round 10. Both were path traversal through an unvalidated layer id reaching a directory name.
+A stop rule firing on the first re-raise would have merged at round 6 with both holes open —
+but rule 3 would also have fired at round 7 if rounds 6 and 7 had been decline-only. They were
+not: round 6 refused a destructive flatten and round 7 resized the layer cap, so both scored
+`useful feedback` and the streak never started. **The fix survived because the reviewer was
+still finding other real things, not because two rounds is a safe budget.** Read a
+dismissed-only streak as "I have stopped learning from this reviewer" and check that it is
+true before you act on it.
 
 Only rounds where a review actually ran count toward these. A *no review* round earns nothing
 and breaks any streak it interrupts, so nits only → no review → nits only is **not** two
@@ -219,6 +253,6 @@ Start a session in `/work/GitHub/BangniDraw` and give the agent this prompt:
 
 > Read `docs/EXECUTION.md` in this repository and follow it exactly. It tells you how to
 > implement the plan in `PLAN.md` as a sequence of reviewed pull requests, how to run the
-> review loop, when a PR has reached steady state — the conditions live in that file and
-> nowhere else, this prompt included — when to merge, and how to move on to the next roadmap
-> step. Begin with Step A.
+> review loop, when a PR has reached steady state — the conditions live in that file, and are
+> mirrored in `CLAUDE.md`; this prompt does not restate them — when to merge, and how to move
+> on to the next roadmap step. Begin with Step A.

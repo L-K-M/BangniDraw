@@ -38,18 +38,26 @@ change both or neither.
   of anything. Restatements and "✅ fine" items are not findings;
   a round of only those is empty, not this,
 - feedback integration failed in two consecutive rounds (you applied something
-  and could not get CI green with one follow-up fix, or had to revert it),
+  — of any weight, cosmetic included — and could not get CI green with one
+  follow-up fix, or had to revert it),
 - everything remaining is out of scope for the PR (pre-existing behavior,
-  product decisions) — collect those as follow-up suggestions instead.
+  product decisions) — collect those as follow-up suggestions instead,
+- a round found no usable review and its re-run failed too — merge unreviewed,
+  per the paragraph below. Listed here because merging is otherwise gated on
+  steady state, and a broken reviewer must not stall the pipeline.
 
 **A re-raise is a prompt to re-read, not a reason to stop.** There is
 deliberately no rule here for "the reviewer repeated something you declined".
 Re-check the decline against the code instead; the repetition is never evidence
 you were right. A stuck reviewer still terminates via the dismissed-only rule
-above, on the same two-round budget. PR #7 declined R-001 in rounds 2, 6 and 7
-and applied it in round 8; R-005 in rounds 5, 7 and 9, applied in round 10.
-Both were path traversal through an unvalidated layer id. A rule firing on the
-first re-raise would have merged at round 6 with both holes open.
+above — a bound, not a guarantee. PR #7 declined R-001 in rounds 2, 6 and 7 and
+applied it in round 8; R-005 in rounds 5, 7 and 9, applied in round 10. Both
+were path traversal through an unvalidated layer id. A rule firing on the first
+re-raise would have merged at round 6 with both holes open — and the
+dismissed-only rule would have fired at round 7 had rounds 6 and 7 been
+decline-only. They were not, so the streak never started. The fix survived
+because the reviewer was still finding other real things, not because two
+rounds is a safe budget.
 
 A round where **no usable review arrived** — the action errored, timed out, was
 cancelled, finished without posting its report, or posted a blank, truncated or

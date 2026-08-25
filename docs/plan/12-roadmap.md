@@ -140,7 +140,7 @@ Status: ⬜ not started · 🔁 open, in review · 🟢 landed on `main` (with c
 
 | PR | Branch | Scope (one line) | Acceptance check | Status |
 | --- | --- | --- | --- | --- |
-| 2.1 | `fable/engine-core-document` | `engine/core` document model: `PerfConstants`, `TileKey`/`IntRect`/`TileGrid`, `LayerId`/`LayerProps`/`Layer`/`LayerRecord`/`BlendMode`/`LayerStack` (+ `StackEdit`/`StackResult`/`PixelOp`/`HistoryEntry` declarations), `Document`, `Composite` (CPU reference, all eight modes), `MemoryBudget`, `CanvasPresets`, `Clock`/`RandomSource` | JVM: `TileGridTest`, `LayerStackTest`, `CompositeTest`, `MemoryBudgetTest`, `CanvasPresetsTest` green; `lintDebug` clean. No device check (nothing user-visible changes) | 🔁 #7 |
+| 2.1 | `fable/engine-core-document` | `engine/core` document model: `PerfConstants`, `TileKey`/`IntRect`/`TileGrid`, `LayerId`/`LayerProps`/`Layer`/`LayerRecord`/`BlendMode`/`LayerStack` (+ `StackEdit`/`StackResult`/`PixelOp`/`HistoryEntry` declarations), `Document`, `Composite` (CPU reference, all eight modes), `MemoryBudget`, `CanvasPresets`, `Clock`/`RandomSource` | JVM: `TileGridTest`, `LayerStackTest`, `CompositeTest`, `MemoryBudgetTest`, `CanvasPresetsTest` green; `lintDebug` clean. No device check (nothing user-visible changes) | ✅ #7, merged 2026-08-25 |
 | 2.2 | `fable/engine-core-stroke` | `engine/core` stroke math: `StrokeInput`(+batch), `PressureCurve`, `Stabilizer`, `Dab`/`DabBatch`/`DabRing`, `DabGenerator`, `BrushPreset`/`Curve`/`ToolKind` with the one round preset | JVM: `StabilizerTest`, `DabGeneratorTest` (+ golden stroke), `PressureCurveTest`, `DabRingTest`, `BrushPresetTest`. Still no device check | ⬜ |
 | 2.3 | `fable/engine-gl-compositor` | `engine/gl` foundation and the compositor: `GlCaps`/`GlProgram`/`GlFbo`/`GlState`, `Shaders`, `TilePool`, `LayerTextures`, `ScreenTransform`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect at the right size and orientation, and the reset-view pill returns to fit after a programmatic nudge of the transform (the debug overlay is 2.5's). No touch navigation yet: `input/` is 2.4, so the view is driven programmatically here (see the note below). JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `ScreenTransformTest` (`ScreenTransform` is created here — pure math, so it is the one piece of this row a JVM test can pin end to end) | ⬜ |
 | 2.4 | `fable/stroke-path-touch` | The stroke lands on pixels, with touch: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, `input/` (`GestureArbiter`, `PalmRejection`, `StylusState`, `CanvasTouchHandler`) | Device: one finger draws a stroke that survives pen-up; two-finger tap does not leave a dot; two-finger pinch/zoom/rotate is smooth and rotation snaps near 0°, during a stroke as well as between strokes. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` (the no-allocation assertion of `docs/plan/10-performance.md` §2.4 — the step-2 risk table above names it as the mitigation for touch-path GC jank, so it is a gate, not an optional extra), and the merge blend math cross-checked on the JVM against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ⬜ |
@@ -217,6 +217,17 @@ unreadable **tiles**" with the load result, and a dropped layer is not a tile;
 step 3 either adds an unreadable-layers count beside it or amends §4 to cover
 both, because reporting a lost layer as N lost tiles is a misleading readout.)
 Separately, the `LayerStack.nextName` counter must survive undo and reopen.
+
+Two more came out of PR 2.1's later rounds. `ProjectStore.load` must degrade on
+a **case-insensitive** id collision rather than throwing: `LayerStack` refuses
+one at construction, but two ids differing only by case name one directory on a
+Windows or macOS copy, and a document that arrives that way must open with a
+layer counted among the unreadable, not fail. And the loader's `Json` instance
+must be able to decode a NaN or Infinity token (`allowSpecialFloatingPointValues`,
+or a coercing serializer for `opacity`) — `LayerRecord.toProps` already degrades
+such a value, but kotlinx's default decoder throws on the token before it is
+ever reached, so §4's "one bad field must never fail an open" would not hold.
+That is REVIEW.md R-020, deferred here rather than declined.
 
 Step 3 is the **latest** the layer-id→path guard may arrive, not the date it is
 scheduled for: it lands with the first code that builds a path out of a layer

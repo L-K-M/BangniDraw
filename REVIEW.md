@@ -9,10 +9,14 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
 
 ## Open
 
-_Nothing open._ One item is **deferred** rather than declined: R-020, the
-NaN-token decode test, which needs the `data/` loader that arrives with roadmap
-step 3. Its reasoning is under *Declined, with reasons*; step 3's carry-in list
-in `docs/plan/12-roadmap.md` is where it gets executed.
+_Nothing open._ Two items are **deferred** rather than declined, both needing
+the `data/` loader that arrives with roadmap step 3, and both now in that step's
+carry-in list in `docs/plan/12-roadmap.md`: R-020, the NaN-token decode test,
+and R-029 — `ProjectStore.load` must degrade on a case-insensitive layer-id
+collision rather than throwing. `LayerStack` refuses one at construction as of
+round 15, which is the right answer for code building a stack; a document that
+*arrives* with one has to open anyway, with the layer counted among the
+unreadable.
 
 ## Resolved
 

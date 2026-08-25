@@ -86,13 +86,22 @@ class GlslDeclarationOrderTest {
             val lines = s.source.lines()
             val declaredAt = HashMap<String, Int>()
             for ((i, line) in lines.withIndex()) {
-                val m = Regex("""^\s*(?:layout\([^)]*\)\s*)?(uniform|in|out)\s+\w+\s+(\w+)\s*;""")
-                    .find(line) ?: continue
+                val m = Regex(
+                    """^\s*$QUALIFIERS(uniform|in|out)\s+\w+\s+(\w+)\s*(?:\[\w*\])?\s*;""",
+                ).find(line) ?: continue
                 declaredAt[m.groupValues[2]] = i
             }
             for ((name, declaration) in declaredAt) {
                 val firstUse = lines.indexOfFirst { line ->
-                    !Regex("""^\s*(?:layout\([^)]*\)\s*)?(uniform|in|out)\b""").containsMatchIn(line) &&
+                    // Comments are not uses, and skipping them is not loosening
+                    // the lint: a comment cannot contain a real GLSL use, so
+                    // excluding it cannot hide an ordering bug. Leaving them in
+                    // makes the natural documenting comment ABOVE a
+                    // declaration — which this codebase writes everywhere —
+                    // count as a use before it, and the only "fix the shader"
+                    // available is deleting the documentation.
+                    !line.trimStart().startsWith("//") &&
+                        !Regex("""^\s*$QUALIFIERS(uniform|in|out)\b""").containsMatchIn(line) &&
                         Regex("""\b${Regex.escape(name)}\b""").containsMatchIn(line)
                 }
                 if (firstUse < 0) continue
@@ -143,10 +152,24 @@ class GlslDeclarationOrderTest {
         // unspecified order, and the VAO's hard-coded indices then bind the
         // wrong buffers — a picture that is wrong rather than an error.
         for (s in Shaders.ALL) {
+            val claimed = mutableSetOf<Int>()
             for (line in s.vertex.lines()) {
-                if (!Regex("""^\s*in\s+""").containsMatchIn(line)) continue
-                fail("${s.name}.vert: `${line.trim()}` has no layout(location = …)")
+                val location = Regex("""^\s*layout\s*\(\s*location\s*=\s*(\d+)\s*\)\s*in\s+""")
+                    .find(line)?.groupValues?.get(1)?.toInt()
+                when {
+                    // Two attributes at one location is a link error on the
+                    // device and nothing on the JVM — the same class of bug as
+                    // a missing location, and the check was one step short of
+                    // catching it.
+                    location != null -> assertTrue(
+                        claimed.add(location),
+                        "${s.name}.vert: location $location is claimed twice",
+                    )
+                    Regex("""^\s*in\s+""").containsMatchIn(line) ->
+                        fail("${s.name}.vert: `${line.trim()}` has no layout(location = …)")
+                }
             }
+            assertTrue(claimed.isNotEmpty(), "${s.name}.vert declares no attributes at all")
         }
     }
 
@@ -172,9 +195,24 @@ class GlslDeclarationOrderTest {
         for (s in stages) assertTrue(s.source.length > 50, "${s.what} is suspiciously short")
     }
 
-    /** `name -> type` for every `in`/`out` varying declared in [source]. */
+    /**
+     * `name -> type` for every `in`/`out` varying declared in [source].
+     *
+     * The optional `layout(...)` prefix and interpolation qualifiers are not
+     * decoration: `flat out int v;` is legal ES 3.0 and is *the* declaration
+     * most prone to the `flat int` vs `flat float` link mismatch this file
+     * exists to front-run, and without [QUALIFIERS] it is invisible here — a
+     * false negative, which the "fix the shader, not the regex" policy does not
+     * cover. An explicit `layout(location = 0) out vec4` on a fragment output
+     * is legal too, and made `exactly one out` fail with "declares []".
+     */
     private fun varyings(source: String, keyword: String): Map<String, String> =
-        Regex("""^\s*$keyword\s+(\w+)\s+(\w+)\s*;""", RegexOption.MULTILINE)
+        Regex("""^\s*$QUALIFIERS$keyword\s+(\w+)\s+(\w+)\s*(?:\[\w*\])?\s*;""", RegexOption.MULTILINE)
             .findAll(source)
             .associate { it.groupValues[2] to it.groupValues[1] }
+
+    private companion object {
+        /** An optional `layout(...)` and any interpolation qualifiers before a declaration. */
+        const val QUALIFIERS = """(?:layout\([^)]*\)\s*)?(?:(?:flat|smooth|centroid)\s+)*"""
+    }
 }

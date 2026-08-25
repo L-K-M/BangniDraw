@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.engine.gl
 
 import ch.lkmc.bangnidraw.engine.core.BlendMode
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 
 /**
  * Every GLSL source the engine uses, as Kotlin strings, plus the list of
@@ -24,6 +25,16 @@ object Shaders {
     const val ATTR_UV = 1
 
     const val VERSION_LINE = "#version 300 es"
+
+    /**
+     * The largest supersample grid the composite shader will run: §3.4's table
+     * tops out at `u_taps = 4` (4x4 taps, an 8x8 texel footprint) below 0.25x
+     * zoom, and accepts residual aliasing under 0.125x rather than going wider.
+     *
+     * The shader clamps to this rather than trusting the uniform, so the
+     * sample count and the divisor agree for any value the binder can send.
+     */
+    const val MAX_TAPS = 4
 
     /** A GLSL type and name, as the source declares it. */
     data class Uniform(val name: String, val type: String)
@@ -81,6 +92,10 @@ object Shaders {
         precision highp float;
         layout(location = $ATTR_POS) in vec2 a_canvas;
         layout(location = $ATTR_UV) in vec3 a_uvw;
+        // Packed similarity (a, b, tx, ty), i.e. the four floats of
+        // ScreenTransform: p = (a*x - b*y + tx, b*x + a*y + ty). The binder
+        // uploads them in this order; any other order compiles, passes the
+        // uniform contract test, and renders garbage.
         uniform vec4 u_screen;
         uniform mat4 u_projection;
         uniform mat4 u_bufferTransform;
@@ -113,6 +128,8 @@ object Shaders {
         $VERSION_LINE
         precision highp float;
         precision highp sampler2DArray;
+        #define MAX_TAPS $MAX_TAPS
+        #define TILE_PX $TILE_SIZE
         uniform sampler2DArray u_tiles;
         uniform sampler2D u_backdrop;
         uniform int u_blend;
@@ -123,17 +140,29 @@ object Shaders {
         out vec4 o_color;
 
         vec4 sampleLayer() {
-            if (u_taps == 1) return texture(u_tiles, v_uvw);
-            // Box filter over a u_taps x u_taps grid spanning one screen pixel,
-            // offsets in canvas px converted to tile uv (256 px per tile).
+            // Clamped, and then used for BOTH the loop bound and the divisor.
+            // The two must agree: the loops stop at MAX_TAPS, so dividing by a
+            // larger u_taps would sum 16 samples and divide by more, dimming
+            // the layer, and a u_taps of 0 would sum none and return 0.0/0.0.
+            // Clamping once here makes the shader correct for any value the
+            // binder can send, rather than resting on a range nothing enforces.
+            int taps = clamp(u_taps, 1, MAX_TAPS);
+            if (taps == 1) return texture(u_tiles, v_uvw);
+            // Box filter over a taps x taps grid spanning one screen pixel,
+            // offsets in canvas px converted to tile uv (TILE_SIZE px per tile).
             vec4 acc = vec4(0.0);
-            float n = float(u_taps);
-            for (int j = 0; j < 4; j++) {
-                if (j >= u_taps) break;
-                for (int i = 0; i < 4; i++) {
-                    if (i >= u_taps) break;
+            float n = float(taps);
+            for (int j = 0; j < MAX_TAPS; j++) {
+                if (j >= taps) break;
+                for (int i = 0; i < MAX_TAPS; i++) {
+                    if (i >= taps) break;
                     vec2 off = ((vec2(float(i), float(j)) + 0.5) / n - 0.5) * u_canvasPerScreen;
-                    acc += texture(u_tiles, vec3(v_uvw.xy + off / 256.0, v_uvw.z));
+                    // The offset can push uv outside [0,1], where CLAMP_TO_EDGE
+                    // repeats this tile's edge texel instead of reaching into
+                    // the neighbour. That is the tile-seam error §3.4 measures
+                    // and accepts for v1, with the index-texture compositor as
+                    // the named escalation path — not an oversight.
+                    acc += texture(u_tiles, vec3(v_uvw.xy + off / float(TILE_PX), v_uvw.z));
                 }
             }
             return acc / (n * n);

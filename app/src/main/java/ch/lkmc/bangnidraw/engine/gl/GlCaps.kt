@@ -123,7 +123,14 @@ data class GlCaps(
          * string is not a reason to assume ES 3.
          */
         internal fun parseEsVersion(version: String): Pair<Int, Int> {
-            val match = Regex("""(\d+)\.(\d+)""").find(version) ?: return 0 to 0
+            // Anchored to the ES marker first, because that is what this KDoc
+            // promises and the unanchored form does not do: a string carrying a
+            // desktop version before the ES one ("OpenGL 4.5 ... OpenGL ES 3.2")
+            // would take 4.5 and pass isSupported on a driver that has no ES 3.
+            // The unanchored fallback keeps a bare "3.2" readable.
+            val match = Regex("""ES\s+(\d+)\.(\d+)""").find(version)
+                ?: Regex("""(\d+)\.(\d+)""").find(version)
+                ?: return 0 to 0
             return match.groupValues[1].toInt() to match.groupValues[2].toInt()
         }
     }

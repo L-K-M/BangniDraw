@@ -15,8 +15,20 @@ package ch.lkmc.bangnidraw.engine.core
  */
 @JvmInline
 value class SliceHandle(val packed: Int) {
+    /**
+     * The page this slice lives on — **meaningless unless [isNone] is false.**
+     *
+     * These are pure bit decoders, so [NONE] answers page 32767 and slice
+     * 65535: valid-looking numbers, not an obvious failure. It matters because
+     * this class's whole reason for carrying the page is that a pass can ask a
+     * handle which page it is on, and a caller that built `excluded` from
+     * unchecked handles would silently exclude page 32767.
+     */
     val page: Int get() = packed ushr PAGE_SHIFT
+
+    /** The slice within [page] — meaningless unless [isNone] is false; see [page]. */
     val slice: Int get() = packed and SLICE_MASK
+
     val isNone: Boolean get() = packed == NONE_PACKED
 
     override fun toString(): String = if (isNone) "SliceHandle.NONE" else "SliceHandle($page:$slice)"

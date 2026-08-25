@@ -32,12 +32,13 @@ class LayerTextures(
     private val index = TileIndex(grid)
 
     /**
-     * Scratch for [visibleKeys], sized once at the grid's tile count.
+     * Scratch for [visibleKeys]'s sort, sized once at the grid's tile count.
      *
-     * Owned here rather than by the compositor because it is per layer: two
-     * layers' visible sets are gathered before either is drawn, so one shared
-     * buffer would have the second overwrite the first. `TileGrid.MAX_TILES`
-     * caps this at 1024, so it is 8 KiB and 4 KiB per layer.
+     * Owned here rather than passed in only because it keeps the class
+     * self-contained and costs 8 KiB per layer at `TileGrid.MAX_TILES`. It does
+     * **not** make [visibleKeys] safe to interleave across layers — the `out`
+     * buffer is the caller's and is overwritten on every call, so the ordering
+     * constraint is the caller's either way. [visibleKeys] says so.
      */
     private val sortScratch = LongArray(grid.tileCount)
 
@@ -54,10 +55,24 @@ class LayerTextures(
      * @throws ch.lkmc.bangnidraw.engine.core.PoolExhausted when the pool is
      * full. The caller refuses the operation rather than crashing (§2.1).
      */
-    fun sliceForWrite(k: TileKey): SliceHandle {
+    fun sliceForWrite(k: TileKey): SliceHandle = sliceForWrite(k, clear = true)
+
+    /**
+     * [sliceForWrite], but the caller states whether a fresh slice needs
+     * clearing.
+     *
+     * `clear = false` is for a caller that overwrites the **whole** slice
+     * before anything samples it — [upload] is the only one today. A fresh
+     * slice holds whatever the previous tenant left, so this is not a default:
+     * the dab and fill paths composite a partly-painted tile and must have the
+     * clear. Skipping it on the upload path saves one full-slice GPU clear per
+     * cold tile, on the §12 refill that is supposed to stream a painting back
+     * in over a few frames.
+     */
+    private fun sliceForWrite(k: TileKey, clear: Boolean): SliceHandle {
         val existing = index[k]
         if (!existing.isNone) return existing
-        val fresh = pool.allocateCleared()
+        val fresh = if (clear) pool.allocateCleared() else pool.allocate()
         // Only after the allocation succeeded: an index entry pointing at a
         // slice the pool refused would be a handle into nothing, and
         // `PoolExhausted` is a normal outcome, so this path runs.
@@ -92,6 +107,12 @@ class LayerTextures(
      * [out] is the caller's, sized at [TileGrid.tileCount] and reused: this
      * runs per layer per frame, where `docs/plan/10-performance.md` §2.4
      * allows no allocation.
+     *
+     * **The keys are valid only until the next call on any layer.** Reusing one
+     * buffer is the point, so a compositor that gathered every layer's keys
+     * before drawing any would have each layer overwrite the last and render
+     * the wrong tiles. Gather and draw one layer at a time — which is what
+     * §3.2's bottom-to-top loop does — or give each layer its own buffer.
      */
     fun visibleKeys(rect: IntRect, out: IntArray): Int = index.visibleKeys(rect, out, sortScratch)
 
@@ -115,7 +136,9 @@ class LayerTextures(
         require(pixels.remaining() == expected) {
             "a tile upload needs $expected bytes, got ${pixels.remaining()}"
         }
-        val handle = sliceForWrite(k)
+        // clear = false: the glTexSubImage3D below writes every texel of the
+        // slice, so allocateCleared's clear would be dead GPU work.
+        val handle = sliceForWrite(k, clear = false)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, pool.textureOf(handle.page))
         // Row alignment 1: the default of 4 happens to be right for RGBA8 at
         // 256 px, but it is right by coincidence, and the coincidence breaks

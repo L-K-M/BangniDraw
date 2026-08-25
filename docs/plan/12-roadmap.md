@@ -167,9 +167,41 @@ androidx type (`02-architecture.md` §2.6) and `TailBuffer` is a GL object
 (§2.3) — neither holds logic a JVM test could pin, which is why
 `11-testing.md` gates prediction on the device checklist instead.
 
-**2.3 was split, at the seam this document named in advance.** The rule above is that a step which turns out to be two PRs is split at a named seam, never at an arbitrary point, and that the split is measured rather than assumed. Measured: the foundation half alone is ~2,570 lines including tests, and the drawing half is at least as large — together well past the ~1,500-line criterion and past L entirely. So the seam held as written: **2.3a** is the GL foundation that has no opinion about compositing (`GlCaps`, `GlProgram`, `GlFbo`, `GlState`, `Shaders`, `TilePool`, `LayerTextures`, with `GlShaderContractTest` and `GlslDeclarationOrderTest`); **2.3b** is everything that draws (`ScreenTransform` + its test, `CompositePass`, `SandwichCache`, `CanvasRenderer`, `EngineSession`, `CanvasSurface`, the reset-view pill) and the device acceptance check, which belongs to the half that puts pixels on screen.
+**2.3 was split, at the seam this document named in advance.** Rule 1 above is
+that a step which turns out to be two PRs is split at a named seam, never at an
+arbitrary point, and that the split is measured rather than assumed. Measured,
+at PR #10's review round 1: **2.3a is ~1,730 lines of production code and ~950
+of tests, ~2,700 in all**, and 2.3b is at least as large. §1 says estimates
+count tests, so the whole row would have been ~5,500 — far past L. The seam held
+as written: **2.3a** is the GL foundation that has no opinion about compositing
+(`GlCaps`, `GlErrors`, `GlProgram`, `GlFbo`, `GlState`, `Shaders`, `TilePool`,
+`LayerTextures`, with `GlShaderContractTest` and `GlslDeclarationOrderTest`);
+**2.3b** is everything that draws (`ScreenTransform` + its test, `CompositePass`,
+`SandwichCache`, `CanvasRenderer`, `EngineSession`, `CanvasSurface`, the
+reset-view pill) and the device acceptance check, which belongs to the half that
+puts pixels on screen.
 
-One thing the seam did not anticipate: `TilePool` and `LayerTextures` are named as GL classes, but their bookkeeping — free lists, the no-sampling-the-render-target-page exclusion, the per-layer index — is decision-shaped, and §15 of `03-canvas-engine.md` requires decision-shaped things to have a pure-JVM twin with tests. So 2.3a also lands `engine/core/SliceAllocator` and `engine/core/TileIndex`, which is why a "foundation only, no device check" PR still carries five JVM test classes.
+**And 2.3a is over size on its own — recorded, not waved through.** ~2,700 lines
+is past §1's M band (~800–2,500, counting tests), which by rule 1 makes it a
+split candidate in its own right. It is not being split again, and the reason
+has to be written down or the next contributor cannot tell an exception from an
+oversight. Rule 1's remedy is a *named* seam, and the two candidates both fail
+the "one coherent area" test that the same rule and the definition of done
+depend on: splitting the pure `engine/core` twins from the GL classes would land
+`SliceAllocator`/`SliceHandle`/`TileIndex` (397 lines) with nothing calling them,
+and splitting `Shaders` plus its two contract tests from the pool-and-program
+plumbing would leave two halves that both fail to draw, cut at a seam this
+document never named. A cut that produces a PR nobody can review as a unit is
+worse than a large PR that is one. The overrun is ~200 lines past M and the
+review loop is the check that it stayed reviewable.
+
+One thing the seam did not anticipate: `TilePool` and `LayerTextures` are named
+as GL classes, but their bookkeeping — free lists, the
+no-sampling-the-render-target-page exclusion, the per-layer index — is
+decision-shaped, and §15 of `03-canvas-engine.md` requires decision-shaped things
+to have a pure-JVM twin with tests. So 2.3a also lands
+`engine/core/SliceAllocator`/`SliceHandle` and `engine/core/TileIndex`, which is
+why a "foundation only, no device check" PR still carries five JVM test classes.
 
 **Why 2.3 has no touch navigation.** An earlier draft of the 2.3 row asked the
 device check for two-finger pinch/zoom/rotate, which it cannot deliver: every

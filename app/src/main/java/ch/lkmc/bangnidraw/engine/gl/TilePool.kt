@@ -75,7 +75,13 @@ class TilePool(
         val existing = allocator.tryAllocate()
         if (!existing.isNone) return existing
         createPage()
-        return allocator.tryAllocate()
+        val handle = allocator.tryAllocate()
+        // createPage() either added slicesPerPage free slices or threw, so this
+        // cannot fail — which is exactly why it is worth saying out loud: a
+        // NONE escaping here reaches `textures[handle.page]` and either throws
+        // out of bounds or skips a draw, with nothing naming the pool.
+        check(!handle.isNone) { "no slice after creating page ${allocator.pageCount - 1}" }
+        return handle
     }
 
     /**
@@ -96,8 +102,15 @@ class TilePool(
         if (!existing.isNone) return existing
         createPage()
         // The page just created cannot be in `excluded` — it did not exist
-        // when the caller built that list — so a plain retry is enough.
-        return allocator.tryAllocateNotOn(excluded)
+        // when the caller built that list — so a plain retry is enough. Unless
+        // a caller passes an over-wide or stale list, which is the case this
+        // check names rather than letting a NONE reach the render path.
+        val handle = allocator.tryAllocateNotOn(excluded)
+        check(!handle.isNone) {
+            "no slice after creating page ${allocator.pageCount - 1}; " +
+                "stale exclusion list ${excluded.contentToString()}?"
+        }
+        return handle
     }
 
     /**
@@ -124,7 +137,14 @@ class TilePool(
      */
     fun clear(handle: SliceHandle) {
         require(allocator.isLive(handle)) { "cannot clear $handle: not allocated" }
-        if (!fbo.bindArrayLayer(textures[handle.page], handle.slice)) return
+        if (!fbo.bindArrayLayer(textures[handle.page], handle.slice)) {
+            // Silent here would be the worst outcome in this file:
+            // `allocateCleared` would hand out a slice still holding the
+            // previous tenant's pixels while every caller believes it is
+            // transparent, and nothing in the log would point at the cause.
+            Log.w(GL_TAG, "clear($handle): FBO bind failed, the slice keeps stale contents")
+            return
+        }
         // No scissor: the whole slice is the target, and a stale scissor from
         // the compositor would leave most of the tile holding the previous
         // tenant's pixels.
@@ -178,6 +198,19 @@ class TilePool(
         GLES30.glTexParameteri(
             GLES30.GL_TEXTURE_2D_ARRAY, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE,
         )
+        // Incomplete-texture insurance. GL's default min filter is
+        // GL_NEAREST_MIPMAP_LINEAR, and this page has one level (§3.4 rejects
+        // mipmaps for tiles), so a page sampled before `GlState.textureFilter`
+        // has set a filter is *incomplete* and reads back black — with no GL
+        // error. The per-frame filter still overrides this; what it removes is
+        // the whole failure class for any future path that binds a page
+        // directly (a readback helper, a debug pass).
+        GLES30.glTexParameteri(
+            GLES30.GL_TEXTURE_2D_ARRAY, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR,
+        )
+        GLES30.glTexParameteri(
+            GLES30.GL_TEXTURE_2D_ARRAY, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR,
+        )
         // The allocator learns about the page only once the texture exists:
         // a recorded page with no texture behind it hands out handles into
         // nothing, and nothing downstream could tell.
@@ -197,11 +230,16 @@ class TilePool(
      * After this, every [SliceHandle] anyone still holds is stale.
      * `LayerTextures.forgetAll` is what makes a layer safe to rebuild.
      */
-    fun release(state: GlState? = null) {
+    fun release(state: GlState) {
         if (textures.isNotEmpty()) {
             val ids = textures.toIntArray()
             GLES30.glDeleteTextures(ids.size, ids, 0)
-            state?.let { s -> ids.forEach(s::forgetTexture) }
+            // Not optional, and it used to default to null. Drivers recycle
+            // texture ids: leaving GlState's filter cache holding a deleted id
+            // means the next page to inherit that id is believed to already
+            // have its filter set, `textureFilter` skips the glTexParameteri,
+            // and the fresh page samples black at its default min filter.
+            ids.forEach(state::forgetTexture)
             textures.clear()
         }
         fbo.release()

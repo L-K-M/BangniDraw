@@ -18,7 +18,7 @@ class TileIndex(val grid: TileGrid) {
 
     private val slices = IntArray(grid.tileCount) { SliceHandle.NONE.packed }
 
-    /** Tiles that have a slice. Maintained incrementally; [set] is the only writer. */
+    /** Tiles that have a slice. Maintained incrementally; [put] is the only writer. */
     var presentCount: Int = 0
         private set
 
@@ -29,7 +29,7 @@ class TileIndex(val grid: TileGrid) {
      * Out-of-grid reads answer NONE rather than throwing because that is what
      * they mean: the dirty rect of a stroke near the edge covers keys past the
      * last tile, and the compositor's loop is "if there's a slice, draw it".
-     * Writing one is still refused — see [set].
+     * Writing one is still refused — see [put].
      */
     operator fun get(k: TileKey): SliceHandle =
         if (grid.contains(k)) SliceHandle(slices[grid.index(k)]) else SliceHandle.NONE

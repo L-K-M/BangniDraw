@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.engine.gl
 
 import ch.lkmc.bangnidraw.engine.core.BlendMode
+import ch.lkmc.bangnidraw.engine.core.PerfConstants
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -186,24 +187,65 @@ class GlShaderContractTest {
     }
 
     @Test
-    fun `the supersample loops are bounded by a constant, not by u_taps`() {
-        // GLSL ES 3.0 requires loop bounds a compiler can unroll; `i < u_taps`
-        // with a uniform bound is rejected by some drivers and silently
-        // unrolled to 1 iteration by others. §3.4's shader uses a constant
-        // bound of 4 with an early break, and this pins that shape.
+    fun `the tap count is clamped, so the sample count always matches the divisor`() {
+        // The bug this pins: the loops stop at MAX_TAPS while the average
+        // divides by u_taps squared, so a u_taps above MAX_TAPS sums 16
+        // samples and divides by more — the whole layer dims, with no GL
+        // error and no disagreement with the CPU oracle that anything checks.
+        // A u_taps of 0 is worse: no samples, and 0.0/0.0 is NaN straight into
+        // the blend. Clamping once and using the clamped value for BOTH is
+        // what makes the shader correct for any value the binder can send —
+        // and the binder does not exist yet, so nothing else could enforce it.
+        //
+        // (The constant loop bound is kept for conservative drivers. GLSL ES
+        // 3.00 does allow a dynamic bound — it is ES 1.00 that required a
+        // compile-time-constant one — so this is a preference, not a rule.)
         assertTrue(
-            "for (int j = 0; j < 4; j++)" in Shaders.COMPOSITE_FRAG &&
-                "for (int i = 0; i < 4; i++)" in Shaders.COMPOSITE_FRAG,
-            "the tap loops must have constant bounds",
+            "int taps = clamp(u_taps, 1, MAX_TAPS);" in Shaders.COMPOSITE_FRAG,
+            "u_taps must be clamped before it is used",
         )
         assertTrue(
-            "if (j >= u_taps) break;" in Shaders.COMPOSITE_FRAG &&
-                "if (i >= u_taps) break;" in Shaders.COMPOSITE_FRAG,
-            "the tap loops must break at u_taps",
+            "float n = float(taps);" in Shaders.COMPOSITE_FRAG &&
+                "return acc / (n * n);" in Shaders.COMPOSITE_FRAG,
+            "the divisor must come from the clamped count, not from u_taps",
         )
         assertTrue(
-            "if (u_taps == 1) return texture(u_tiles, v_uvw);" in Shaders.COMPOSITE_FRAG,
+            "if (j >= taps) break;" in Shaders.COMPOSITE_FRAG &&
+                "if (i >= taps) break;" in Shaders.COMPOSITE_FRAG,
+            "the loops must break at the clamped count, not at u_taps",
+        )
+        // After the clamp statement itself — `substringAfter("int taps = clamp")`
+        // starts at "(u_taps, …" and can never be clean.
+        assertTrue(
+            "u_taps" !in Shaders.COMPOSITE_FRAG
+                .substringAfter("int taps = clamp(u_taps, 1, MAX_TAPS);"),
+            "nothing after the clamp may read the raw u_taps again",
+        )
+        assertTrue(
+            "if (taps == 1) return texture(u_tiles, v_uvw);" in Shaders.COMPOSITE_FRAG,
             "the single-tap case must skip the loop entirely",
+        )
+        assertTrue(
+            "#define MAX_TAPS ${Shaders.MAX_TAPS}" in Shaders.COMPOSITE_FRAG,
+            "the GLSL cap must be the Kotlin constant, not a literal",
+        )
+    }
+
+    @Test
+    fun `the tile size in the shader is the engine's constant, not a literal`() {
+        // The canvas-px to tile-uv conversion divides by the tile size. As a
+        // literal 256.0 inside a GLSL string it is invisible to every compiler
+        // and every other test: change PerfConstants.TILE_SIZE and the filter
+        // footprint silently becomes wrong.
+        assertTrue(
+            "#define TILE_PX ${PerfConstants.TILE_SIZE}" in Shaders.COMPOSITE_FRAG,
+            "TILE_PX must be defined from PerfConstants.TILE_SIZE",
+        )
+        // Past the #define's own value, for the same reason.
+        assertTrue(
+            "256" !in Shaders.COMPOSITE_FRAG
+                .substringAfter("#define TILE_PX ${PerfConstants.TILE_SIZE}"),
+            "the tile size must not also appear as a literal in the body",
         )
     }
 
@@ -227,8 +269,11 @@ class GlShaderContractTest {
         // never reads it, and a declared-but-unread uniform links to -1.
         // Re-adding it from the plan would break startup on every device.
         for (s in sources) {
+            // Over declarations, not raw text: as a substring check this failed
+            // on any comment that named u_viewport — including the comment
+            // explaining why it is banned, which the message below points at.
             assertTrue(
-                "u_viewport" !in s.vertex && "u_viewport" !in s.fragment,
+                declaredUniforms(s.vertex + "\n" + s.fragment).none { it.first == "u_viewport" },
                 "${s.name} declares u_viewport, which nothing reads — see COMPOSITE_VERT's KDoc",
             )
         }
@@ -242,14 +287,39 @@ class GlShaderContractTest {
         assertEquals(names.size, names.toSet().size, "duplicate program name in $names")
     }
 
+    /**
+     * Every `uniform` the source declares, as `name to type`.
+     *
+     * Comments are stripped first so a commented-out declaration cannot
+     * register as a real one, and the optional precision qualifier is matched
+     * so `uniform highp vec4 u_x;` — legal, and one edit away — does not report
+     * a disagreement that does not exist. An array uniform still fails to
+     * match, and loudly: that is fail-safe, and there are none today.
+     */
     private fun declaredUniforms(source: String): Set<Pair<String, String>> =
-        Regex("""^\s*uniform\s+(\w+)\s+(\w+)\s*;""", RegexOption.MULTILINE)
-            .findAll(source)
+        Regex(
+            """^\s*uniform\s+(?:(?:lowp|mediump|highp)\s+)?(\w+)\s+(\w+)\s*;""",
+            RegexOption.MULTILINE,
+        )
+            .findAll(stripComments(source))
             .map { it.groupValues[2] to it.groupValues[1] }
             .toSet()
 
-    /** The source with its `uniform`, `in` and `out` declarations removed. */
-    private fun stripDeclarations(source: String): String = source.lineSequence()
+    /**
+     * The source with its comments and its declarations removed — what is left
+     * is code that could actually *read* a uniform.
+     *
+     * Stripping comments is the point. Without it a uniform named only in a
+     * comment ("// u_taps is clamped to 4 here") satisfies the
+     * "actually read" assertion, the driver strips the uniform anyway,
+     * `glGetUniformLocation` returns -1 and `GlProgram.link` throws on a
+     * device — the exact failure that assertion exists to catch, passing.
+     */
+    private fun stripDeclarations(source: String): String = stripComments(source)
+        .lineSequence()
         .filterNot { Regex("""^\s*(uniform|in|out|layout)\b""").containsMatchIn(it) }
         .joinToString("\n")
+
+    private fun stripComments(source: String): String =
+        source.replace(Regex("""//[^\n]*|/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
 }

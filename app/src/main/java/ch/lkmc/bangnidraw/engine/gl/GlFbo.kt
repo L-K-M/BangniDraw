@@ -26,6 +26,17 @@ class GlFbo {
     private var attachedTexture = 0
     private var attachedLayer = -1
 
+    /**
+     * Incomplete is reported once, not once per frame.
+     *
+     * The class KDoc anticipates a driver that persistently reports a
+     * combination incomplete — a slice count it over-reported, most plausibly.
+     * In that case the caller skips the pass and retries next frame, so an
+     * unguarded log fires sixty times a second. [GlErrors] introduced
+     * once-per-session suppression for exactly this, and this path bypassed it.
+     */
+    private var loggedIncomplete = false
+
     private fun ensure() {
         if (ids[0] == 0) {
             GLES30.glGenFramebuffers(1, ids, 0)
@@ -80,12 +91,23 @@ class GlFbo {
     private fun isComplete(what: String): Boolean {
         val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
         if (status == GLES30.GL_FRAMEBUFFER_COMPLETE) return true
-        android.util.Log.w(GL_TAG, "framebuffer incomplete for $what: 0x${Integer.toHexString(status)}")
+        if (!loggedIncomplete) {
+            loggedIncomplete = true
+            android.util.Log.w(
+                GL_TAG,
+                "framebuffer incomplete for $what: 0x${Integer.toHexString(status)} " +
+                    "(further incomplete reports this session are suppressed)",
+            )
+        }
         return false
     }
 
     /**
-     * Clears the currently bound attachment to a **premultiplied** colour.
+     * Clears the currently bound attachment to a **premultiplied** colour —
+     * **subject to any enabled `GL_SCISSOR_TEST`**, which gates `glClear` just
+     * as it gates a draw. A caller wanting the whole attachment must disable
+     * the scissor first, as `TilePool.clear` does; leaving a stale scissor from
+     * the compositor in place clears a sub-rect and raises no error.
      *
      * Premultiplied because everything in this engine is (§2.4); passing a
      * straight-alpha colour here paints a halo at every transparent edge, and
@@ -111,5 +133,6 @@ class GlFbo {
         }
         attachedTexture = 0
         attachedLayer = -1
+        loggedIncomplete = false
     }
 }

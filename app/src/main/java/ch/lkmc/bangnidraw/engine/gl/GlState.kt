@@ -66,7 +66,18 @@ class GlState {
         // Only deleting the texture invalidates it, and `forgetTexture` says so.
     }
 
-    /** Drops [texture]'s remembered filter — call when the texture is deleted. */
+    /**
+     * Drops [texture]'s remembered filter. **Every path that deletes a texture
+     * this engine owns must route through here or [forgetAllTextures].**
+     *
+     * Drivers recycle texture ids. A stale entry means a *new* texture behind a
+     * recycled id is believed to already carry its filter, [textureFilter]
+     * skips the `glTexParameteri`, and the fresh page keeps GL's default
+     * `GL_NEAREST_MIPMAP_LINEAR` — which on a page with one level is an
+     * incomplete texture that samples black, with no GL error. That is the
+     * "cache that silently went stale" this class's KDoc warns about, and it is
+     * why `TilePool.release` takes a [GlState] rather than defaulting to null.
+     */
     fun forgetTexture(texture: Int) {
         filters.remove(texture)
     }

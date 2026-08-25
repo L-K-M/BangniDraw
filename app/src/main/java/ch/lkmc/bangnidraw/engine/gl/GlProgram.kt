@@ -69,6 +69,17 @@ class GlProgram private constructor(
                 throw e
             }
             val id = GLES30.glCreateProgram()
+            if (id == 0) {
+                // Without this, every call below runs against program 0,
+                // raises GL_INVALID_OPERATION, and the failure finally
+                // surfaces as "failed to link: " with an empty log — a crash
+                // report that points nowhere, for the one condition that
+                // actually happened. The shaders are deleted here because the
+                // cleanup further down is about to be skipped.
+                GLES30.glDeleteShader(vs)
+                GLES30.glDeleteShader(fs)
+                throw GlProgramException("${source.name}: glCreateProgram returned 0")
+            }
             GLES30.glAttachShader(id, vs)
             GLES30.glAttachShader(id, fs)
             GLES30.glLinkProgram(id)
@@ -109,6 +120,9 @@ class GlProgram private constructor(
 
         private fun compile(type: Int, source: String, what: String): Int {
             val id = GLES30.glCreateShader(type)
+            // Same trap as glCreateProgram: shader 0 compiles "successfully"
+            // into a status query that returns 0 and an empty info log.
+            if (id == 0) throw GlProgramException("$what: glCreateShader returned 0")
             GLES30.glShaderSource(id, source)
             GLES30.glCompileShader(id)
             val status = IntArray(1)

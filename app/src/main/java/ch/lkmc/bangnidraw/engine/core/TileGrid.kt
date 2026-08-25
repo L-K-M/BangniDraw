@@ -227,6 +227,12 @@ data class TileGrid(val width: Int, val height: Int) {
      * `n = keysFor(a, buf, keysFor(b, buf, 0))` read correctly.
      */
     fun keysFor(r: IntRect, out: IntArray, from: Int = 0): Int {
+        // Validated before the loop, not by the `require` inside it: that one
+        // tests `n < out.size`, which a NEGATIVE n always passes, so an
+        // arithmetic slip in the accumulate-several-rects pattern this KDoc
+        // encourages would sail past the guard and die at `out[n++]` with the
+        // bare negative-index exception the guard exists to replace.
+        require(from in 0..out.size) { "from must be 0..${out.size}, was $from" }
         val l = maxOf(r.left, 0)
         val t = maxOf(r.top, 0)
         val rr = minOf(r.right, width)

@@ -97,6 +97,10 @@ class SliceAllocatorTest {
         a.addPage()
         a.free(SliceHandle.NONE)
         assertEquals(0, a.usedCount)
+        // usedCount alone cannot see the failure that matters: pushing a
+        // garbage index onto the free stack leaves usedCount at 0 and hands
+        // out an invalid handle two allocations later.
+        assertEquals(2, a.freeCount, "freeing NONE must not push onto the free list")
         assertFailsWith<IllegalArgumentException> { a.free(SliceHandle.of(1, 0)) }
         assertFailsWith<IllegalArgumentException> { a.free(SliceHandle.of(0, 9)) }
     }
@@ -172,8 +176,12 @@ class SliceAllocatorTest {
 
     @Test
     fun `a page past the sign bit is refused, not silently folded onto NONE`() {
-        // 0x8000 shifted left 16 sets the sign bit; without the bound,
-        // SliceHandle.of(0x8000, 0xFFFF) IS -1, i.e. "no tile".
+        // 0x8000 shifted left 16 sets the sign bit; without the bound, every
+        // page >= 0x8000 packs negative — of(0x8000, 0xFFFF) is 0x8000FFFF,
+        // and only of(0xFFFF, 0xFFFF) is literally -1. So the hazard is wider
+        // than one colliding value: the invariant this file asserts elsewhere,
+        // "a legal handle packs non-negative", is what the bound protects, and
+        // narrowing the check to the single -1 case would reintroduce it.
         assertFailsWith<IllegalArgumentException> { SliceHandle.of(SliceHandle.MAX_PAGE + 1, 0) }
         assertFailsWith<IllegalArgumentException> { SliceHandle.of(0, SliceHandle.MAX_SLICE + 1) }
         assertFailsWith<IllegalArgumentException> { SliceHandle.of(-1, 0) }

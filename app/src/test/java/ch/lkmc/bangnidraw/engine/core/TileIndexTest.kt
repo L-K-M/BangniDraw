@@ -90,6 +90,22 @@ class TileIndexTest {
     }
 
     @Test
+    fun `visibleKeys clamps a rect that runs off any edge of the grid`() {
+        // The shape this class's own KDoc calls out and no test covered: a
+        // stroke's dirty rect routinely runs past the last tile, and a drag
+        // started off-canvas gives a negative origin. The clamp lives in
+        // TileGrid.keysFor; nothing pinned that visibleKeys inherits it, so a
+        // refactor could drop it and every existing test would still pass.
+        val index = TileIndex(grid)
+        index.put(TileKey(2, 1), SliceHandle.of(0, 1))
+        assertEquals(listOf(TileKey(2, 1)), keys(index, IntRect(-64, -64, 1024, 768)))
+        assertEquals(emptyList(), keys(index, IntRect(768, 512, 1024, 768)))
+        assertEquals(emptyList(), keys(index, IntRect(-500, -500, -1, -1)))
+        // And an inverted rect is empty, not a walk backwards over the grid.
+        assertEquals(emptyList(), keys(index, IntRect(600, 400, 100, 100)))
+    }
+
+    @Test
     fun `visibleKeys sorts by page so the compositor binds each page once`() {
         // §3.2 batches quads by page: one glBindTexture and one glDrawArrays
         // per page. Keys arriving in row-major order would make the

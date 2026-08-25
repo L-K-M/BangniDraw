@@ -181,6 +181,14 @@ class GestureArbiter(
         // palm added while the pen was near outlives the pen: after the hover
         // grace expired it was still tracked, so the next single-finger tap
         // read as maxDown == 2 and fired undo.
+        //
+        // Ordering is load-bearing, and NOT "ignored is final by now": the
+        // `when` below still flags this very pointer for the FINGER_DRAW and
+        // NAVIGATE branches. Counting *here* is what makes a three-finger tap
+        // read as 3 — the third finger is a participant at the moment it lands
+        // and only then ignored for navigation. What this excludes is pointers
+        // ignored on an EARLIER event, which is exactly the resting palm: the
+        // stylus-near branch flags those and returns before reaching this line.
         maxDown = max(maxDown, participatingCount())
 
         when (state) {

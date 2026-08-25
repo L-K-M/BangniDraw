@@ -264,13 +264,11 @@ class CanvasTouchHandler(
         // nearest right angle when Prefs.snapRightAngles is on. Hardcoding 0f
         // here meant right-angle snapping fired its haptic near 90° and then
         // threw the canvas to straight, so the pref was silently broken.
-        val wasSnapped = snap.isSnapped
         val displayed = snap.update(rawRotation)
-        val entered = !wasSnapped && snap.isSnapped
         val stepped = step.applyTo(view)
         // The snap only touches rotation; pan and zoom are the gesture's.
         view = stepped.copy(rotation = displayed)
-        if (entered) host.onRotationSnapped()
+        if (snap.justEntered) host.onRotationSnapped()
         host.onViewChanged(view)
     }
 
@@ -358,7 +356,19 @@ class CanvasTouchHandler(
             // §6's barrel button. Without these StylusState.buttonPressed could
             // never leave false, and its KDoc promising these two actions was a
             // description of code that did not exist.
-            MotionEvent.ACTION_BUTTON_PRESS -> stylus.onButton(true)
+            //
+            // The press is scoped to the pen: a mouse's secondary button also
+            // arrives as ACTION_BUTTON_PRESS, and letting it through would latch
+            // barrel state on the stylus model for a device §6 never described.
+            // The release is deliberately NOT scoped — clearing state is
+            // fail-safe, and a guarded press with an unguarded release can only
+            // ever under-latch, while the reverse would leave it stuck on.
+            MotionEvent.ACTION_BUTTON_PRESS -> {
+                val tool = toolOf(e.getToolType(index))
+                if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
+                    stylus.onButton(true)
+                }
+            }
             MotionEvent.ACTION_BUTTON_RELEASE -> stylus.onButton(false)
             MotionEvent.ACTION_CANCEL -> handleCancel(timeNs)
             else -> return false

@@ -49,6 +49,13 @@ class GestureArbiterTest {
             !r.events.contains("cancel"),
             "a stroke that ended normally must not be rolled back: ${r.events}",
         )
+        // Asserting only the absence of "cancel" would also pass if the arbiter
+        // refused pointer 3 outright — the same user-visible failure (no second
+        // stroke) arriving by the sibling route. Assert the positive.
+        assertTrue(
+            r.events.contains("draw(3,${StrokeSource.STYLUS})"),
+            "the second pen down must start a fresh stroke: ${r.events}",
+        )
     }
 
     @Test

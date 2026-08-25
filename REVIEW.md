@@ -726,3 +726,30 @@ unreadable.
   the finding wants to protect; renaming the branch mid-review closes the PR and
   discards the round. The 2.4b row already carries `fable/stroke-on-pixels`, so
   a reader looking for where strokes first land is sent to the right row.
+
+## PR #12 (roadmap 2.4a) — GLM round 2
+
+- **R-050 ❌ Restore `isFocusable` / `isFocusableInTouchMode` in `factory`
+  rather than deleting them** (PR #12, GLM round 2, Minor). **Refuted**, and
+  note this reverses the same reviewer's round-1 Minor, which said to delete
+  them and correctly explained why ("Android delivers touch and hover events to
+  a `View`'s listeners regardless of focusability — focus only gates key
+  events"). Round 2 does not withdraw that reasoning; it asks whether some
+  focus-dependent path might exist anyway, and makes its own suggestion
+  conditional on verification: "Only apply this if verification shows a
+  focus-dependent path exists."
+
+  Verified, and none exists. `grep -rn
+  "requestFocus\|onKey\|dispatchKeyEvent\|setOnGenericMotionListener\|OnKeyListener\|KeyEvent"`
+  over `app/src/main` returns nothing at all: the app has no key handling, no
+  generic-motion listener, and never requests focus. The stylus barrel button
+  arrives as `ACTION_BUTTON_PRESS`/`RELEASE` in the ordinary `MotionEvent`
+  stream — `CanvasTouchHandler.onTouch` now handles it there — not as a
+  `KeyEvent`, so even §6's one plausible focus-dependent feature is not one.
+  The deletion stands. Restoring the flags would reintroduce a `SurfaceView`
+  that grabs focus on first touch for no benefit.
+
+  Recorded rather than silently re-applied because a reviewer that asks for a
+  change and later for its revert, on code whose behaviour has not changed
+  between the two rounds, must not be able to walk a decision back and forth by
+  repetition.

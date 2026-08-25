@@ -45,12 +45,25 @@ class RotationSnap(
      * otherwise.
      */
     fun update(rawAngle: Float): Float {
+        val before = isSnapped
         raw = ViewTransform.normalizeAngle(rawAngle)
         val target = nearestTarget(raw)
         val distance = abs(ViewTransform.normalizeAngle(raw - target))
         isSnapped = if (isSnapped) distance <= SNAP_OUT else distance <= SNAP_IN
+        justEntered = !before && isSnapped
         return if (isSnapped) target else raw
     }
+
+    /**
+     * Whether the last [update] crossed **into** the snap.
+     *
+     * A caller that needs both the angle to display and the entry edge reads
+     * this instead of re-deriving the edge around [update] — two hand-rolled
+     * copies of "did we just enter" can drift from each other and from
+     * [updateAndDetectEntry].
+     */
+    var justEntered: Boolean = false
+        private set
 
     /**
      * True when this update crossed **into** the snap — the one transition that
@@ -59,14 +72,14 @@ class RotationSnap(
      * fire while the user is already rotating and reads as noise.
      */
     fun updateAndDetectEntry(rawAngle: Float): Boolean {
-        val before = isSnapped
         update(rawAngle)
-        return !before && isSnapped
+        return justEntered
     }
 
     /** A new gesture, or a view reset: nothing is snapped and nothing accumulated. */
     fun reset() {
         isSnapped = false
+        justEntered = false
         raw = 0f
     }
 

@@ -87,12 +87,16 @@ class CanvasTouchHandlerTest {
         h.handleMove(1, 100f, 200f, ms(30))
         h.handleMove(2, 292.2111f, 144.7289f, ms(30))
         h.handleMoveEnd(ms(30))
-        // A second move to -0.26 puts raw at 0.04: past SNAP_IN but inside
-        // SNAP_OUT, so it STAYS snapped and must not report a second entry.
-        // The old fixture rotated the pair back to horizontal here, which put
-        // raw back at 0.3 and left the snap — which is why every assertion
-        // below used to sit behind an `if` that never ran.
-        h.handleMove(2, 293.2780f, 148.5839f, ms(50))
+        // A second move to -0.23 puts raw at 0.07, which is strictly BETWEEN
+        // SNAP_IN (0.0524) and SNAP_OUT (0.0873) — so only the wider exit band
+        // keeps it snapped, and the hysteresis gap is what this move tests.
+        // -0.26 would have put raw at 0.04, still inside SNAP_IN, where the
+        // test would pass even with SNAP_OUT == SNAP_IN.
+        //
+        // The fixture before that rotated the pair back to horizontal, putting
+        // raw at 0.3 and LEAVING the snap — which is why every assertion below
+        // used to sit behind an `if` that never ran.
+        h.handleMove(2, 294.7333f, 154.4045f, ms(50))
         h.handleMoveEnd(ms(50))
         assertEquals(0f, host.view.rotation, "near-straight fingers must snap to exactly zero")
         assertTrue("snap" in host.events, "entering the snap must report, for the haptic")

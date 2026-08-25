@@ -23,15 +23,18 @@ review feedback under this policy:
 ### Declare steady-state and stop when any of these hold
 `docs/EXECUTION.md` is the source of truth for this list and for the full
 round-scoring rules; this is a summary. Change both in the same commit — and if
-they ever disagree anyway, EXECUTION.md wins. "Change both or neither" with no
-tiebreaker is how two files drift and both look authoritative.
+they ever disagree anyway, EXECUTION.md wins *and the drift is a bug to fix
+before the next round is scored* — not a standing arrangement. A tiebreaker
+alone would quietly make a stale file authoritative; "change both or neither"
+alone is how two files drift and both look authoritative. You need both.
 
 - **One** round is **empty**: a coherent review arrived and raised nothing —
   no findings, or only restatements and self-answered "✅ fine" items. One is
   enough — don't spend a CI cycle re-confirming it. A restatement repeats
   something already applied or resolved; **a re-raise of something you declined
-  or deferred is never a restatement**: it is a live finding, and the round is
-  dismissed only if you decline it *again* — useful feedback if you apply it,
+  or deferred is never a restatement**: it is a live finding, and the round is a
+  **dismissed-only** round only if you decline it *again* — useful feedback if
+  you apply it,
   as PR #7 eventually did with both. Otherwise "that's just a restatement"
   becomes a one-round exit from any finding you don't like,
 - **two consecutive** rounds are **nits only**: you applied something, every
@@ -55,9 +58,9 @@ tiebreaker is how two files drift and both look authoritative.
   per the paragraph below. Listed here because merging is otherwise gated on
   steady state, and a broken reviewer must not stall the pipeline,
 - **fifteen** rounds have run. A backstop, not a target: every other rule here
-  needs the reviewer to slow down, and one that keeps finding real things
-  satisfies none of them, so without a cap there is no termination guarantee at
-  all. The scorecard and merge commit say the cap fired and what was still open.
+  needs the reviewer to slow down, and one whose real, in-scope findings you keep
+  applying and landing green satisfies none of them — neither stuck nor wrong —
+  so without a cap that case has no exit at all. The scorecard and merge commit say the cap fired and what was still open.
 
 **When the reviewer contradicts itself** — asks for a change, then for its
 revert, on code you have not touched — re-check both positions against the code
@@ -82,9 +85,16 @@ A round where **no usable review arrived** — the action errored, timed out, wa
 cancelled, finished without posting its report, or posted a blank, truncated or
 error-shaped one — is an infrastructure failure, not an empty round. A
 malfunctioning reviewer that says nothing looks exactly like a clean bill of
-health, so never score it as one. Re-run it once; a round the re-run fixed is
+health, so never score it as one. This reviewer's reports open with
+"Actionable suggestions identified: N" and close with an HTML marker comment;
+a report missing either end was cut off, whatever it appears to say. Re-run it
+once; a round the re-run fixed is
 scored on the re-run's review and counts like any other, and only a round still
-unreviewed after the re-run earns nothing and breaks a streak.
+unreviewed after the re-run earns nothing and *pauses* a streak rather than
+resetting it — a round that carries no information must not erase the round
+before it, or a flaky reviewer gets an indefinite pardon from the
+dismissed-only rule. Otherwise "consecutive" is strict: any scored round of a
+different kind resets the streak.
 
 If the re-run also fails, **merge anyway — do not stop work because the
 reviewer is down.** CI must still be green, you must re-read your own diff

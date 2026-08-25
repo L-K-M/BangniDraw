@@ -85,9 +85,7 @@ For each round:
 4. If you applied anything: commit, push, run tests/lint, and wait for CI on the new commit.
    This push starts the next round.
 5. Score the round. Answer these in order; the first "yes" is the score. Every round lands in
-   exactly one, and the questions are exhaustive by construction rather than by assertion —
-   an earlier draft of this list defined six overlapping buckets and three of them turned out
-   to leave real rounds unscoreable.
+   exactly one, and the questions are exhaustive by construction rather than by assertion.
 
    a. **Did a usable review arrive?** If not — the action errored, timed out, was cancelled,
       posted nothing, or posted a report that is blank, truncated or error-shaped (a
@@ -114,9 +112,15 @@ For each round:
         **`integration failed`**. Revert to the last green state before continuing.
 
    c. **Did the review raise a substantive finding you did not apply** — declined, refuted, or
-      deferred as an out-of-scope follow-up? Then **`dismissed only`**, however many cosmetic
-      fixes you applied alongside it. One applied typo must not launder a refused blocker into
-      the faster streak.
+      deferred as an out-of-scope follow-up?
+      - And the head ended green: **`dismissed only`**, however many cosmetic fixes you
+        applied alongside it. One applied typo must not launder a refused blocker into the
+        faster streak.
+      - And the head did not end green: **`integration failed`**, exactly as at (b) and (d),
+        and revert to the last green state before continuing. The outcome decides, not the
+        weight of the findings — so a refused blocker must not launder a red head into
+        `dismissed only` either. Without this branch the loop could reach steady state under
+        rule 3 with a broken head and no revert.
 
    d. **Did the review raise any finding at all?** Restatements and self-answered "✅ fine"
       items are not findings.
@@ -151,6 +155,7 @@ For each round:
    | applied a real fix, push red, one follow-up fix could not save it | `integration failed` |
    | applied a typo, **declined a blocker** | `dismissed only` |
    | declined a blocker, applied nothing | `dismissed only` |
+   | declined a blocker, applied a cosmetic fix, head left red | `integration failed` |
    | applied only cosmetic fixes, green | `nits only` |
    | applied only a cosmetic fix, and it broke the build for good | `integration failed` |
    | review raised only nits, you declined them all | `dismissed only` |
@@ -162,19 +167,26 @@ both or neither)
 2. **two consecutive** rounds were nits only — no blocker, nothing genuinely helpful, **OR**
 3. **two consecutive** rounds were dismissed only, **OR**
 4. feedback integration failed in two consecutive rounds, **OR**
-5. **two consecutive** rounds where everything left was out of scope for this PR
-   (pre-existing behavior, product decisions) — collect those as follow-up suggestions
-   instead. Two, for the same reason as rule 3: "out of scope" is your judgment about the
-   reviewer's finding, and one round of it is not evidence. Otherwise the cheapest way to end
-   a review early is to relabel refusals as scope calls, **OR**
+5. **two consecutive** rounds scored `dismissed only` in which every declined or deferred
+   finding was out of scope for this PR (pre-existing behavior, product decisions) — collect
+   those as follow-up suggestions instead. Strictly a special case of rule 3, since (c) scores
+   an out-of-scope deferral `dismissed only` and nothing else: it is kept because what you owe
+   the next PR differs (a follow-up list, not a decline record), not because it can fire when
+   rule 3 cannot. Two rounds, for rule 3's reason — "out of scope" is your judgment about the
+   reviewer's finding, so one round of it is not evidence, and otherwise the cheapest way to
+   end a review early is to relabel refusals as scope calls, **OR**
 6. a round scored `no review` and its re-run failed too — merge under *Unreviewed merges*
-   below. Listed here because merging is otherwise gated on steady state, and without this
+   below. A successful re-run is not a new round: step (a) scores the same round on the
+   re-run's review. A round that stays `no review` still consumes a round number, including
+   toward rule 7 — otherwise a reviewer that fails forever is also a loop that runs forever,
+   which is the one thing rule 7 exists to stop. Listed here because merging is otherwise gated on steady state, and without this
    rule an agent reading that gate literally would stall on a broken reviewer: the one
    outcome the section it points at exists to forbid, **OR**
 7. **fifteen** rounds have run. A backstop, not a target. Rules 1-5 all require the reviewer
-   to slow down, and a reviewer that keeps finding real things satisfies none of them — so
-   without a cap the loop has no termination guarantee at all, only a hope. PR #7 needed 12
-   rounds and PR #8 passed 9, so 15 is not a number you should reach often; if you do, the
+   to slow down. Rules 4 and 5 can fire while it is still productive, but a reviewer whose real,
+   in-scope findings you keep applying and landing green satisfies none of the five — it is
+   neither stuck nor wrong — and that case has no exit at all without a cap. PR #7 took 12
+   rounds and PR #8 took 11, so 15 is not a number you should reach often; if you do, the
    scorecard and the merge commit both say the cap fired and what was still outstanding.
 
 **When the reviewer contradicts itself** — demands a change, then demands its revert, on code
@@ -207,8 +219,12 @@ true before you act on it.
 
 Only rounds where a review actually ran count toward the **streak** rules (2, 3, 4, 5) — never
 toward rule 6, which fires precisely because no review ran. A *no review* round earns nothing
-and breaks any streak it interrupts, so nits only → no review → nits only is **not** two
-consecutive nits-only rounds.
+and **pauses** any streak it interrupts rather than resetting it: nits only → no review →
+nits only *is* two consecutive nits-only rounds. A round that carries no information should
+not erase the information in the round before it, and resetting would hand a flaky reviewer an
+indefinite pardon from rule 3 — the rule that exists precisely because you grade your own
+dismissals. Otherwise "consecutive" is strict: any *scored* round of a different kind resets
+the streak.
 
 **Unreviewed merges.** If a round scores *no review* and the re-run also fails, the reviewer
 is unavailable, not silent, and waiting for it is a work stoppage. Merge anyway, on these
@@ -271,8 +287,8 @@ Do not start post-v1 backlog items unless the user asks.
 
 ## Reporting
 After each merge, print one paragraph: which PR merged, how many review rounds it took, why
-steady state was declared — which rule fired, or that no review ran and the PR merged
-unreviewed — what you declined and why, and what the next PR is. Report failures plainly
+the loop ended — which rule fired, and whether that was steady state, a cap, or an
+unreviewed merge — what you declined and why, and what the next PR is. Report failures plainly
 with the output; never claim CI is green without having seen the run result.
 
 ## How to invoke
@@ -280,6 +296,6 @@ Start a session in `/work/GitHub/BangniDraw` and give the agent this prompt:
 
 > Read `docs/EXECUTION.md` in this repository and follow it exactly. It tells you how to
 > implement the plan in `PLAN.md` as a sequence of reviewed pull requests, how to run the
-> review loop, when a PR has reached steady state — the conditions live in that file, and are
-> mirrored in `CLAUDE.md`; this prompt does not restate them — when to merge, and how to move
-> on to the next roadmap step. Begin with Step A.
+> review loop, when a PR has reached steady state (the conditions are defined in that file and
+> mirrored in `CLAUDE.md`; this prompt deliberately does not restate them), when to merge, and
+> how to move on to the next roadmap step. Begin with Step A.

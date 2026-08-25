@@ -51,8 +51,8 @@ class LayerStackTest {
         assertNull(edit.pixels, "an empty layer has no pixel work")
         val entry = assertIs<HistoryEntry.LayerAdd>(edit.entry)
         assertEquals(2, entry.index)
-        assertEquals("id-1", entry.activeBefore)
-        assertEquals(edit.stack.active.id.value, entry.activeAfter)
+        assertEquals(LayerId("id-1"), entry.activeBefore)
+        assertEquals(edit.stack.active.id, entry.activeAfter)
     }
 
     @Test
@@ -153,6 +153,15 @@ class LayerStackTest {
                 moved.layers[to].id,
                 "move($from, $to) did not land the layer at $to",
             )
+            // The two assertions above are also satisfied by a swap, which is
+            // a different reorder: [a,b,c,d,e].move(0,3) is [b,c,d,a,e], not
+            // [d,b,c,a,e]. What separates them is the bystanders, so pin them
+            // — everything except the moved layer keeps its relative order.
+            assertEquals(
+                before.layers.filterIndexed { i, _ -> i != from }.map { it.id },
+                moved.layers.filterIndexed { i, _ -> i != to }.map { it.id },
+                "move($from, $to) reordered the layers it did not move",
+            )
             assertEquals(to, moved.activeIndex, "the moved layer follows the drag")
             stack = moved
         }
@@ -178,7 +187,7 @@ class LayerStackTest {
         assertEquals("top", edit.stack.layers[2].props.name, "the layer above is pushed up")
         val entry = assertIs<HistoryEntry.LayerDuplicate>(edit.entry)
         assertEquals(1, entry.index, "undo removes the copy by this index")
-        assertEquals("src", entry.sourceId, "redo re-copies from the source")
+        assertEquals(LayerId("src"), entry.sourceId, "redo re-copies from the source")
     }
 
     @Test
@@ -356,7 +365,7 @@ class LayerStackTest {
         assertEquals(listOf(LayerId("a"), LayerId("c")), pixels.order.map { it.id })
         val entry = assertIs<HistoryEntry.Flatten>(edit.entry)
         assertEquals(3, entry.layers.size, "undo must restore the hidden layer too")
-        assertEquals(listOf(TileKey(1, 1)), entry.tilesPerLayer.getValue("b"))
+        assertEquals(listOf(TileKey(1, 1)), entry.tilesPerLayer.getValue(LayerId("b")))
     }
 
     @Test
@@ -414,7 +423,7 @@ class LayerStackTest {
         for (result in edits) {
             val edit = ok(result)
             val entry = assertIs<HistoryEntry.LayerProps>(edit.entry)
-            assertEquals("id-1", entry.layerId)
+            assertEquals(LayerId("id-1"), entry.layerId)
             assertEquals(stack.layers[1].props.toRecord(), entry.before, "the entry must carry the props from before")
             assertEquals(edit.stack.layers[1].props.toRecord(), entry.after)
             assertNull(edit.pixels, "a property edit moves no pixels")
@@ -486,8 +495,13 @@ class LayerStackTest {
         repeat(2000) {
             val before = stack
             val result = randomOperation(before, random, ids)
-            if (result is StackResult.Refused) return@repeat
-            val edit = (result as StackResult.Ok).edit
+            // Exhaustive rather than check-then-cast: a third StackResult
+            // subtype would fail to compile here instead of turning a skipped
+            // iteration into a ClassCastException 2000 draws in.
+            val edit = when (result) {
+                is StackResult.Ok -> result.edit
+                is StackResult.Refused -> return@repeat
+            }
             val restored = undo(edit.stack, edit.entry)
             assertEquals(
                 before.layers,
@@ -580,7 +594,7 @@ class LayerStackTest {
     // the test at it — two implementations is the drift this warns about.
     private fun undo(stack: LayerStack, entry: HistoryEntry): LayerStack {
         val layers = stack.layers.toMutableList()
-        fun indexOf(id: String) = layers.indexOfFirst { it.id.value == id }
+        fun indexOf(id: LayerId) = layers.indexOfFirst { it.id == id }
         when (entry) {
             is HistoryEntry.LayerAdd -> layers.removeAt(entry.index)
             is HistoryEntry.LayerDuplicate -> layers.removeAt(entry.index)
@@ -604,25 +618,35 @@ class LayerStackTest {
                 layers[at] = layers[at].copy(tiles = entry.tiles.toSet())
             }
             is HistoryEntry.LayerMerge -> {
-                val at = indexOf(entry.lower.id)
-                    .also { check(it >= 0) { "merged layer ${entry.lower.id} is not in the rewound stack" } }
+                val lower = entry.lower.toProps()
+                val at = indexOf(lower.id)
+                    .also { check(it >= 0) { "merged layer ${lower.id.value} is not in the rewound stack" } }
                 val upperTiles = entry.upperTiles.toSet()
                 val lowerTiles = (layers[at].tiles - upperTiles) + entry.lowerTiles.toSet()
-                layers[at] = Layer(entry.lower.toProps(), lowerTiles)
+                layers[at] = Layer(lower, lowerTiles)
                 layers.add(entry.upperIndex, Layer(entry.upper.toProps(), upperTiles))
             }
             is HistoryEntry.Flatten -> {
                 layers.clear()
                 entry.layers.forEach { record ->
-                    layers += Layer(record.toProps(), entry.tilesPerLayer.getValue(record.id).toSet())
+                    val props = record.toProps()
+                    layers += Layer(props, entry.tilesPerLayer.getValue(props.id).toSet())
                 }
             }
-            else -> error("${entry::class.simpleName} is not a layer-stack entry")
+            // Named rather than `else`: an entry kind added to the sealed
+            // interface must fail to compile here, so whoever adds it decides
+            // whether LayerStack can produce it — an `else` would silently
+            // route a new layer operation into `error()` at run time, and only
+            // if the random walk happened to reach it.
+            is HistoryEntry.Stroke,
+            is HistoryEntry.Fill,
+            is HistoryEntry.PaperColor,
+            -> error("${entry::class.simpleName} is a pixel entry, not a layer-stack one")
         }
         return LayerStack(
             layers = layers,
-            activeIndex = layers.indexOfFirst { it.id.value == entry.activeBefore }
-                .also { check(it >= 0) { "activeBefore ${entry.activeBefore} is not in the rewound stack" } },
+            activeIndex = layers.indexOfFirst { it.id == entry.activeBefore }
+                .also { check(it >= 0) { "activeBefore ${entry.activeBefore.value} is not in the rewound stack" } },
             nextName = stack.nextName,
         )
     }

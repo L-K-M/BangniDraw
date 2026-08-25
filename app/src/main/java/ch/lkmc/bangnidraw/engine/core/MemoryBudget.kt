@@ -138,6 +138,14 @@ object MemoryBudget {
      * with this, so the New Canvas dialog and the layer panel can never
      * disagree.
      *
+     * The clamp raises as well as lowers: a canvas so large that not even one
+     * layer fits still answers [MIN_LAYERS], never 0 — a document always has a
+     * layer, so 0 would describe a canvas that cannot be opened rather than
+     * one that may run out of pages. **Callers must therefore reject a size
+     * above [Result.maxCanvasEdge] before asking**, or they will advertise
+     * layers the pool cannot back: the same over-commit [Result.poolCapacityBytes]
+     * exists to prevent, arriving from the other side.
+     *
      * The parameter is named for the *capacity*, not the raw budget: passing
      * `Result.gpuTileBudgetBytes` here compiles and reads naturally, and is
      * exactly the over-commit [Result.poolCapacityBytes] exists to prevent.
@@ -155,6 +163,10 @@ object MemoryBudget {
             (poolCapacityBytes / canvas.layerBytesWorstCase)
                 .coerceAtMost(Int.MAX_VALUE.toLong())
                 .toInt() - STROKE_BUFFER_RESERVE_LAYERS
+        // The upward half of this clamp is a documented contract, not an
+        // accident — see the KDoc. For a canvas that clears maxCanvasEdge, the
+        // honest cap is enforced where it can be: the pool allocates pages
+        // lazily and reports "layer limit reached early" (`10-performance.md` §4).
         return layersThatFit.coerceIn(MIN_LAYERS, MAX_LAYERS)
     }
 
@@ -192,6 +204,19 @@ object MemoryBudget {
         // painted, still holds MIN_USEFUL_LAYERS plus the stroke-buffer
         // reserve — so a size the dialog offers can always be painted on.
         val perLayerLimit = poolCapacityBytes / (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)
+        // The loop tests TILE_SIZE + TILE_SIZE and up; the starting value is
+        // returned untested, so the "always paintable" promise holds at the
+        // floor only through a coupling between the minimum tile budget,
+        // MIN_USEFUL_LAYERS and TILE_BYTES that nothing enforced. Enforce it,
+        // the same way the array-size check above enforces its own three
+        // constants: it cannot fire today (five tiles is 1.25 MiB against a
+        // floor budget in the hundreds), and that is the point — if someone
+        // lowers the budget or raises MIN_USEFUL_LAYERS it fails here rather
+        // than offering a 256 px canvas that cannot hold the minimum stack.
+        check(TILE_BYTES.toLong() * (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS) <= poolCapacityBytes) {
+            "a pool capacity of $poolCapacityBytes B cannot hold " +
+                "${MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS} layers of a ${TILE_SIZE}px canvas"
+        }
         var maxCanvasEdge = TILE_SIZE
         while (maxCanvasEdge + TILE_SIZE <= MAX_CANVAS_EDGE_V1 &&
             CanvasSize(maxCanvasEdge + TILE_SIZE, maxCanvasEdge + TILE_SIZE)

@@ -18,15 +18,26 @@ package ch.lkmc.bangnidraw.engine.core
  * [activeBefore] and [activeAfter] are the active layer's id before and after
  * the edit, so undo lands the user where they were. Selection itself is never
  * an entry.
+ *
+ * Ids are [LayerId], not `String`. `06` §5.2 is normative for the on-disk
+ * *encoding*, and that is unchanged — `LayerId` is a `@JvmInline` value class
+ * over the same string. What the type buys is that a `history/<seq>.entry`
+ * decoded from a hand-edited file cannot hand an unvalidated id to a path
+ * join: the same trust boundary `LayerId`'s own guard exists for.
  */
 sealed interface HistoryEntry {
     val seq: Long
     val timestamp: Long
     val bytes: Long
-    val activeBefore: String
-    val activeAfter: String
+    val activeBefore: LayerId
+    val activeAfter: LayerId
 
-    /** A copy of this entry with the journal's bookkeeping filled in. */
+    /**
+     * A copy of this entry with the journal's bookkeeping filled in. Single
+     * shot: re-stamping would rewrite a `seq` the journal already issued, so
+     * every override refuses it. An entry reloaded from disk is *constructed*
+     * stamped, never stamped again.
+     */
     fun stamp(seq: Long, timestamp: Long, bytes: Long): HistoryEntry
 
     /**
@@ -41,13 +52,15 @@ sealed interface HistoryEntry {
         override val seq: Long = UNSTAMPED,
         override val timestamp: Long = UNSTAMPED,
         override val bytes: Long = UNSTAMPED,
-        override val activeBefore: String,
-        override val activeAfter: String,
-        val layerId: String,
+        override val activeBefore: LayerId,
+        override val activeAfter: LayerId,
+        val layerId: LayerId,
         val tiles: List<TileKey>,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long): Stroke =
-            copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): Stroke {
+            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            return copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        }
     }
 
     /** A bucket fill; a pixel edit of one layer, like [Stroke]. */
@@ -55,13 +68,15 @@ sealed interface HistoryEntry {
         override val seq: Long = UNSTAMPED,
         override val timestamp: Long = UNSTAMPED,
         override val bytes: Long = UNSTAMPED,
-        override val activeBefore: String,
-        override val activeAfter: String,
-        val layerId: String,
+        override val activeBefore: LayerId,
+        override val activeAfter: LayerId,
+        val layerId: LayerId,
         val tiles: List<TileKey>,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long): Fill =
-            copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): Fill {
+            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            return copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        }
     }
 
     /** A new, empty layer at [index]. Undo removes it; no tiles are stored. */
@@ -69,13 +84,15 @@ sealed interface HistoryEntry {
         override val seq: Long = UNSTAMPED,
         override val timestamp: Long = UNSTAMPED,
         override val bytes: Long = UNSTAMPED,
-        override val activeBefore: String,
-        override val activeAfter: String,
+        override val activeBefore: LayerId,
+        override val activeAfter: LayerId,
         val layer: LayerRecord,
         val index: Int,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerAdd =
-            copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerAdd {
+            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            return copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        }
     }
 
     /** A deleted layer: the record, where it sat, and every tile it had. */
@@ -83,14 +100,16 @@ sealed interface HistoryEntry {
         override val seq: Long = UNSTAMPED,
         override val timestamp: Long = UNSTAMPED,
         override val bytes: Long = UNSTAMPED,
-        override val activeBefore: String,
-        override val activeAfter: String,
+        override val activeBefore: LayerId,
+        override val activeAfter: LayerId,
         val layer: LayerRecord,
         val index: Int,
         val tiles: List<TileKey>,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerDelete =
-            copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerDelete {
+            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            return copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        }
     }
 
     /** A layer moved from [fromIndex] to [toIndex]. */
@@ -98,14 +117,16 @@ sealed interface HistoryEntry {
         override val seq: Long = UNSTAMPED,
         override val timestamp: Long = UNSTAMPED,
         override val bytes: Long = UNSTAMPED,
-        override val activeBefore: String,
-        override val activeAfter: String,
-        val layerId: String,
+        override val activeBefore: LayerId,
+        override val activeAfter: LayerId,
+        val layerId: LayerId,
         val fromIndex: Int,
         val toIndex: Int,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerReorder =
-            copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerReorder {
+            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            return copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        }
     }
 
     /** Rename, opacity, visibility, blend mode, alpha lock, lock. */
@@ -113,14 +134,16 @@ sealed interface HistoryEntry {
         override val seq: Long = UNSTAMPED,
         override val timestamp: Long = UNSTAMPED,
         override val bytes: Long = UNSTAMPED,
-        override val activeBefore: String,
-        override val activeAfter: String,
-        val layerId: String,
+        override val activeBefore: LayerId,
+        override val activeAfter: LayerId,
+        val layerId: LayerId,
         val before: LayerRecord,
         val after: LayerRecord,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerProps =
-            copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerProps {
+            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            return copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        }
     }
 
     /**
@@ -142,16 +165,18 @@ sealed interface HistoryEntry {
         override val seq: Long = UNSTAMPED,
         override val timestamp: Long = UNSTAMPED,
         override val bytes: Long = UNSTAMPED,
-        override val activeBefore: String,
-        override val activeAfter: String,
+        override val activeBefore: LayerId,
+        override val activeAfter: LayerId,
         val upper: LayerRecord,
         val upperIndex: Int,
         val upperTiles: List<TileKey>,
         val lower: LayerRecord,
         val lowerTiles: List<TileKey>,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerMerge =
-            copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerMerge {
+            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            return copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        }
     }
 
     /** A duplicated layer: redo re-copies from [sourceId], so no tiles are stored. */
@@ -159,14 +184,16 @@ sealed interface HistoryEntry {
         override val seq: Long = UNSTAMPED,
         override val timestamp: Long = UNSTAMPED,
         override val bytes: Long = UNSTAMPED,
-        override val activeBefore: String,
-        override val activeAfter: String,
-        val sourceId: String,
+        override val activeBefore: LayerId,
+        override val activeAfter: LayerId,
+        val sourceId: LayerId,
         val copy: LayerRecord,
         val index: Int,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerDuplicate =
-            copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerDuplicate {
+            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            return copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        }
     }
 
     /** A cleared layer: the props survive, every tile is stored as "before". */
@@ -174,13 +201,15 @@ sealed interface HistoryEntry {
         override val seq: Long = UNSTAMPED,
         override val timestamp: Long = UNSTAMPED,
         override val bytes: Long = UNSTAMPED,
-        override val activeBefore: String,
-        override val activeAfter: String,
-        val layerId: String,
+        override val activeBefore: LayerId,
+        override val activeAfter: LayerId,
+        val layerId: LayerId,
         val tiles: List<TileKey>,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerClear =
-            copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerClear {
+            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            return copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        }
     }
 
     /** Flatten: every layer's record in order, its keys, and the result's record. */
@@ -188,14 +217,16 @@ sealed interface HistoryEntry {
         override val seq: Long = UNSTAMPED,
         override val timestamp: Long = UNSTAMPED,
         override val bytes: Long = UNSTAMPED,
-        override val activeBefore: String,
-        override val activeAfter: String,
+        override val activeBefore: LayerId,
+        override val activeAfter: LayerId,
         val layers: List<LayerRecord>,
-        val tilesPerLayer: Map<String, List<TileKey>>,
+        val tilesPerLayer: Map<LayerId, List<TileKey>>,
         val result: LayerRecord,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long): Flatten =
-            copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): Flatten {
+            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            return copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        }
     }
 
     /** The paper colour changed; pixel-free. */
@@ -203,13 +234,15 @@ sealed interface HistoryEntry {
         override val seq: Long = UNSTAMPED,
         override val timestamp: Long = UNSTAMPED,
         override val bytes: Long = UNSTAMPED,
-        override val activeBefore: String,
-        override val activeAfter: String,
+        override val activeBefore: LayerId,
+        override val activeAfter: LayerId,
         val before: Int,
         val after: Int,
     ) : HistoryEntry {
-        override fun stamp(seq: Long, timestamp: Long, bytes: Long): PaperColor =
-            copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        override fun stamp(seq: Long, timestamp: Long, bytes: Long): PaperColor {
+            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
+            return copy(seq = seq, timestamp = timestamp, bytes = bytes)
+        }
     }
 
     companion object {

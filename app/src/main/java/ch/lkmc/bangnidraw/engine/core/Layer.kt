@@ -120,7 +120,15 @@ data class LayerRecord(
      * a logged skip rather than a failed open
      * (`docs/plan/06-document-and-persistence.md` §4).
      */
-    fun toPropsOrNull(): LayerProps? = runCatching { toProps() }.getOrNull()
+    fun toPropsOrNull(): LayerProps? =
+        try {
+            toProps()
+        } catch (_: IllegalArgumentException) {
+            // Only the record's own validation, never an OOM or a
+            // programming error from deeper in: `runCatching` would swallow
+            // those too and turn a crash into a silently missing layer.
+            null
+        }
 
     fun toProps(): LayerProps = LayerProps(
         id = LayerId(id),

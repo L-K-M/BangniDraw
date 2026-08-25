@@ -67,7 +67,72 @@ _Nothing open._
   it is already an exact multiple of an array; `MemoryBudgetTest` now covers
   odd budgets and 128-slice drivers so the two can never drift apart again.
 
+- **R-005 🟢 Type `HistoryEntry`'s id fields as `LayerId` rather than `String`.**
+  Raised in rounds 5, 7 and 9; declined each time, **applied in round 10** —
+  recording the change of position rather than making it silently, as with
+  R-001.
+
+  My decline rested on reading
+  `docs/plan/06-document-and-persistence.md` §5.2 ("**This section is normative
+  for `HistoryEntry`** — names, fields and the on-disk encoding") as binding on
+  the Kotlin field types. It is not, and R-001's resolution is what showed why:
+  the sentence binds the *encoding*, and a `@JvmInline value class` over
+  `String` encodes as the same string. `history/<seq>.entry` is byte-identical
+  either way, so nothing normative moved.
+
+  What decided it is the trust boundary R-001 established. An entry is read
+  back from a file a user can hand-edit, and its ids are joined into
+  `layers/<id>/` paths on redo. Round 8 accepted that a `LayerId` from
+  `project.json` must be validated at construction; an id from
+  `history/<seq>.entry` arrives through the same door and had no such guard.
+  Typing the fields closes it at the type level instead of asking every future
+  call site to remember.
+
+  The name collision raised in the same round (`HistoryEntry.LayerProps` vs the
+  model's `LayerProps`) stays declined for the original reason — §5.2 *is*
+  normative for the kinds' names — and is recorded in AGENTS.md as a
+  convention rather than left as a surprise.
+
 ## Declined, with reasons
+
+- **R-016 ⏸️ Add `TileGrid.keysForPacked(r, out: IntArray, offset)`.** (PR #7,
+  GLM round 10.) The premise is right — `keysFor` appends boxed `TileKey`s to a
+  `MutableList`, and a value class boxes as a generic argument, so it is not an
+  API a per-frame path may call. But nothing calls `keysFor` per frame yet: the
+  dirty-tile upload and the touch handler are PR 2.4, and `TileKey.packed` is
+  already public, so the allocation-free version can be written when it has a
+  caller to shape it. Landing it now means an untested-in-anger API whose
+  buffer-sizing contract (who allocates `out`, how big, what happens on
+  overflow) is guessed rather than derived from use — the roadmap's "one
+  coherent area" rule points the other way. Recorded so 2.4 does not reach for
+  `keysFor` by reflex: **`keysFor` is not for per-frame paths**, and its KDoc
+  says so.
+
+- **R-011 ⏸️ (second raising) `fits()` should also require
+  `maxLayersFor(...) >= 1`.** Still declined, for the reason recorded below,
+  but round 10 offered a fallback the original raising did not — "if
+  `MemoryBudget` already guarantees it, state that invariant in `fits`'s doc so
+  future readers don't re-litigate it" — and that is fair: the invariant lives
+  a class away and was nowhere stated here. `fits` now carries it, and
+  `MemoryBudget.compute` fails fast if the constants ever stop supporting it at
+  the `TILE_SIZE` floor (the round's separate, and correct, finding about the
+  floor never being tested). Third raising of the code change should be read
+  against this note.
+
+- **R-015 ⏸️ (third raising) Vary `largeMemoryClassMb` in the test device
+  helpers.** Declined again, unchanged: `MemoryBudget.compute` does not read
+  the field, so a loop over it would assert that a number nothing consumes
+  changes nothing. The field is normative in `10-performance.md` §4's
+  `DeviceMemory`, which is why it is present and pinned rather than deleted.
+  See R-002 and R-015 below.
+
+- **R-017 ⏸️ Round 10's BLOCKER: "NORMAL.txt row 1 expects black instead of
+  red".** Refuted on the PR — the row was misread. `NORMAL.txt` line 18 on head
+  `0b307ff` is `FF0000FF FFFF0000 1.0  FFFF0000`, the source-over answer the
+  finding itself derives. `FF000000` is line 25 ("black over white"), a
+  different row with a different destination. The finding's own reasoning is
+  correct and the file already agrees with it; nothing changed. This is the
+  fourth consecutive round whose BLOCKER rested on misquoting a fixture row.
 
 - **R-001 ⏸️→🟢 Throwing on a malformed layer id in `LayerRecord.init`** (PR
   #7, rounds 2, 6, 7). Declined three times on the reasoning below, then
@@ -166,19 +231,6 @@ _Nothing open._
   says so in a normative comment. The field's KDoc now states why it is
   captured, which should stop the question recurring.
 
-- **R-005 ⏸️ Type `HistoryEntry`'s id fields as `LayerId` rather than `String`**
-  (PR #7, GLM round 5, info). The ergonomic argument is fair — `LayerId` is a
-  value class, so it costs nothing at runtime — but
-  `docs/plan/06-document-and-persistence.md` §5.2 opens with "**This section is
-  normative for `HistoryEntry`** — names, fields and the on-disk encoding" and
-  writes every one of those fields as `String`. `HistoryEntry` is the
-  serialization-facing shape, like `LayerRecord`, which this PR also kept as
-  the plan declares it; changing the field types would deviate from a normative
-  declaration for a convenience the journal can get with a wrapper in step 3.
-  Declined on the same reasoning as R-002. The name collision the same round
-  raised (`HistoryEntry.LayerProps` vs the model's `LayerProps`) is declined
-  for the identical reason and is now recorded in AGENTS.md as a convention
-  rather than left as a surprise.
 
 - **R-002 ⏸️ `DeviceMemory.largeMemoryClassMb` is unused — consult it or delete
   it** (PR #7, GLM round 2, plus the related test note about `device()` never

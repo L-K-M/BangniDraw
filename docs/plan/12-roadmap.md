@@ -142,8 +142,8 @@ Status: ⬜ not started · 🔁 open, in review · 🟢 landed on `main` (with c
 | --- | --- | --- | --- | --- |
 | 2.1 | `fable/engine-core-document` | `engine/core` document model: `PerfConstants`, `TileKey`/`IntRect`/`TileGrid`, `LayerId`/`LayerProps`/`Layer`/`BlendMode`/`LayerStack` (+ `StackEdit`/`StackResult`/`PixelOp`/`HistoryEntry` declarations), `Document`, `Composite` (CPU reference, all eight modes), `MemoryBudget`, `CanvasPresets`, `Clock`/`RandomSource` | JVM: `TileGridTest`, `LayerStackTest`, `CompositeTest`, `MemoryBudgetTest`, `CanvasPresetsTest` green; `lintDebug` clean. No device check (nothing user-visible changes) | 🔁 #7 |
 | 2.2 | `fable/engine-core-stroke` | `engine/core` stroke math: `StrokeInput`(+batch), `PressureCurve`, `Stabilizer`, `Dab`/`DabBatch`/`DabRing`, `DabGenerator`, `BrushPreset`/`Curve`/`ToolKind` with the one round preset | JVM: `StabilizerTest`, `DabGeneratorTest` (+ golden stroke), `PressureCurveTest`, `DabRingTest`, `BrushPresetTest`. Still no device check | ⬜ |
-| 2.3 | `fable/engine-gl-compositor` | `engine/gl` foundation and the compositor: `GlCaps`/`GlProgram`/`GlFbo`/`GlState`, `Shaders`, `TilePool`, `LayerTextures`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect, two-finger pinch/zoom/rotate is smooth, rotation snaps near 0°, the reset-view pill returns to fit. JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `ScreenTransformTest` | ⬜ |
-| 2.4 | `fable/stroke-path-touch` | The stroke lands on pixels, with touch: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, `input/` (`GestureArbiter`, `PalmRejection`, `StylusState`, `CanvasTouchHandler`) | Device: one finger draws a stroke that survives pen-up; two-finger tap does not leave a dot; pinch-zoom-rotate still smooth mid-painting. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` (the no-allocation assertion of `docs/plan/10-performance.md` §2.4 — the risk table below names it as the mitigation for touch-path GC jank, so it is a gate, not an optional extra), and the merge blend math cross-checked on the JVM against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ⬜ |
+| 2.3 | `fable/engine-gl-compositor` | `engine/gl` foundation and the compositor: `GlCaps`/`GlProgram`/`GlFbo`/`GlState`, `Shaders`, `TilePool`, `LayerTextures`, `ScreenTransform`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect at the right size and orientation, and the reset-view pill returns to fit after the debug overlay nudges the view. No touch navigation yet: `input/` is 2.4, so the view is driven programmatically here (see the note below). JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `ScreenTransformTest` (`ScreenTransform` is created here — pure math, so it is the one piece of this row a JVM test can pin end to end) | ⬜ |
+| 2.4 | `fable/stroke-path-touch` | The stroke lands on pixels, with touch: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, `input/` (`GestureArbiter`, `PalmRejection`, `StylusState`, `CanvasTouchHandler`) | Device: one finger draws a stroke that survives pen-up; two-finger tap does not leave a dot; two-finger pinch/zoom/rotate is smooth and rotation snaps near 0°, during a stroke as well as between strokes. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` (the no-allocation assertion of `docs/plan/10-performance.md` §2.4 — the step-2 risk table above names it as the mitigation for touch-path GC jank, so it is a gate, not an optional extra), and the merge blend math cross-checked on the JVM against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ⬜ |
 | 2.5 | `fable/front-buffered-stylus` | 2b: the front-buffered path (`onDrawFrontBufferedLayer`, `commit`, `cancel`), `TailBuffer`, `Predictor`, stylus axes (pressure/tilt/orientation/eraser end), palm rejection on device, unbuffered dispatch, debug overlay | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). JVM: `StabilizerTest` gains the predicted-tail cases — rationale in the note below. **This completes step 2** | ⬜ |
 
 *Why the predicted-tail cases and nothing else in 2.5.* The tail runs through a
@@ -165,6 +165,18 @@ compositing (`GlCaps`, `GlProgram`, `GlFbo`, `GlState`, `Shaders`, `TilePool`,
 `SandwichCache`, `CanvasRenderer`, `EngineSession`, `CanvasSurface`, the
 reset-view pill) and the device acceptance check, which belongs to the half
 that puts pixels on screen. Measure before writing; split only if it exceeds.
+
+**Why 2.3 has no touch navigation.** An earlier draft of the 2.3 row asked the
+device check for two-finger pinch/zoom/rotate, which it cannot deliver: every
+gesture component (`CanvasTouchHandler`, `GestureArbiter`, `PalmRejection`,
+`StylusState`, all of `docs/plan/07-input-and-stylus.md`) is scoped to 2.4, and
+`07` §2 makes `CanvasTouchHandler` the single owner of `MotionEvent` — so
+pulling "just the viewport half" into 2.3 would split one coherent area across
+two PRs, which rule 1 forbids, and grow the row that already needed a split
+seam. The gesture clauses therefore live in 2.4, where the code does. 2.3 still
+stands on its own: it is the PR that makes the canvas appear, `ScreenTransform`
+is fully pinned on the JVM without a device, and the reset-view pill exercises
+the view path end to end by setting the transform directly.
 
 Decisions taken while planning, to be restated in each PR description:
 
@@ -204,10 +216,14 @@ the layer into the unreadable tally of `docs/plan/06-document-and-persistence.md
 never throw the open away), and the
 `LayerStack.nextName` counter must survive undo and reopen.
 
-The layer-id→path guard is **not deferrable to this step**: it lands with the
-first code that builds a path out of a layer id, whenever that ships. Step 3 is
-the latest it can arrive, not the earliest — nothing before it may derive a
-path (a thumbnail cache, a readback scratch file) from an unvalidated id.
+Step 3 is the **latest** the layer-id→path guard may arrive, not the date it is
+scheduled for: it lands with the first code that builds a path out of a layer
+id, whenever that ships. In the event PR 2.1 brought it forward — `LayerId`'s
+constructor now rejects anything that is not one safe path segment, and
+`LayerRecord.toPropsOrNull` returns `null` for such a record instead of
+throwing. What is left for this step is the *policy*: `ProjectStore.load` must
+call `toPropsOrNull`, drop the layer, and count it among the unreadable rather
+than failing the open.
 
 The counter's mechanism is decided rather than left open, because a hard gate
 with an undecided design gets settled arbitrarily under pressure: the counter

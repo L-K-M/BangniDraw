@@ -32,8 +32,29 @@ data class CanvasPreset(
     }
 }
 
-/** Why a custom size cannot be created. Values, never text: `ui/` maps them to strings. */
-enum class SizeRefusal { TOO_SMALL, TOO_LARGE_FOR_DEVICE, TOO_MANY_TILES }
+/**
+ * Why a custom size cannot be created. Values, never text: `ui/` maps them to
+ * strings.
+ *
+ * Three of the four are the *format's* limits and read the same on every
+ * device; only [TOO_LARGE_FOR_DEVICE] depends on this phone's budget. The
+ * distinction matters to the message the dialog shows: "this drawing is too
+ * big for the file format" invites a smaller number, "too big for this
+ * device" invites a smaller number *or* a different device.
+ */
+enum class SizeRefusal {
+    /** A side under [TileGrid.MIN_EDGE] px. */
+    TOO_SMALL,
+
+    /** A side over [TileGrid.MAX_EDGE] px, whatever the tile count works out to. */
+    TOO_LARGE_FOR_FORMAT,
+
+    /** Sides in range, but over [TileGrid.MAX_TILES] tiles between them. */
+    TOO_MANY_TILES,
+
+    /** Inside the format, over this device's budget. */
+    TOO_LARGE_FOR_DEVICE,
+}
 
 sealed interface CustomSizeResult {
     data class Ok(val preset: CanvasPreset) : CustomSizeResult
@@ -96,11 +117,14 @@ object CanvasPresets {
         // Two independent ceilings, both of them the format's rather than the
         // device's: a side longer than the tile coordinate space allows, and a
         // tile count past what the readback chunking and sandwich rebuild are
-        // sized for. Written as separate statements so neither depends on the
+        // sized for. They get separate refusals because they are separate
+        // facts — 9000x256 is 36 tiles, far under the tile cap, and telling
+        // the user it has too many tiles would send them shrinking the wrong
+        // number. Written as separate statements so neither depends on the
         // other being evaluated first — `CanvasSize`'s arithmetic is
         // overflow-safe now, so the ordering is clarity, not correctness.
         if (size.width > TileGrid.MAX_EDGE || size.height > TileGrid.MAX_EDGE) {
-            return CustomSizeResult.Refused(SizeRefusal.TOO_MANY_TILES)
+            return CustomSizeResult.Refused(SizeRefusal.TOO_LARGE_FOR_FORMAT)
         }
         if (size.tilesPerLayer > MAX_TILES) {
             return CustomSizeResult.Refused(SizeRefusal.TOO_MANY_TILES)
@@ -118,6 +142,20 @@ object CanvasPresets {
         )
     }
 
+    /**
+     * Deliberately does **not** also require `maxLayersFor(...) >= 1`.
+     *
+     * That looks like a missing check — a size could be offered with no layer
+     * to paint on — but `MemoryBudget` already rules it out from the other
+     * side: `maxCanvasEdge` is the largest edge whose layer worst case still
+     * fits `poolCapacity / (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)`,
+     * so anything at or under it holds at least `MIN_USEFUL_LAYERS`, which is
+     * 4. Adding the check would not make a false case true; it would restate
+     * an invariant one layer down and imply, wrongly, that `maxCanvasEdge`
+     * might not carry it. `MemoryBudgetTest` pins the invariant where it lives
+     * ("a device offers no edge it cannot hold layers at"), and `compute` now
+     * fails fast if the constants ever stop supporting it at the floor.
+     */
     private fun fits(size: CanvasSize, result: MemoryBudget.Result): Boolean =
         maxOf(size.width, size.height) <= result.maxCanvasEdge && size.tilesPerLayer <= MAX_TILES
 }

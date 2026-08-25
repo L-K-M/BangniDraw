@@ -154,9 +154,17 @@ class MemoryBudgetTest {
                 val edge = result.maxCanvasEdge
                 assertTrue(edge % PerfConstants.TILE_SIZE == 0, "maxCanvasEdge is a whole number of tiles")
                 assertTrue(edge <= PerfConstants.MAX_CANVAS_EDGE_V1, "v1 never offers past 4096")
-                val atEdge = MemoryBudget.maxLayersFor(result.gpuTileBudgetBytes, CanvasSize(edge, edge))
+                // poolCapacityBytes, not gpuTileBudgetBytes: the raw budget is
+                // the misuse maxLayersFor's KDoc warns about, and it is what
+                // forDevice() feeds, so asking any other way tests a number
+                // the dialog never shows.
+                val atEdge = MemoryBudget.maxLayersFor(result.poolCapacityBytes, CanvasSize(edge, edge))
+                // No exemption for the TILE_SIZE floor any more: compute() now
+                // asserts that the pool holds MIN_USEFUL_LAYERS + reserve of a
+                // one-tile canvas, so the floor carries the promise like every
+                // other edge does.
                 assertTrue(
-                    edge == PerfConstants.TILE_SIZE || atEdge >= PerfConstants.MIN_USEFUL_LAYERS,
+                    atEdge >= PerfConstants.MIN_USEFUL_LAYERS,
                     "a $totalGib GiB device offers ${edge}px but only holds $atEdge layers there",
                 )
             }
@@ -173,7 +181,11 @@ class MemoryBudgetTest {
             // Low-RAM devices get the smallest pools and so the tightest
             // margin here — exactly where an array-count rounding bug bites.
             for (lowRam in listOf(false, true)) {
-                for (glLayers in listOf(256, 128)) {
+                // 64 too: the smallest GL_MAX_ARRAY_TEXTURE_LAYERS worth
+                // planning for makes each array a quarter of a page, so the
+                // array-count rounding this test guards has four times as
+                // many chances to lose a slice.
+                for (glLayers in listOf(256, 128, 64)) {
                     for (canvas in listOf(canvas2048, canvas4096, CanvasSize(1080, 1920), CanvasSize(2304, 2304))) {
                         val r = MemoryBudget.compute(device(totalGib, lowRam, glLayers), canvas)
                         val slices = r.poolArraySlices.toLong() * r.poolArrayCount

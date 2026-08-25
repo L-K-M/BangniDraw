@@ -136,6 +136,12 @@ class TileGrid(val width: Int, val height: Int) {
      * Keys already in [out] are appended again: a caller accumulating several
      * overlapping dirty rects must dedupe before consuming, or it will upload
      * and re-composite the same tile more than once per frame.
+     *
+     * **Not for per-frame paths.** [TileKey] boxes as a generic argument, so
+     * every appended key allocates, which is exactly the churn [TileKey]'s own
+     * KDoc forbids on the touch and upload paths. Those get a packed
+     * `IntArray` overload, written with the caller that needs it (roadmap
+     * 2.4); until then this is the setup-time and test-time API.
      */
     fun keysFor(r: IntRect, out: MutableList<TileKey>) {
         val l = maxOf(r.left, 0)

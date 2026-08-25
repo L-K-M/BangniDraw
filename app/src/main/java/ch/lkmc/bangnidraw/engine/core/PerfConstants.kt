@@ -37,8 +37,13 @@ object PerfConstants {
     const val UPLOAD_BATCH_TILES = 32
     const val REOPEN_STAGING_TILES = 2 * UPLOAD_BATCH_TILES
 
-    // Composite.
-    const val SANDWICH_MARGIN_PX = 256
+    // Composite. Not a texture border: the canvas-space margin around the
+    // viewport that a lazy sandwich rebuild fills first, so a small pan finds
+    // its tiles already built (`10-performance.md` §2.6). One tile wide, and
+    // written as TILE_SIZE rather than 256 so re-tiling moves it too — the
+    // rebuild works in whole tiles, so a margin that is not a tile multiple
+    // would round up to this anyway.
+    const val SANDWICH_MARGIN_PX = TILE_SIZE
 
     // Budget.
     const val MAX_LAYERS = 16

@@ -28,6 +28,19 @@ sealed interface PixelOp {
 
     data class Clear(val layer: LayerId) : PixelOp
     data class Delete(val layer: LayerId) : PixelOp
+    /**
+     * Composite [order] — the **visible** layers, bottom to top, over
+     * transparent (`docs/plan/05-layers.md` §4.4) — into a fresh layer
+     * [result].
+     *
+     * The op is total over the layer set even though [order] is not: after a
+     * flatten the stack is exactly `[result]`, so the renderer frees **every**
+     * layer texture that is not [result], including the hidden layers this op
+     * never names. It is derivable from the op alone and needs no
+     * reconciliation against the model — but it has to be said, because
+     * "free what `order` lists" leaks a hidden layer's tiles on every flatten
+     * and undo would not notice (the entry snapshots all layers either way).
+     */
     data class Flatten(val order: List<LayerProps>, val result: LayerId) : PixelOp
 
     /** Undo/redo upload; a `null` payload means "delete that tile". */
@@ -105,8 +118,8 @@ data class LayerStack(
             next,
             null,
             HistoryEntry.LayerAdd(
-                activeBefore = active.id.value,
-                activeAfter = props.id.value,
+                activeBefore = active.id,
+                activeAfter = props.id,
                 layer = props.toRecord(),
                 index = index,
             ),
@@ -131,9 +144,9 @@ data class LayerStack(
             next,
             PixelOp.Copy(source.id, props.id, source.tiles),
             HistoryEntry.LayerDuplicate(
-                activeBefore = active.id.value,
-                activeAfter = props.id.value,
-                sourceId = source.id.value,
+                activeBefore = active.id,
+                activeAfter = props.id,
+                sourceId = source.id,
                 copy = props.toRecord(),
                 index = at,
             ),
@@ -158,8 +171,8 @@ data class LayerStack(
             next,
             PixelOp.Delete(victim.id),
             HistoryEntry.LayerDelete(
-                activeBefore = active.id.value,
-                activeAfter = next.active.id.value,
+                activeBefore = active.id,
+                activeAfter = next.active.id,
                 layer = victim.props.toRecord(),
                 index = index,
                 tiles = victim.tiles.sortedBy { it.packed },
@@ -181,9 +194,9 @@ data class LayerStack(
             next,
             null,
             HistoryEntry.LayerReorder(
-                activeBefore = active.id.value,
-                activeAfter = moved.id.value,
-                layerId = moved.id.value,
+                activeBefore = active.id,
+                activeAfter = moved.id,
+                layerId = moved.id,
                 fromIndex = from,
                 toIndex = to,
             ),
@@ -255,8 +268,8 @@ data class LayerStack(
             next,
             PixelOp.Merge(top.id, top.props, bottom.id, bottom.props, rewritten),
             HistoryEntry.LayerMerge(
-                activeBefore = active.id.value,
-                activeAfter = merged.id.value,
+                activeBefore = active.id,
+                activeAfter = merged.id,
                 upper = top.props.toRecord(),
                 upperIndex = index,
                 upperTiles = top.tiles.sortedBy { it.packed },
@@ -281,16 +294,17 @@ data class LayerStack(
         val next = copy(layers = listOf(Layer(props, tiles)), activeIndex = 0)
         return ok(
             next,
-            // Every pre-existing layer is dropped by this edit, hidden ones
-            // included, and StackEdit carries a single PixelOp — so no
-            // per-layer Delete is emitted. The GL side must free their
-            // textures by reconciling against the model, not by op alone.
+            // Visible only: §4.4 says the flattened result is the composite
+            // of the visible layers, so that is what `order` means. The
+            // hidden layers are still dropped by this edit, and freeing their
+            // textures is part of PixelOp.Flatten's own contract — see its
+            // KDoc, which is where the renderer will read it.
             PixelOp.Flatten(visible.map { it.props }, props.id),
             HistoryEntry.Flatten(
-                activeBefore = active.id.value,
-                activeAfter = props.id.value,
+                activeBefore = active.id,
+                activeAfter = props.id,
                 layers = layers.map { it.props.toRecord() },
-                tilesPerLayer = layers.associate { l -> l.id.value to l.tiles.sortedBy { it.packed } },
+                tilesPerLayer = layers.associate { l -> l.id to l.tiles.sortedBy { it.packed } },
                 result = props.toRecord(),
             ),
         )
@@ -306,9 +320,9 @@ data class LayerStack(
             next,
             PixelOp.Clear(layer.id),
             HistoryEntry.LayerClear(
-                activeBefore = active.id.value,
-                activeAfter = active.id.value,
-                layerId = layer.id.value,
+                activeBefore = active.id,
+                activeAfter = active.id,
+                layerId = layer.id,
                 tiles = layer.tiles.sortedBy { it.packed },
             ),
         )
@@ -342,9 +356,9 @@ data class LayerStack(
             next,
             null,
             HistoryEntry.LayerProps(
-                activeBefore = active.id.value,
-                activeAfter = active.id.value,
-                layerId = layer.id.value,
+                activeBefore = active.id,
+                activeAfter = active.id,
+                layerId = layer.id,
                 before = layer.props.toRecord(),
                 after = after.toRecord(),
             ),

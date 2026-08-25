@@ -84,10 +84,14 @@ class CompositeTest {
         for (mode in BlendMode.entries) {
             repeat(200) {
                 val dst = randomPremultiplied(random)
+                // Hoisted so the message names it: a source generated inside
+                // the call cannot be read back off a failure, only replayed
+                // from the seed.
+                val src = randomPremultiplied(random)
                 assertEquals(
                     hex(dst),
-                    hex(Composite.blend(dst, randomPremultiplied(random), mode, 0f)),
-                    "$mode at opacity 0 changed ${hex(dst)}",
+                    hex(Composite.blend(dst, src, mode, 0f)),
+                    "$mode at opacity 0 changed ${hex(dst)} under ${hex(src)}",
                 )
             }
         }

@@ -52,7 +52,7 @@ class CanvasPresetsTest {
             assertTrue(p.maxLayers <= previousLayers, "${p.id} holds more layers than a smaller preset")
             previousLayers = p.maxLayers
             assertEquals(
-                MemoryBudget.maxLayersFor(result.gpuTileBudgetBytes, p.size),
+                MemoryBudget.maxLayersFor(result.poolCapacityBytes, p.size),
                 p.maxLayers,
                 "${p.id} must carry the budget's own answer, not its own arithmetic",
             )
@@ -91,7 +91,16 @@ class CanvasPresetsTest {
         for (totalGib in listOf(2.0, 4.0, 8.0, 12.0)) {
             for (lowRam in listOf(false, true)) {
                 val result = budget(totalGib, lowRam)
-                for (p in CanvasPresets.forDevice(result).filter { it.enabled }) {
+                val enabled = CanvasPresets.forDevice(result).filter { it.enabled }
+                // Without this the loop below passes vacuously on any device
+                // that enables nothing — which is also the bug it would most
+                // want to catch. The smallest preset fits every budget, so
+                // "at least one" is a real claim, not a formality.
+                assertTrue(
+                    enabled.isNotEmpty(),
+                    "$totalGib GiB (lowRam=$lowRam) offers no preset at all",
+                )
+                for (p in enabled) {
                     assertTrue(
                         maxOf(p.size.width, p.size.height) <= result.maxCanvasEdge,
                         "${p.id} is offered at $totalGib GiB (lowRam=$lowRam) but exceeds maxCanvasEdge",
@@ -115,18 +124,42 @@ class CanvasPresetsTest {
     }
 
     @Test
-    fun `a custom size below the format minimum is refused`() {
-        val refused = CanvasPresets.custom(CanvasSize(255, 1024), budget(8.0))
-        assertIs<CustomSizeResult.Refused>(refused)
-        assertEquals(SizeRefusal.TOO_SMALL, refused.reason)
+    fun `a custom size below the format minimum is refused, on either axis`() {
+        val result = budget(8.0)
+        val short = TileGrid.MIN_EDGE - 1
+        for (size in listOf(CanvasSize(short, 1024), CanvasSize(1024, short), CanvasSize(short, short))) {
+            val refused = CanvasPresets.custom(size, result)
+            assertIs<CustomSizeResult.Refused>(refused, "${size.width}x${size.height} must be refused")
+            assertEquals(SizeRefusal.TOO_SMALL, refused.reason, "${size.width}x${size.height}")
+        }
     }
 
     @Test
-    fun `a custom size over the format's tile ceiling is refused before the device is consulted`() {
+    fun `a custom size over the format's per-side ceiling is refused before the device is consulted`() {
         val generous = MemoryBudget.compute(device(64.0), CanvasSize(2048, 2048))
         val refused = CanvasPresets.custom(CanvasSize(8192, 8448), generous)
         assertIs<CustomSizeResult.Refused>(refused)
-        assertEquals(SizeRefusal.TOO_MANY_TILES, refused.reason)
+        assertEquals(SizeRefusal.TOO_LARGE_FOR_FORMAT, refused.reason)
+    }
+
+    @Test
+    fun `the per-side ceiling and the tile ceiling describe the same largest canvas`() {
+        // 8192 / 256 = 32 per side and 32 x 32 = 1024, so today no size that
+        // clears MAX_EDGE on both sides can exceed MAX_TILES: custom()'s tile
+        // guard is unreachable, and the largest legal canvas is exactly
+        // 8192 x 8192 (`03-canvas-engine.md` §1). The plan states the two
+        // limits separately, so they are enforced separately — this pins the
+        // coincidence, and fails the day one of them moves without the other,
+        // which is the day TOO_MANY_TILES starts mattering.
+        val maxTilesPerSide = TileGrid.MAX_EDGE / PerfConstants.TILE_SIZE
+        assertEquals(CanvasPresets.MAX_TILES, maxTilesPerSide * maxTilesPerSide)
+        val largest = CanvasPresets.custom(
+            CanvasSize(TileGrid.MAX_EDGE, TileGrid.MAX_EDGE),
+            MemoryBudget.compute(device(64.0), CanvasSize(2048, 2048)),
+        )
+        // Refused for the device's budget, never for the format's.
+        assertIs<CustomSizeResult.Refused>(largest)
+        assertEquals(SizeRefusal.TOO_LARGE_FOR_DEVICE, largest.reason)
     }
 
     @Test
@@ -139,10 +172,10 @@ class CanvasPresetsTest {
         for (huge in listOf(Int.MAX_VALUE, Int.MAX_VALUE - 100, TileGrid.MAX_EDGE + 1)) {
             val refused = CanvasPresets.custom(CanvasSize(huge, 1024), result)
             assertIs<CustomSizeResult.Refused>(refused, "a ${huge}px side must be refused")
-            assertEquals(SizeRefusal.TOO_MANY_TILES, refused.reason)
+            assertEquals(SizeRefusal.TOO_LARGE_FOR_FORMAT, refused.reason)
             val flipped = CanvasPresets.custom(CanvasSize(1024, huge), result)
             assertIs<CustomSizeResult.Refused>(flipped, "a ${huge}px side must be refused")
-            assertEquals(SizeRefusal.TOO_MANY_TILES, flipped.reason)
+            assertEquals(SizeRefusal.TOO_LARGE_FOR_FORMAT, flipped.reason)
         }
     }
 

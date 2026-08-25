@@ -168,9 +168,13 @@ and the contradiction is noted here.
   add → undo → add sequence, or simply closing and reopening a painting,
   reissues a default name that 05 §1 says is never reused. Nothing in v1 keys
   off a generated name yet, so this is recorded rather than fixed here.
-  **Roadmap step 3 owns it**: either hoist the counter into `Document` and add
-  it to `project.json`, or carry it on the entries. Whichever is chosen, the
-  test is `add → undo → add` yields a fresh name.
+  **Roadmap step 3 owns it** — and `12-roadmap.md` has since settled the
+  mechanism: the counter stays on `LayerStack`, `project.json` gains a field
+  for it, and undo never restores it. Two tests, because the note above
+  describes two distinct failures: `add → undo → add` yields a fresh name
+  (the journal half), and **save → reopen → add** yields a fresh name (the
+  persistence half). A design that fixes only the first still reissues "Layer
+  3" the next morning.
 
 ## Conventions the plan leaves open
 
@@ -190,9 +194,16 @@ and the contradiction is noted here.
   for the entry kinds' *names*, and it calls the props-change entry
   `LayerProps`. A file that touches both types qualifies the entry
   (`HistoryEntry.LayerProps`) or aliases on import; do not rename the nested
-  class to resolve the collision. The same reasoning keeps the entries' id
-  fields as `String` rather than `LayerId` — §5.2 writes them that way and the
-  entry is the serialization-facing shape.
+  class to resolve the collision.
+- **The entries' id fields are `LayerId`, not `String`.**
+  `06-document-and-persistence.md` §5.2 writes them as strings, and it is
+  normative — but for the *encoding*, and the encoding is unchanged:
+  `LayerId` is a `@JvmInline value class` over the same string, so
+  `history/<seq>.entry` holds exactly what §5.2 says. What the type buys is
+  the trust boundary: an entry decoded from a hand-edited file cannot hand an
+  unvalidated id to a path join, which is the same reason `LayerId` carries a
+  constructor guard at all. This reverses an earlier reading recorded here,
+  which took §5.2's field types as binding on the in-memory shape too.
 - **Generated layer names are a closed grammar, not a prefix.** Only three
   stored forms resolve through resources at display time:
   `@string/layer_flattened`, `@string/layer_default <int>`, and

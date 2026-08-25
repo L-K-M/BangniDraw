@@ -1,14 +1,18 @@
 # NORMAL — dst src opacity expected, premultiplied ARGB8888.
 # Generated from the normative table in docs/plan/05-layers.md section 4;
 # CompositeTest pins Composite.blend against these values.
+#
 # Convention, so a row can be checked by hand: the source is scaled by the
 # opacity column first (premultiplied, so colour and alpha together), then
 # combined per docs/plan/05-layers.md section 4 --
 #   Co = s.rgb*(1 - d.a) + d.rgb*(1 - s.a) + both(s, d)
 #   Ao = s.a + d.a*(1 - s.a)
-# -- with round-to-nearest on store, ties away from zero (NORMAL.txt's
-# last row is the one that actually discriminates that from half-even). both(s, d) = s.a*d.a*B(d.rgb/d.a,
-# s.rgb/s.a): the mode B is applied to the UNPREMULTIPLIED channels and
+#   both(s, d) = s.a*d.a*B(d.rgb/d.a, s.rgb/s.a)
+# -- with round-to-nearest on store, ties away from zero. The last row here
+# is the one that discriminates that from half-even: 126.5 stores as 127,
+# where half-even would give 126.
+#
+# In both(), the mode B is applied to the UNPREMULTIPLIED channels and
 # weighted by the joint coverage. Section 4's table writes that out already
 # simplified into premultiplied terms (e.g. DARKEN's min(s.rgb*d.a,
 # d.rgb*s.a)), which is the same arithmetic, so every row here also equals

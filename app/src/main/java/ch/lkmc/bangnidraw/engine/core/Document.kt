@@ -34,14 +34,14 @@ data class Document(
         require(dpi > 0) { "dpi must be positive, was $dpi" }
     }
 
-    /** The tile geometry of this canvas. Built once; not part of `equals`. */
+    /**
+     * The tile geometry of this canvas. Built once; not part of `equals`.
+     *
+     * The tile-count ceiling is not re-checked here: [TileGrid]'s own `init`
+     * throws for a canvas over [TileGrid.MAX_TILES] tiles, so this
+     * construction is where that refusal comes from.
+     */
     val grid: TileGrid = TileGrid(width, height)
-
-    init {
-        require(grid.tileCount <= TileGrid.MAX_TILES) {
-            "canvas ${width}x$height needs ${grid.tileCount} tiles, over the ${TileGrid.MAX_TILES} the format allows"
-        }
-    }
 
     val isPaperTransparent: Boolean get() = (paperColor ushr 24) == 0
 

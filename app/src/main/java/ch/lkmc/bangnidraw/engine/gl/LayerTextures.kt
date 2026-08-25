@@ -116,6 +116,15 @@ class LayerTextures(
      */
     fun visibleKeys(rect: IntRect, out: IntArray): Int = index.visibleKeys(rect, out, sortScratch)
 
+    /**
+     * The GL texture of a pool [page] — what `CompositePass` binds per batch.
+     *
+     * Exposed here rather than making the pool public on this class: the
+     * compositor needs the texture behind a handle it already has, and giving
+     * it the whole pool would let it allocate.
+     */
+    fun pageTexture(page: Int): Int = pool.textureOf(page)
+
     /** Appends every key with content to [out], row-major. Cold paths only — [TileKey] boxes. */
     fun allKeys(out: MutableList<TileKey>) = index.allKeys(out)
 

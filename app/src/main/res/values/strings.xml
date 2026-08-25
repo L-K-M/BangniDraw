@@ -10,9 +10,9 @@
     <string name="studio_empty">Nothing on the shelf yet — tap New sketch to start one.</string>
     <string name="studio_about">About</string>
 
-    <!-- Canvas (scaffold placeholder; replaced by roadmap step 2) -->
+    <!-- Canvas -->
     <string name="canvas_back">Back to the Studio</string>
-    <string name="canvas_placeholder">The canvas arrives with roadmap step 2. Two fingers already pan, zoom and rotate the paper.</string>
+    <string name="canvas_debug_nudge_view">Nudge view (debug)</string>
     <string name="canvas_reset_view">Reset view</string>
 
     <!-- About. The Mixbox line is a license obligation (ADR 0003): the

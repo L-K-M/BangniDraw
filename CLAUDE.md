@@ -21,8 +21,12 @@ review feedback under this policy:
   chat summaries carry the record.
 
 ### Declare steady-state and stop when any of these hold
-- Two consecutive rounds yield no valid, actionable findings (only nits,
-  restatements, or self-answered "✅ fine" items),
+- **One** round yields no valid, actionable findings (only restatements,
+  declined or refuted items, or self-answered "✅ fine" items) — one is enough,
+  don't spend a CI cycle re-confirming an empty round,
+- **two consecutive** rounds are nits only: everything applied was cosmetic
+  (wording, a comment, a rename, a test message), no blocker and nothing you
+  would have wanted to know,
 - the reviewer re-raises items already declined with reasons, or contradicts
   its own earlier feedback,
 - everything remaining is out of scope for the PR (pre-existing behavior,

@@ -89,12 +89,25 @@ For each round:
    - "**integration failed**" = you applied feedback and either CI went red and you could not make
      it green with one follow-up fix commit, or the applied change had to be reverted because
      it broke behavior or contradicted `PLAN.md`. Revert to the last green state before continuing.
-   - Otherwise the round yielded **no useful feedback** (only nits, restatements, declined or
+   - "**nits only**" = findings were applied and went green, but every one of them was
+     cosmetic — wording, a comment, a rename, a test message. Nothing changed behavior, closed
+     a hole, or corrected a claim. A round with no BLOCKER and nothing you would have wanted
+     to know is a nits-only round even if the diff is large.
+   - Otherwise the round yielded **no useful feedback** (only restatements, declined or
      refuted items, or no review at all).
 
-**Steady state is reached when EITHER**
-- two consecutive rounds yielded no useful feedback, **OR**
+**Steady state is reached when ANY of these hold**
+- **one** round yielded no useful feedback, **OR**
+- **two consecutive** rounds were nits only — no blocker, nothing genuinely helpful, **OR**
 - feedback integration failed in two consecutive rounds.
+
+The first rule is deliberately a hair trigger. A round that finds nothing is evidence the
+reviewer has run out of things to say about this diff, and a further round costs a CI cycle
+and a review cycle to re-confirm that. Do not wait for a second empty round to be polite to
+the process.
+
+Human comments are never subject to any of these cutoffs — address them however late they
+arrive.
 
 Keep a short running log in the PR description (edit it with `gh pr edit`): round number,
 what was applied, what was declined and why, what failed. This is how the next person (or you,
@@ -128,7 +141,7 @@ Do not start post-v1 backlog items unless the user asks.
 
 ## Reporting
 After each merge, print one paragraph: which PR merged, how many review rounds it took, why
-steady state was declared (which of the two rules), what you declined and why, and what the
+steady state was declared (which rule fired), what you declined and why, and what the
 next PR is. Report failures plainly with the output; never claim CI is green without having
 seen the run result.
 
@@ -137,6 +150,6 @@ Start a session in `/work/GitHub/BangniDraw` and give the agent this prompt:
 
 > Read `docs/EXECUTION.md` in this repository and follow it exactly. It tells you how to
 > implement the plan in `PLAN.md` as a sequence of reviewed pull requests, how to run the
-> review loop, when a PR has reached steady state (two consecutive rounds without useful
-> feedback, or two consecutive failed feedback integrations), when to merge, and how to move
-> on to the next roadmap step. Begin with Step A.
+> review loop, when a PR has reached steady state (one round without useful feedback, two
+> consecutive nits-only rounds, or two consecutive failed feedback integrations), when to
+> merge, and how to move on to the next roadmap step. Begin with Step A.

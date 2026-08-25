@@ -210,13 +210,13 @@ from the readback composite on checkpoint).
 
 **Carried in from PR 2.1's review** (both recorded in AGENTS.md, the first
 also as REVIEW.md R-001) — this step must not land without them:
-`ProjectStore.load` must refuse to turn a malformed layer id into a path (count the
-layer among the unreadable and never throw the open away. Note the granularity:
-`docs/plan/06-document-and-persistence.md` §4 returns "the count of unreadable
-**tiles**" with the load result, and a dropped layer is not a tile — step 3
-either adds an unreadable-layers count beside it or amends §4 to cover both,
-because reporting a lost layer as N lost tiles is a misleading readout), and the
-`LayerStack.nextName` counter must survive undo and reopen.
+`ProjectStore.load` must refuse to turn a malformed layer id into a path —
+count the layer among the unreadable and never throw the open away. (Note the
+granularity: `docs/plan/06-document-and-persistence.md` §4 returns "the count of
+unreadable **tiles**" with the load result, and a dropped layer is not a tile;
+step 3 either adds an unreadable-layers count beside it or amends §4 to cover
+both, because reporting a lost layer as N lost tiles is a misleading readout.)
+Separately, the `LayerStack.nextName` counter must survive undo and reopen.
 
 Step 3 is the **latest** the layer-id→path guard may arrive, not the date it is
 scheduled for: it lands with the first code that builds a path out of a layer

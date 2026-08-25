@@ -301,6 +301,13 @@ class CompositeTest {
         assertEquals(hex(0xFF804020.toInt()), hex(Composite.premultiply(0xFF804020.toInt())))
         assertEquals(hex(0), hex(Composite.premultiply(0x00FFFFFF)))
         assertEquals(hex(0x80804020.toInt()), hex(Composite.premultiply(0x80FF8040.toInt())))
+        // Every case above lands on an exact value or a fraction below .5
+        // (128.0, 64.25, 32.125), so all of them pass under truncation too and
+        // the test's name outruns what it checks. This one does not: alpha 129
+        // over red 128 is 128*129/255 = 64.75, which is 0x41 rounded and 0x40
+        // truncated. A `toInt()` that lost its +127 would darken every
+        // half-transparent imported pixel, and only this row would say so.
+        assertEquals(hex(0x81410000.toInt()), hex(Composite.premultiply(0x81800000.toInt())))
     }
 
     // ------------------------------------------------------------------ helpers

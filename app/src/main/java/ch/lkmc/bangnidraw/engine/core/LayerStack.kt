@@ -96,8 +96,17 @@ data class LayerStack(
         require(activeIndex in layers.indices) {
             "activeIndex $activeIndex is outside 0..${layers.size - 1}"
         }
-        require(layers.distinctBy { it.id.value }.size == layers.size) {
-            "layer ids must be unique within a stack"
+        // Case-folded, because the ids name directories. Two ids differing
+        // only by case are distinct here and on ext4, and become one folder
+        // the moment the project is copied to Windows or macOS — one layer
+        // then loads the other's tiles, or a tile set is lost, with no error
+        // anywhere. Same silent data loss the trailing-dot rule in `LayerId`
+        // defends against; `LayerId` cannot catch this one, because it
+        // validates an id alone and this is a property of the set.
+        // Locale-independent: `lowercase()` with no argument folds under
+        // Locale.ROOT, so a Turkish locale cannot make "I" and "i" differ.
+        require(layers.distinctBy { it.id.value.lowercase() }.size == layers.size) {
+            "layer ids must be unique within a stack, case-insensitively"
         }
     }
 
@@ -422,12 +431,16 @@ data class LayerStack(
          * some name followed by [COPY_SUFFIX_KEY] — where the prefix is itself
          * resolved by the same rule, so duplicating a duplicate stacks the
          * suffix and each one is stripped in turn. Everything else is shown
-         * verbatim. A user-typed name therefore survives unless it *exactly*
-         * matches one of the three forms: `"@string/app_name"` is not in the
-         * grammar and displays as itself, while `"@string/layer_default 7"` is
-         * indistinguishable from a generated name and does resolve as one —
-         * which costs nothing, since it resolves to the text it already reads
-         * as. The
+         * verbatim. Note the asymmetry, because it decides how the resolver
+         * dispatches: forms one and two match the *whole* string, but form
+         * three is a suffix pattern over an arbitrary prefix. So a layer the
+         * user renamed to `"Sketch @string/layer_copy_suffix"` by hand also
+         * resolves as a duplicate and displays as "Sketch (copy)" — the token
+         * is not lost, it renders as the localized suffix. `"@string/app_name"`
+         * is not in the grammar and displays as itself, while
+         * `"@string/layer_default 7"` is indistinguishable from a generated
+         * name and does resolve as one — which costs nothing, since it
+         * resolves to the text it already reads as. The
          * resolver lands with the layer panel in roadmap step 6 and must
          * implement exactly this grammar.
          */

@@ -37,14 +37,21 @@ data class IntPoint(val x: Int, val y: Int)
 /**
  * Half-open integer rect in canvas pixels: `right` and `bottom` are exclusive.
  *
- * Unvalidated on purpose — [forDab] runs on the dab path, several thousand
- * times a stroke, and this is the allocation it makes. The consequence is that
- * [width] and [height] are `right - left` and `bottom - top` with no overflow
- * guard, so a rect spanning more than `Int.MAX_VALUE` px reports a negative
- * size. No such rect exists in this engine: [forDab] requires finite inputs and
- * canvases are capped at [TileGrid.MAX_EDGE] px per side, and [TileGrid.keysFor]
- * clamps into the grid before it reads either. A future caller that builds an
- * `IntRect` from something other than a dab or a canvas rect must clamp first.
+ * The four edges are stored unvalidated: [forDab] runs on the dab path, several
+ * thousand times a stroke, and this is the allocation it makes. So [width] and
+ * [height] are plain subtractions with no overflow guard, and a rect wider than
+ * `Int.MAX_VALUE` reports a *negative* size.
+ *
+ * Nothing in this engine builds one. [forDab]'s `require` is what keeps it that
+ * way, and note what it has to reject to do so: finiteness alone bounds a radius
+ * only by `Float.MAX_VALUE`, and `Float.toInt()` saturates at roughly 1.07e9 px,
+ * so the bound on *magnitude* is doing that work, not the `isFinite` check.
+ * Canvas rects are capped at [TileGrid.MAX_EDGE] px per side.
+ *
+ * [TileGrid.keysFor] is safe independently of all of this: it clamps the raw
+ * edges and never reads [width] or [height] at all. A future caller that builds
+ * an `IntRect` from something other than a dab or a canvas rect must clamp
+ * first — it is [width] and [height] that have no floor under them.
  */
 data class IntRect(val left: Int, val top: Int, val right: Int, val bottom: Int) {
     val width: Int get() = right - left
@@ -53,6 +60,13 @@ data class IntRect(val left: Int, val top: Int, val right: Int, val bottom: Int)
 
     companion object {
         val EMPTY = IntRect(0, 0, 0, 0)
+
+        /**
+         * The largest dab radius [forDab] accepts, chosen to stay clear of the
+         * ~1.07e9 px at which `Float.toInt()` saturates rather than to describe
+         * any real brush.
+         */
+        const val MAX_RADIUS = 1e9f
 
         /**
          * The dirty rect of a dab of [radius] canvas px centred on ([x], [y]).
@@ -66,8 +80,15 @@ data class IntRect(val left: Int, val top: Int, val right: Int, val bottom: Int)
             // file fails loudly; so does this.
             // A negative radius inverts the rect (left > right), which comes
             // back empty — the same silent drop, by a different route.
-            require(x.isFinite() && y.isFinite() && radius.isFinite() && radius >= 0f) {
-                "dab must be finite with radius >= 0, was x=$x, y=$y, radius=$radius"
+            // The upper bound is not cosmetic: past MAX_RADIUS the four
+            // Float.toInt() conversions below saturate at Int.MIN/MAX_VALUE and
+            // `width` wraps to -1, so a rect that is not empty reports a
+            // negative size. No brush is within nine orders of magnitude of it,
+            // which is the point — it can only ever reject the saturating range.
+            require(
+                x.isFinite() && y.isFinite() && radius.isFinite() && radius in 0f..MAX_RADIUS
+            ) {
+                "dab must be finite with radius in 0..$MAX_RADIUS, was x=$x, y=$y, radius=$radius"
             }
             val l = kotlin.math.floor(x - radius - 1f).toInt()
             val t = kotlin.math.floor(y - radius - 1f).toInt()

@@ -22,6 +22,12 @@ class MemoryBudgetTest {
     ) = DeviceMemory(
         totalMemBytes = (totalGib * gib).toLong(),
         isLowRamDevice = lowRam,
+        // The one field deliberately not a parameter: `MemoryBudget.compute`
+        // never reads it, so sweeping it would assert that a number nothing
+        // consumes changes nothing. It is on `DeviceMemory` because
+        // `10-performance.md` §1 declares the startup probe normatively, not
+        // because this class consumes it. Constant here, and the reason is
+        // here rather than in review history — REVIEW.md R-015.
         largeMemoryClassMb = 512,
         glMaxArrayLayers = glMaxArrayLayers,
         glMaxTextureSize = glMaxTextureSize,
@@ -238,6 +244,26 @@ class MemoryBudgetTest {
                 }
             }
         }
+    }
+
+    @Test
+    fun `layerBytesWorstCase saturates rather than wrapping negative`() {
+        // The sweep below only asserts the product stays positive across real
+        // sides. This pins the branch that keeps it positive: Int.MAX_VALUE per
+        // side is 2^23 tiles, and multiplying by TILE_BYTES overflows Long, so
+        // the guard must answer Long.MAX_VALUE. Wrapped, it would go negative
+        // and maxLayersFor would report a generous cap for the largest canvas
+        // imaginable — the one answer this class must never produce.
+        assertEquals(
+            Long.MAX_VALUE,
+            CanvasSize(Int.MAX_VALUE, Int.MAX_VALUE).layerBytesWorstCase,
+            "the largest canvas expressible must saturate, not wrap",
+        )
+        // And the saturated value must still divide to the floor, not the cap.
+        assertEquals(
+            PerfConstants.MIN_LAYERS,
+            MemoryBudget.maxLayersFor(1L shl 30, CanvasSize(Int.MAX_VALUE, Int.MAX_VALUE)),
+        )
     }
 
     @Test

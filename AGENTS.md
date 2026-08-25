@@ -153,8 +153,14 @@ and the contradiction is noted here.
   weaker one), so `mergeDown` widens `PixelOp.Merge.keys` and
   `HistoryEntry.LayerMerge.lowerTiles` to all of the bottom layer's tiles
   **when its opacity is not 1**. Blend mode alone never widens them: a
-  bottom-only tile is composited over transparent, where every mode reduces to
-  source-over. So the ordinary bottom-at-100 % merge still rewrites only the
+  bottom-only tile is composited over transparent, where every *separable*
+  blend mode reduces to source-over — which is all eight of ours. A
+  Porter-Duff compositing operator would not: `source-in` over a transparent
+  destination is transparent, not the source, so a bottom-only tile would not
+  survive the merge and undo would be lossy. `erase` and `alphaLocked` are
+  such operators, but they are tool operations in `Composite`, not entries in
+  `BlendMode`, and `mergeDown` never routes through them. Revisit this rule if
+  one ever becomes a layer blend mode. So the ordinary bottom-at-100 % merge still rewrites only the
   shared tiles, exactly as 05 §4.1 and `06-document-and-persistence.md` §5.2
   describe, and 06 §5.2's "lower's tiles at upper's keys only" is a superset
   violation only in the faded case, where undo would otherwise be unable to

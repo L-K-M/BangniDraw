@@ -98,6 +98,51 @@ in `docs/plan/12-roadmap.md` is where it gets executed.
 
 ## Declined, with reasons
 
+- **R-025 ⏸️ `isIdentifierIgnorable` misses part of the Cf category
+  (U+00AD, U+061C).** Refuted, by execution rather than by reading. The finding
+  states the predicate "only covers a fixed subset of Cf: U+200B–U+200F,
+  U+202A–U+202E, U+2060–U+206F and U+FEFF". `Character.isIdentifierIgnorable`'s
+  actual contract is "a non-whitespace ISO control, **or** general category
+  FORMAT", so it is exactly `isISOControl`-subset ∪ Cf. Run on this JDK,
+  U+00AD and U+061C both return `getType == FORMAT (16)` and
+  `isIdentifierIgnorable == true` — they were already rejected, and switching to
+  `category == CharCategory.FORMAT` would have changed nothing. The comment the
+  finding calls stale was correct; it now says *whole* Cf and names the two
+  characters, so the next reader does not have to re-derive this.
+  The finding's own parenthetical follow-up was right and is applied: U+2028 and
+  U+2029 are Zl and Zp, outside both predicates, and end a line in a log or a
+  JSON dump exactly as `\n` does. They are now rejected explicitly.
+
+- **R-026 ⏸️ Replace `GPU_TILE_FRACTION = 0.125` with a Long numerator and
+  denominator.** Declined. The hazard is real but hypothetical — `Double`
+  multiplication is exact for 1/8 at any byte count a device can report, and
+  the finding says as much ("low today") — while the cost is immediate:
+  `10-performance.md` §4 writes the rule as `totalMem × GPU_TILE_FRACTION
+  (1/8)` and pins the resulting table, so splitting the constant in two makes
+  the code stop matching the normative text it implements. And the guarded-
+  against edit is not a one-character slip: any change to the fraction has to
+  move that table too, which is where it would be caught. Declining the shape
+  change, not the concern.
+
+- **R-027 ⏸️ Vary `glMaxTextureSize` in `CanvasPresetsTest`'s device helper.**
+  Declined, and this is R-009's ground restated: `maxCanvasEdge` is bounded by
+  memory and by the v1 ceiling and deliberately *never* by `glMaxTextureSize`,
+  because tiles are 256 px — a big canvas never needs a big texture. That is
+  stated at `MemoryBudget.kt`'s edge calculation, which is the "flag it as
+  currently unconsumed" outcome the finding itself asks for in that case. A
+  test sweeping the field would assert that an input nothing reads changes
+  nothing. It becomes live when `03-canvas-engine.md` §3.2's viewport-sized
+  `Accum`/`Scratch` targets land in PR 2.3, which is where R-002 already
+  records it.
+
+- **R-028 ⏸️ Pin the default preset's identity to `PHONE_SKETCH`.** Declined on
+  the finding's own condition. `CanvasPresets.defaultIndex` derives the default
+  — the largest *enabled* preset by tiles — rather than naming one, and no plan
+  section fixes it to a particular id; `11-testing.md` §291 names only the
+  behaviour the test already asserts. Pinning `PHONE_SKETCH` would pin an
+  outcome of the derivation on one device tier as though it were the rule, and
+  asserting the derivation instead would just restate the implementation.
+
 - **R-023 ⏸️ Round 13's info item: "`withOpacity` must guard against NaN, not
   just clamp".** Refuted. The finding is explicitly conditional on a file it
   could not see — "if `withOpacity` is implemented with `opacity.coerceIn(0f,
@@ -146,8 +191,20 @@ in `docs/plan/12-roadmap.md` is where it gets executed.
   nothing. The GL half is different and already covered — `glMaxArrayLayers`
   does shape the pool, and `MemoryBudgetTest` sweeps it at 256, 128 and 64
   across every canvas and device; `CanvasPresetsTest` tests preset *selection*,
-  which sits above that. Ordinals in R-015's headers count raisings of R-015
-  itself; the round-2 original and its first re-raise are under R-002.
+  which sits above that.
+
+  **On the ordinals: do not trust them, and here is the audit.** Round 13's
+  note claimed they count R-015's own raisings. They do not, consistently: the
+  unlabeled entry below calls itself "third raising of R-002's substance" — the
+  *finding's* count — while the heading ordinals that follow it start at
+  "third" again. No entry is missing; the two conventions were mixed, so the
+  arithmetic reconciles under neither and no ordinal here is load-bearing. What
+  is checkable is the round each entry names, so that is the record: rounds 2
+  and 2's test note (under R-002), then the unlabeled entry below, then the
+  three labelled entries, then this one — six declines before round 14, which
+  raised it a seventh time as a `MemoryBudgetTest` fixture note and got the
+  reason written into the fixture itself. Future entries cite the round, not an
+  ordinal.
 
 - **R-014 ⏸️ (third raising) `LayerId` should reject Windows reserved device
   names.** The trailing-dot-and-space half of round 12's finding was applied and
@@ -266,8 +323,17 @@ in `docs/plan/12-roadmap.md` is where it gets executed.
   *path-construction* obligation remains step 3's and is written into the
   roadmap.
 
-- **R-014 ⏸️ `LayerId` should also reject Windows reserved device names and
-  trailing dots/spaces** (round 9, info). Declined for v1. Project folders live
+- **R-014 ⏸️→🟡 `LayerId` should also reject Windows reserved device names and
+  trailing dots/spaces** (round 9, info). **Partially superseded, and the
+  reasoning below is what was overturned.** The trailing-dot-and-space half was
+  applied in round 12 and the character-set half in round 11 — see the second
+  and third raisings above. Only the reserved-names decline still stands, and
+  it now stands on the narrower ground recorded there (they fail loudly, not
+  silently), not on the "never leave the device" claim below, which the later
+  rounds contradicted: a project folder is copied between machines, and that is
+  precisely why the trailing-dot rule went in. Kept unedited beneath this note
+  so the change of position is legible rather than silent, as with R-001 and
+  R-005. Declined for v1. Project folders live
   in `filesDir/projects/` and never leave the device: the share and export
   paths write a flattened PNG through `GalleryExporter`/`ShareCache`
   (`docs/plan/06-document-and-persistence.md` §9.5), not the folder, and

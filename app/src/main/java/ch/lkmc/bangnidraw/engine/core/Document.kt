@@ -18,6 +18,14 @@ data class Document(
     /** ARGB; alpha 0 means transparent paper. The paper is a document colour, not a layer. */
     val paperColor: Int,
     val stack: LayerStack,
+    /**
+     * How many journal entries are *applied*: `[oldestSeq, oldestSeq + cursor)`
+     * are in effect and the rest are redoable
+     * (`docs/plan/06-document-and-persistence.md` §5.2, which declares it
+     * `Int`). A count, not a [HistoryEntry.seq] — those are `Long` and start at
+     * 1, this starts at 0, so comparing the two directly is off by one as well
+     * as a narrowing conversion.
+     */
     val historyCursor: Int = 0,
     val galleryUri: String? = null,
     val createdAt: Long = 0L,

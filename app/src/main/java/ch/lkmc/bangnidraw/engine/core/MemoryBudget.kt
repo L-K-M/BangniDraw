@@ -158,10 +158,13 @@ object MemoryBudget {
      * The raw-capacity form. Prefer the [Result] overload above: the KDoc
      * below warns that passing `gpuTileBudgetBytes` here "compiles and reads
      * naturally", and two adjacent `Long` fields is a warning the type system
-     * could be making instead. Kept public because `compute` and the tests
-     * that pin its arithmetic call it directly.
+     * could be making instead. `internal`, which is as far as the visibility
+     * can be narrowed while `compute`, `CanvasPresets` and the tests that pin
+     * its arithmetic still call it — same-module Kotlin sees `internal`, so
+     * nothing here needed it public. `ui` and `data` reach the [Result]
+     * overload only, which cannot be handed the wrong field.
      */
-    fun maxLayersFor(poolCapacityBytes: Long, canvas: CanvasSize): Int {
+    internal fun maxLayersFor(poolCapacityBytes: Long, canvas: CanvasSize): Int {
         // A canvas with no area divides by zero below. It is not this
         // function's job to reject one — `CanvasPresets.custom` does that, and
         // `CanvasSize` exists precisely to describe a size in order to refuse

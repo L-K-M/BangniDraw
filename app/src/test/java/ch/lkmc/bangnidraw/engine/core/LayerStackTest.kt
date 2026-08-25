@@ -27,7 +27,18 @@ class LayerStackTest {
     private val STRESS_ITERATIONS = 5_000
 
     /** How many branches [randomOperation] has; the walks assert each one lands. */
-    private val OPERATION_COUNT = 13
+    /**
+     * Every branch [randomOperation] can take. An enum rather than a count:
+     * the walks assert `Op.entries.toSet() == succeeded`, so a fourteenth
+     * operation cannot be added without the coverage assertion noticing, and
+     * `randomOperation`'s exhaustive `when` cannot compile until it is
+     * handled. A bare `OPERATION_COUNT = 13` let a new branch be both
+     * unreachable and unnoticed.
+     */
+    private enum class Op {
+        ADD, DUPLICATE, DELETE, MOVE, MERGE_DOWN, CLEAR, SET_OPACITY,
+        SET_VISIBLE, SET_BLEND_MODE, FLATTEN, RENAME, SET_LOCKED, SET_ALPHA_LOCK,
+    }
 
     private fun stackOf(vararg names: String, active: Int = 0): LayerStack =
         LayerStack(
@@ -532,7 +543,7 @@ class LayerStackTest {
         var stack = seededStack()
         repeat(STRESS_ITERATIONS) {
             val before = stack
-            val result = randomOperation(before, random.nextInt(OPERATION_COUNT), random, ids)
+            val result = randomOperation(before, Op.entries[random.nextInt(Op.entries.size)], random, ids)
             // Exhaustive rather than check-then-cast: a third StackResult
             // subtype would fail to compile here instead of turning a skipped
             // iteration into a ClassCastException 2000 draws in.
@@ -555,19 +566,21 @@ class LayerStackTest {
                 edit.stack.nextName >= before.nextName,
                 "the default-name counter must only grow",
             )
-            // The policy itself, not just monotonicity: undo deliberately does
-            // NOT rewind the counter (12-roadmap.md step 3, AGENTS.md), so a
-            // name is never reissued after add -> undo -> add. An
-            // implementation that started rewinding it would otherwise pass
-            // this whole walk in silence.
+            // Honest about what this pins today: `undo()` below sets
+            // `nextName` from its argument, so this holds by construction and
+            // cannot currently fail. It is the *oracle's* contract, written
+            // down here — undo deliberately does not rewind the counter
+            // (12-roadmap.md step 3, AGENTS.md), so a name is never reissued
+            // after add -> undo -> add. It becomes a real check the moment
+            // step 3's shared LayerStackInverter replaces the helper, which is
+            // exactly when a rewinding implementation could first appear.
+            // (A `restored.nextName >= before.nextName` assertion stood here
+            // too and was removed: it follows from this equality and the
+            // monotonicity check above, so it added no checking power.)
             assertEquals(
                 edit.stack.nextName,
                 restored.nextName,
                 "undo must leave the default-name counter where the operation left it",
-            )
-            assertTrue(
-                restored.nextName >= before.nextName,
-                "undo must not roll the default-name counter back, or a later add reissues a name",
             )
             stack = edit.stack
         }
@@ -575,14 +588,19 @@ class LayerStackTest {
 
     @Test
     fun `every stack keeps its invariants under random operations`() {
-        val random = Random(7)
+        // Two streams on purpose. Sharing one made op selection depend on how
+        // many values each operation happened to draw, so adding an argument
+        // anywhere reshuffled the whole walk and could fail the coverage
+        // assertion below with a message pointing at the wrong cause.
+        val opRandom = Random(7)
+        val argRandom = Random(8)
         val ids = Ids(200)
         var stack = seededStack()
         val grid = TileGrid(1024, 1024)
-        val succeeded = mutableSetOf<Int>()
+        val succeeded = mutableSetOf<Op>()
         repeat(STRESS_ITERATIONS) {
-            val op = random.nextInt(OPERATION_COUNT)
-            val result = randomOperation(stack, op, random, ids)
+            val op = Op.entries[opRandom.nextInt(Op.entries.size)]
+            val result = randomOperation(stack, op, argRandom, ids)
             if (result is StackResult.Ok) {
                 stack = result.edit.stack
                 succeeded += op
@@ -606,7 +624,7 @@ class LayerStackTest {
         // regression that rejects every delete, or an Ids source running dry,
         // would leave this walk green while testing nothing.
         assertEquals(
-            (0 until OPERATION_COUNT).toSet(),
+            Op.entries.toSet(),
             succeeded,
             "an operation that never succeeds hollows out the walk",
         )
@@ -623,25 +641,28 @@ class LayerStackTest {
         nextName = 4,
     )
 
-    private fun randomOperation(stack: LayerStack, op: Int, random: Random, ids: Ids): StackResult {
+    private fun randomOperation(stack: LayerStack, op: Op, random: Random, ids: Ids): StackResult {
         val i = random.nextInt(stack.size)
+        // No `else`: a new Op entry must fail to compile here rather than fall
+        // into whichever branch happened to be last.
         return when (op) {
-            0 -> stack.add(ids, cap)
-            1 -> stack.duplicate(i, ids, cap)
-            2 -> stack.delete(i)
-            3 -> stack.move(i, random.nextInt(stack.size))
-            4 -> stack.mergeDown(i)
-            5 -> stack.clear(i)
-            6 -> stack.setOpacity(i, random.nextInt(0, 101) / 100f)
-            7 -> stack.setVisible(i, random.nextBoolean())
-            8 -> stack.setBlendMode(i, BlendMode.entries[random.nextInt(BlendMode.entries.size)])
-            9 -> stack.flatten(ids)
-            10 -> stack.rename(i, "name-${random.nextInt(1000)}")
+            Op.ADD -> stack.add(ids, cap)
+            Op.DUPLICATE -> stack.duplicate(i, ids, cap)
+            Op.DELETE -> stack.delete(i)
+            Op.MOVE -> stack.move(i, random.nextInt(stack.size))
+            Op.MERGE_DOWN -> stack.mergeDown(i)
+            Op.CLEAR -> stack.clear(i)
+            Op.SET_OPACITY -> stack.setOpacity(i, random.nextInt(0, 101) / 100f)
+            Op.SET_VISIBLE -> stack.setVisible(i, random.nextBoolean())
+            Op.SET_BLEND_MODE ->
+                stack.setBlendMode(i, BlendMode.entries[random.nextInt(BlendMode.entries.size)])
+            Op.FLATTEN -> stack.flatten(ids)
+            Op.RENAME -> stack.rename(i, "name-${random.nextInt(1000)}")
             // Without these the exploration never reaches a stack that
             // *contains* a locked layer, so lock interactions with the
             // structural ops go untested mid-sequence.
-            11 -> stack.setLocked(i, random.nextBoolean())
-            else -> stack.setAlphaLock(i, random.nextBoolean())
+            Op.SET_LOCKED -> stack.setLocked(i, random.nextBoolean())
+            Op.SET_ALPHA_LOCK -> stack.setAlphaLock(i, random.nextBoolean())
         }
     }
 

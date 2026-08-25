@@ -41,8 +41,15 @@ object Composite {
 
     fun blue(p: Int): Int = p and 0xFF
 
+    // Masked rather than checked. Every caller today clamps first, so the
+    // masks never change a value; what they buy is the failure *mode* for a
+    // caller that forgets. Unmasked, an out-of-range channel writes into the
+    // channel above it — a red of 256 raises alpha, and a negative blue turns
+    // the whole pixel into -1 — which breaks the premultiplied invariant the
+    // rest of this file assumes. Masked, a bad channel is only a wrong
+    // colour. A `require` would be louder still, but this runs per pixel.
     fun argb(a: Int, r: Int, g: Int, b: Int): Int =
-        (a shl 24) or (r shl 16) or (g shl 8) or b
+        ((a and 0xFF) shl 24) or ((r and 0xFF) shl 16) or ((g and 0xFF) shl 8) or (b and 0xFF)
 
     /** Straight (non-premultiplied) ARGB → premultiplied, round-to-nearest. */
     fun premultiply(straight: Int): Int {

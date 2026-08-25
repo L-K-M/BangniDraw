@@ -32,7 +32,9 @@ enum class BlendMode(val shaderId: Int) {
          * modes; a duplicated id would defeat that just as quietly, and
          * `GlShaderContractTest` cannot catch it — it checks that each
          * declared id appears in the shader, which a duplicate still does.
-         * This fires the first time the class is touched instead.
+         * Nothing here detects a duplicate: `associateBy` keeps the last of
+         * two equal keys silently. `BlendModeTest` is the only guard, and
+         * removing it removes the guard entirely.
          */
         private val byShaderId: Map<Int, BlendMode> = entries.associateBy(BlendMode::shaderId)
 

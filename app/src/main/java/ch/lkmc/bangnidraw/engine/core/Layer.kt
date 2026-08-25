@@ -19,6 +19,10 @@ value class LayerId(val value: String) {
         // property is "cannot escape the project folder", and ids in tests and
         // future fixtures need not be UUIDs to satisfy it.
         require(
+            // "." and ".." are already refused by the endsWith(".") clause
+            // below, and are named anyway: they are the two ids a traversal
+            // actually uses, and a reader auditing this guard should not have
+            // to derive their rejection from a rule about trailing dots.
             value.isNotEmpty() && value != "." && value != ".." &&
                 // Win32 silently strips a trailing dot or space from a path
                 // segment, so "sketch " becomes "sketch" the moment the project
@@ -38,14 +42,22 @@ value class LayerId(val value: String) {
                     // \n, \r and \t, which are legal in a Linux filename and
                     // ruin every log line and archive that later names this
                     // directory.
-                    // isIdentifierIgnorable adds the Cf category on top of
-                    // the C0/C1 controls: U+202E (right-to-left override),
+                    // isIdentifierIgnorable adds the *whole* Cf category on
+                    // top of the C0/C1 controls — its contract is "a
+                    // non-whitespace ISO control, or general category FORMAT",
+                    // so U+00AD and U+061C are in it too, not just the
+                    // U+200B..U+206F and U+FEFF ranges one might assume:
+                    // U+202E (right-to-left override),
                     // U+200B (zero-width space), U+FEFF. Those render as
                     // nothing, or reverse what follows them, so two ids that
                     // compare unequal can look identical in a log or the layer
                     // panel — the filename-spoofing trick, aimed at whoever is
                     // reading the directory listing.
-                    it.isISOControl() || it.isIdentifierIgnorable() || it in FORBIDDEN
+                    // U+2028 and U+2029 are Zl and Zp, not Cf, so neither of
+                    // the two predicates above reaches them — and they end a
+                    // line in a log or a JSON dump exactly as \n does.
+                    it.isISOControl() || it.isIdentifierIgnorable() ||
+                        it == '\u2028' || it == '\u2029' || it in FORBIDDEN
                 }
         ) {
             "layer id must be a single safe path segment, was \"$value\""

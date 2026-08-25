@@ -110,6 +110,17 @@ class CanvasPresetsTest {
                         "${p.id} needs ${p.size.tilesPerLayer} tiles, over the format's ${CanvasPresets.MAX_TILES}",
                     )
                     assertTrue(p.maxLayers >= 1, "${p.id} is offered but holds no layers")
+                    // Test 1 pins this equality at 8 GiB only, with the message
+                    // "must carry the budget's own answer, not its own
+                    // arithmetic" — and the constrained devices are exactly
+                    // where forDevice might derate and the budget not know.
+                    // That drift would ship green and the dialog would offer a
+                    // layer count the pool cannot back.
+                    assertEquals(
+                        MemoryBudget.maxLayersFor(result.poolCapacityBytes, p.size),
+                        p.maxLayers,
+                        "${p.id} must carry the budget's layer count at $totalGib GiB (lowRam=$lowRam)",
+                    )
                 }
             }
         }

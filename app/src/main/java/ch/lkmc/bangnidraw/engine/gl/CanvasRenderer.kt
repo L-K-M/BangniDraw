@@ -62,6 +62,9 @@ class CanvasRenderer(
      */
     private val readFbo = GlFbo()
 
+    /** The backdrop-copy warning fires once, like the others: it recurs per frame. */
+    private var loggedBackdropFailure = false
+
     private val projection = FloatArray(Mat4.SIZE)
     private val identity = Mat4.identity()
 
@@ -139,18 +142,24 @@ class CanvasRenderer(
         // false does — the Studio still works and the Canvas refuses to open —
         // and it is strictly better than letting the exception escape a GL
         // callback, which crashes the app and reports the same information.
-        val compositeProgram: GlProgram
-        val presentProgram: GlProgram
-        val checkerProgram: GlProgram
+        // Accumulated so the ones that DID link can be released: the fields are
+        // assigned only after the try, so on a failure the earlier programs
+        // would simply go out of scope and leak their GL ids until the context
+        // is destroyed — once per retry, on a path that is retryable.
+        val linked = ArrayList<GlProgram>(3)
         try {
-            compositeProgram = GlProgram.link(Shaders.COMPOSITE)
-            presentProgram = GlProgram.link(Shaders.PRESENT)
-            checkerProgram = GlProgram.link(Shaders.CHECKER)
+            linked += GlProgram.link(Shaders.COMPOSITE)
+            linked += GlProgram.link(Shaders.PRESENT)
+            linked += GlProgram.link(Shaders.CHECKER)
         } catch (e: GlProgramException) {
+            linked.forEach(GlProgram::release)
             Log.e(GL_TAG, "shader link failed on ${probed.describe()}", e)
             isReady = false
             return false
         }
+        val compositeProgram = linked[0]
+        val presentProgram = linked[1]
+        val checkerProgram = linked[2]
         composite = compositeProgram
         present = presentProgram
         checker = checkerProgram
@@ -332,7 +341,24 @@ class CanvasRenderer(
             // the target it writes — so Accum is blitted into Scratch and
             // sampled from there. Both are viewport-oriented, which is the one
             // case §3.2 allows a blit for.
-            copyAccumToScratch()
+            // A failed backdrop copy is not something to draw through: the
+            // layer would blend against whatever Scratch held from an earlier
+            // frame, which is the "subtly wrong picture" the size guard below
+            // exists to prevent, reached by another door. Every path that
+            // returns false is a GPU allocation that already failed, so the
+            // frame is compromised either way — skipping leaves a log line
+            // instead of a plausible-looking composite.
+            if (!copyAccumToScratch()) {
+                if (!loggedBackdropFailure) {
+                    loggedBackdropFailure = true
+                    Log.w(
+                        GL_TAG,
+                        "no backdrop for ${props.blendMode} on ${layer.id.value}; " +
+                            "skipping the layer (further backdrop failures are suppressed)",
+                    )
+                }
+                return
+            }
             // BEFORE the draw, not after. The blit leaves Scratch as the draw
             // target, so drawing here without rebinding composites the layer
             // into its own backdrop copy — and samples Scratch at the same
@@ -354,17 +380,17 @@ class CanvasRenderer(
      * present step cannot use one for exactly that reason — a blit cannot
      * rotate, and the window buffer may be pre-rotated.)
      */
-    private fun copyAccumToScratch() {
-        if (!scratch.isAllocated) return
+    private fun copyAccumToScratch(): Boolean {
+        if (!scratch.isAllocated) return false
         // Same size, or the blit silently rescales the backdrop and every
         // non-normal layer blends against a stretched copy — no GL error, and
         // a picture that is subtly wrong rather than obviously broken. They are
         // allocated together in onSurfaceChanged, so this only fires if one
         // allocation failed.
-        if (accum.width != scratch.width || accum.height != scratch.height) return
-        if (!readFbo.bindTexture2d(accum.texture, GLES30.GL_READ_FRAMEBUFFER)) return
+        if (accum.width != scratch.width || accum.height != scratch.height) return false
+        if (!readFbo.bindTexture2d(accum.texture, GLES30.GL_READ_FRAMEBUFFER)) return false
         try {
-            if (!fbo.bindTexture2d(scratch.texture, GLES30.GL_DRAW_FRAMEBUFFER)) return
+            if (!fbo.bindTexture2d(scratch.texture, GLES30.GL_DRAW_FRAMEBUFFER)) return false
             GLES30.glBlitFramebuffer(
                 0, 0, accum.width, accum.height,
                 0, 0, scratch.width, scratch.height,
@@ -378,6 +404,7 @@ class CanvasRenderer(
             // invariant is hardest to notice.
             GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, 0)
         }
+        return true
     }
 
     private fun drawPaper(bakedIntoBelow: Boolean) {

@@ -42,10 +42,10 @@ class CompositePass(
      * not the bottleneck, and `glDrawArrays` keeps the upload one contiguous
      * write with no index arithmetic to get wrong.
      */
-    private val vertexBuffer: FloatBuffer = ByteBuffer
-        .allocateDirect(TileGrid.MAX_TILES * VERTICES_PER_TILE * FLOATS_PER_VERTEX * 4)
-        .order(ByteOrder.nativeOrder())
-        .asFloatBuffer()
+    private var vertexBuffer: FloatBuffer = allocate(TileGrid.MAX_TILES)
+
+    /** Tiles [vertexBuffer] and the VBO currently have room for. */
+    private var capacityTiles = TileGrid.MAX_TILES
 
     private val vbo = IntArray(1)
     private val vao = IntArray(1)
@@ -54,6 +54,31 @@ class CompositePass(
     private var keyScratch = IntArray(0)
 
     private var initialized = false
+
+    /**
+     * Grows the vertex buffer and the VBO to hold [tiles] quads.
+     *
+     * The buffer starts at `TileGrid.MAX_TILES`, which no grid can exceed
+     * today — 8192 px per side is 32 tiles, so 1024 — and growing rather than
+     * asserting that is deliberate. The alternatives are both bad: a `check`
+     * turns a relaxed grid cap into an exception thrown from inside a render
+     * callback, in the same PR that removed a `require` from
+     * `OffscreenTarget.ensure` for exactly that reason; and an early `return 0`
+     * silently drops the layer from every frame. Growing has no failure mode.
+     */
+    private fun ensureCapacity(tiles: Int) {
+        if (tiles <= capacityTiles) return
+        capacityTiles = tiles
+        vertexBuffer = allocate(tiles)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo[0])
+        GLES30.glBufferData(
+            GLES30.GL_ARRAY_BUFFER,
+            vertexBuffer.capacity() * 4,
+            null,
+            GLES30.GL_STREAM_DRAW,
+        )
+        GlErrors.checkAllocation("composite VBO grown to $tiles tiles")
+    }
 
     private fun ensureBuffers() {
         if (initialized) return
@@ -105,15 +130,8 @@ class CompositePass(
         ensureBuffers()
         if (keyScratch.size < textures.grid.tileCount) keyScratch = IntArray(textures.grid.tileCount)
         val count = textures.visibleKeys(dirtyRect, keyScratch)
-        // The vertex buffer is sized from TileGrid.MAX_TILES while keyScratch
-        // is sized from the grid, so correctness rests on a grid never holding
-        // more than MAX_TILES tiles. It cannot today — TileGrid caps each side
-        // at 8192 px, i.e. 32 tiles, i.e. 1024 — and if that ever changes this
-        // says so instead of throwing a bare BufferOverflowException mid-frame.
-        check(count <= TileGrid.MAX_TILES) {
-            "$count visible keys exceed MAX_TILES ${TileGrid.MAX_TILES}; the vertex buffer would overflow"
-        }
         if (count == 0) return 0
+        ensureCapacity(count)
 
         state.useProgram(program)
         program.uniform4f("u_screen", screen.a, screen.b, screen.tx, screen.ty)
@@ -246,6 +264,11 @@ class CompositePass(
         vao[0] = 0
         initialized = false
     }
+
+    private fun allocate(tiles: Int): FloatBuffer = ByteBuffer
+        .allocateDirect(tiles * VERTICES_PER_TILE * FLOATS_PER_VERTEX * 4)
+        .order(ByteOrder.nativeOrder())
+        .asFloatBuffer()
 
     companion object {
         const val VERTICES_PER_TILE = 6

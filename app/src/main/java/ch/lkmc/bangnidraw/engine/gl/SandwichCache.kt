@@ -94,8 +94,11 @@ class SandwichCache(
         private set
 
     /**
-     * Recomputes [aboveAvailable] for [stack]. Cheap, and called whenever the
-     * stack or the active layer changes.
+     * Recomputes [aboveAvailable] **and** [belowAvailable] for [stack]. Cheap,
+     * and called whenever the stack or the active layer changes.
+     *
+     * Must run before the first [rebuild], or both flags are still at their
+     * `true` default and a half containing a non-Normal layer would be built.
      */
     fun observe(stack: LayerStack) {
         val activeIndex = stack.activeIndex

@@ -90,20 +90,44 @@ data class ScreenTransform(
      */
     fun screenBoundsOf(rect: IntRect, viewportWidth: Int, viewportHeight: Int): IntRect {
         if (rect.isEmpty || viewportWidth <= 0 || viewportHeight <= 0) return IntRect.EMPTY
-        val l = rect.left.toFloat()
-        val t = rect.top.toFloat()
-        val r = rect.right.toFloat()
-        val b = rect.bottom.toFloat()
+        // NOT named l/t/r/b. `b` would shadow this class's own `b` — the
+        // matrix coefficient — and the inlined corner math below would then
+        // multiply by the rect's bottom edge instead. Kotlin resolves the
+        // innermost binding and says nothing; the tests caught it, which is
+        // the only reason this comment exists rather than a silent bug.
+        val x0 = rect.left.toFloat()
+        val y0 = rect.top.toFloat()
+        val x1 = rect.right.toFloat()
+        val y1 = rect.bottom.toFloat()
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE
         var maxY = -Float.MAX_VALUE
-        for ((cx, cy) in listOf(l to t, r to t, r to b, l to b)) {
-            val (sx, sy) = apply(cx, cy)
-            if (!sx.isFinite() || !sy.isFinite()) return IntRect.EMPTY
+        // Written out rather than looped over a `listOf(l to t, …)`: that form
+        // allocated four boxed Pairs plus one per `apply` call, nine per frame,
+        // on the path that produces the present pass's scissor rect. The rest
+        // of this engine keeps the frame path allocation-free — `visibleKeys`
+        // takes an `IntArray` out-param and `allKeys` is marked cold — and this
+        // was quietly undercutting that.
+        //
+        // All FOUR corners, still: under rotation the image of an axis-aligned
+        // rect is not axis-aligned, and two opposite corners clip the others.
+        var ok = true
+        fun corner(cx: Float, cy: Float) {
+            val sx = a * cx - b * cy + tx
+            val sy = b * cx + a * cy + ty
+            if (!sx.isFinite() || !sy.isFinite()) {
+                ok = false
+                return
+            }
             minX = min(minX, sx); maxX = max(maxX, sx)
             minY = min(minY, sy); maxY = max(maxY, sy)
         }
+        corner(x0, y0)
+        corner(x1, y0)
+        corner(x1, y1)
+        corner(x0, y1)
+        if (!ok) return IntRect.EMPTY
         val left = floor(minX - 1f).toInt().coerceIn(0, viewportWidth)
         val top = floor(minY - 1f).toInt().coerceIn(0, viewportHeight)
         val right = ceil(maxX + 1f).toInt().coerceIn(0, viewportWidth)

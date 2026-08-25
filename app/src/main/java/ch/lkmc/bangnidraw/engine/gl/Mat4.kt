@@ -13,6 +13,7 @@ object Mat4 {
 
     /** The 4×4 identity — `u_bufferTransform` for every offscreen pass. */
     fun identity(out: FloatArray = FloatArray(SIZE)): FloatArray {
+        require(out.size >= SIZE) { "a matrix needs $SIZE floats, was ${out.size}" }
         out.fill(0f)
         out[0] = 1f
         out[5] = 1f
@@ -31,6 +32,10 @@ object Mat4 {
      * y-handling in the engine would have to compensate.
      */
     fun orthoYDown(width: Float, height: Float, out: FloatArray = FloatArray(SIZE)): FloatArray {
+        // Both guards at the contract boundary: writing indices 0..15 into a
+        // shorter array fails at the store with a bare index exception, far
+        // from whoever reused a mis-sized scratch buffer.
+        require(out.size >= SIZE) { "a matrix needs $SIZE floats, was ${out.size}" }
         require(width > 0f && height > 0f) { "ortho needs a positive size, was ${width}x$height" }
         out.fill(0f)
         out[0] = 2f / width

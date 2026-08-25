@@ -209,6 +209,34 @@ and the contradiction is noted here.
   Keep new pool logic on the core side; the `engine/gl` classes should stay
   "call the twin, then issue GL calls".
 
+- **graphics-core 1.0.4's callback is not the one `03-canvas-engine.md` §8.2
+  names.** The plan writes `onDrawMultiDoubleBufferedLayer(eglManager,
+  bufferInfo, transform, params)`; the pinned library actually declares
+  `onDrawMultiBufferedLayer(eglManager, width, height, bufferInfo, transform,
+  params)` — a different name and two extra `Int`s. Verified against the AAR,
+  not guessed. The two sizes are not redundant: `width`/`height` are the
+  **surface's** and `bufferInfo.width`/`height` are the **buffer's**, which are
+  swapped when the compositor hands over a pre-rotated buffer — which is the
+  whole reason the present step is a quad through `u_bufferTransform` and not
+  a blit.
+- **`renderMultiBufferedLayer(Collection<T>)` exists** in 1.0.4, which
+  `03-canvas-engine.md` §8.6 left open ("if graphics-core exposes it in the
+  pinned version (to verify)"). It does, so `EngineSession.redraw()` calls it
+  and the `empty-param commit()` fallback the plan describes is not needed.
+- **`glBindFramebuffer(GL_FRAMEBUFFER, …)` sets the read *and* draw binding**,
+  so `Accum → Scratch` needs two `GlFbo`s — one bound `GL_READ_FRAMEBUFFER`,
+  one `GL_DRAW_FRAMEBUFFER`. Blitting through a single FBO object makes the
+  destination its own source and copies the texture onto itself, with no GL
+  error and a plausible-looking result at every zoom where the backdrop
+  happens not to matter.
+- **The scaffold's `detectTransformGestures` was deleted, not rewired.** It
+  drove a Compose drawing of the paper; pointing it at the engine would make it
+  a second owner of touch input, and `07-input-and-stylus.md` §2 makes
+  `CanvasTouchHandler` (roadmap 2.4) the single owner of `MotionEvent`. 2.3b
+  therefore has no touch navigation at all, and a debug-build-only "nudge view"
+  button exists so 2.3b's device check — the reset pill returning to fit — is
+  runnable on a device. It goes away with the touch handler.
+
 ## Conventions the plan leaves open
 
 - **What "`engine/core` is pure JVM" actually forbids.**

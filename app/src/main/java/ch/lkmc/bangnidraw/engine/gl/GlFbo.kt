@@ -71,12 +71,22 @@ class GlFbo {
     }
 
     /** Binds this FBO with the 2D texture [texture] as colour attachment 0. */
-    fun bindTexture2d(texture: Int): Boolean {
+    /**
+     * Binds this FBO with the 2D texture [texture] as colour attachment 0.
+     *
+     * [target] is `GL_FRAMEBUFFER` by default, which sets **both** the read and
+     * the draw binding. A `glBlitFramebuffer` between two of our own textures
+     * needs them separate — binding one FBO as `GL_FRAMEBUFFER` for the
+     * destination silently makes it the source too, and the blit copies a
+     * texture onto itself. That is why `Accum → Scratch` uses two [GlFbo]s,
+     * one bound `GL_READ_FRAMEBUFFER` and one `GL_DRAW_FRAMEBUFFER`.
+     */
+    fun bindTexture2d(texture: Int, target: Int = GLES30.GL_FRAMEBUFFER): Boolean {
         ensure()
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, ids[0])
+        GLES30.glBindFramebuffer(target, ids[0])
         if (texture != attachedTexture || attachedLayer != -1) {
             GLES30.glFramebufferTexture2D(
-                GLES30.GL_FRAMEBUFFER,
+                target,
                 GLES30.GL_COLOR_ATTACHMENT0,
                 GLES30.GL_TEXTURE_2D,
                 texture,
@@ -85,11 +95,11 @@ class GlFbo {
             attachedTexture = texture
             attachedLayer = -1
         }
-        return isComplete("texture $texture")
+        return isComplete("texture $texture", target)
     }
 
-    private fun isComplete(what: String): Boolean {
-        val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+    private fun isComplete(what: String, target: Int = GLES30.GL_FRAMEBUFFER): Boolean {
+        val status = GLES30.glCheckFramebufferStatus(target)
         if (status == GLES30.GL_FRAMEBUFFER_COMPLETE) return true
         if (!loggedIncomplete) {
             loggedIncomplete = true

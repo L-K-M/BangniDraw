@@ -136,16 +136,27 @@ L, so it is split at the 2a/2b seam above and 2a is split again where the
 diff would otherwise pass ~1,500 lines. Each PR builds, tests and lints on
 its own, and each is useful on its own.
 
-Status: ⬜ not started · 🔁 open, in review · 🟢 landed on `main` (with commit).
+Status: ⬜ not started · 🔁 open, in review · ✅ landed on `main` (with the PR number and merge date).
 
 | PR | Branch | Scope (one line) | Acceptance check | Status |
 | --- | --- | --- | --- | --- |
 | 2.1 | `fable/engine-core-document` | `engine/core` document model: `PerfConstants`, `TileKey`/`IntRect`/`TileGrid`, `LayerId`/`LayerProps`/`Layer`/`LayerRecord`/`BlendMode`/`LayerStack` (+ `StackEdit`/`StackResult`/`PixelOp`/`HistoryEntry` declarations), `Document`, `Composite` (CPU reference, all eight modes), `MemoryBudget`, `CanvasPresets`, `Clock`/`RandomSource` | JVM: `TileGridTest`, `LayerStackTest`, `CompositeTest`, `MemoryBudgetTest`, `CanvasPresetsTest` green; `lintDebug` clean. No device check (nothing user-visible changes) | ✅ #7, merged 2026-08-25 |
 | 2.2 | `fable/engine-core-stroke` | `engine/core` stroke math: `StrokeInput`(+batch), `PressureCurve`, `Stabilizer`, `Dab`/`DabBatch`/`DabRing`, `DabGenerator`, `BrushPreset`/`Curve`/`ToolKind` with the one round preset | JVM: `StabilizerTest`, `DabGeneratorTest` (+ golden stroke), `PressureCurveTest`, `DabRingTest`, `BrushPresetTest`. Still no device check | ✅ #9, merged 2026-08-25 |
-| 2.3a | `fable/engine-gl-compositor` | `engine/gl` foundation, with no opinion about compositing: `GlCaps`, `GlErrors`, `GlProgram`, `GlFbo`, `GlState`, `Shaders`, `TilePool`, `LayerTextures`, plus their pure `engine/core` twins `SliceAllocator`/`SliceHandle` and `TileIndex` and the packed `TileGrid.keysFor` overload the compositor needs | No device check: nothing in this half puts a pixel on screen, so there is nothing a device could show. JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `GlCapsTest`, `SliceAllocatorTest`, `TileIndexTest` | 🔁 |
+| 2.3a | `fable/engine-gl-compositor` | `engine/gl` foundation, with no opinion about compositing: `GlCaps`, `GlErrors`, `GlProgram`, `GlFbo`, `GlState`, `Shaders`, `TilePool`, `LayerTextures`, plus their pure `engine/core` twins `SliceAllocator`/`SliceHandle` and `TileIndex` and the packed `TileGrid.keysFor` overload the compositor needs | No device check: nothing in this half puts a pixel on screen, so there is nothing a device could show. JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `GlCapsTest`, `SliceAllocatorTest`, `TileIndexTest` | ✅ #10, merged 2026-08-25 |
 | 2.3b | `fable/engine-gl-canvas` | Everything that draws: `ScreenTransform`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect at the right size and orientation, and the reset-view pill returns to fit after a programmatic nudge of the transform (the debug overlay is 2.5's). No touch navigation yet: `input/` is 2.4, so the view is driven programmatically here. JVM: `ScreenTransformTest` | ⬜ |
 | 2.4 | `fable/stroke-path-touch` | The stroke lands on pixels, with touch: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, `input/` (`GestureArbiter`, `PalmRejection`, `StylusState`, `CanvasTouchHandler`) | Device: one finger draws a stroke that survives pen-up; two-finger tap does not leave a dot; two-finger pinch/zoom/rotate is smooth and rotation snaps near 0°, during a stroke as well as between strokes. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` (the no-allocation assertion of `docs/plan/10-performance.md` §2.4 — the step-2 risk table above names it as the mitigation for touch-path GC jank, so it is a gate, not an optional extra), and the merge blend math cross-checked on the JVM against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ⬜ |
 | 2.5 | `fable/front-buffered-stylus` | 2b: the front-buffered path (`onDrawFrontBufferedLayer`, `commit`, `cancel`), `TailBuffer`, `Predictor`, stylus axes (pressure/tilt/orientation/eraser end), palm rejection on device, unbuffered dispatch, debug overlay | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). JVM: `StabilizerTest` gains the predicted-tail cases — rationale in the note below. **This completes step 2** | ⬜ |
+
+**Carried in from PR 2.3b's review.** `SandwichCache.buildTile` blends each
+contributing layer straight into the cache slice, which is correct for
+source-over and has no backdrop to offer any other mode. So a non-Normal layer
+*below* the active one now makes `Below` unavailable — `SandwichPolicy.belowIsCacheable`
+— exactly as a non-Normal layer above makes `Above` unavailable, and the
+compositor takes the always-correct per-layer path of `03-canvas-engine.md` §12
+step 3. Implementing §4's ping-pong between two `allocateNotOn` scratch slices
+would restore the cached path for those stacks. It is a performance win over a
+correct fallback, not a correctness fix, which is why it is carried rather than
+blocking 2.3b.
 
 **Carried in from PR 2.2's review.** When smudge and blur land, `DabGenerator`
 owes the RMW spacing floor: `03-canvas-engine.md` §7.6 makes it enforce a

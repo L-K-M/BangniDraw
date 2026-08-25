@@ -31,6 +31,15 @@ object GlErrors {
     private var loggedThisSession = false
 
     /**
+     * Separate from [loggedThisSession] on purpose. Sharing one flag would let
+     * a drain-exhaustion notice silence the first real pass error of the
+     * session, or the reverse — two unrelated conditions, each worth exactly
+     * one line. `GlFbo.loggedIncomplete` and `TilePool.loggedClearBindFailure`
+     * are the same shape for the same reason.
+     */
+    private var loggedDrainExhausted = false
+
+    /**
      * Drains the GL error queue and returns the first error, or 0.
      *
      * Drains rather than reads once: `glGetError` pops one flag per call, and
@@ -54,6 +63,21 @@ object GlErrors {
             val e = GLES30.glGetError()
             if (e == GLES30.GL_NO_ERROR) return first
             if (first == GLES30.GL_NO_ERROR) first = e
+        }
+        // Falling out of the loop is the sticky-error regime the bound exists
+        // for, and it is silent without this: `first` is still the right
+        // answer, so every later caller reports a plausible-looking error at
+        // its own call site and nothing says the queue stopped clearing. The
+        // condition can never be reproduced in CI, so the one line it emits in
+        // the field is the whole diagnosis — and it is one line, because a
+        // driver in this state saturates the bound on every frame.
+        if (!loggedDrainExhausted) {
+            loggedDrainExhausted = true
+            Log.w(
+                GL_TAG,
+                "glGetError did not clear within $MAX_DRAIN calls (first=${name(first)}); " +
+                    "the context is likely lost and every error from here is sticky",
+            )
         }
         return first
     }
@@ -100,6 +124,7 @@ object GlErrors {
     /** Forgets the once-per-session suppression; a new context starts a new session. */
     fun reset() {
         loggedThisSession = false
+        loggedDrainExhausted = false
     }
 
     private fun name(e: Int): String = when (e) {

@@ -98,6 +98,13 @@ class DabGeneratorGoldenTest {
         // has to be able to represent it anyway, or a regression in the
         // fix-up would pass this test.
         val batches = mutableListOf<DabBatch>()
+        // Each batch's count as it was published. The deferred read below is
+        // only sound while a published batch stays readable, and this is what
+        // says so out loud: if a future generator ever pooled or re-cleared a
+        // batch after taking it, the count would move between publish and read
+        // and this would fail with the two numbers, rather than the fixture
+        // being quietly regenerated from whatever survived.
+        val published = mutableListOf<Int>()
         var batch = DabBatch(capacity = 8192)
         val first = input.first().toInput()
         stabilizer.reset(first)
@@ -112,13 +119,18 @@ class DabGeneratorGoldenTest {
                 i++
             }
             batches += batch
+            published += batch.count
             batch = DabBatch(capacity = 8192)
         }
         stabilizer.finish(generator.currentStep(), smoothed) { generator.advance(it, batch) }
         generator.end(batch)
         batches += batch
+        published += batch.count
 
-        return batches.flatMap { b ->
+        return batches.flatMapIndexed { i, b ->
+            check(b.count == published[i]) {
+                "batch $i held ${published[i]} dabs when published and ${b.count} when read"
+            }
             List(b.count) {
                 val d = b[it]
                 GoldenDab(d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed)

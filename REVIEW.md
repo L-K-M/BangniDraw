@@ -102,6 +102,20 @@ unreadable.
 
 ## Declined, with reasons
 
+- **R-037 ⏸️ Guard the golden harness's deferred read with
+  `check(dabs.size == total)`.** The concern is fair; the suggested check
+  cannot fail. `total` is `batches.sumOf { it.count }` and `dabs` is
+  `batches.flatMap { b -> List(b.count) { … } }`, so `dabs.size` *is* that
+  same sum, by construction — the two sides are one expression written twice.
+  It would not even catch the recycling it is for: a batch cleared after
+  publication would report its new count on both sides and the equality would
+  still hold. Applied in the form that does work: each batch's count is
+  recorded when it is published and compared when it is read, so a count that
+  moved in between fails with both numbers. Worth noting that this is the same
+  defect class the round-1 review caught in the batch-split test and that
+  three of this PR's own tests had — an assertion whose two sides come from
+  one computation.
+
 - **R-036 ⏸️ (deferred) `BrushPresetStore`'s `Json` must set
   `ignoreUnknownKeys = true`, and decide what a preset failing `init` does on
   load.** Correct, and not declinable — the store does not exist yet, which is

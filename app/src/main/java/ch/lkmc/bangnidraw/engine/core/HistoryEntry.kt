@@ -24,6 +24,15 @@ package ch.lkmc.bangnidraw.engine.core
  * over the same string. What the type buys is that a `history/<seq>.entry`
  * decoded from a hand-edited file cannot hand an unvalidated id to a path
  * join: the same trust boundary `LayerId`'s own guard exists for.
+ *
+ * **That holds for the [LayerId]-typed fields only.** Six kinds embed
+ * [LayerRecord] — [LayerAdd.layer], [LayerDelete.layer], [LayerProps.before]
+ * and `after`, [LayerMerge.upper] and `lower`, [LayerDuplicate.copy],
+ * [Flatten.layers] and `result` — and a record's `id` is a plain `String`,
+ * unvalidated until [LayerRecord.toProps] runs. Undoing a delete by
+ * recreating `layers/<entry.layer.id>/` would walk straight past the guard.
+ * Convert the record first, every time: `toProps()` to fail loudly, or
+ * `toPropsOrNull()` to drop the layer, and only then is the id a [LayerId].
  */
 sealed interface HistoryEntry {
     val seq: Long

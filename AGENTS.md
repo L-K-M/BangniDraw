@@ -202,14 +202,22 @@ and the contradiction is noted here.
   `history/<seq>.entry` holds exactly what §5.2 says. What the type buys is
   the trust boundary: an entry decoded from a hand-edited file cannot hand an
   unvalidated id to a path join, which is the same reason `LayerId` carries a
-  constructor guard at all. This reverses an earlier reading recorded here,
-  which took §5.2's field types as binding on the in-memory shape too.
+  constructor guard at all. The claim is pinned, not just asserted:
+  `LayerStackTest`'s "a layer id that is not a single path segment is refused"
+  runs `LayerRecord(id = "../../evil").toProps()` and requires it to throw. The
+  serialized type is `LayerRecord`, whose `id` is a plain `String`, so the guard
+  runs where `toProps` constructs the `LayerId` — no serializer ever sees the
+  value class, and a future custom serializer for it would still have to keep
+  that test green. This reverses an earlier reading recorded here, which took
+  §5.2's field types as binding on the in-memory shape too.
 - **Generated layer names are a closed grammar, not a prefix.** Only three
   stored forms resolve through resources at display time:
   `@string/layer_flattened`, `@string/layer_default <int>`, and
-  `<name> @string/layer_copy_suffix` — where `<name>` is itself resolved when it
-  matches one of the other two forms, so a copy of a default-named layer shows
-  the localized name plus the suffix rather than a raw resource token. Anything else is shown verbatim — which
+  `<name> @string/layer_copy_suffix` — where `<name>` is resolved by this same
+  grammar, **recursively**, so a copy of a copy of a default-named layer still
+  shows localized text plus two suffixes rather than a raw resource token.
+  Duplication appends the suffix to the stored name, so the suffixes do stack
+  and the inner substring matches the third form, not the first two. Anything else is shown verbatim — which
   is what lets a user type `"@string/app_name"` as a layer name and see it
   back unchanged, and what keeps a duplicate of a default-named layer
   translatable (`01-product.md` §8: no English text in a stored name). A

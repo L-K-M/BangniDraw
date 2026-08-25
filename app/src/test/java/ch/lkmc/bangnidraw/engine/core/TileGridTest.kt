@@ -110,6 +110,16 @@ class TileGridTest {
         assertEquals(31, TileKey(31, 31).tx, "the largest 8192-canvas coordinate round-trips")
         assertEquals(65535, TileKey(65535, 65535).tx, "and the packed 16-bit field itself round-trips")
         assertEquals(65535, TileKey(65535, 65535).ty)
+        // Round-tripping tx and ty is not enough: a packing like
+        // tx * 65535 + ty returns both fields correctly for every input and
+        // still aliases TileKey(1, 0) onto TileKey(0, 65535). The 4x3 grid
+        // above cannot catch it — no two of its keys are 65535 apart — and a
+        // collision silently reads one tile's pixels for another.
+        assertEquals(
+            2,
+            setOf(TileKey(1, 0), TileKey(0, 65535)).size,
+            "distinct coordinates must not collide once packed",
+        )
     }
 
     @Test

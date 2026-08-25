@@ -246,7 +246,7 @@ only, since a user-typed name carries no number to honour. The scan assumes
 `values-b+zh+Hans/`, so if that string is ever translated, names written under
 one locale stop matching the pattern under another and the scan under-recovers.
 `max(persisted, high-water + 1)` still floors it at the last checkpoint, but
-names added since could be reissued — so either mark the string
+names added since could be reissued — so mark the string
 `translatable="false"`. Persisting the counter at add time is *not* the
 alternative it looks like: it would mean writing `project.json` off-checkpoint
 or journalling the counter, and this paragraph rules out both. Taking the replayed

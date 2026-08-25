@@ -34,7 +34,18 @@ value class TileKey(val packed: Int) {
 /** Integer point in canvas pixels. */
 data class IntPoint(val x: Int, val y: Int)
 
-/** Half-open integer rect in canvas pixels: `right` and `bottom` are exclusive. */
+/**
+ * Half-open integer rect in canvas pixels: `right` and `bottom` are exclusive.
+ *
+ * Unvalidated on purpose — [forDab] runs on the dab path, several thousand
+ * times a stroke, and this is the allocation it makes. The consequence is that
+ * [width] and [height] are `right - left` and `bottom - top` with no overflow
+ * guard, so a rect spanning more than `Int.MAX_VALUE` px reports a negative
+ * size. No such rect exists in this engine: [forDab] requires finite inputs and
+ * canvases are capped at [TileGrid.MAX_EDGE] px per side, and [TileGrid.keysFor]
+ * clamps into the grid before it reads either. A future caller that builds an
+ * `IntRect` from something other than a dab or a canvas rect must clamp first.
+ */
 data class IntRect(val left: Int, val top: Int, val right: Int, val bottom: Int) {
     val width: Int get() = right - left
     val height: Int get() = bottom - top
@@ -71,8 +82,13 @@ data class IntRect(val left: Int, val top: Int, val right: Int, val bottom: Int)
  * The canvas geometry: how a document of [width] × [height] canvas pixels is
  * cut into 256 × 256 tiles, and how a dirty rect becomes the set of tile keys
  * it touches. Pure arithmetic — no pixels live here.
+ *
+ * A `data class` because a grid is fully determined by its two sides: two grids
+ * of the same size are interchangeable, and comparing them should say so.
+ * [tilesX] and [tilesY] are derived and stay out of equality, which is correct
+ * — they cannot differ when the sides agree.
  */
-class TileGrid(val width: Int, val height: Int) {
+data class TileGrid(val width: Int, val height: Int) {
     init {
         // The format's per-side range (`docs/plan/03-canvas-engine.md` §1).
         // Validated here, at the class that does the packing, so a grid built

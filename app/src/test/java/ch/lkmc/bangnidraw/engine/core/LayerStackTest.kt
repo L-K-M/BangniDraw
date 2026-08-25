@@ -19,11 +19,15 @@ class LayerStackTest {
     private val cap = 16
 
     /**
-     * Iterations for the invariant walk below. Large enough to reach deep,
-     * shuffled stack states rather than a correctness threshold — the suite
-     * runs in well under a second at this count.
+     * Iterations for both property walks below — the inverse round-trip and
+     * the invariant walk. Large enough to reach deep, shuffled stack states
+     * rather than a correctness threshold; the suite runs in well under a
+     * second at this count.
      */
     private val STRESS_ITERATIONS = 5_000
+
+    /** How many branches [randomOperation] has; the walks assert each one lands. */
+    private val OPERATION_COUNT = 13
 
     private fun stackOf(vararg names: String, active: Int = 0): LayerStack =
         LayerStack(
@@ -43,6 +47,25 @@ class LayerStackTest {
     }
 
     // ---------------------------------------------------------------- structure
+
+    // Every other name assertion in this file goes through defaultName() or
+    // duplicateName(), so a change to either moves the expected value in
+    // lockstep and the assertion still passes. This is the one place the
+    // grammar itself is written out: the resolver that lands with the layer
+    // panel (roadmap step 6) parses exactly these forms.
+    @Test
+    fun `generated names spell out the resolver's grammar`() {
+        assertEquals("@string/layer_default 1", LayerStack.defaultName(1))
+        assertEquals("@string/layer_default 42", LayerStack.defaultName(42))
+        assertEquals("sketch @string/layer_copy_suffix", LayerStack.duplicateName("sketch"))
+        assertEquals("@string/layer_flattened", LayerStack.FLATTENED_NAME)
+        // A copy of a copy appends again rather than collapsing: the grammar is
+        // recursive, and the resolver must render the whole chain.
+        assertEquals(
+            "sketch @string/layer_copy_suffix @string/layer_copy_suffix",
+            LayerStack.duplicateName(LayerStack.duplicateName("sketch")),
+        )
+    }
 
     @Test
     fun `add inserts above the active layer and makes it active`() {
@@ -507,9 +530,9 @@ class LayerStackTest {
         val random = Random(42)
         val ids = Ids(100)
         var stack = seededStack()
-        repeat(2000) {
+        repeat(STRESS_ITERATIONS) {
             val before = stack
-            val result = randomOperation(before, random, ids)
+            val result = randomOperation(before, random.nextInt(OPERATION_COUNT), random, ids)
             // Exhaustive rather than check-then-cast: a third StackResult
             // subtype would fail to compile here instead of turning a skipped
             // iteration into a ClassCastException 2000 draws in.
@@ -532,6 +555,16 @@ class LayerStackTest {
                 edit.stack.nextName >= before.nextName,
                 "the default-name counter must only grow",
             )
+            // The policy itself, not just monotonicity: undo deliberately does
+            // NOT rewind the counter (12-roadmap.md step 3, AGENTS.md), so a
+            // name is never reissued after add -> undo -> add. An
+            // implementation that started rewinding it would otherwise pass
+            // this whole walk in silence.
+            assertEquals(
+                edit.stack.nextName,
+                restored.nextName,
+                "undo must leave the default-name counter where the operation left it",
+            )
             assertTrue(
                 restored.nextName >= before.nextName,
                 "undo must not roll the default-name counter back, or a later add reissues a name",
@@ -546,9 +579,14 @@ class LayerStackTest {
         val ids = Ids(200)
         var stack = seededStack()
         val grid = TileGrid(1024, 1024)
+        val succeeded = mutableSetOf<Int>()
         repeat(STRESS_ITERATIONS) {
-            val result = randomOperation(stack, random, ids)
-            if (result is StackResult.Ok) stack = result.edit.stack
+            val op = random.nextInt(OPERATION_COUNT)
+            val result = randomOperation(stack, op, random, ids)
+            if (result is StackResult.Ok) {
+                stack = result.edit.stack
+                succeeded += op
+            }
             assertTrue(stack.layers.isNotEmpty(), "a document always has one layer")
             assertTrue(stack.activeIndex in stack.layers.indices, "activeIndex left the stack")
             assertEquals(
@@ -562,6 +600,16 @@ class LayerStackTest {
                 "a tile key escaped the canvas",
             )
         }
+
+        // An operation that can never succeed makes every assertion above
+        // hold trivially on a stack that stopped changing — a lock-policy
+        // regression that rejects every delete, or an Ids source running dry,
+        // would leave this walk green while testing nothing.
+        assertEquals(
+            (0 until OPERATION_COUNT).toSet(),
+            succeeded,
+            "an operation that never succeeds hollows out the walk",
+        )
     }
 
     /** Three layers that actually own tiles, so the property tests exercise the tile sets too. */
@@ -575,9 +623,9 @@ class LayerStackTest {
         nextName = 4,
     )
 
-    private fun randomOperation(stack: LayerStack, random: Random, ids: Ids): StackResult {
+    private fun randomOperation(stack: LayerStack, op: Int, random: Random, ids: Ids): StackResult {
         val i = random.nextInt(stack.size)
-        return when (random.nextInt(13)) {
+        return when (op) {
             0 -> stack.add(ids, cap)
             1 -> stack.duplicate(i, ids, cap)
             2 -> stack.delete(i)
@@ -645,7 +693,9 @@ class LayerStackTest {
                 layers.clear()
                 entry.layers.forEach { record ->
                     val props = record.toProps()
-                    layers += Layer(props, entry.tilesPerLayer.getValue(props.id).toSet())
+                    val tiles = entry.tilesPerLayer[props.id]
+                        ?: error("flatten record for ${props.id.value} has no tile set")
+                    layers += Layer(props, tiles.toSet())
                 }
             }
             // Named rather than `else`: an entry kind added to the sealed

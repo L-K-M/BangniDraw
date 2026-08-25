@@ -38,7 +38,14 @@ value class LayerId(val value: String) {
                     // \n, \r and \t, which are legal in a Linux filename and
                     // ruin every log line and archive that later names this
                     // directory.
-                    it.isISOControl() || it in FORBIDDEN
+                    // isIdentifierIgnorable adds the Cf category on top of
+                    // the C0/C1 controls: U+202E (right-to-left override),
+                    // U+200B (zero-width space), U+FEFF. Those render as
+                    // nothing, or reverse what follows them, so two ids that
+                    // compare unequal can look identical in a log or the layer
+                    // panel — the filename-spoofing trick, aimed at whoever is
+                    // reading the directory listing.
+                    it.isISOControl() || it.isIdentifierIgnorable() || it in FORBIDDEN
                 }
         ) {
             "layer id must be a single safe path segment, was \"$value\""

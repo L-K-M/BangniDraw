@@ -166,8 +166,19 @@ object Composite {
     }
 
     /**
-     * Painting onto an alpha-locked layer: normal, with the alpha forced to
-     * the destination's (`docs/plan/05-layers.md` §1).
+     * Painting onto an alpha-locked layer. `docs/plan/05-layers.md` §1 calls
+     * this "normal, alpha forced to destination" and then gives the formula,
+     * which is what this implements:
+     *
+     * ```
+     * Cr = d.rgb·(1 − s.a) + s.rgb·d.a        Ar = d.a
+     * ```
+     *
+     * Spelled out because the prose alone reads like a normal composite
+     * clamped to `d.a` — `min(s.rgb + d.rgb·(1 − s.a), d.a)` — and that is a
+     * different function wherever `0 < s.a < 1` and `0 < d.a < 1`. This file
+     * is the semantics the GLSL must match, so the shader author must not have
+     * to guess which reading was meant.
      */
     fun alphaLocked(dst: Int, src: Int): Int {
         val sa = alpha(src) / 255f

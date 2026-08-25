@@ -45,6 +45,15 @@ object PerfConstants {
     // would round up to this anyway.
     const val SANDWICH_MARGIN_PX = TILE_SIZE
 
+    /**
+     * The ES 3.0 spec minimum for `GL_MAX_ARRAY_TEXTURE_LAYERS`, and the tile
+     * pool's page size. Lives here rather than on `MemoryBudget` because this
+     * file's whole claim is that every number the engine knows is in one
+     * place, and a tile-count-adjacent constant hiding elsewhere is what a
+     * re-tiling audit misses.
+     */
+    const val SLICES_PER_PAGE = 256
+
     // Budget.
     const val MAX_LAYERS = 16
     const val MIN_LAYERS = 1

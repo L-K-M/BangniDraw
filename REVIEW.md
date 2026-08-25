@@ -9,7 +9,10 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
 
 ## Open
 
-_Nothing open._
+_Nothing open._ One item is **deferred** rather than declined: R-020, the
+NaN-token decode test, which needs the `data/` loader that arrives with roadmap
+step 3. Its reasoning is under *Declined, with reasons*; step 3's carry-in list
+in `docs/plan/12-roadmap.md` is where it gets executed.
 
 ## Resolved
 
@@ -94,6 +97,47 @@ _Nothing open._
   convention rather than left as a surprise.
 
 ## Declined, with reasons
+
+- **R-023 ⏸️ Round 13's info item: "`withOpacity` must guard against NaN, not
+  just clamp".** Refuted. The finding is explicitly conditional on a file it
+  could not see — "if `withOpacity` is implemented with `opacity.coerceIn(0f,
+  1f)` (the obvious choice)" — and it is not. `LayerProps.withOpacity` calls
+  `sanitizeOpacity`, which tests `value.isNaN() || value == NEGATIVE_INFINITY`
+  before it clamps, and `LayerRecord.toProps` calls the same helper so the
+  setter and the decode boundary cannot drift. The reasoning about what a NaN
+  would do downstream is correct; the premise is not. `LayerStackTest` already
+  pins NaN, ±∞ and out-of-range through both doors.
+
+- **R-022 ⏸️ Pin AGENTS.md's `LayerId` decode-guard claim with a test.**
+  The mechanism raised is refuted, the ask is applied. Refuted: the concern is
+  that kotlinx-serialization may construct a `@Serializable @JvmInline value
+  class` without running its `init`, but `LayerId` is not `@Serializable` and
+  never reaches a serializer. The serialized type is `LayerRecord`, whose `id`
+  is a plain `String`; the guard runs in `toProps`, at the `LayerId(id)` call.
+  Applied anyway, because the underlying ask is right and cheap: the claim was
+  asserted in prose while the test that pins it sat unreferenced, so AGENTS.md
+  now names it and says why no serializer sees the value class.
+
+- **R-021 ⏸️ Couple the flat low-RAM tile grant to `totalMemBytes`.** Refuted,
+  with the reviewer's own fallback applied. The premise — that a 1 GiB low-RAM
+  device gets "double the share every other device gets" — is wrong, because
+  the general branch is clamped: `LOW_RAM_GPU_TILE_BYTES` and
+  `GPU_TILE_MIN_BYTES` are both 256 MiB, so a 1 GiB device gets 256 MiB either
+  way (1 GiB × 1/8 = 128 MiB, raised to the floor). The flag removes the
+  *ceiling*, not the floor: at 4 GiB it is 256 MiB against 512 MiB, which is
+  the halving `10-performance.md` §4 pins. The suggested `minOf` would take the
+  smallest devices *below* a floor every other device keeps. The finding's
+  alternative — say the floor is deliberate rather than leaving it to fall out
+  of a constant — was the right call and is now a comment at the branch.
+
+- **R-024 ⏸️ Consolidate R-014's and R-015's duplicate entries.** Declined on
+  this file's stated policy: it is an append-only log — "nothing is deleted,
+  only resolved or declined with reasons" — and each raising is dated evidence
+  of how often a finding came back, which is exactly what the dismissed-only
+  stop rule is scored on. Merging them would erase that. The half of the
+  finding that was a real defect is applied: the cross-references were
+  position-relative ("the reason recorded below"), and R-015's ordinals did not
+  say whether they counted R-015's raisings or the finding's. Both now say.
 
 - **R-015 ⏸️ (fifth raising) Vary `largeMemoryClassMb` and the GL caps in
   `CanvasPresetsTest`'s device helper.** Declined again on the same ground, now

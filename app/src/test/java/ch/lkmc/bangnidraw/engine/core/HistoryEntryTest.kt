@@ -34,8 +34,11 @@ class HistoryEntryTest {
     private val everyKind: List<HistoryEntry> = listOf(
         HistoryEntry.Stroke(activeBefore = a, activeAfter = a, layerId = a, tiles = tiles),
         HistoryEntry.Fill(activeBefore = a, activeAfter = a, layerId = a, tiles = tiles),
-        HistoryEntry.LayerAdd(activeBefore = a, activeAfter = b, layer = record, index = 1),
-        HistoryEntry.LayerDelete(activeBefore = b, activeAfter = a, layer = record, index = 1, tiles = tiles),
+        // The added layer cannot be active *before* the add, and the deleted
+        // layer cannot still be active after. Nothing asserts these today, but
+        // this list is the de-facto documentation of a well-formed entry.
+        HistoryEntry.LayerAdd(activeBefore = b, activeAfter = a, layer = record, index = 1),
+        HistoryEntry.LayerDelete(activeBefore = a, activeAfter = b, layer = record, index = 1, tiles = tiles),
         HistoryEntry.LayerReorder(activeBefore = a, activeAfter = a, layerId = a, fromIndex = 0, toIndex = 2),
         HistoryEntry.LayerProps(
             activeBefore = a,
@@ -53,7 +56,14 @@ class HistoryEntryTest {
             lower = record,
             lowerTiles = tiles,
         ),
-        HistoryEntry.LayerDuplicate(activeBefore = a, activeAfter = b, sourceId = a, copy = record, index = 1),
+        // A copy always gets a fresh id; two live layers never share one.
+        HistoryEntry.LayerDuplicate(
+            activeBefore = a,
+            activeAfter = b,
+            sourceId = a,
+            copy = upperRecord,
+            index = 1,
+        ),
         HistoryEntry.LayerClear(activeBefore = a, activeAfter = a, layerId = a, tiles = tiles),
         HistoryEntry.Flatten(
             activeBefore = b,

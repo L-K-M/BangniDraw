@@ -161,8 +161,27 @@ class CanvasPresetsTest {
         // limits separately, so they are enforced separately — this pins the
         // coincidence, and fails the day one of them moves without the other,
         // which is the day TOO_MANY_TILES starts mattering.
+        // Integer division floors; TileGrid.tilesX rounds *up*. Any TILE_SIZE
+        // in 249..255 still gives 8192 / TILE_SIZE == 32 and this pin stays
+        // green, while an 8192 side really needs 33 tiles and 33 x 33 = 1089
+        // exceeds MAX_TILES — the exact divergence this test exists to catch.
+        assertEquals(
+            0,
+            TileGrid.MAX_EDGE % PerfConstants.TILE_SIZE,
+            "MAX_EDGE must be a whole number of tiles or the pin below is meaningless",
+        )
         val maxTilesPerSide = TileGrid.MAX_EDGE / PerfConstants.TILE_SIZE
         assertEquals(CanvasPresets.MAX_TILES, maxTilesPerSide * maxTilesPerSide)
+        // TileGrid.MAX_TILES is the format's; CanvasPresets.MAX_TILES is an
+        // alias its own KDoc calls one. Nothing else asserts they agree, and
+        // custom() checks the alias while the TileGrid constructor throws on
+        // the original — so a drift here is a crash where the dialog should
+        // have refused cleanly.
+        assertEquals(
+            TileGrid.MAX_TILES,
+            CanvasPresets.MAX_TILES,
+            "the CanvasPresets alias must track the tile format's own ceiling",
+        )
         val largest = CanvasPresets.custom(
             CanvasSize(TileGrid.MAX_EDGE, TileGrid.MAX_EDGE),
             MemoryBudget.compute(device(64.0), CanvasSize(2048, 2048)),

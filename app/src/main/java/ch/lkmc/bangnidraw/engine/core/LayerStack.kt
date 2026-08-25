@@ -364,7 +364,16 @@ data class LayerStack(
 
     // --------------------------------------------------------------- properties
 
-    fun rename(index: Int, name: String): StackResult = setProps(index) { it.copy(name = name) }
+    fun rename(index: Int, name: String): StackResult {
+        // A text field that submits "" or "   " would otherwise journal a real
+        // props edit whose result is a layer with no visible label, and undo
+        // would fill with "renamed to nothing" steps. Untrimmed input is the
+        // same problem quieter: " Layer 2" and "Layer 2" look identical in the
+        // panel and are not. Refusal exists to turn this into a UI hint.
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return StackResult.Refused(Refusal.NOOP)
+        return setProps(index) { it.copy(name = trimmed) }
+    }
 
     fun setOpacity(index: Int, opacity: Float): StackResult =
         setProps(index) { it.withOpacity(opacity) }

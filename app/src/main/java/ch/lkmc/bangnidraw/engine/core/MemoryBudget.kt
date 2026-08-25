@@ -13,6 +13,7 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.MAX_CANVAS_EDGE_V1
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.MAX_LAYERS
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.MIN_LAYERS
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.MIN_USEFUL_LAYERS
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.SLICES_PER_PAGE
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.STROKE_BUFFER_RESERVE_LAYERS
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.THUMB_MIB_LARGE
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.THUMB_MIB_LOW_RAM
@@ -129,8 +130,6 @@ object MemoryBudget {
         val poolArrayCount: Int,
     )
 
-    /** The spec minimum for `GL_MAX_ARRAY_TEXTURE_LAYERS`, and our page size. */
-    const val SLICES_PER_PAGE = 256
 
     /**
      * How many layers of [canvas] fit a pool capacity of [poolCapacityBytes],
@@ -151,6 +150,16 @@ object MemoryBudget {
      * The parameter is named for the *capacity*, not the raw budget: passing
      * `Result.gpuTileBudgetBytes` here compiles and reads naturally, and is
      * exactly the over-commit [Result.poolCapacityBytes] exists to prevent.
+     */
+    fun maxLayersFor(budget: Result, canvas: CanvasSize): Int =
+        maxLayersFor(budget.poolCapacityBytes, canvas)
+
+    /**
+     * The raw-capacity form. Prefer the [Result] overload above: the KDoc
+     * below warns that passing `gpuTileBudgetBytes` here "compiles and reads
+     * naturally", and two adjacent `Long` fields is a warning the type system
+     * could be making instead. Kept public because `compute` and the tests
+     * that pin its arithmetic call it directly.
      */
     fun maxLayersFor(poolCapacityBytes: Long, canvas: CanvasSize): Int {
         // A canvas with no area divides by zero below. It is not this
@@ -180,6 +189,15 @@ object MemoryBudget {
 
     fun compute(device: DeviceMemory, canvas: CanvasSize): Result {
         val gpu = when {
+            // The flat low-RAM grant is deliberate, and it is not the larger
+            // share it looks like: LOW_RAM_GPU_TILE_BYTES is the same 256 MiB
+            // as GPU_TILE_MIN_BYTES, the floor the general branch clamps up to.
+            // A 1 GiB device gets 256 MiB either way (1 GiB x 1/8 = 128 MiB,
+            // raised to the floor); what the flag removes is the *ceiling*
+            // growth, so a 4 GiB low-RAM device gets 256 MiB where a 4 GiB
+            // normal one gets 512 MiB (`10-performance.md` §4). Coupling this
+            // branch to totalMem would push the smallest devices *below* a
+            // floor every other device keeps.
             device.isLowRamDevice -> LOW_RAM_GPU_TILE_BYTES
             else -> (device.totalMemBytes * GPU_TILE_FRACTION).toLong()
                 .coerceIn(GPU_TILE_MIN_BYTES, GPU_TILE_MAX_BYTES)

@@ -106,6 +106,9 @@ class CanvasTouchHandler(
     /** The un-snapped angle §7 keeps separately from the displayed rotation. */
     private var rawRotation = 0f
 
+    /** Which pointer is the pen, so only its own lift ends pen contact. */
+    private var stylusPointerId = NO_POINTER
+
     /** A field, not a lambda: an object allocated per event is what §2.4 forbids. */
     private val decisions = object : GestureListener {
         override fun onDraw(pointerId: Int, source: StrokeSource) {
@@ -151,7 +154,10 @@ class CanvasTouchHandler(
 
     internal fun handleDown(pointerId: Int, tool: PointerTool, x: Float, y: Float, timeNs: Long) {
         arbiter.stylusNear = PalmRejection.rejects(PointerTool.FINGER, stylus, timeNs)
-        if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) stylus.onDown(x, y, tool)
+        if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
+            stylusPointerId = pointerId
+            stylus.onDown(x, y, tool)
+        }
         track(pointerId, x, y)
         arbiter.down(pointerId, tool, x, y, timeNs, decisions)
         if (navigating) captureNavPointers()
@@ -182,16 +188,35 @@ class CanvasTouchHandler(
 
     internal fun handleUp(pointerId: Int, timeNs: Long) {
         arbiter.up(pointerId, timeNs, decisions)
-        if (stylus.isDown) stylus.onUp(timeNs)
+        // Only the pen's own lift ends the pen's contact. Keyed on the pointer
+        // id because a palm resting on the glass is a real pointer that lifts
+        // like any other: ending stylus contact on *any* up started the hover
+        // grace while the pen was still drawing, and 500 ms later
+        // PalmRejection stopped rejecting the palm mid-stroke.
+        if (pointerId == stylusPointerId) {
+            stylusPointerId = NO_POINTER
+            if (stylus.isDown) stylus.onUp(timeNs)
+        }
         untrack(pointerId)
-        if (navIds[0] == pointerId) navIds[0] = NO_POINTER
-        if (navIds[1] == pointerId) navIds[1] = NO_POINTER
+        // Compact rather than clear: the arbiter stays in Navigate until the
+        // last pointer lifts, and applyNavigation reads slot 0 first. Clearing
+        // slot 0 froze the canvas with a finger still down, while lifting the
+        // other finger kept panning — the same gesture behaving two ways.
+        if (navIds[0] == pointerId) {
+            navIds[0] = navIds[1]
+            prevX[0] = prevX[1]
+            prevY[0] = prevY[1]
+            navIds[1] = NO_POINTER
+        } else if (navIds[1] == pointerId) {
+            navIds[1] = NO_POINTER
+        }
     }
 
     internal fun handleCancel() {
         arbiter.cancel(decisions)
         navigating = false
         pendingMove = false
+        stylusPointerId = NO_POINTER
         for (i in trackIds.indices) trackIds[i] = NO_POINTER
         navIds[0] = NO_POINTER
         navIds[1] = NO_POINTER

@@ -226,6 +226,58 @@ class CanvasTouchHandlerTest {
         )
     }
 
+    @Test
+    fun `lifting either pinch finger keeps the other one panning`() {
+        // The arbiter stays in Navigate until the last pointer lifts, so the
+        // survivor must keep driving the canvas whichever finger went up.
+        for (lifted in intArrayOf(1, 2)) {
+            val survivor = if (lifted == 1) 2 else 1
+            val host = Host()
+            val h = handler(host)
+            h.handleDown(1, PointerTool.FINGER, 100f, 200f, ms(0))
+            h.handleDown(2, PointerTool.FINGER, 300f, 200f, ms(10))
+            h.handleMove(1, 110f, 200f, ms(30))
+            h.handleMove(2, 310f, 200f, ms(30))
+            h.handleMoveEnd(ms(30))
+
+            h.handleUp(lifted, ms(40))
+            val before = host.view.tx
+            host.events.clear()
+            h.handleMove(survivor, if (survivor == 1) 160f else 360f, 200f, ms(50))
+            h.handleMoveEnd(ms(50))
+
+            assertTrue(
+                host.events.contains("view"),
+                "lifting pointer $lifted must leave $survivor navigating, got ${host.events}",
+            )
+            assertTrue(
+                host.view.tx > before,
+                "the surviving finger must keep panning right: ${host.view.tx} vs $before",
+            )
+        }
+    }
+
+    @Test
+    fun `a palm lifting does not end the pen's contact`() {
+        // A resting palm is a real pointer that lifts like any other. Ending
+        // stylus contact on any up started the hover grace mid-stroke, and
+        // once it expired PalmRejection stopped rejecting the palm.
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(1, PointerTool.STYLUS, 100f, 100f, ms(0))
+        h.handleDown(2, PointerTool.FINGER, 400f, 400f, ms(5))
+        h.handleUp(2, ms(20))
+
+        assertTrue(h.stylus.isDown, "the pen is still on the glass after the palm lifts")
+        assertTrue(
+            PalmRejection.rejects(PointerTool.FINGER, h.stylus, ms(20) + 5_000_000_000L),
+            "fingers must stay rejected while the pen is down, however long after",
+        )
+
+        h.handleUp(1, ms(30))
+        assertTrue(!h.stylus.isDown, "the pen's own lift does end contact")
+    }
+
     private companion object {
         const val WARMUP = 200
         const val MOVES = 2000

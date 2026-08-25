@@ -78,7 +78,7 @@ class SandwichCache(
      * so `above OVER (active BLEND below)` is exact; Multiply and the rest are
      * not associative with respect to the backdrop.
      */
-    var aboveAvailable: Boolean = true
+    var aboveAvailable: Boolean = UNAVAILABLE_UNTIL_OBSERVED
         private set
 
     /**
@@ -90,15 +90,15 @@ class SandwichCache(
      * none. Both answers are "take the per-layer path", which is always
      * correct.
      */
-    var belowAvailable: Boolean = true
+    var belowAvailable: Boolean = UNAVAILABLE_UNTIL_OBSERVED
         private set
 
     /**
      * Recomputes [aboveAvailable] **and** [belowAvailable] for [stack]. Cheap,
      * and called whenever the stack or the active layer changes.
      *
-     * Must run before the first [rebuild], or both flags are still at their
-     * `true` default and a half containing a non-Normal layer would be built.
+     * Until it first runs both halves report *unavailable*, so a cache is
+     * never built from an unexamined stack — see [UNAVAILABLE_UNTIL_OBSERVED].
      */
     fun observe(stack: LayerStack) {
         val activeIndex = stack.activeIndex
@@ -279,6 +279,30 @@ class SandwichCache(
         aboveBuilt.clear()
         belowStale = true
         aboveStale = true
+        // Derived from a stack this cache has not seen since the context went
+        // away, so back to refusing until re-observed.
+        aboveAvailable = UNAVAILABLE_UNTIL_OBSERVED
+        belowAvailable = UNAVAILABLE_UNTIL_OBSERVED
+    }
+
+    private companion object {
+        /**
+         * Both availability flags start **false**.
+         *
+         * `true` would mean "cacheable" for the window between construction and
+         * the first [observe], and a [rebuild] landing there would force
+         * `BlendMode.NORMAL` over layers that are actually Multiply or Screen,
+         * cache that composite, and show it — no crash, no log, just wrong
+         * blending. Today the renderer cannot reach that window (a non-null
+         * stack implies [observe] ran), but the ordering is a convention, not a
+         * type, and a fresh cache after a context loss starts here again.
+         *
+         * Defaulting to unavailable costs a frame or two on the always-correct
+         * per-layer path and cannot be wrong — the same trade
+         * `OffscreenTarget.ensure` makes when it returns false instead of
+         * throwing: degrade to the safe path, never to a wrong result.
+         */
+        const val UNAVAILABLE_UNTIL_OBSERVED = false
     }
 
     /** The context died: the slices do not exist to be freed (§12). */
@@ -289,5 +313,9 @@ class SandwichCache(
         aboveBuilt.clear()
         belowStale = true
         aboveStale = true
+        // Derived from a stack this cache has not seen since the context went
+        // away, so back to refusing until re-observed.
+        aboveAvailable = UNAVAILABLE_UNTIL_OBSERVED
+        belowAvailable = UNAVAILABLE_UNTIL_OBSERVED
     }
 }

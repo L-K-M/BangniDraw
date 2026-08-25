@@ -12,7 +12,6 @@
 
     <!-- Canvas -->
     <string name="canvas_back">Back to the Studio</string>
-    <string name="canvas_debug_nudge_view">Nudge view (debug)</string>
     <string name="canvas_reset_view">Reset view</string>
 
     <!-- About. The Mixbox line is a license obligation (ADR 0003): the

@@ -11,7 +11,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,11 +21,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import android.view.HapticFeedbackConstants
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.input.CanvasInputHost
+import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerProps
@@ -66,8 +69,38 @@ fun CanvasScreen(onBack: () -> Unit) {
     }
     var session by remember { mutableStateOf<EngineSession?>(null) }
     val density = LocalDensity.current
+    val view0 = LocalView.current
+
+    // Roadmap 2.4a: real two-finger navigation. The handler owns the view
+    // transform while a gesture is running and reports it back here.
+    // view0 is in the key because the host below captures it for the snap
+    // haptic: a composition that moved to a different View would otherwise keep
+    // ticking the old one. Safe now that CanvasSurface re-attaches on update.
+    val touch = remember(density, view0) {
+        CanvasTouchHandler(
+            density = density.density,
+            host = object : CanvasInputHost {
+                override fun onViewChanged(next: ViewTransform) { view = next }
+                override fun onRotationSnapped() {
+                    // A single tick as the canvas clicks to straight (§7).
+                    view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                }
+                // Undo and redo arrive with the history journal in step 3; the
+                // gestures are recognised now so the arbiter's behaviour is not
+                // written twice, and doing nothing is honest until then.
+                override fun onUndoRequested() = Unit
+                override fun onRedoRequested() = Unit
+                override fun onColorPick(x: Float, y: Float) = Unit
+            },
+        )
+    }
     val checkerA = MaterialTheme.colorScheme.surface.toArgb()
     val checkerB = MaterialTheme.colorScheme.surfaceVariant.toArgb()
+
+    // Keyed on the handler, not Unit: a recreated handler starts from an
+    // identity transform, and without re-seeding its first gesture would
+    // measure from the wrong baseline and jump.
+    LaunchedEffect(touch) { touch.setView(view) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         CanvasSurface(
@@ -78,6 +111,7 @@ fun CanvasScreen(onBack: () -> Unit) {
             modifier = Modifier.fillMaxSize(),
             debugBuild = BuildConfig.DEBUG,
             onSession = { attached -> session = attached },
+            touchHandler = touch,
         )
 
         // Not in `onSession`: that fires once, from the AndroidView factory, so
@@ -110,37 +144,18 @@ fun CanvasScreen(onBack: () -> Unit) {
 
             if (!view.isIdentity) {
                 FilledTonalButton(
-                    onClick = { view = ViewTransform() },
+                    onClick = {
+                        view = ViewTransform()
+                        // The handler keeps the un-snapped angle §7 accumulates
+                        // separately; without this the next gesture would start
+                        // measuring from the old one and the canvas would jump.
+                        touch.setView(view)
+                    },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
                 ) {
                     Text(stringResource(R.string.canvas_reset_view))
-                }
-            }
-
-            // Debug builds only. 2.3b's device check asks the pill to return
-            // the view to fit "after a programmatic nudge of the transform",
-            // and with `input/` scoped to 2.4 there is otherwise no way to
-            // make the view non-identity on a device — the check would not be
-            // runnable at all. It disappears with the touch handler in 2.4.
-            if (BuildConfig.DEBUG) {
-                TextButton(
-                    onClick = {
-                        view = view.gesture(
-                            centroidX = 0f,
-                            centroidY = 0f,
-                            panX = NUDGE_PAN_PX,
-                            panY = NUDGE_PAN_PX,
-                            zoom = NUDGE_ZOOM,
-                            rotationDelta = NUDGE_ROTATION_RAD,
-                        )
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp),
-                ) {
-                    Text(stringResource(R.string.canvas_debug_nudge_view))
                 }
             }
         }
@@ -156,6 +171,3 @@ private const val CHECKER_DP = 8
 /** A square canvas until the New Canvas dialog can choose one (roadmap step 3). */
 private const val DEFAULT_EDGE = 2048
 
-private const val NUDGE_PAN_PX = 120f
-private const val NUDGE_ZOOM = 1.35f
-private const val NUDGE_ROTATION_RAD = 0.35f

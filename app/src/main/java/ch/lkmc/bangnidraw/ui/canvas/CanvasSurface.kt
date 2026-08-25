@@ -40,6 +40,8 @@ fun CanvasSurface(
     modifier: Modifier = Modifier,
     debugBuild: Boolean,
     onSession: (EngineSession?) -> Unit,
+    /** Attached to the SurfaceView as its touch and hover listener (roadmap 2.4a). */
+    touchHandler: ch.lkmc.bangnidraw.input.CanvasTouchHandler? = null,
 ) {
     val context = LocalContext.current
     val budget = remember(canvas) { MemoryBudget.compute(readDeviceMemory(context), canvas) }
@@ -64,7 +66,17 @@ fun CanvasSurface(
                 onSession(session)
             }
         },
-        update = {
+        update = { surface ->
+            // Attached here, not in `factory`: `factory` runs once per view
+            // instance, but CanvasScreen builds the handler with
+            // `remember(density, view0)`, so a density or window change makes a
+            // NEW handler that the SurfaceView would never hear about — it
+            // would keep dispatching to the stale one while reset-view drove
+            // the new one. These setters replace rather than accumulate, so
+            // calling them on every recomposition is idempotent.
+            surface.setOnTouchListener(touchHandler)
+            surface.setOnHoverListener(touchHandler)
+
             // Compose recomposes on every state change; the engine only needs
             // to hear about the ones that change what it draws. Each setter
             // hops to the GL thread and requests one redraw, and the renderer

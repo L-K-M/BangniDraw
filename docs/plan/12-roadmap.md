@@ -143,9 +143,20 @@ Status: ⬜ not started · 🔁 open, in review · ✅ landed on `main` (with th
 | 2.1 | `fable/engine-core-document` | `engine/core` document model: `PerfConstants`, `TileKey`/`IntRect`/`TileGrid`, `LayerId`/`LayerProps`/`Layer`/`LayerRecord`/`BlendMode`/`LayerStack` (+ `StackEdit`/`StackResult`/`PixelOp`/`HistoryEntry` declarations), `Document`, `Composite` (CPU reference, all eight modes), `MemoryBudget`, `CanvasPresets`, `Clock`/`RandomSource` | JVM: `TileGridTest`, `LayerStackTest`, `CompositeTest`, `MemoryBudgetTest`, `CanvasPresetsTest` green; `lintDebug` clean. No device check (nothing user-visible changes) | ✅ #7, merged 2026-08-25 |
 | 2.2 | `fable/engine-core-stroke` | `engine/core` stroke math: `StrokeInput`(+batch), `PressureCurve`, `Stabilizer`, `Dab`/`DabBatch`/`DabRing`, `DabGenerator`, `BrushPreset`/`Curve`/`ToolKind` with the one round preset | JVM: `StabilizerTest`, `DabGeneratorTest` (+ golden stroke), `PressureCurveTest`, `DabRingTest`, `BrushPresetTest`. Still no device check | ✅ #9, merged 2026-08-25 |
 | 2.3a | `fable/engine-gl-compositor` | `engine/gl` foundation, with no opinion about compositing: `GlCaps`, `GlErrors`, `GlProgram`, `GlFbo`, `GlState`, `Shaders`, `TilePool`, `LayerTextures`, plus their pure `engine/core` twins `SliceAllocator`/`SliceHandle` and `TileIndex` and the packed `TileGrid.keysFor` overload the compositor needs | No device check: nothing in this half puts a pixel on screen, so there is nothing a device could show. JVM: `GlShaderContractTest`, `GlslDeclarationOrderTest`, `GlCapsTest`, `SliceAllocatorTest`, `TileIndexTest` | ✅ #10, merged 2026-08-25 |
-| 2.3b | `fable/engine-gl-canvas` | Everything that draws: `ScreenTransform`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect at the right size and orientation, and the reset-view pill returns to fit after a programmatic nudge of the transform (the debug overlay is 2.5's). No touch navigation yet: `input/` is 2.4, so the view is driven programmatically here. JVM: `ScreenTransformTest` | ⬜ |
-| 2.4 | `fable/stroke-path-touch` | The stroke lands on pixels, with touch: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, `input/` (`GestureArbiter`, `PalmRejection`, `StylusState`, `CanvasTouchHandler`) | Device: one finger draws a stroke that survives pen-up; two-finger tap does not leave a dot; two-finger pinch/zoom/rotate is smooth and rotation snaps near 0°, during a stroke as well as between strokes. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` (the no-allocation assertion of `docs/plan/10-performance.md` §2.4 — the step-2 risk table above names it as the mitigation for touch-path GC jank, so it is a gate, not an optional extra), and the merge blend math cross-checked on the JVM against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ⬜ |
+| 2.3b | `fable/engine-gl-canvas` | Everything that draws: `ScreenTransform`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect at the right size and orientation, and the reset-view pill returns to fit after a programmatic nudge of the transform (the debug overlay is 2.5's). No touch navigation yet: `input/` is 2.4, so the view is driven programmatically here. JVM: `ScreenTransformTest` | ✅ #11, merged 2026-08-25 |
+| 2.4a | `fable/stroke-path-touch` | The input stack, driving navigation: `engine/core/GestureArbiter` plus `input/` (`StylusState`, `PalmRejection`, `CanvasTouchHandler`), wired to `ViewTransform` in `CanvasScreen`. The stroke callbacks are declared here and consumed in 2.4b | Device: two-finger pinch/zoom/rotate is smooth and rotation snaps near 0°; a resting palm does not pan, zoom or rotate the view while the pen hovers; two- and three-finger taps fire undo/redo. No strokes yet, so the stroke clauses of the old 2.4 check move to 2.4b. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` — including the no-allocation assertion of `docs/plan/10-performance.md` §2.4, which the step-2 risk table names as the mitigation for touch-path GC jank, so it is a gate | ⬜ |
+| 2.4b | `fable/stroke-on-pixels` | The stroke reaches pixels: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, and the dab and merge shaders | Device: one finger draws a stroke that survives pen-up; a two-finger tap does not leave a dot; navigation stays smooth during a stroke as well as between strokes. JVM: the merge blend math cross-checked against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ⬜ |
 | 2.5 | `fable/front-buffered-stylus` | 2b: the front-buffered path (`onDrawFrontBufferedLayer`, `commit`, `cancel`), `TailBuffer`, `Predictor`, stylus axes (pressure/tilt/orientation/eraser end), palm rejection on device, unbuffered dispatch, debug overlay | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). JVM: `StabilizerTest` gains the predicted-tail cases — rationale in the note below. **This completes step 2** | ⬜ |
+
+**`GestureArbiter` is `engine/core`, not `input/`.** The old 2.4 row listed it
+among the `input/` classes; PLAN.md §3's tree puts it beside `ViewTransform` and
+`FitTransform` in `engine/core`, and `07-input-and-stylus.md` §3 opens by calling
+it "(`engine/core`, pure JVM)" with "no reference to `MotionEvent`". Per this
+document's own rule — where it and PLAN.md disagree, PLAN.md wins and the
+disagreement is a bug here — the rows above are corrected. Only
+`CanvasTouchHandler`, `StylusState` and `PalmRejection` are `input/`, and the
+split matters: the arbiter is a pure state machine its tests drive by building
+pointer timelines by hand.
 
 **Carried in from PR 2.3b's review.** `SandwichCache.buildTile` blends each
 contributing layer straight into the cache slice, which is correct for
@@ -169,6 +180,20 @@ parser's to keep — kotlinx throws on an unknown key by default. The store must
 also decide what a preset that fails `init` does on load; dropping it with a
 log, as `ProjectStore` does for a corrupt layer, is the shape to follow.
 
+**Carried in from PR 2.4a's review.** Two items, both raised after steady state
+and neither affecting coverage today. `NavigationStep.applyTo` returns
+`view.gesture(...)` and the snap then re-`copy`s it, so a navigation step
+allocates two `ViewTransform`s — measured at 64.5 bytes per move, which is the
+floor `CanvasTouchHandlerTest`'s allocation gate is set just above. An in-place
+`applyTo(view, out)` would take the touch path to zero, but it needs a mutable
+`ViewTransform`, and that immutability is relied on well outside the touch path
+(`isIdentity`, the reset lerp, every `copy` call site) — so it is a deliberate
+follow-up, not a 2.4a omission. Separately, `CanvasTouchHandlerTest`'s
+`cancel rolls the stroke back and leaves the view alone` asserts
+`h.view.isIdentity`, which pins the fixture's starting value rather than the
+invariance its message names (REVIEW.md R-052); capture the view before the
+cancel and `assertEquals` against it when that file is next touched.
+
 *Why the predicted-tail cases and nothing else in 2.5.* The tail runs through a
 *copy* of the stabilizer state (`04-tools.md` §4), so "continues the stabilized
 line" and "never advances the real state" are pure claims, and they are the "no
@@ -177,6 +202,25 @@ hook on pen-up" risk in testable form. No `PredictorTest`/`TailBufferTest`:
 androidx type (`02-architecture.md` §2.6) and `TailBuffer` is a GL object
 (§2.3) — neither holds logic a JVM test could pin, which is why
 `11-testing.md` gates prediction on the device checklist instead.
+
+**Split seam for 2.4, named in advance.** Rule 1 requires a *named* seam, so
+this fixes one before it is needed rather than cutting where the work happens to
+stop. 2.4 carries more classes than 2.3 did — four GL classes, four input
+classes (three in `input/` plus the engine-core `GestureArbiter`), four JVM test
+suites, and two new shaders — and 2.3's two halves
+measured ~2,700 lines each, so it is very unlikely to fit one PR. Both halves
+are independently demoable on a device, which is what makes this seam better
+than 2.3's: **2.4a** is the input stack driving *navigation* (the canvas 2.3b
+draws can be panned, zoomed and rotated, and a resting palm can be shown not to
+mark), and **2.4b** is the stroke reaching pixels. Every JVM *test suite* the
+old 2.4 row listed belongs to 2.4a; the one gate that does not is the
+CPU-reference cross-check, which is 2.4b's evidence along with the device.
+
+Measure before splitting: if 2.4a and 2.4b together come in under the M band,
+they stay one PR and the two rows fold back into a single 2.4 row — keeping
+2.4b's CPU-reference cross-check gate and its **This completes 2a** marker, and
+resolving 2.4a's "consumed in 2.4b" reference. Striking the second row instead
+would satisfy "measured, not assumed" by deleting the evidence.
 
 **2.3 was split, at the seam this document named in advance.** Rule 1 above is
 that a step which turns out to be two PRs is split at a named seam, never at an

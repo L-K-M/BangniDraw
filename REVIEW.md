@@ -686,3 +686,120 @@ unreadable.
   decline above stands unchanged — neither field is deleted and neither is
   wired into the `large` predicate, because both would deviate from a
   normative struct or silently move §4's pinned table.
+
+## PR #12 (roadmap 2.4a) — GLM round 1
+
+- **R-047 ❌ `noteLift(slot)` / `remove(slot)` can be reached with `slot = -1`
+  and crash the touch path** (PR #12, GLM round 1, Major). **Refuted**: no call
+  site can pass `-1`, and both guard already. `up()` opens with
+  `val slot = indexOf(pointerId); if (slot < 0) return`, so an untracked
+  pointer's lift returns before either helper. `down()` opens with
+  `val slot = add(...); if (slot < 0) { out.onIgnore(pointerId); return }`, and
+  the palm branch guards its own write with `if (slot >= 0)`. The finding's own
+  scenario — a fifth pointer on a device reporting five contacts — is therefore
+  a no-op in both directions, which
+  `GestureArbiterTest.a pointer beyond the tracking table can land and lift
+  without crashing` now pins: the extra pointer is ignored on the way in and its
+  move and lift do nothing on the way out. The test was **applied** even though
+  the crash claim was refuted, because "no reachable crash" is worth a
+  regression test. The guards themselves are declined: they would be branches no
+  test can reach without breaking encapsulation, and "one refactor away from an
+  unguarded call" is true of every private helper in the codebase.
+
+- **R-048 ⏸️ The allocation gate should `assumeTrue` instead of failing on a JVM
+  without `com.sun.management.ThreadMXBean`** (PR #12, GLM round 1, Info).
+  Declined. The hard failure is the point. This gate exists because
+  `10-performance.md` §2.4 names it the mitigation for touch-path GC jank, and a
+  skip turns it into exactly the silently-vacuous check that the same round's
+  budget finding (applied, see below) was about: a green build that measured
+  nothing. CI runs stock OpenJDK, where the extension is present, so the skip
+  would only ever fire on a JVM nobody builds this on. A red test whose message
+  reads "this JVM cannot measure per-thread allocation, so this gate would be
+  vacuous" already says "wrong JVM", not "allocation regression".
+
+- **R-049 ⏸️ Rename the 2.4a branch label to `fable/touch-navigation`, since
+  `fable/stroke-path-touch` no longer describes a PR with no stroke path** (PR
+  #12, GLM round 1, Info). Declined. The observation is fair — 2.4a carries no
+  stroke path — but the branch exists, PR #12 is open on it, and the roadmap
+  cell's job is to record where the work actually landed. Renaming the label
+  without renaming the branch makes the table wrong for exactly the bisecting
+  the finding wants to protect; renaming the branch mid-review closes the PR and
+  discards the round. The 2.4b row already carries `fable/stroke-on-pixels`, so
+  a reader looking for where strokes first land is sent to the right row.
+
+## PR #12 (roadmap 2.4a) — GLM round 2
+
+- **R-050 ❌ Restore `isFocusable` / `isFocusableInTouchMode` in `factory`
+  rather than deleting them** (PR #12, GLM round 2, Minor). **Refuted**, and
+  note this reverses the same reviewer's round-1 Minor, which said to delete
+  them and correctly explained why ("Android delivers touch and hover events to
+  a `View`'s listeners regardless of focusability — focus only gates key
+  events"). Round 2 does not withdraw that reasoning; it asks whether some
+  focus-dependent path might exist anyway, and makes its own suggestion
+  conditional on verification: "Only apply this if verification shows a
+  focus-dependent path exists."
+
+  Verified, and none exists. `grep -rn
+  "requestFocus\|onKey\|dispatchKeyEvent\|setOnGenericMotionListener\|OnKeyListener\|KeyEvent"`
+  over `app/src/main` returns nothing at all: the app has no key handling, no
+  generic-motion listener, and never requests focus. The stylus barrel button
+  arrives as `ACTION_BUTTON_PRESS`/`RELEASE` in the ordinary `MotionEvent`
+  stream — `CanvasTouchHandler.onTouch` now handles it there — not as a
+  `KeyEvent`, so even §6's one plausible focus-dependent feature is not one.
+  The deletion stands. Restoring the flags would reintroduce a `SurfaceView`
+  that grabs focus on first touch for no benefit.
+
+  Recorded rather than silently re-applied because a reviewer that asks for a
+  change and later for its revert, on code whose behaviour has not changed
+  between the two rounds, must not be able to walk a decision back and forth by
+  repetition.
+
+## PR #12 (roadmap 2.4a) — GLM round 4
+
+- **R-051 ⚠️ Applied in substance, refuted in mechanism: assert
+  `host.view.isIdentity` after a cancel** (PR #12, GLM round 4, Minor). The
+  observation is right and the fix is wrong. `cancel rolls the stroke back and
+  leaves the view alone` really did assert only the host events, leaving the
+  second half of its own name unchecked, so an assertion belongs there.
+
+  But the suggested one cannot fail. `Host.view` is written *only* by
+  `onViewChanged`, and the line immediately above it —
+  `assertEquals(listOf("cancel"), host.events)` — already proves no `"view"`
+  event was emitted. `host.view.isIdentity` is therefore implied by the
+  preceding assertion and adds no coverage at all. Worse, it is specifically
+  blind to the regression the finding names: "changed it without emitting
+  `onViewChanged`" is the one case where the handler's transform moves and the
+  host's copy does not.
+
+  Mutation-checked both ways. With `handleCancel` made to do
+  `view = view.copy(tx = view.tx + 1f)` and emit nothing, the suggested
+  `host.view` assertion leaves the suite green; `h.view.isIdentity` fails it.
+  The assertion is on the handler's own view, with a comment recording why.
+
+  Worth spelling out because this is the same class of defect the reviewer has
+  been most valuable at finding in *this* PR's tests — an assertion that reads
+  as coverage and cannot fail — arriving this time in its own suggestion.
+
+## PR #12 (roadmap 2.4a) — GLM round 5
+
+- **R-052 ⏸️ Assert `assertEquals(viewBeforeCancel, h.view)` rather than
+  `h.view.isIdentity`** (PR #12, GLM round 5, Minor). Correct, and **deferred to
+  2.4b** rather than declined — it is a real improvement that arrived after
+  steady state was declared.
+
+  The point stands: `isIdentity` pins the fixture's *starting value*, while the
+  assertion's own message names the *property* "cancel left the view alone".
+  They coincide only because this test starts from an identity view, so a future
+  pan/zoom preamble would break the assertion spuriously. Capturing the view
+  before the cancel and comparing expresses the invariant directly.
+
+  Not applied here because the round that raised it is the third consecutive
+  nits-only round, and the finding itself concedes "the mutation-catching power
+  is identical as written" — the R-051 mutation (mutate the transform, emit
+  nothing) fails the assertion either way, so today this changes robustness and
+  intent, not coverage. Steady state was declared on rounds 3 and 4; taking one
+  more cosmetic round would restart the cycle on exactly the reasoning the stop
+  rules exist to bound, and the same argument would then apply to round 6.
+
+  Carried in `docs/plan/12-roadmap.md` as a 2.4b carry-in, to be done when that
+  file is next touched.

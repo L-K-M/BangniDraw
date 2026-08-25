@@ -124,6 +124,16 @@ class CanvasPresetsTest {
     }
 
     @Test
+    fun `a custom size exactly at maxCanvasEdge is accepted`() {
+        // The refusal test above only proves 4096 > 3584 is refused. An
+        // off-by-one in the ceiling comparison would refuse the exact number
+        // the dialog advertises as the maximum, and nothing would fail.
+        val result = budget(4.0, lowRam = true)
+        val ok = CanvasPresets.custom(CanvasSize(result.maxCanvasEdge, 2048), result)
+        assertIs<CustomSizeResult.Ok>(ok, "${result.maxCanvasEdge}px is the advertised ceiling")
+    }
+
+    @Test
     fun `a custom size below the format minimum is refused, on either axis`() {
         val result = budget(8.0)
         val short = TileGrid.MIN_EDGE - 1

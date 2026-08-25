@@ -69,8 +69,7 @@ sealed interface HistoryEntry {
         val tiles: List<TileKey>,
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): Stroke {
-            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
-            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
+            validateStamp(this.seq, seq)
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -86,8 +85,7 @@ sealed interface HistoryEntry {
         val tiles: List<TileKey>,
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): Fill {
-            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
-            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
+            validateStamp(this.seq, seq)
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -103,8 +101,7 @@ sealed interface HistoryEntry {
         val index: Int,
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerAdd {
-            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
-            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
+            validateStamp(this.seq, seq)
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -121,8 +118,7 @@ sealed interface HistoryEntry {
         val tiles: List<TileKey>,
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerDelete {
-            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
-            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
+            validateStamp(this.seq, seq)
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -139,8 +135,7 @@ sealed interface HistoryEntry {
         val toIndex: Int,
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerReorder {
-            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
-            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
+            validateStamp(this.seq, seq)
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -157,8 +152,7 @@ sealed interface HistoryEntry {
         val after: LayerRecord,
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerProps {
-            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
-            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
+            validateStamp(this.seq, seq)
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -191,8 +185,7 @@ sealed interface HistoryEntry {
         val lowerTiles: List<TileKey>,
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerMerge {
-            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
-            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
+            validateStamp(this.seq, seq)
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -209,8 +202,7 @@ sealed interface HistoryEntry {
         val index: Int,
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerDuplicate {
-            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
-            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
+            validateStamp(this.seq, seq)
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -226,8 +218,7 @@ sealed interface HistoryEntry {
         val tiles: List<TileKey>,
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): LayerClear {
-            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
-            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
+            validateStamp(this.seq, seq)
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -244,8 +235,7 @@ sealed interface HistoryEntry {
         val result: LayerRecord,
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): Flatten {
-            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
-            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
+            validateStamp(this.seq, seq)
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -261,8 +251,7 @@ sealed interface HistoryEntry {
         val after: Int,
     ) : HistoryEntry {
         override fun stamp(seq: Long, timestamp: Long, bytes: Long): PaperColor {
-            check(this.seq == UNSTAMPED) { "entry is already stamped (seq=${this.seq})" }
-            require(seq > UNSTAMPED) { "journal seq starts at 1, was $seq" }
+            validateStamp(this.seq, seq)
             return copy(seq = seq, timestamp = timestamp, bytes = bytes)
         }
     }
@@ -270,5 +259,16 @@ sealed interface HistoryEntry {
     companion object {
         /** The value of [seq]/[timestamp]/[bytes] before the journal stamps an entry. */
         const val UNSTAMPED = 0L
+
+        /**
+         * The single-shot, `seq >= 1` guard every [stamp] override runs. Hoisted
+         * because the invariant otherwise lives in eleven copies, and step 3 is
+         * going to want to strengthen it — validating `timestamp` too, most
+         * likely — which is eleven chances to miss one.
+         */
+        fun validateStamp(current: Long, next: Long) {
+            check(current == UNSTAMPED) { "entry is already stamped (seq=$current)" }
+            require(next > UNSTAMPED) { "journal seq starts at 1, was $next" }
+        }
     }
 }

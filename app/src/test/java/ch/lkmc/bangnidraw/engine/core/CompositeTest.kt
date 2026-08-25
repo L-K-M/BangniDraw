@@ -142,11 +142,15 @@ class CompositeTest {
         val random = Random(13)
         for (mode in BlendMode.entries) {
             repeat(500) {
-                val out = Composite.blend(randomPremultiplied(random), randomPremultiplied(random), mode, random.nextFloat())
+                val dst = randomPremultiplied(random)
+                val src = randomPremultiplied(random)
+                val opacity = random.nextFloat()
+                val out = Composite.blend(dst, src, mode, opacity)
                 val a = Composite.alpha(out)
                 assertTrue(
                     Composite.red(out) <= a && Composite.green(out) <= a && Composite.blue(out) <= a,
-                    "$mode produced ${hex(out)}, whose colour exceeds its alpha",
+                    "$mode produced ${hex(out)} from dst ${hex(dst)} and src ${hex(src)} " +
+                        "at opacity $opacity, whose colour exceeds its alpha",
                 )
             }
         }

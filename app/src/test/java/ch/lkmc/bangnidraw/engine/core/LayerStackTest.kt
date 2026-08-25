@@ -18,6 +18,13 @@ class LayerStackTest {
 
     private val cap = 16
 
+    /**
+     * Iterations for the invariant walk below. Large enough to reach deep,
+     * shuffled stack states rather than a correctness threshold — the suite
+     * runs in well under a second at this count.
+     */
+    private val STRESS_ITERATIONS = 5_000
+
     private fun stackOf(vararg names: String, active: Int = 0): LayerStack =
         LayerStack(
             layers = names.mapIndexed { i, n -> Layer(LayerProps(LayerId("id-$i"), n)) },
@@ -46,6 +53,11 @@ class LayerStackTest {
         assertEquals("id-0", edit.stack.layers[0].id.value)
         assertEquals("id-1", edit.stack.layers[1].id.value)
         assertEquals("id-2", edit.stack.layers[3].id.value, "the old top is pushed up, not replaced")
+        // Pins the injected source. Without this, add() could ignore IdSource
+        // entirely — or call newId() twice — and every other assertion here
+        // would still pass, quietly breaking the deterministic replay that is
+        // the only reason Ids exists.
+        assertEquals("id-1000", edit.stack.layers[2].id.value, "the new id comes from the injected IdSource")
         assertEquals(LayerStack.defaultName(4), edit.stack.active.props.name)
         assertEquals(5, edit.stack.nextName, "the default-name counter only grows")
         assertNull(edit.pixels, "an empty layer has no pixel work")
@@ -534,7 +546,7 @@ class LayerStackTest {
         val ids = Ids(200)
         var stack = seededStack()
         val grid = TileGrid(1024, 1024)
-        repeat(5000) {
+        repeat(STRESS_ITERATIONS) {
             val result = randomOperation(stack, random, ids)
             if (result is StackResult.Ok) stack = result.edit.stack
             assertTrue(stack.layers.isNotEmpty(), "a document always has one layer")

@@ -100,6 +100,15 @@ class MemoryBudgetTest {
 
     @Test
     fun `the layer cap is monotone non-increasing in canvas area`() {
+        // Squares only walk the diagonal. A cap that depended on width or
+        // height alone rather than on tile area would pass every one of them,
+        // so pair each square with a rectangle of the same tile count.
+        val squares = (256..4096 step 256).map { CanvasSize(it, it) }
+        val rectangles = (512..4096 step 512).map { CanvasSize(it / 2, it * 2) }
+        for ((tiles, group) in (squares + rectangles).groupBy { it.tilesPerLayer }.toSortedMap()) {
+            val caps = group.map { MemoryBudget.compute(device(8.0), it).maxLayers }.toSet()
+            assertEquals(1, caps.size, "$tiles tiles must mean one cap, got $caps for $group")
+        }
         val edges = (256..4096 step 256).toList()
         var previous = Int.MAX_VALUE
         for (edge in edges) {

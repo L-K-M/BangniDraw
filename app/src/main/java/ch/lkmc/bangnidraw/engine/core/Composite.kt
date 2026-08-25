@@ -67,7 +67,17 @@ object Composite {
         // and quantize truncates NaN to 0 — a silently erased pixel, which is
         // the worst failure a paint program has. The same sanitizer the layer
         // model uses, so a corrupt opacity degrades to fully visible here too.
-        val o = LayerProps.sanitizeOpacity(opacity)
+        return blendCore(dst, src, mode, LayerProps.sanitizeOpacity(opacity))
+    }
+
+    /**
+     * [blend] with the opacity already sanitized. [tile] takes this path so a
+     * value that is constant for the whole tile is not re-checked once per
+     * pixel — a 4096 square flatten with a dozen layers would otherwise make
+     * something like 200 million loop-invariant calls through a non-inlined
+     * boundary. Sanitizing is idempotent, so the two entry points agree.
+     */
+    private fun blendCore(dst: Int, src: Int, mode: BlendMode, o: Float): Int {
         if (o == 0f) return dst
         val sa = alpha(src) / 255f * o
         val sr = red(src) / 255f * o
@@ -190,7 +200,10 @@ object Composite {
         val ground = premultiply(paper)
         val out = IntArray(TILE_SIZE * TILE_SIZE) { ground }
         for (layer in layers) {
-            val opacity = layer.props.opacity
+            // Sanitize once per layer, not once per pixel. It also makes the
+            // zero check below skip the tile read for a NaN or out-of-range
+            // opacity, not just an exactly-zero one.
+            val opacity = LayerProps.sanitizeOpacity(layer.props.opacity)
             // Before the read, not after: this is the flatten and export path,
             // so a layer the user dragged to 0 % would otherwise cost a full
             // tile read — real disk I/O for a disk-backed reader — to produce
@@ -206,7 +219,7 @@ object Composite {
             }
             val mode = layer.props.blendMode
             for (i in out.indices) {
-                out[i] = blend(out[i], src[i], mode, opacity)
+                out[i] = blendCore(out[i], src[i], mode, opacity)
             }
         }
         return out

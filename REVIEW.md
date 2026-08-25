@@ -95,6 +95,49 @@ _Nothing open._
 
 ## Declined, with reasons
 
+- **R-015 ⏸️ (fifth raising) Vary `largeMemoryClassMb` and the GL caps in
+  `CanvasPresetsTest`'s device helper.** Declined again on the same ground, now
+  stated once and for all: `MemoryBudget.compute` does not read
+  `largeMemoryClassMb`, so sweeping it asserts that an unread number changes
+  nothing. The GL half is different and already covered — `glMaxArrayLayers`
+  does shape the pool, and `MemoryBudgetTest` sweeps it at 256, 128 and 64
+  across every canvas and device; `CanvasPresetsTest` tests preset *selection*,
+  which sits above that. Ordinals in R-015's headers count raisings of R-015
+  itself; the round-2 original and its first re-raise are under R-002.
+
+- **R-014 ⏸️ (third raising) `LayerId` should reject Windows reserved device
+  names.** The trailing-dot-and-space half of round 12's finding was applied and
+  is the one that mattered: Win32 strips those silently, so `layers/sketch /`
+  becomes `layers/sketch/` on a copy and the layer loads empty with no error
+  anywhere. Reserved names stay declined — `CON`/`NUL` fail *loudly* on Windows
+  rather than silently, detecting them properly needs a case-insensitive
+  stem-and-extension parse, and nothing in this project hands a layer id to a
+  Windows filesystem.
+
+- **R-018 ⏸️ Rename `HistoryEntry.LayerProps` and `LayerDuplicate.copy`.**
+  Declined: `06-document-and-persistence.md` §5.2 is normative for the entry
+  kinds' *names* and their fields, and both are what it calls them. The
+  collisions are real — the nested class shadows the model's `LayerProps`, and
+  `entry.copy` (a record) sits beside `entry.copy(...)` (the generated clone) —
+  and both are recorded in AGENTS.md as conventions rather than left as
+  surprises. A rename would deviate from a normative declaration to buy
+  readability a qualified name and an import alias already buy.
+
+- **R-019 ⏸️ Move the undo formula onto `HistoryEntry.LayerMerge`'s KDoc.**
+  Refuted: it is already there and has been since the entry was written. The
+  KDoc states it as "restore `lowerTiles` **and delete `upperTiles − lowerTiles`
+  from it**", which is the same reconstruction as the finding's
+  `(merged.tiles − upperTiles) + lowerTiles` — verified equivalent over 3000
+  random tile-set pairs in both the `bakesWholeBottom` branches. The finding's
+  premise, that the formula "currently exists only inside this method's
+  comment", is false.
+
+- **R-020 ⏸️ Add a decode-path test for a NaN token in `project.json`.**
+  Deferred, not declined: the test needs the loader's `Json` instance, and
+  `data/` does not exist until roadmap step 3. Round 11 already reworded the
+  comment that overclaimed reachability into a requirement on that loader, and
+  12-roadmap.md's step-3 carry-in list is where it will be executed.
+
 - **R-010 ⏸️ (second raising) Round 11's BLOCKER: "`assertIs` does not
   smart-cast, so `ok()`/`refusal()` do not compile".** Refuted in round 7 and
   again now, on the same evidence: `kotlin.test.assertIs` carries the contract

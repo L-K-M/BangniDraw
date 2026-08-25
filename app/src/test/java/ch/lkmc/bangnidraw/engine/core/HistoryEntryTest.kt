@@ -130,7 +130,12 @@ class HistoryEntryTest {
         // The journal issues seq starting at 1 (06 §3, nextSeq = 1L), so the
         // sentinel must be a value it never issues.
         assertEquals(0L, HistoryEntry.UNSTAMPED)
-        assertTrue(everyKind.first().stamp(seq = 1, timestamp = 1, bytes = 0).isStamped)
+        for (entry in everyKind) {
+            assertTrue(
+                entry.stamp(seq = 1, timestamp = 1, bytes = 0).isStamped,
+                "${entry::class.simpleName} must read as stamped at seq 1, the journal's first number",
+            )
+        }
         // Stamping with the sentinel itself would produce an entry that still
         // reports isStamped false — so the single-shot check would pass a
         // second time and the journal could reissue the number.

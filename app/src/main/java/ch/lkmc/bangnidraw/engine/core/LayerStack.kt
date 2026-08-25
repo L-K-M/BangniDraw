@@ -142,6 +142,11 @@ data class LayerStack(
             id = ids.newId(),
             name = duplicateName(source.props.name),
             locked = false,
+            // alphaLock is deliberately NOT reset, unlike locked. Lock is
+            // protection and a fresh copy needs none; alpha lock is a painting
+            // mode (`05-layers.md` §2, "colour inside what I have"), and
+            // "duplicate the line art, colour inside it" is the workflow it
+            // exists for. The plan is silent, so this records the choice.
         )
         val at = index + 1
         val next = copy(
@@ -189,7 +194,17 @@ data class LayerStack(
         )
     }
 
-    /** Moves [from] so that it ends up at index [to]; the moved layer becomes active. */
+    /**
+     * Moves [from] so that it ends up at index [to] *in the resulting list*;
+     * the moved layer becomes active.
+     *
+     * The layer is removed and then re-inserted, so [to] is a post-removal
+     * index: a downward move lands *after* the element currently at [to].
+     * Drag-and-drop UIs conventionally compute a drop index against the
+     * pre-move ordering, so step 6's layer panel has to shift by one — the
+     * classic off-by-one here, called out because the inverse `move(to, from)`
+     * is exact and will not reveal the mistake.
+     */
     fun move(from: Int, to: Int): StackResult {
         if (from !in layers.indices || to !in layers.indices) return StackResult.Refused(Refusal.NOOP)
         if (from == to) return StackResult.Refused(Refusal.NOOP)
@@ -266,7 +281,15 @@ data class LayerStack(
                 removeAt(index)
                 set(index - 1, merged)
             },
-            activeIndex = index - 1,
+            // Like delete: the selection only moves if it was on one of the
+            // two layers being merged. Merging a pair you are not working on
+            // must not yank the selection away from the layer you are.
+            // `05-layers.md` §4.1 is silent, so delete's convention governs.
+            activeIndex = when {
+                activeIndex == index || activeIndex == index - 1 -> index - 1
+                activeIndex > index -> activeIndex - 1
+                else -> activeIndex
+            },
         )
         // Only the bottom tiles the merge actually overwrites — unlike
         // `upperTiles` two lines down, this is NOT the lower layer's full tile
@@ -280,7 +303,7 @@ data class LayerStack(
             PixelOp.Merge(top.id, top.props, bottom.id, bottom.props, rewritten),
             HistoryEntry.LayerMerge(
                 activeBefore = active.id,
-                activeAfter = merged.id,
+                activeAfter = next.active.id,
                 upper = top.props.toRecord(),
                 upperIndex = index,
                 upperTiles = top.tiles.sortedBy { it.packed },

@@ -20,6 +20,12 @@ value class LayerId(val value: String) {
         // future fixtures need not be UUIDs to satisfy it.
         require(
             value.isNotEmpty() && value != "." && value != ".." &&
+                // Win32 silently strips a trailing dot or space from a path
+                // segment, so "sketch " becomes "sketch" the moment the project
+                // folder is copied to a Windows machine: project.json still
+                // names "sketch " while the tiles now live in layers/sketch/,
+                // and the layer loads empty. Data loss with no error anywhere.
+                !value.endsWith(".") && !value.endsWith(" ") &&
                 // NAME_MAX is 255 *bytes* on the filesystems Android puts app
                 // storage on. An over-long id is not a traversal problem but a
                 // worse one: it passes here, and `layers/<id>/` then fails with

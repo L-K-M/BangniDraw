@@ -207,14 +207,18 @@ and the contradiction is noted here.
 - **Generated layer names are a closed grammar, not a prefix.** Only three
   stored forms resolve through resources at display time:
   `@string/layer_flattened`, `@string/layer_default <int>`, and
-  `<name> @string/layer_copy_suffix`. Anything else is shown verbatim — which
+  `<name> @string/layer_copy_suffix` — where `<name>` is itself resolved when it
+  matches one of the other two forms, so a copy of a default-named layer shows
+  the localized name plus the suffix rather than a raw resource token. Anything else is shown verbatim — which
   is what lets a user type `"@string/app_name"` as a layer name and see it
   back unchanged, and what keeps a duplicate of a default-named layer
   translatable (`01-product.md` §8: no English text in a stored name). A
   user-typed name survives unless it exactly matches one of the three forms —
   `"@string/layer_default 7"` is indistinguishable from a generated name and
-  resolves as one, which costs nothing since it resolves to the text it
-  already reads as. The resolver arrives with the layer panel in step 6 and
+  resolves as one — nearly free, since it displays as the text it already reads
+  as, with one real cost: because the stored string resolves through resources
+  at display time, a later locale switch re-renders a name the user typed by
+  hand. The resolver arrives with the layer panel in step 6 and
   must implement exactly that grammar, not "resolve any `@string/` token".
 - **Test fixtures live in `app/src/test/resources/fixtures/…`**, addressed
   through `javaClass.getResourceAsStream("/fixtures/…")`.

@@ -91,7 +91,11 @@ class TileGridTest {
             assertFailsWith<IllegalArgumentException> { IntRect.forDab(0f, 0f, bad) }
         }
         assertFailsWith<IllegalArgumentException> { IntRect.forDab(10f, 10f, -1f) }
-        IntRect.forDab(10f, 10f, 0f)
+        assertEquals(
+            IntRect(9, 9, 11, 11),
+            IntRect.forDab(10f, 10f, 0f),
+            "radius zero is accepted and still gets its anti-aliasing band",
+        )
     }
 
     @Test

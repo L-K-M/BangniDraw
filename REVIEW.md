@@ -20,6 +20,59 @@ unreadable.
 
 ## Resolved
 
+- **R-043 ⏸️ `LayerTextures.upload` should require a *direct* `ByteBuffer`.**
+  (PR #10, GLM round 1, minor.) **Refuted.** The premise — "`glTexSubImage3D`
+  requires a direct `ByteBuffer`" — is not true of the `android.opengl`
+  bindings. Their generated JNI resolves a buffer through `getPointer()`, which
+  handles a *direct* buffer and an array-backed heap buffer alike (the latter
+  via `GetPrimitiveArrayCritical`); only a buffer with neither — a read-only or
+  non-array-backed wrapper — is rejected, and the binding raises its own
+  `IllegalArgumentException` naming that. Applying the suggested `isDirect`
+  guard would therefore *reject valid input*: `ByteBuffer.allocate(262144)` is
+  a perfectly good tile buffer, and refusing it would force a copy per tile on
+  exactly the §12 reopen path this PR just removed a redundant clear from. The
+  finding's stated goal — fail fast, near the mistake — is already met for the
+  case that can actually fail.
+
+- **R-042 ⏸️ `LayerTextures.swap` must guard against freeing `SliceHandle.NONE`.**
+  (PR #10, GLM round 1, minor: "only safe if `TilePool.free` treats `NONE` as a
+  no-op — nothing in this file guarantees that".) **Refuted:** it is guaranteed,
+  in this very PR. `SliceAllocator.free` opens with `if (handle.isNone) return`,
+  its KDoc states the contract ("`SliceHandle.NONE` is accepted and ignored:
+  'free whatever this index held' is the shape of every caller in
+  `LayerTextures`, and a dense index is full of `NONE`"), `TilePool.free`
+  delegates straight to it, and `SliceAllocatorTest`'s
+  `freeing NONE is a no-op, freeing a foreign handle is not` pins it — with a
+  `freeCount` assertion added this round so the pin cannot pass while the free
+  stack is corrupted. The finding reads the guarantee as absent because it
+  looked only within one file; adding a second, redundant check at the call site
+  would suggest the contract is unreliable and invite the next caller to guard
+  too.
+
+- **R-041 ⏸️ `GlErrors.reset()` should also re-state `strict`.** (PR #10, GLM
+  round 1, info.) Declined. `strict` is not session state: it is set once from
+  `BuildConfig.DEBUG`, a build-time constant that cannot differ between two
+  sessions in one process, so there is nothing for a new session to re-state.
+  The suggested signature — `fun reset(strict: Boolean = this.strict)` — assigns
+  the field to itself at every existing call site, which reads like it does
+  something and does not. `reset()` is about the once-per-session log
+  suppression, and keeping it about only that is what makes its one line
+  obvious.
+
+- **R-044 ⏸️ Split 2.3a further, at GL wrappers vs the `engine/core` twins.**
+  (PR #10, GLM round 1, major — raised as part of the roadmap size finding.)
+  The *measurement* half of that finding was **applied**: the paragraph in
+  `12-roadmap.md` claimed compliance with the ~1,500-line criterion while
+  reporting ~2,570 for one half, which is a contradiction, and it now states
+  the real figures (~1,730 code, ~950 tests) and records the overrun against
+  §1's M band rather than glossing it. The *further split* is declined, with
+  the reasons written into that document: rule 1's remedy is a **named** seam,
+  and both candidates produce a half nobody can review as a unit — the twins
+  (397 lines) would land with nothing calling them, and `Shaders`-plus-tests
+  versus the pool plumbing cuts at a seam the roadmap never named and leaves
+  two halves that both fail to draw.
+
+
 - **R-038 🟢 `DabGenerator`'s radius clamp threw on a sub-pixel preset.** (PR
   #9, GLM round 4, raised as a BLOCKER.) Real, and a crash on the drawing
   path: `minRadius` was floored at `Dab.MIN_RADIUS` and `maxRadius` ceiled at

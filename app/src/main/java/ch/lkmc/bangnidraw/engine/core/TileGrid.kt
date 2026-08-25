@@ -176,9 +176,8 @@ data class TileGrid(val width: Int, val height: Int) {
      *
      * **Not for per-frame paths.** [TileKey] boxes as a generic argument, so
      * every appended key allocates, which is exactly the churn [TileKey]'s own
-     * KDoc forbids on the touch and upload paths. Those get a packed
-     * `IntArray` overload, written with the caller that needs it (roadmap
-     * 2.4); until then this is the setup-time and test-time API.
+     * KDoc forbids on the touch and upload paths. Those take the packed
+     * `IntArray` overload below; this is the setup-time and test-time API.
      */
     fun keysFor(r: IntRect, out: MutableList<TileKey>) {
         val l = maxOf(r.left, 0)
@@ -212,6 +211,48 @@ data class TileGrid(val width: Int, val height: Int) {
          * persistence invariant).
          */
         const val MAX_TILES = 1024
+    }
+
+    /**
+     * [keysFor] into a packed `IntArray`, returning how many keys were
+     * written — the per-frame form, which allocates nothing.
+     *
+     * The compositor asks this of every visible layer on every frame
+     * (`docs/plan/03-canvas-engine.md` §3.2), so the list overload's boxing
+     * would be one allocation per visible tile per layer per frame. Callers
+     * size [out] at [tileCount] once and reuse it.
+     *
+     * Writes at [from] onward so several dirty rects can accumulate into one
+     * buffer; returns the new end, not the count written, which is what makes
+     * `n = keysFor(a, buf, keysFor(b, buf, 0))` read correctly.
+     */
+    fun keysFor(r: IntRect, out: IntArray, from: Int = 0): Int {
+        // Validated before the loop, not by the `require` inside it: that one
+        // tests `n < out.size`, which a NEGATIVE n always passes, so an
+        // arithmetic slip in the accumulate-several-rects pattern this KDoc
+        // encourages would sail past the guard and die at `out[n++]` with the
+        // bare negative-index exception the guard exists to replace.
+        require(from in 0..out.size) { "from must be 0..${out.size}, was $from" }
+        val l = maxOf(r.left, 0)
+        val t = maxOf(r.top, 0)
+        val rr = minOf(r.right, width)
+        val b = minOf(r.bottom, height)
+        if (l >= rr || t >= b) return from
+        var n = from
+        for (ty in (t shr TILE_SHIFT)..((b - 1) shr TILE_SHIFT)) {
+            for (tx in (l shr TILE_SHIFT)..((rr - 1) shr TILE_SHIFT)) {
+                // Bounds-checked here rather than left to the array store, so
+                // the message names the grid: an under-sized buffer is a
+                // caller that sized against a different canvas, and
+                // ArrayIndexOutOfBounds alone would not say which.
+                require(n < out.size) {
+                    "keysFor needs room for more than ${out.size} keys in a " +
+                        "${tilesX}×$tilesY grid"
+                }
+                out[n++] = TileKey(tx, ty).packed
+            }
+        }
+        return n
     }
 
     /** [keysFor] as a fresh list — the convenient form for tests and cold paths. */

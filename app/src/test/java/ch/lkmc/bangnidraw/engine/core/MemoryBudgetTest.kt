@@ -121,6 +121,32 @@ class MemoryBudgetTest {
     }
 
     @Test
+    fun `the v1 canvas ceiling is ours, not the driver's`() {
+        // Every other case here leaves glMaxTextureSize at 4096, which is also
+        // MAX_CANVAS_EDGE_V1 — so the two caps are confounded and a regression
+        // that dropped the product ceiling would be invisible. A 16 GiB device
+        // has the memory for more; only the v1 cap can hold it to 4096.
+        assertEquals(
+            PerfConstants.MAX_CANVAS_EDGE_V1,
+            MemoryBudget.compute(device(16.0, glMaxTextureSize = 8192), canvas4096).maxCanvasEdge,
+        )
+    }
+
+    @Test
+    fun `CanvasSize and TileGrid agree on how many tiles a canvas needs`() {
+        // Two different ceil-divisions: CanvasSize uses quotient-plus-remainder
+        // because it must survive absurd input, TileGrid the shift form because
+        // its sides are pre-validated. The budget and the allocation layout
+        // must never disagree about a canvas.
+        val edges = (TileGrid.MIN_EDGE..TileGrid.MAX_EDGE step PerfConstants.TILE_SIZE).toList() +
+            listOf(TileGrid.MIN_EDGE + 1, 1080, 1920, 2560, TileGrid.MAX_EDGE - 1)
+        for (edge in edges) {
+            assertEquals(TileGrid(edge, edge).tilesX, CanvasSize(edge, edge).tilesX, "tilesX at $edge")
+            assertEquals(TileGrid(edge, edge).tilesY, CanvasSize(edge, edge).tilesY, "tilesY at $edge")
+        }
+    }
+
+    @Test
     fun `maxCanvasEdge only admits sizes that hold a few layers`() {
         for (totalGib in listOf(1.0, 2.0, 4.0, 8.0, 16.0)) {
             for (lowRam in listOf(false, true)) {
@@ -144,15 +170,20 @@ class MemoryBudgetTest {
         // does not describe. 2800 MiB / 2304 square is the case that used to
         // advertise 16 layers (1296 tiles) against a 5-array pool (1280).
         for (totalGib in listOf(2.0, 2.734375, 4.0, 5.5, 8.0, 12.0, 16.0)) {
-            for (glLayers in listOf(256, 128)) {
-                for (canvas in listOf(canvas2048, canvas4096, CanvasSize(1080, 1920), CanvasSize(2304, 2304))) {
-                    val r = MemoryBudget.compute(device(totalGib, glMaxArrayLayers = glLayers), canvas)
-                    val slices = r.poolArraySlices.toLong() * r.poolArrayCount
-                    assertTrue(
-                        r.maxLayers * canvas.tilesPerLayer <= slices,
-                        "$totalGib GiB / ${canvas.width}x${canvas.height} / $glLayers per array: " +
-                            "${r.maxLayers} layers need ${r.maxLayers * canvas.tilesPerLayer} slices, pool has $slices",
-                    )
+            // Low-RAM devices get the smallest pools and so the tightest
+            // margin here — exactly where an array-count rounding bug bites.
+            for (lowRam in listOf(false, true)) {
+                for (glLayers in listOf(256, 128)) {
+                    for (canvas in listOf(canvas2048, canvas4096, CanvasSize(1080, 1920), CanvasSize(2304, 2304))) {
+                        val r = MemoryBudget.compute(device(totalGib, lowRam, glLayers), canvas)
+                        val slices = r.poolArraySlices.toLong() * r.poolArrayCount
+                        assertTrue(
+                            r.maxLayers * canvas.tilesPerLayer <= slices,
+                            "$totalGib GiB / lowRam=$lowRam / ${canvas.width}x${canvas.height} / " +
+                                "$glLayers per array: ${r.maxLayers} layers need " +
+                                "${r.maxLayers * canvas.tilesPerLayer} slices, pool has $slices",
+                        )
+                    }
                 }
             }
         }

@@ -244,6 +244,12 @@ data class LayerStack(
             },
             activeIndex = index - 1,
         )
+        // Only the bottom tiles the merge actually overwrites — unlike
+        // `upperTiles` two lines down, this is NOT the lower layer's full tile
+        // set, and every other tile list on these entries is complete. Undo
+        // must rebuild the lower set as (merged.tiles − upperTiles) ∪
+        // lowerTiles; assigning lowerTiles directly would drop every
+        // bottom-only tile from the model while its pixels survive in storage.
         val lowerTiles = if (bakesWholeBottom) bottom.tiles else bottom.tiles.intersect(top.tiles)
         return ok(
             next,
@@ -275,6 +281,10 @@ data class LayerStack(
         val next = copy(layers = listOf(Layer(props, tiles)), activeIndex = 0)
         return ok(
             next,
+            // Every pre-existing layer is dropped by this edit, hidden ones
+            // included, and StackEdit carries a single PixelOp — so no
+            // per-layer Delete is emitted. The GL side must free their
+            // textures by reconciling against the model, not by op alone.
             PixelOp.Flatten(visible.map { it.props }, props.id),
             HistoryEntry.Flatten(
                 activeBefore = active.id.value,

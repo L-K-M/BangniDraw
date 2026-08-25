@@ -29,6 +29,13 @@ sealed interface HistoryEntry {
     /** A copy of this entry with the journal's bookkeeping filled in. */
     fun stamp(seq: Long, timestamp: Long, bytes: Long): HistoryEntry
 
+    /**
+     * True once the journal has stamped this entry. Sound only because journal
+     * sequence numbers start at 1 (`docs/plan/06-document-and-persistence.md`
+     * §3: `nextSeq = 1L`), so a stamped first entry can never look [UNSTAMPED].
+     */
+    val isStamped: Boolean get() = seq != UNSTAMPED
+
     /** A pixel edit of one layer: the stroke's tiles held their previous contents. */
     data class Stroke(
         override val seq: Long = UNSTAMPED,

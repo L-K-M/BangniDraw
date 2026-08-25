@@ -70,11 +70,16 @@ data class LayerProps(
          * `NaN`, so it returns `NaN` unchanged and construction would then
          * refuse it — turning one corrupt field into a failed document open,
          * which `docs/plan/06-document-and-persistence.md` §4 forbids. A
-         * corrupt opacity degrades to fully visible rather than to invisible,
-         * because a layer that vanished would read as lost work.
+         * *non-finite* opacity degrades to fully visible rather than to
+         * invisible, because a layer that vanished would read as lost work —
+         * and that has to include −∞, which `coerceIn` alone would land on 0f.
+         * A merely out-of-range finite value still clamps the ordinary way: a
+         * slider underflowing to −0.001 means 0f, not "restore me to full".
          */
-        fun sanitizeOpacity(value: Float): Float =
-            if (value.isNaN()) 1f else value.coerceIn(0f, 1f)
+        fun sanitizeOpacity(value: Float): Float = when {
+            value.isNaN() || value == Float.NEGATIVE_INFINITY -> 1f
+            else -> value.coerceIn(0f, 1f)
+        }
     }
 }
 
@@ -104,6 +109,19 @@ data class LayerRecord(
     val alphaLock: Boolean = false,
     val locked: Boolean = false,
 ) {
+    /**
+     * Like [toProps], but `null` when the record is too corrupt to load at all
+     * — today that means an id that is not a safe path segment.
+     *
+     * [toProps] deliberately throws for such an id, because it cannot be
+     * repaired: it is the key `layers/<id>/` is named after, so a "fixed" id
+     * would orphan the layer's tiles. Dropping the layer is the only sane
+     * degradation, and `ProjectStore.load` must use this so one bad record is
+     * a logged skip rather than a failed open
+     * (`docs/plan/06-document-and-persistence.md` §4).
+     */
+    fun toPropsOrNull(): LayerProps? = runCatching { toProps() }.getOrNull()
+
     fun toProps(): LayerProps = LayerProps(
         id = LayerId(id),
         name = name,

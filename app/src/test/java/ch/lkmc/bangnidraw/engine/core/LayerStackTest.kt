@@ -223,17 +223,18 @@ class LayerStackTest {
         // bottom at *any* opacity merges exactly" true.
         val bottomOnly = TileKey(0, 0)
         val shared = TileKey(1, 1)
+        val topOnly = TileKey(2, 2)
         fun stack(bottomOpacity: Float) = LayerStack(
             listOf(
                 Layer(LayerProps(LayerId("lo"), "lo", opacity = bottomOpacity), setOf(bottomOnly, shared)),
-                Layer(LayerProps(LayerId("hi"), "hi"), setOf(shared)),
+                Layer(LayerProps(LayerId("hi"), "hi"), setOf(shared, topOnly)),
             ),
             activeIndex = 1,
             nextName = 3,
         )
         val faded = assertIs<PixelOp.Merge>(ok(stack(0.5f).mergeDown(1)).pixels)
         assertEquals(
-            setOf(bottomOnly, shared),
+            setOf(bottomOnly, shared, topOnly),
             faded.keys,
             "a bottom-only tile at 50 % must be re-composited, not left as it was",
         )
@@ -241,9 +242,10 @@ class LayerStackTest {
 
         val opaque = assertIs<PixelOp.Merge>(ok(stack(1f).mergeDown(1)).pixels)
         assertEquals(
-            setOf(shared),
+            setOf(shared, topOnly),
             opaque.keys,
-            "a bottom already at 100 % needs only the shared tiles rewritten, as 06 §5.2 assumes",
+            "the upper layer's own tiles must be written into the merged layer; " +
+                "at 100 % only the bottom-only tile is left alone",
         )
     }
 
@@ -255,17 +257,22 @@ class LayerStackTest {
         // pixel-identical and the merge need not touch them.
         val bottomOnly = TileKey(0, 0)
         val shared = TileKey(1, 1)
+        val topOnly = TileKey(2, 2)
         for (mode in BlendMode.entries) {
             val stack = LayerStack(
                 listOf(
                     Layer(LayerProps(LayerId("lo"), "lo", blendMode = mode), setOf(bottomOnly, shared)),
-                    Layer(LayerProps(LayerId("hi"), "hi"), setOf(shared)),
+                    Layer(LayerProps(LayerId("hi"), "hi"), setOf(shared, topOnly)),
                 ),
                 activeIndex = 1,
                 nextName = 3,
             )
             val pixels = assertIs<PixelOp.Merge>(ok(stack.mergeDown(1)).pixels)
-            assertEquals(setOf(shared), pixels.keys, "$mode at 100 % should not widen the rewrite")
+            assertEquals(
+                setOf(shared, topOnly),
+                pixels.keys,
+                "$mode at 100 % should rewrite the upper layer's tiles and no more",
+            )
             assertEquals(
                 mode,
                 pixels.bottomProps.blendMode,
@@ -302,14 +309,21 @@ class LayerStackTest {
             "a NaN opacity must degrade to fully visible, not throw",
         )
         assertEquals(1f, LayerRecord(id = "a", name = "a", opacity = Float.POSITIVE_INFINITY).toProps().opacity)
-        assertEquals(0f, LayerRecord(id = "a", name = "a", opacity = Float.NEGATIVE_INFINITY).toProps().opacity)
+        assertEquals(
+            1f,
+            LayerRecord(id = "a", name = "a", opacity = Float.NEGATIVE_INFINITY).toProps().opacity,
+            "every non-finite opacity degrades alike: -inf is corruption, not a slider underflow",
+        )
+        // A merely out-of-range finite value still clamps the ordinary way.
+        assertEquals(0f, LayerRecord(id = "a", name = "a", opacity = -0.001f).toProps().opacity)
 
         // The clamping setter is total too — `copy` re-runs `init`, so a NaN
         // arriving from a slider binding or an animation would otherwise crash.
         val props = LayerProps(LayerId("a"), "a")
         assertEquals(1f, props.withOpacity(Float.NaN).opacity)
         assertEquals(1f, props.withOpacity(Float.POSITIVE_INFINITY).opacity)
-        assertEquals(0f, props.withOpacity(Float.NEGATIVE_INFINITY).opacity)
+        assertEquals(1f, props.withOpacity(Float.NEGATIVE_INFINITY).opacity)
+        assertEquals(0f, props.withOpacity(-0.001f).opacity, "a finite underflow still means 0")
     }
 
     @Test
@@ -415,6 +429,8 @@ class LayerStackTest {
         assertEquals(Refusal.NOOP, refusal(stack.setOpacity(1, 1f)))
         assertEquals(Refusal.NOOP, refusal(stack.setBlendMode(1, BlendMode.NORMAL)))
         assertEquals(Refusal.NOOP, refusal(stack.rename(1, "b")))
+        assertEquals(Refusal.NOOP, refusal(stack.setAlphaLock(1, false)))
+        assertEquals(Refusal.NOOP, refusal(stack.setLocked(1, false)))
     }
 
     @Test
@@ -433,6 +449,14 @@ class LayerStackTest {
         }
         LayerId("0f9a3c2e-1b4d-4a7e-9c31-2f8b6d5a0e17")
         LayerId("id-0")
+
+        // The throw is the guard; toPropsOrNull is how the loader degrades,
+        // so one corrupt record is a skipped layer and not a failed open.
+        assertFailsWith<IllegalArgumentException> {
+            LayerRecord(id = "../../evil", name = "x").toProps()
+        }
+        assertEquals(null, LayerRecord(id = "../../evil", name = "x").toPropsOrNull())
+        assertEquals("id-0", LayerRecord(id = "id-0", name = "x").toPropsOrNull()?.id?.value)
     }
 
     @Test
@@ -550,9 +574,10 @@ class LayerStackTest {
      * the journal itself land with roadmap step 3; here a tile key set stands
      * in for the pixels.
      */
-    // TODO(roadmap step 3): route this through the production undo once the
-    // journal exists, so the round-trip property proves the code that runs
-    // rather than a re-implementation that can drift away from it.
+    // TODO(roadmap step 3): promote these inverse branches into shared
+    // production code (a LayerStackInverter) that both the journal and this
+    // test call, rather than writing a second inverse in step 3 and pointing
+    // the test at it — two implementations is the drift this warns about.
     private fun undo(stack: LayerStack, entry: HistoryEntry): LayerStack {
         val layers = stack.layers.toMutableList()
         fun indexOf(id: String) = layers.indexOfFirst { it.id.value == id }
@@ -562,6 +587,9 @@ class LayerStackTest {
             is HistoryEntry.LayerDelete ->
                 layers.add(entry.index, Layer(entry.layer.toProps(), entry.tiles.toSet()))
             is HistoryEntry.LayerReorder -> {
+                // Exact inverse of move()'s add(toIndex, removeAt(fromIndex));
+                // toIndex must stay a POST-removal insert index, or this
+                // oracle silently diverges from production on downward moves.
                 val moved = layers.removeAt(entry.toIndex)
                 layers.add(entry.fromIndex, moved)
             }

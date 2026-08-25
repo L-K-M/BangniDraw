@@ -22,6 +22,12 @@ enum class BlendMode(val shaderId: Int) {
         /** Decodes a persisted `BlendMode.name`; anything unknown is [NORMAL] (`docs/plan/06-document-and-persistence.md` §3). */
         fun fromNameOrNormal(name: String): BlendMode = entries.firstOrNull { it.name == name } ?: NORMAL
 
+        /**
+         * Reverse lookup for [shaderId]. Unlike [fromNameOrNormal] this throws
+         * rather than degrading: shader ids are internal constants shared with
+         * the GLSL source and are never persisted or user-supplied, so an
+         * unknown one is a programming error, not a corrupt file.
+         */
         fun fromShaderId(id: Int): BlendMode =
             entries.firstOrNull { it.shaderId == id }
                 ?: throw IllegalArgumentException("no BlendMode with shaderId $id")

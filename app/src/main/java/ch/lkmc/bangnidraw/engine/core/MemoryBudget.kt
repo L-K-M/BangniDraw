@@ -45,8 +45,10 @@ data class DeviceMemory(
     val glMaxTextureSize: Int,
 ) {
     init {
-        // Both are read once and then reasoned about as facts; neither
-        // MemoryBudget nor TilePool re-checks them.
+        // totalMemBytes is validated once here and then treated as a fact;
+        // neither MemoryBudget nor TilePool re-checks it. The GL fields are
+        // deliberately unchecked — glMaxArrayLayers takes 0 as "no context
+        // yet" — and callers handle them where they are read.
         require(totalMemBytes > 0) { "totalMemBytes must be positive, was $totalMemBytes" }
     }
 }

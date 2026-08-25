@@ -85,6 +85,24 @@ _Nothing open._
   *path-construction* obligation remains step 3's and is written into the
   roadmap.
 
+- **R-014 ⏸️ `LayerId` should also reject Windows reserved device names and
+  trailing dots/spaces** (round 9, info). Declined for v1. Project folders live
+  in `filesDir/projects/` and never leave the device: the share and export
+  paths write a flattened PNG through `GalleryExporter`/`ShareCache`
+  (`docs/plan/06-document-and-persistence.md` §9.5), not the folder, and
+  OpenRaster export is post-v1 backlog. `CON`/`NUL`/trailing-dot names are
+  legal on every filesystem the app actually writes to, so the check would
+  guard a path that does not exist. Revisit if a proposal ever adds project
+  export or sync — the constant belongs with that code, not ahead of it.
+
+- **R-015 ⏸️ Vary `largeMemoryClassMb` in the test device helpers.** Declined,
+  third raising of R-002's substance. `MemoryBudget.compute` does not read the
+  field — that is deliberate and is now stated in its KDoc (GL tile memory is
+  not the Java heap) — so a test varying it would assert on an input nothing
+  consumes. The suggestion to give `CanvasPresetsTest` realistic per-tier
+  values is declined for the same reason and would imply the budget depends on
+  something it does not.
+
 - **R-013 ⏸️ `TileGrid.MAX_EDGE + 1` could itself overflow in the test.**
   Declined: the premise is false. `MAX_EDGE` is `8192`, so `MAX_EDGE + 1` is
   `8193` and cannot wrap. The finding hedges on "if `TileGrid.MAX_EDGE` is

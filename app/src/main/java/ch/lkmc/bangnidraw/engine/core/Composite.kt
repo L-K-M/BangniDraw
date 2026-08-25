@@ -190,17 +190,21 @@ object Composite {
         val ground = premultiply(paper)
         val out = IntArray(TILE_SIZE * TILE_SIZE) { ground }
         for (layer in layers) {
+            val opacity = layer.props.opacity
+            // Before the read, not after: this is the flatten and export path,
+            // so a layer the user dragged to 0 % would otherwise cost a full
+            // tile read — real disk I/O for a disk-backed reader — to produce
+            // nothing. The size check below still guards every tile that is
+            // actually composited. Never skip on visibility: that filter is
+            // deliberately the caller's, because merge down composites layers
+            // the compositor would hide.
+            if (opacity == 0f) continue
             if (key !in layer.tiles) continue
             val src = pixels.read(layer.id, key) ?: continue
             require(src.size == out.size) {
                 "tile ${key.tx},${key.ty} of ${layer.id.value} has ${src.size} pixels, expected ${out.size}"
             }
             val mode = layer.props.blendMode
-            val opacity = layer.props.opacity
-            // After the size check, so a wrong-sized tile is still caught, and
-            // never on visibility — that filter is deliberately the caller's,
-            // because merge down composites layers the compositor would hide.
-            if (opacity == 0f) continue
             for (i in out.indices) {
                 out[i] = blend(out[i], src[i], mode, opacity)
             }

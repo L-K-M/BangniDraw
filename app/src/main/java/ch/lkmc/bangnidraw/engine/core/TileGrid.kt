@@ -113,7 +113,15 @@ class TileGrid(val width: Int, val height: Int) {
     /** Tile origin in canvas px. */
     fun origin(k: TileKey): IntPoint = IntPoint(k.tx shl TILE_SHIFT, k.ty shl TILE_SHIFT)
 
-    /** Dense row-major index of [k], the layout `LayerTextures` uses. */
+    /**
+     * Dense row-major index of [k], the layout `LayerTextures` uses.
+     *
+     * [k] must satisfy [contains]. A key outside this grid does not merely
+     * index out of bounds — a `tx` past [tilesX] rolls into the next row and
+     * aliases a valid-looking but *wrong* slot, which is silent corruption
+     * rather than a crash. No runtime check here: this is a hot path, so
+     * validate or clip before calling.
+     */
     fun index(k: TileKey): Int = k.ty * tilesX + k.tx
 
     /** True when [k] addresses a tile of this canvas. */

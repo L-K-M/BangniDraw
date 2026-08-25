@@ -166,6 +166,14 @@ class CompositeTest {
             hex(Composite.alphaLocked(Composite.TRANSPARENT, 0xFFFFFFFF.toInt())),
             "a transparent pixel stays transparent whatever is painted over it",
         )
+        // Every assertion above is also satisfied by an alphaLocked that just
+        // returns dst, so pin the colour path too: opaque white onto a
+        // half-covered red gives white rescaled to the locked alpha.
+        assertEquals(
+            hex(0x80808080.toInt()),
+            hex(Composite.alphaLocked(0x80800000.toInt(), 0xFFFFFFFF.toInt())),
+            "alpha lock composites colour and rescales it to the destination's alpha",
+        )
     }
 
     @Test
@@ -239,7 +247,11 @@ class CompositeTest {
             hex(Composite.blend(dst, src, BlendMode.NORMAL, 1f)),
             hex(Composite.blend(dst, src, BlendMode.NORMAL, Float.POSITIVE_INFINITY)),
         )
-        assertEquals(hex(dst), hex(Composite.blend(dst, src, BlendMode.NORMAL, Float.NEGATIVE_INFINITY)))
+        assertEquals(
+            hex(Composite.blend(dst, src, BlendMode.NORMAL, 1f)),
+            hex(Composite.blend(dst, src, BlendMode.NORMAL, Float.NEGATIVE_INFINITY)),
+            "every non-finite opacity degrades alike, -inf included",
+        )
     }
 
     @Test

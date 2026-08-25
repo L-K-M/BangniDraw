@@ -49,6 +49,14 @@ class TileGridTest {
 
         val past = grid.keysFor(IntRect(1000, 700, 5000, 5000))
         assertEquals(listOf(TileKey(3, 2)), past, "the canvas is 4x3 tiles, so 3,2 is the last one")
+        // keysFor clips before it divides; if that order ever flipped, adding
+        // TILE_SIZE-1 to a bound near Int.MAX_VALUE would overflow negative
+        // and the rect would silently mark nothing dirty.
+        assertEquals(
+            grid.tileCount,
+            grid.keysFor(IntRect(Int.MIN_VALUE, Int.MIN_VALUE, Int.MAX_VALUE, Int.MAX_VALUE)).size,
+            "extreme bounds must be clipped before the division, not overflow it",
+        )
     }
 
     @Test
@@ -74,7 +82,7 @@ class TileGridTest {
     }
 
     @Test
-    fun `a dab that is not finite and positive is refused rather than dropped`() {
+    fun `a dab that is not finite and non-negative is refused rather than dropped`() {
         // floor(NaN).toInt() is 0 and a negative radius inverts the rect; both
         // yield an empty rect, i.e. a stroke gap with nothing to trace it to.
         for (bad in listOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY)) {

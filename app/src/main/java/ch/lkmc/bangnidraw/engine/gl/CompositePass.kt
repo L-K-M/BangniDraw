@@ -76,18 +76,20 @@ class CompositePass(
      */
     private fun ensureCapacity(tiles: Int): Boolean {
         if (tiles <= capacityTiles) return true
-        val grown = allocate(tiles)
+        // The GPU store first, sized arithmetically — `glBufferData` takes a
+        // size and a null pointer, so the CPU buffer is not needed to ask for
+        // the growth. Allocating it first meant a sustained GL_OUT_OF_MEMORY
+        // produced a direct ByteBuffer per frame (native memory plus a
+        // Cleaner) that was discarded unread, exactly when the process is
+        // least able to afford it. This way the failure path allocates
+        // nothing, and it needs no retry cache to say so.
+        val bytes = tiles * VERTICES_PER_TILE * FLOATS_PER_VERTEX * 4
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo[0])
-        GLES30.glBufferData(
-            GLES30.GL_ARRAY_BUFFER,
-            grown.capacity() * 4,
-            null,
-            GLES30.GL_STREAM_DRAW,
-        )
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, bytes, null, GLES30.GL_STREAM_DRAW)
         if (GlErrors.checkAllocation("composite VBO grown to $tiles tiles") != GLES30.GL_NO_ERROR) {
             return false
         }
-        vertexBuffer = grown
+        vertexBuffer = allocate(tiles)
         capacityTiles = tiles
         return true
     }

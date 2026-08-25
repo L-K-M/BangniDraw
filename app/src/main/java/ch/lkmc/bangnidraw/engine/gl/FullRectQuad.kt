@@ -85,8 +85,17 @@ class FullRectQuad {
                 width, height, 1f, 1f, 0f,
                 0f, height, 0f, 1f, 0f,
             )
+            // Sized from `v` itself, not from the constants: `put(v)` and the
+            // glBufferSubData below both measure `v`, so deriving the capacity
+            // from anything else is a third source of truth that agrees only
+            // by inspection. A row gaining a float would then overflow on the
+            // GL thread.
+            require(v.size == VERTICES * FLOATS_PER_VERTEX) {
+                "the quad has ${v.size} floats but VERTICES x FLOATS_PER_VERTEX is " +
+                    "${VERTICES * FLOATS_PER_VERTEX}; glDrawArrays would draw the wrong count"
+            }
             val buffer = staging ?: java.nio.ByteBuffer
-                .allocateDirect(VERTICES * FLOATS_PER_VERTEX * 4)
+                .allocateDirect(v.size * 4)
                 .order(java.nio.ByteOrder.nativeOrder())
                 .asFloatBuffer()
                 .also { staging = it }

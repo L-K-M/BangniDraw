@@ -31,10 +31,11 @@ change both or neither.
   applied finding was cosmetic (wording, a comment, a rename, a test message),
   and the review raised no substantive claim you declined or deferred — a round
   that applies a typo while refusing a blocker is dismissed only, not this,
-- **two consecutive** rounds are **dismissed only**: no substantive finding was
-  applied — every one declined, refuted, or deferred — or nothing was applied at
-  all. Two, not one: you are grading your own dismissals, so a single such round
-  is not evidence of anything. Restatements and "✅ fine" items are not findings;
+- **two consecutive** rounds are **dismissed only**: the review raised at least
+  one finding, and no substantive one was applied — every substantive finding
+  declined, refuted, or deferred — or nothing was applied at all. Two, not one:
+  you are grading your own dismissals, so a single such round is not evidence
+  of anything. Restatements and "✅ fine" items are not findings;
   a round of only those is empty, not this,
 - feedback integration failed in two consecutive rounds (you applied something
   and could not get CI green with one follow-up fix, or had to revert it),

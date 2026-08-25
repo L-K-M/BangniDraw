@@ -208,8 +208,8 @@ Do not start post-v1 backlog items unless the user asks.
 
 ## Reporting
 After each merge, print one paragraph: which PR merged, how many review rounds it took, why
-steady state was declared (which rule fired), what you declined and why, and what the
-next PR is. Report failures plainly with the output; never claim CI is green without having
+steady state was declared — which rule fired, or that no review ran and the PR merged
+unreviewed — what you declined and why, and what the next PR is. Report failures plainly with the output; never claim CI is green without having
 seen the run result.
 
 ## How to invoke
@@ -217,6 +217,6 @@ Start a session in `/work/GitHub/BangniDraw` and give the agent this prompt:
 
 > Read `docs/EXECUTION.md` in this repository and follow it exactly. It tells you how to
 > implement the plan in `PLAN.md` as a sequence of reviewed pull requests, how to run the
-> review loop, when a PR has reached steady state (six conditions — that file has the list;
-> do not work from a summary of it), when to merge, and how to move on to the next roadmap
-> step. Begin with Step A.
+> review loop, when a PR has reached steady state — that file has the conditions, and a
+> summary of them, this one included, is never authoritative — when to merge, and how to move
+> on to the next roadmap step. Begin with Step A.

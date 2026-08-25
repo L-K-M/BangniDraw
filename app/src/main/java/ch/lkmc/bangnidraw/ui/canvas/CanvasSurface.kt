@@ -40,6 +40,8 @@ fun CanvasSurface(
     modifier: Modifier = Modifier,
     debugBuild: Boolean,
     onSession: (EngineSession?) -> Unit,
+    /** Attached to the SurfaceView as its touch and hover listener (roadmap 2.4a). */
+    touchHandler: ch.lkmc.bangnidraw.input.CanvasTouchHandler? = null,
 ) {
     val context = LocalContext.current
     val budget = remember(canvas) { MemoryBudget.compute(readDeviceMemory(context), canvas) }
@@ -56,6 +58,14 @@ fun CanvasSurface(
         modifier = modifier,
         factory = { ctx ->
             SurfaceView(ctx).also { surface ->
+                touchHandler?.let {
+                    surface.setOnTouchListener(it)
+                    surface.setOnHoverListener(it)
+                    // Without this the view never receives the DOWN that starts
+                    // a gesture, and every listener above is dead code.
+                    surface.isFocusable = true
+                    surface.isFocusableInTouchMode = true
+                }
                 val session = EngineSession(surface, canvas, budget, debugBuild)
                 sessionHolder[0] = session
                 session.setStack(stack)

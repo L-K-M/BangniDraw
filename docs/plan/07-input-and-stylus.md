@@ -347,12 +347,24 @@ window-size change):
 
 ```
 prev: p0, p1      cur: q0, q1     (view px)
+anchor    = (p0 + p1) / 2                  ← the PREVIOUS centroid
 centroid  = (q0 + q1) / 2
-pan       = centroid − (p0 + p1) / 2
+pan       = centroid − anchor
 zoom      = |q1 − q0| / |p1 − p0|          (1.0 if |p1 − p0| < 1 px — degenerate)
 rotation  = atan2(q1 − q0) − atan2(p1 − p0), wrapped to (−π, π]
-view'     = view.gesture(centroid.x, centroid.y, pan.x, pan.y, zoom, rotationΔ)
+view'     = view.gesture(anchor.x, anchor.y, pan.x, pan.y, zoom, rotationΔ)
 ```
+
+**Corrected 2026-08-25 (PR 2.4a).** This snippet passed `centroid` — the
+*current* centroid — as `gesture`'s anchor. `ViewTransform.gesture` rotates and
+scales the view about the anchor it is given and *then* adds `pan`, so anchoring
+at the current centroid applies the pan twice over: the canvas point under the
+fingers drifts by ~2 px per step on a rotating pinch, invisible in one frame and
+a visible slide across a gesture. Anchoring at the previous centroid is exact,
+because the anchor point lands at `anchor + pan`, which *is* the current
+centroid by the definition of pan. Pure pan hides the difference — at `zoom = 1`
+and `rotation = 0` the two anchors agree — which is presumably how it came to be
+written this way. `NavigationStepTest`'s random-gesture property pins it.
 
 The point under the fingers stays under the fingers by construction of
 `gesture`, and similarities compose exactly, so a long session of pinches

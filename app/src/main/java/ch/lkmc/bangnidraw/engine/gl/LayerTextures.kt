@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.engine.gl
 import android.opengl.GLES30
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
+import ch.lkmc.bangnidraw.engine.core.PreviewPlan
 import ch.lkmc.bangnidraw.engine.core.SliceHandle
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.TileIndex
@@ -133,7 +134,8 @@ class LayerTextures(
      * caller fills the unit with a sibling's texture instead of leaving a
      * sampler unbound.
      */
-    fun pageTextureOrNull(page: Int): Int? = if (page < 0) null else pool.textureOf(page)
+    fun pageTextureOrNull(page: Int): Int? =
+        if (page == PreviewPlan.ABSENT) null else pool.textureOf(page)
 
     /** Appends every key with content to [out], row-major. Cold paths only — [TileKey] boxes. */
     fun allKeys(out: MutableList<TileKey>) = index.allKeys(out)

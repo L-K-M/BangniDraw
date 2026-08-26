@@ -73,6 +73,18 @@ class CanvasRenderer(
     /** `(x, y, width, height)` for `glScissor`, reused — §2.4 allows no per-frame allocation. */
     private val scissorScratch = IntArray(4)
 
+    /**
+     * The whole canvas, built once rather than per frame.
+     *
+     * `IntRect` is a `data class`, not a value class, so the obvious
+     * `IntRect(0, 0, canvas.width, canvas.height)` inside `drawFrame` allocated
+     * on the render thread every committed frame — next to the comment above
+     * citing the rule against exactly that. `canvas` is fixed for the life of
+     * the renderer (a size change builds a new session, `key(canvas)`), so
+     * there is nothing to invalidate.
+     */
+    private val fullCanvasRect = IntRect(0, 0, canvas.width, canvas.height)
+
     private val projection = FloatArray(Mat4.SIZE)
     private val identity = Mat4.identity()
 
@@ -186,36 +198,53 @@ class CanvasRenderer(
         // assigned only after the try, so on a failure the earlier programs
         // would simply go out of scope and leak their GL ids until the context
         // is destroyed — once per retry, on a path that is retryable.
+        // Captured as they link rather than pulled back out by index. The
+        // list still exists so the failure path can release whatever got as far
+        // as linking; what it must not be is the way programs are *identified*,
+        // because nothing distinguishes one GlProgram from another and
+        // inserting a program above PREVIEW would silently hand the preview
+        // pass someone else's shaders. The `onContextLost` comment records that
+        // this family of lists has already been wrong twice.
         val linked = ArrayList<GlProgram>(6)
+        var compositeProgram: GlProgram? = null
+        var presentProgram: GlProgram? = null
+        var checkerProgram: GlProgram? = null
+        var dabProgram: GlProgram? = null
+        var mergeProgram: GlProgram? = null
+        var previewProgram: GlProgram? = null
         try {
-            linked += GlProgram.link(Shaders.COMPOSITE)
-            linked += GlProgram.link(Shaders.PRESENT)
-            linked += GlProgram.link(Shaders.CHECKER)
-            linked += GlProgram.link(Shaders.DAB)
-            linked += GlProgram.link(Shaders.MERGE)
-            linked += GlProgram.link(Shaders.PREVIEW)
+            compositeProgram = GlProgram.link(Shaders.COMPOSITE).also { linked += it }
+            presentProgram = GlProgram.link(Shaders.PRESENT).also { linked += it }
+            checkerProgram = GlProgram.link(Shaders.CHECKER).also { linked += it }
+            dabProgram = GlProgram.link(Shaders.DAB).also { linked += it }
+            mergeProgram = GlProgram.link(Shaders.MERGE).also { linked += it }
+            previewProgram = GlProgram.link(Shaders.PREVIEW).also { linked += it }
         } catch (e: GlProgramException) {
             linked.forEach(GlProgram::release)
             Log.e(GL_TAG, "shader link failed on ${probed.describe()}", e)
             isReady = false
             return false
         }
-        val compositeProgram = linked[0]
-        val presentProgram = linked[1]
-        val checkerProgram = linked[2]
+        // Every one of them is non-null here: the try either assigned all six
+        // or returned from the catch.
+        checkNotNull(compositeProgram)
+        checkNotNull(presentProgram)
+        checkNotNull(checkerProgram)
+        checkNotNull(dabProgram)
+        checkNotNull(mergeProgram)
+        checkNotNull(previewProgram)
         composite = compositeProgram
         present = presentProgram
         checker = checkerProgram
-        val previewProgram = linked[5]
         preview = previewProgram
         compositePass = CompositePass(compositeProgram, state, previewProgram)
         val tiles = TilePool(probed, budget)
         pool = tiles
         sandwich = SandwichCache(grid, tiles, compositeProgram, state)
-        dab = linked[3]
-        merge = linked[4]
-        dabPass = DabPass(linked[3], state)
-        mergePass = MergePass(linked[4], state, tiles, mergeQuad)
+        dab = dabProgram
+        merge = mergeProgram
+        dabPass = DabPass(dabProgram, state)
+        mergePass = MergePass(mergeProgram, state, tiles, mergeQuad)
         strokeBuffer = StrokeBuffer(grid, tiles)
         isReady = true
         return true
@@ -414,8 +443,7 @@ class CanvasRenderer(
         // mattered, which is worse than the redundancy it saves.
         state.invalidate()
 
-        val fullCanvas = IntRect(0, 0, canvas.width, canvas.height)
-        if (!compositeIntoAccum(current, screenTransform, pass, fullCanvas, null, null)) return
+        if (!compositeIntoAccum(current, screenTransform, pass, fullCanvasRect, null, null)) return
 
         presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform, null)
         GlErrors.checkGlDebug("drawFrame")
@@ -720,8 +748,15 @@ class CanvasRenderer(
         bufferTransform: FloatArray,
         scissor: IntRect?,
     ) {
-        val program = present ?: return
-        if (bufferWidth <= 0 || bufferHeight <= 0) return
+        val program = present
+        if (program == null || bufferWidth <= 0 || bufferHeight <= 0) {
+            // `compositeIntoAccum` may have left an Accum-sized scissor enabled,
+            // and these two exits are the only paths that skip the reset at the
+            // end. A leaked scissor is not a dropped frame: it is applied, in
+            // Accum coordinates, to whatever graphics-core binds next.
+            state.scissorOff()
+            return
+        }
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, frameBufferId)
         state.viewport(0, 0, bufferWidth, bufferHeight)
         if (scissor == null) {

@@ -181,9 +181,11 @@ parser's to keep — kotlinx throws on an unknown key by default. The store must
 also decide what a preset that fails `init` does on load; dropping it with a
 log, as `ProjectStore` does for a corrupt layer, is the shape to follow.
 
-**2.5 is split, and the seam is named before the work starts.** Rule 1 allows a
-step to become two PRs only at a seam noted here, so this is written before any
-2.5 code exists rather than where the work happens to stop. The step carries two
+**2.5 is split, and the seam was named before the work started.** Rule 1 allows
+a step to become two PRs only at a seam noted here, so the seam was fixed in its
+own commit ahead of the first line of 2.5 code, rather than drawn afterwards
+wherever the work happened to stop. (The rows themselves stay `⬜` until their
+PR merges and can carry its hash, as 2.4a and 2.4b did while they were open.) The step carries two
 things that are only incidentally in the same row: making the stroke *visible
 while it is drawn* (the front-buffered path and §7.5's preview), and making it
 *feel attached to the pen* (the predicted tail, unbuffered dispatch, and the

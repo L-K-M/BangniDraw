@@ -288,8 +288,18 @@ class CompositePass(
         previewTailSlice = IntArray(n)
     }
 
-    private fun ensurePreviewBuffers() {
-        if (previewInitialized) return
+    /**
+     * Returns false when the initial store could not be allocated.
+     *
+     * Checked like [ensurePreviewCapacity]'s growth, and for the same reason:
+     * committing `previewInitialized = true` after a failed `glBufferData` left
+     * every later frame issuing `glBufferSubData` and `glDrawArrays` against an
+     * unusable store, spamming GL errors forever. The names are deleted so a
+     * retry does not leak them, and the flag stays false so the next frame is
+     * a clean retry.
+     */
+    private fun ensurePreviewBuffers(): Boolean {
+        if (previewInitialized) return true
         GLES30.glGenBuffers(1, previewVbo, 0)
         GLES30.glGenVertexArrays(1, previewVao, 0)
         GLES30.glBindVertexArray(previewVao[0])
@@ -300,6 +310,16 @@ class CompositePass(
             null,
             GLES30.GL_STREAM_DRAW,
         )
+        if (GlErrors.checkAllocation("preview VBO ($previewCapacityTiles tiles)") !=
+            GLES30.GL_NO_ERROR
+        ) {
+            GLES30.glBindVertexArray(0)
+            GLES30.glDeleteBuffers(1, previewVbo, 0)
+            GLES30.glDeleteVertexArrays(1, previewVao, 0)
+            previewVbo[0] = 0
+            previewVao[0] = 0
+            return false
+        }
         val stride = PREVIEW_FLOATS_PER_VERTEX * 4
         GLES30.glEnableVertexAttribArray(Shaders.ATTR_POS)
         GLES30.glVertexAttribPointer(Shaders.ATTR_POS, 2, GLES30.GL_FLOAT, false, stride, 0)
@@ -311,6 +331,7 @@ class CompositePass(
         )
         GLES30.glBindVertexArray(0)
         previewInitialized = true
+        return true
     }
 
     /**
@@ -371,7 +392,7 @@ class CompositePass(
             n++
         }
         if (n == 0) return 0
-        ensurePreviewBuffers()
+        if (!ensurePreviewBuffers()) return 0
         if (!ensurePreviewCapacity(n)) return 0
 
         state.useProgram(previewProgram)
@@ -392,6 +413,15 @@ class CompositePass(
         // of §7.5's promise. A preview that capped at a different opacity, or
         // ignored the alpha lock the merge honours, would disagree with the
         // pixels it is previewing.
+        //
+        // `ordinal`, and deliberately not `shaderId` like `u_blend` two lines
+        // up. They are different enums answering different questions:
+        // `BlendMode` is the layer's compositing mode and carries an explicit
+        // `shaderId`, while `StrokeMode` (PAINT/ERASE/MIX) is what
+        // `merge.glsl` switches on, and it switches on the ordinal — which
+        // `StrokeShaderContractTest` pins, because nothing else in the codebase
+        // would notice the enum being reordered. `MergePass` uploads it the
+        // same way; changing one without the other is what would break §7.5.
         previewProgram.uniform1i("u_strokeMode", spec.mode.ordinal)
         previewProgram.uniform1f("u_strokeOpacity", spec.opacity)
         previewProgram.uniform1f("u_dilution", spec.dilution)

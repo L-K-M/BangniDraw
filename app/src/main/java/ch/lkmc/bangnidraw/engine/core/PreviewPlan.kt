@@ -95,6 +95,7 @@ object PreviewPlan {
         tailPage: IntArray,
         out: IntArray,
     ) {
+        require(out.size >= 3) { "runPages writes 3 ints, was ${out.size}" }
         out[0] = ABSENT
         out[1] = ABSENT
         out[2] = ABSENT

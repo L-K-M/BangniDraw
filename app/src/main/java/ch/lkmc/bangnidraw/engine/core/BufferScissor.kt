@@ -59,29 +59,29 @@ object BufferScissor {
         val y0 = rect.top.toFloat()
         val x1 = rect.right.toFloat()
         val y1 = rect.bottom.toFloat()
-        var minX = Float.MAX_VALUE
-        var minY = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE
-        var maxY = -Float.MAX_VALUE
-        var ok = true
-        // Written out rather than looped over pairs, for the reason
-        // ScreenTransform.screenBoundsOf records: this runs on the front-buffer
-        // path, once per input batch, where §2.4 allows no allocation.
-        fun corner(cx: Float, cy: Float) {
-            val bx = transform[0] * cx + transform[4] * cy + transform[12]
-            val by = transform[1] * cx + transform[5] * cy + transform[13]
-            if (!bx.isFinite() || !by.isFinite()) {
-                ok = false
-                return
-            }
-            minX = min(minX, bx); maxX = max(maxX, bx)
-            minY = min(minY, by); maxY = max(maxY, by)
+        // Plain locals, and no helper function. A Kotlin local `fun` that
+        // captures mutable vars compiles to Ref wrappers — `FloatRef` per
+        // accumulator, `BooleanRef` for the flag — so the tidy-looking version
+        // of this allocated about seven objects per call, once per input batch,
+        // on the front-buffer path whose no-allocation rule its own comment
+        // cited. Verified from the compiled class, not assumed.
+        val bx00 = transform[0] * x0 + transform[4] * y0 + transform[12]
+        val by00 = transform[1] * x0 + transform[5] * y0 + transform[13]
+        val bx10 = transform[0] * x1 + transform[4] * y0 + transform[12]
+        val by10 = transform[1] * x1 + transform[5] * y0 + transform[13]
+        val bx11 = transform[0] * x1 + transform[4] * y1 + transform[12]
+        val by11 = transform[1] * x1 + transform[5] * y1 + transform[13]
+        val bx01 = transform[0] * x0 + transform[4] * y1 + transform[12]
+        val by01 = transform[1] * x0 + transform[5] * y1 + transform[13]
+        if (!bx00.isFinite() || !by00.isFinite() || !bx10.isFinite() || !by10.isFinite() ||
+            !bx11.isFinite() || !by11.isFinite() || !bx01.isFinite() || !by01.isFinite()
+        ) {
+            return IntRect.EMPTY
         }
-        corner(x0, y0)
-        corner(x1, y0)
-        corner(x1, y1)
-        corner(x0, y1)
-        if (!ok) return IntRect.EMPTY
+        val minX = min(min(bx00, bx10), min(bx11, bx01))
+        val minY = min(min(by00, by10), min(by11, by01))
+        val maxX = max(max(bx00, bx10), max(bx11, bx01))
+        val maxY = max(max(by00, by10), max(by11, by01))
         val left = floor(minX).toInt().coerceIn(0, bufferWidth)
         val top = floor(minY).toInt().coerceIn(0, bufferHeight)
         val right = ceil(maxX).toInt().coerceIn(0, bufferWidth)
@@ -102,6 +102,15 @@ object BufferScissor {
      */
     fun toGlScissor(rect: IntRect, bufferHeight: Int, out: IntArray) {
         require(out.size >= 4) { "a scissor needs 4 ints, was ${out.size}" }
+        // Unclipped input would make `bufferHeight - rect.bottom` negative, and
+        // GL answers a negative scissor with GL_INVALID_VALUE and *keeps the
+        // previous box* — so the draw would silently touch pixels outside the
+        // dirty region instead of failing. The pairing with [bounds], which
+        // clips, is what makes that unreachable; this says so out loud.
+        require(rect.top >= 0 && rect.bottom <= bufferHeight) {
+            "toGlScissor needs a rect already clipped to the buffer, was " +
+                "top=${rect.top} bottom=${rect.bottom} height=$bufferHeight"
+        }
         out[0] = rect.left
         out[1] = bufferHeight - rect.bottom
         out[2] = rect.right - rect.left

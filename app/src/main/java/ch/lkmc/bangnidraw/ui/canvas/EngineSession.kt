@@ -93,7 +93,15 @@ class EngineSession(
         param: DabBatch,
     ) {
         ensureContext()
-        if (!isSupported) return
+        if (!isSupported) {
+            // Not just `return`: batches are published without consulting
+            // `isSupported` (it is only known after the first `ensureContext`),
+            // so bailing out silently would strand every one of them and their
+            // ring slots — `acquireDabBatch` returning null for the rest of the
+            // session, which is R-063's shape on the live path.
+            drainPending(stamp = false)
+            return
+        }
         renderer.onSurfaceChanged(width, height)
         // [param] is deliberately NOT consumed here: it is also in
         // [pendingBatches], which is the authoritative list, and stamping it
@@ -104,12 +112,7 @@ class EngineSession(
         // requests, so an earlier callback may already have drained everything
         // this one was scheduled for — and it recomposited when it did, so
         // there is nothing left to draw.
-        var dirty = IntRect.EMPTY
-        while (true) {
-            val next = pendingBatches.poll() ?: break
-            dirty = union(dirty, renderer.stampDabs(next))
-            dabRing.release(next)
-        }
+        val dirty = drainPending(stamp = true)
         if (dirty.isEmpty) return
         renderer.drawStrokeFrame(
             frameBufferId = bufferInfo.frameBufferId,
@@ -118,6 +121,23 @@ class EngineSession(
             bufferTransform = transform,
             dirtyCanvas = dirty,
         )
+    }
+
+    /**
+     * Consumes every published batch, returning the canvas rect they dirtied.
+     *
+     * GL thread only. [stamp] false releases without drawing — §4's cancelled
+     * stroke, and the unsupported-device path, both of which must leave no
+     * trace but must still return their slots.
+     */
+    private fun drainPending(stamp: Boolean): IntRect {
+        var dirty = IntRect.EMPTY
+        while (true) {
+            val next = pendingBatches.poll() ?: break
+            if (stamp) dirty = union(dirty, renderer.stampDabs(next))
+            dabRing.release(next)
+        }
+        return dirty
     }
 
     private fun union(a: IntRect, b: IntRect): IntRect = when {
@@ -157,16 +177,23 @@ class EngineSession(
             bufferHeight = bufferInfo.height,
             bufferTransform = transform,
         )
-        // §8.2: `params` is iterated only to release the ring slots. A
-        // committed stroke's batches arrive here when graphics-core replays the
-        // segment into the multi-buffered layer, and a slot not returned is a
-        // slot gone for the life of the session — eight of those and
-        // `acquireDabBatch` returns null forever.
+        // §8.2 says `params` is iterated only to release ring slots. **This
+        // implementation must not**, and the difference is a crash.
         //
-        // The dabs themselves are NOT stamped again: `commitStroke` merged the
-        // stroke buffer into the layer before this ran, so restamping would lay
-        // the whole stroke down a second time.
-        for (batch in params) dabRing.release(batch)
+        // graphics-core replays the SAME objects: `commit()` runs
+        // `mSegments.add(mActiveSegment.release())` and this callback polls that
+        // collection, so every batch here has already been through
+        // [onDrawFrontBufferedLayer]'s drain, which released it. `DabRing.release`
+        // is deliberately not idempotent — `require(!free[i])` — so a second
+        // release throws out of a GL callback on the first pen-up.
+        //
+        // [pendingBatches] is therefore the single owner of a published batch,
+        // and every exit drains it: this callback, `endStroke`, `cancelStroke`
+        // and `release`. `endStroke` drains inside its `execute` block, which
+        // §8.3's verified FIFO ordering puts before this callback — so the queue
+        // is always empty by the time the replay arrives.
+        //
+        // The dabs are not restamped either: the merge already happened.
     }
 
     private fun ensureContext() {
@@ -300,6 +327,12 @@ class EngineSession(
             dabRing.release(batch)
             return
         }
+        if (!isSupported) {
+            // Released on the spot rather than published into a queue nothing
+            // will draw.
+            dabRing.release(batch)
+            return
+        }
         if (!frontBuffered.isValid()) {
             // The renderer is gone; the block would be dropped with the slot
             // still checked out. `execute` after release logs and returns
@@ -334,7 +367,14 @@ class EngineSession(
         // verified against graphics-core 1.0.4 (AGENTS.md): this block runs
         // before the multi-buffered draw `commit()` schedules, so the layer
         // already owns the stroke by the time the committed frame is composed.
-        frontBuffered.execute { renderer.endStroke(readback = null, revision = 0) }
+        frontBuffered.execute {
+            // §8.3's `dabPass.drain(untilStrokeEnd)`: any batch published but
+            // not yet drawn is stamped now, before the merge, or its dabs would
+            // be lost — and its slot would still be checked out when the replay
+            // arrives, where nothing releases it any more.
+            drainPending(stamp = true)
+            renderer.endStroke(readback = null, revision = 0)
+        }
         if (!frontBuffered.isValid()) return
         // commit(), not redraw(): the multi-buffered layer is redrawn AND the
         // front layer is hidden. A plain redraw would leave the front buffer's
@@ -344,7 +384,12 @@ class EngineSession(
 
     /** §4/§8.4: a cancelled stroke leaves no trace. */
     fun cancelStroke() {
-        frontBuffered.execute { renderer.cancelStroke() }
+        frontBuffered.execute {
+            // Released, not stamped: §4 says a cancelled stroke leaves no
+            // trace, but the slots still have to come back.
+            drainPending(stamp = false)
+            renderer.cancelStroke()
+        }
         if (!frontBuffered.isValid()) return
         // §8.4: cancel() drops the front-buffered content, and the
         // multi-buffered layer beneath is still showing the pre-stroke state,

@@ -299,9 +299,16 @@ class StrokeShaderContractTest {
         )
         // The single-tap fast path must take the same route, or u_taps == 1 and
         // u_taps == 2 would disagree about what the preview shows.
+        //
+        // A regex, not the exact statement: `stripped` collapses whitespace but
+        // cannot absorb brace-wrapping the return, and a cosmetic GLSL edit
+        // failing a contract test with "the one-tap path must merge too" sends
+        // the next reader hunting a regression that is not there. This still
+        // pins both halves — the branch is on `taps == 1`, and what it returns
+        // is the MERGED sample rather than a raw fetch.
         assertTrue(
-            body.contains("if (taps == 1) return previewAt(v_uvw.xy);"),
-            "the one-tap path must merge too",
+            body.contains(Regex("""taps == 1\)\s*\{?\s*return previewAt\(v_uvw\.xy""")),
+            "the one-tap path must merge too: $body",
         )
     }
 

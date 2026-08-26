@@ -1206,3 +1206,121 @@ nits-only rule.
   `strokeLive && pointerId == drawingId` to `strokeLive` fails it with
   "the superseded palm must not emit samples: [(100.0, 100.0), (401.0, 400.0),
   (140.0, 100.0)]".
+
+## PR #14 (roadmap 2.5a) — GLM round 1
+
+**Round scored: substantive.** A real BLOCKER that would have crashed on the
+first pen-up, two real Majors, and a Minor that found a false no-allocation
+claim in *two* files.
+
+- **R-070 ✅ every committed stroke double-released its `DabRing` slots** (PR #14,
+  GLM round 1, BLOCKER). **Applied. The finding is right and the consequence is
+  worse than it says.**
+
+  `onDrawFrontBufferedLayer` drained `pendingBatches` and released each batch;
+  `onDrawMultiBufferedLayer` then released `params` as well. The question was
+  whether graphics-core replays the same objects. It does — verified from
+  1.0.4's bytecode, not inferred: `commitInternal()` runs
+  `mSegments.add(mActiveSegment.release())` and the multi-buffered callback
+  `poll()`s that collection straight into `params`. So every batch was released
+  twice.
+
+  The predicted impact was diverging free-slot accounting. The actual one is
+  louder: `DabRing.release` is deliberately **not** idempotent —
+  `require(!free[i]) { "batch at slot $i was released twice" }` — so the second
+  release throws out of a GL callback on the *first* pen-up. The 2.3b comment
+  this replaced ("releasing arrives with the ring that owns the slots") was
+  written before the front path existed and quietly became wrong when it did.
+
+  Fixed by making `pendingBatches` the single owner: the replay releases
+  nothing, and every exit drains the queue — the front callback, `endStroke`,
+  `cancelStroke` and `release`. `endStroke` drains **inside its `execute`
+  block**, which is §8.3's own `dabPass.drain(untilStrokeEnd)` and which the
+  verified FIFO ordering puts before the replay, so the queue is always empty by
+  the time `params` arrives. Without that drain the fix would have traded a
+  crash for lost dabs: a batch published but not yet drawn at pen-up would never
+  be stamped, and its slot would never come back.
+
+- **R-071 ✅ an aborted present leaked the Accum scissor** (PR #14, GLM round 1,
+  Major). **Applied.** `compositeIntoAccum` enables the scissor and the only
+  reset is at the end of `presentToWindow`, which has two early exits above it.
+  A leaked scissor is not a dropped frame — it is applied, in Accum
+  coordinates, to whatever graphics-core binds next. Narrow to reach
+  (degenerate buffer dimensions during teardown), one cheap guard to close.
+
+- **R-072 ❌ `u_strokeMode` should use `shaderId` like `u_blend`** (PR #14, GLM
+  round 1, Major). **Refuted.** The finding is explicitly conditional — *"If
+  `StrokeSpec.mode` is a `BlendMode` (which the `mergeStroke(L, S)` semantics
+  strongly suggest)"* — and it is not. `StrokeMode` is its own enum
+  (PAINT/ERASE/MIX), `merge.glsl` switches on its **ordinal**, and
+  `StrokeShaderContractTest` pins exactly that because nothing else in the
+  codebase would notice the enum being reordered. `MergePass` uploads it the
+  same way. `shaderId` belongs to `BlendMode`, which is the layer's compositing
+  mode and a different question.
+
+  The finding's own fallback is what was applied: *"If it is a distinct enum,
+  keep the ordinal but pin the contract in a comment so a future reader doesn't
+  'fix' it to `shaderId`."* The comment now says which enum is which and why the
+  two lines differ.
+
+- **R-073 ✅ an unsupported device stranded every published batch** (PR #14, GLM
+  round 1, Major). **Applied.** `stampDabs` published without consulting
+  `isSupported` — it is only known after the first `ensureContext` — and the
+  front callback returned on `!isSupported` before draining, so eight batches
+  exhausted the ring and `acquireDabBatch` returned null for the rest of the
+  session. R-063's shape, on the live path rather than teardown. Both ends are
+  closed: `stampDabs` releases on the spot, and the callback drains anything
+  already queued.
+
+- **R-074 ✅ the no-allocation comment was false, in two files** (PR #14, GLM
+  round 1, Minor). **Applied, and the same defect fixed in `ScreenTransform`.**
+  `BufferScissor.bounds` justified its shape with "§2.4 allows no allocation"
+  while using a local `fun corner` that captures and mutates five locals — which
+  Kotlin compiles to `FloatRef`/`BooleanRef` wrappers. Confirmed from the
+  compiled class: 34 `Ref` references. Roughly seven objects per call, once per
+  input batch, on the latency path the comment claimed to protect.
+
+  `ScreenTransform.screenBoundsOf` has the identical pattern with the identical
+  claim, and is where this one was copied from. Its history makes the point:
+  an earlier round removed four boxed `Pair`s from that function *for this exact
+  reason* and replaced them with the local `fun` — keeping the allocation and
+  moving it somewhere harder to see. Both are unrolled now, and both comments
+  say what actually allocates.
+
+- **R-075 ✅ `runPages` had no size guard** (Minor), **R-076 ✅ the initial preview
+  VBO was unchecked** (Minor), **R-077 ✅ `linked[5]`** (Minor), **R-078 ✅ the
+  per-frame `IntRect`** (Info), **R-079 ✅ `pageTextureOrNull` tested the
+  sentinel's sign** (Info), **R-080 ✅ `toGlScissor` needs its clipped-input
+  contract** (Info), **R-081 ✅ the one-tap assertion was brittle** (Info). All
+  applied as described. Two are worth a line each: `linked[5]` is now a
+  capture-at-link-time local, because nothing distinguishes one `GlProgram` from
+  another and the `onContextLost` comment already records that this family of
+  lists has been wrong twice; and the brittle assertion became a brace-tolerant
+  regex, mutation-tested **both ways** — it still fails a raw `texture()` fetch
+  on the one-tap path, and it does *not* fail when the return is brace-wrapped.
+
+- **R-082 ❌ the preview capacity never shrinks after a spike** (PR #14, GLM round
+  1, Minor). **Declined.** The cost it names is the per-run orphaning
+  `glBufferData`, which is a buffer *rename*, not a copy — the driver hands back
+  fresh storage and the old one retires with the last draw that read it. Sizing
+  that rename at the historical peak instead of the current need is not
+  proportional to work done, and the staging `FloatBuffer` is written only up to
+  `n` tiles whatever its capacity. Against that, hysteresis adds a second
+  reallocation path to a class that just gained one, on the front-buffer frame
+  path. `DabPass` sets the precedent: it grows and never shrinks, and its
+  release resets to the floor, which is what `CompositePass.release` now does
+  too. Revisit with a profile rather than in the abstract.
+
+- **R-083 ❌ the 2.5a row should not read `⬜` while this PR ships its code** (PR
+  #14, GLM round 1, Minor). **Declined on the convention, prose clarified.**
+  Rows in this table flip to ✅ **with the merge hash** — a value that does not
+  exist until the PR merges. 2.4b's row read `⬜` for the whole life of PR #13
+  and flipped on merge; 2.4a's did the same. A `🔁` marker appears nowhere in
+  the document, so introducing one here would be the inconsistency it is meant
+  to avoid.
+
+  The finding is right that one sentence misleads, though: "written before any
+  2.5 code exists" was true when committed and reads as a claim about the PR's
+  contents afterwards. It now says the seam was fixed in its own commit ahead of
+  the first line of 2.5 code, and notes explicitly that rows stay `⬜` until
+  their PR merges.

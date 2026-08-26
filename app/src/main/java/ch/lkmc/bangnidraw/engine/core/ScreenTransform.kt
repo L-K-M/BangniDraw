@@ -124,25 +124,28 @@ data class ScreenTransform(
         // takes an `IntArray` out-param and `allKeys` is marked cold — and this
         // was quietly undercutting that.
         //
+        // The local `fun corner` that replaced the loop was undercutting it
+        // too, and for a less visible reason: a Kotlin local function capturing
+        // mutable vars compiles to Ref wrappers, so it allocated a `FloatRef`
+        // per accumulator and a `BooleanRef` for the flag on every call. The
+        // fix that removed the Pairs kept the allocation and moved it somewhere
+        // harder to see. Verified from the compiled class.
+        //
         // All FOUR corners, still: under rotation the image of an axis-aligned
         // rect is not axis-aligned, and two opposite corners clip the others.
-        var ok = true
-        fun corner(cx: Float, cy: Float) {
-            // The scalar helpers, not `apply`: same formula, no Pair.
-            val sx = screenX(cx, cy)
-            val sy = screenY(cx, cy)
-            if (!sx.isFinite() || !sy.isFinite()) {
-                ok = false
-                return
-            }
-            minX = min(minX, sx); maxX = max(maxX, sx)
-            minY = min(minY, sy); maxY = max(maxY, sy)
+        val sx00 = screenX(x0, y0); val sy00 = screenY(x0, y0)
+        val sx10 = screenX(x1, y0); val sy10 = screenY(x1, y0)
+        val sx11 = screenX(x1, y1); val sy11 = screenY(x1, y1)
+        val sx01 = screenX(x0, y1); val sy01 = screenY(x0, y1)
+        if (!sx00.isFinite() || !sy00.isFinite() || !sx10.isFinite() || !sy10.isFinite() ||
+            !sx11.isFinite() || !sy11.isFinite() || !sx01.isFinite() || !sy01.isFinite()
+        ) {
+            return IntRect.EMPTY
         }
-        corner(x0, y0)
-        corner(x1, y0)
-        corner(x1, y1)
-        corner(x0, y1)
-        if (!ok) return IntRect.EMPTY
+        minX = min(min(sx00, sx10), min(sx11, sx01))
+        minY = min(min(sy00, sy10), min(sy11, sy01))
+        maxX = max(max(sx00, sx10), max(sx11, sx01))
+        maxY = max(max(sy00, sy10), max(sy11, sy01))
         val left = floor(minX - 1f).toInt().coerceIn(0, viewportWidth)
         val top = floor(minY - 1f).toInt().coerceIn(0, viewportHeight)
         val right = ceil(maxX + 1f).toInt().coerceIn(0, viewportWidth)

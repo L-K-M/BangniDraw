@@ -132,4 +132,70 @@ class StrokeDriver(
     fun cancel() {
         isActive = false
     }
+
+    // ------------------------------------------------------- the tail (§9)
+
+    /**
+     * The tail's own stabilizer and generator, re-synced from the real ones on
+     * every [predict] rather than allocated per frame.
+     *
+     * Null until the first prediction: a finger stroke, a mouse stroke, or a
+     * device whose predictor never returns anything never pays for them.
+     */
+    private var tailStabilizer: Stabilizer? = null
+    private var tailGenerator: DabGenerator? = null
+
+    /** Scratch for [predict], so it never touches [raw] or [smoothed]. */
+    private val tailRaw = StrokeInput()
+    private val tailSmoothed = StrokeInput()
+
+    /**
+     * Runs [samples] through **copies** of the stabilizer and generator and
+     * writes the dabs into [out], returning how many
+     * (`docs/plan/03-canvas-engine.md` §9).
+     *
+     * This is the whole of §9's claim in one method. The tail continues the
+     * stabilized line — same leash position, same spacing remainder, same
+     * jitter sequence — so its dabs are exactly the dabs the real samples
+     * would produce *if the prediction is right*; and because it runs on
+     * copies, a prediction that was wrong costs nothing: the real state has
+     * not moved, and the next real sample carries on from where it was.
+     *
+     * The dabs are marked predicted ([DabBatch.markPredictedFromHere]), which
+     * is what routes them to the removable tail rather than the stroke buffer.
+     *
+     * Returns 0 for a stroke that is not open — a tail with nothing to
+     * continue is not a tail — and 0 for an empty batch.
+     */
+    fun predict(samples: StrokeInputBatch, out: DabBatch): Int {
+        if (!isActive || samples.size == 0) return 0
+        // On the first frame `copy()` builds the pair AND is the sync; on every
+        // later one the same two objects are re-synced in place, which is what
+        // keeps a per-frame path allocation-free.
+        var stab = tailStabilizer
+        var gen = tailGenerator
+        if (stab == null || gen == null) {
+            stab = stabilizer.copy()
+            gen = generator.copy()
+            tailStabilizer = stab
+            tailGenerator = gen
+        } else {
+            stabilizer.copyInto(stab)
+            generator.copyInto(gen)
+        }
+        out.markPredictedFromHere()
+        var emitted = 0
+        for (i in 0 until samples.size) {
+            val s = samples[i]
+            // `predicted = true` regardless of what the caller set, because
+            // everything downstream keys the tail off this flag and a sample
+            // that reached here IS predicted by construction.
+            tailRaw.set(
+                s.x, s.y, s.pressure, s.tilt, s.orientation, s.timeNs, s.source,
+                predicted = true,
+            )
+            if (stab.push(tailRaw, tailSmoothed)) emitted += gen.advance(tailSmoothed, out)
+        }
+        return emitted
+    }
 }

@@ -190,12 +190,29 @@ class Stabilizer(strength: Float, zoom: Float = 1f) {
      * jumping ahead of it, and never advances the real state
      * (`03-canvas-engine.md` §9).
      */
-    fun copy(): Stabilizer {
-        val other = Stabilizer(strength, zoom)
+    fun copy(): Stabilizer = Stabilizer(strength, zoom).also { copyInto(it) }
+
+    /**
+     * [copy] into a stabilizer that already exists, so the tail costs no
+     * allocation.
+     *
+     * The tail is rebuilt every frame and `10-performance.md` §2.4's rule
+     * covers the whole span up to `renderFrontBufferedLayer`; a fresh [copy]
+     * per frame would be a `Stabilizer` and two [StrokeInput]s each time.
+     *
+     * [retune] rather than assignment for `strength` and `zoom`: `k` and
+     * [leash] are *derived*, and copying the two inputs while leaving the three
+     * derived values at the target's own would give the tail different
+     * smoothing from the stroke it continues. Reachable through
+     * `StrokeDriver.setZoom`, which retunes the real stabilizer mid-stroke and
+     * would otherwise leave the tail's copy tuned for the old zoom for the rest
+     * of the stroke.
+     */
+    fun copyInto(other: Stabilizer) {
+        other.retune(strength = strength, zoom = zoom)
         other.state.set(state)
         other.raw.set(raw)
         other.started = started
-        return other
     }
 
     /** The current smoothed sample, for tests and for the tail's starting point. */

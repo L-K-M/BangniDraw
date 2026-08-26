@@ -114,7 +114,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         this.aspect[i] = aspect
         this.seed[i] = seed
         count = i + 1
-        dirty = union(dirty, IntRect.forDab(x, y, radius))
+        dirty = dirty.union(IntRect.forDab(x, y, radius))
         return true
     }
 
@@ -153,18 +153,6 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
     /** How many dabs the multi-buffered pass will commit, i.e. excluding the tail. */
     val committedCount: Int get() = if (predictedFrom < 0) count else predictedFrom
 
-    private companion object {
-        fun union(a: IntRect, b: IntRect): IntRect = when {
-            a.isEmpty -> b
-            b.isEmpty -> a
-            else -> IntRect(
-                minOf(a.left, b.left),
-                minOf(a.top, b.top),
-                maxOf(a.right, b.right),
-                maxOf(a.bottom, b.bottom),
-            )
-        }
-    }
 }
 
 /**

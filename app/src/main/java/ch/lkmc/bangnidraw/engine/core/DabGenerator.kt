@@ -220,8 +220,27 @@ class DabGenerator(
      * on the layer. The tail never calls [end], so nulling it costs nothing
      * and closes the one way a copy could touch anything but itself.
      */
-    fun copy(): DabGenerator {
-        val other = DabGenerator(preset, seed)
+    fun copy(): DabGenerator = DabGenerator(preset, seed).also { copyInto(it) }
+
+    /**
+     * [copy] into a generator that already exists, so the tail costs no
+     * allocation.
+     *
+     * The predicted tail is rebuilt from scratch **every frame** — 120 times a
+     * second on a 120 Hz panel — and `10-performance.md` §2.4's rule runs from
+     * `onTouchEvent` to `renderFrontBufferedLayer`, which is exactly the span
+     * this sits in. A fresh [copy] per frame is a `DabGenerator` and its
+     * [StrokeInput] each time; re-syncing one long-lived generator is none.
+     *
+     * [other] must have been built from the same `preset` and `seed`, or its
+     * dabs would not be the ones the real samples would produce — the claim
+     * §9 rests on. Checked rather than documented: getting it wrong yields a
+     * tail that is subtly the wrong size or jitter and nothing that says so.
+     */
+    fun copyInto(other: DabGenerator) {
+        require(other.preset === preset && other.seed == seed) {
+            "a tail generator must share the stroke's preset and seed"
+        }
         other.last.set(last)
         other.started = started
         other.carry = carry
@@ -238,8 +257,12 @@ class DabGenerator(
         // Left here rather than dropped so a future tail that DOES end starts
         // from the truth — but nobody should expect a failure if it goes.
         //
-        // firstBatch / firstIndex stay null / -1: see the KDoc.
-        return other
+        // firstBatch / firstIndex are RESET rather than merely left alone:
+        // `other` may be a generator that ran a previous frame's tail, and one
+        // of that frame's dabs could still be sitting in `firstBatch`. See the
+        // KDoc above for why a tail must never hold that reference at all.
+        other.firstBatch = null
+        other.firstIndex = -1
     }
 
     // ------------------------------------------------------------------ internals

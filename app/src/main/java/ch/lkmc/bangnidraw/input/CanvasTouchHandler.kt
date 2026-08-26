@@ -1,12 +1,15 @@
 package ch.lkmc.bangnidraw.input
 
+import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
 import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.GestureListener
 import ch.lkmc.bangnidraw.engine.core.NavigationStep
 import ch.lkmc.bangnidraw.engine.core.PointerTool
+import ch.lkmc.bangnidraw.engine.core.PredictionGate
 import ch.lkmc.bangnidraw.engine.core.RotationSnap
+import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 
@@ -41,6 +44,20 @@ interface CanvasInputHost {
 
     /** No history entry, no pixels: the stroke never happened (§4). */
     fun onStrokeCancel() {}
+
+    /**
+     * Roadmap 2.5b. One frame's predicted tail, in canvas px
+     * (`07-input-and-stylus.md` §8, `03-canvas-engine.md` §9).
+     *
+     * Called at most once per frame while a stylus stroke is live, and each
+     * call **replaces** the previous tail rather than extending it. The batch
+     * is the handler's and is reused: read it inside the call, keep nothing.
+     *
+     * Nothing here ever reaches the stroke buffer or the layer — the host runs
+     * it through a copy of the stroke's state and draws it in the front layer
+     * only.
+     */
+    fun onStrokePredicted(samples: StrokeInputBatch) {}
 }
 
 /**
@@ -157,6 +174,7 @@ class CanvasTouchHandler(
             navigating = false
             strokeLive = true
             drawingId = pointerId
+            startPredicting(source)
             host.onStrokeBegin(pointerId, source)
             // The down that opened the stroke is a sample too. Without it a tap
             // that never moves leaves no mark at all, and a fast stroke starts
@@ -176,6 +194,7 @@ class CanvasTouchHandler(
             if (!strokeLive) return
             strokeLive = false
             drawingId = NO_POINTER
+            stopPredicting()
             host.onStrokeCancel()
         }
         override fun onTapUndo() = host.onUndoRequested()
@@ -185,6 +204,7 @@ class CanvasTouchHandler(
         override fun onStrokeEnd(pointerId: Int) {
             strokeLive = false
             drawingId = NO_POINTER
+            stopPredicting()
             host.onStrokeEnd(pointerId)
         }
         override fun onNavigateEnd() {
@@ -250,6 +270,11 @@ class CanvasTouchHandler(
         track(pointerId, x, y, pressure, tilt, orientation, timeNs)
         pendingMove = true
         if (strokeLive && pointerId == drawingId) {
+            // Window px, deliberately: §8's threshold is about what the eye
+            // sees, so a stroke at 8x zoom must not become eight times more
+            // tolerant of a bad guess. [emitSample] converts to canvas px on
+            // the way to the host; the gate is fed before that.
+            prediction.actual(x, y, timeNs)
             emitSample(x, y, pressure, tilt, orientation, timeNs)
         }
     }
@@ -338,6 +363,12 @@ class CanvasTouchHandler(
         arbiter.cancel(decisions)
         navigating = false
         pendingMove = false
+        // Belt and braces: the arbiter's own `CancelStroke` already stops the
+        // frame callback, but only when a stroke was live. A cancel that
+        // arrives with none — the ordinary two-finger tap — must still leave no
+        // callback posted, and a posted callback outlives every other piece of
+        // per-stroke state here.
+        stopPredicting()
         // The pen's own ACTION_UP never arrives after a cancel, so nothing else
         // would ever clear contact: isDown stayed true, isNear stayed true with
         // it, and every later finger was rejected as a palm. The app looked
@@ -447,6 +478,207 @@ class CanvasTouchHandler(
         for (i in trackIds.indices) if (trackIds[i] == pointerId) trackIds[i] = NO_POINTER
     }
 
+    // ------------------------------------------------ the predicted tail (§8)
+
+    /**
+     * §8's adaptive disable, in **window** px.
+     *
+     * Public so the debug overlay of 2.5d can show the running error next to
+     * the real-vs-predicted points §8 asks it to draw — the number is the whole
+     * reason that overlay exists.
+     */
+    val prediction = PredictionGate()
+
+    /**
+     * Built from the `View` that dispatches to us, on the first event, and
+     * rebuilt if that view is ever replaced (§8: one per surface).
+     *
+     * **Null on the JVM, and that is what keeps this class testable.** Only
+     * [onTouch] and [onHover] ever set it, and neither can run in a unit test —
+     * `MotionEvent` cannot be constructed there. Everything below is therefore
+     * guarded on it rather than on a flag, so the `handle*` path the tests
+     * drive never reaches `Choreographer.getInstance()`, which needs a Looper.
+     */
+    private var predictor: Predictor? = null
+
+    /** The tail handed to the host, refilled every frame. */
+    private val predictedSamples = StrokeInputBatch()
+
+    /**
+     * Each predicted sample's **window**-px position, parallel to
+     * [predictedSamples], which holds canvas px.
+     *
+     * Both are needed and neither can be derived from the other cheaply: the
+     * host draws in canvas px, and [prediction]'s threshold is a screen-space
+     * one on purpose (§8). Kept alongside rather than re-read off the
+     * `MotionEvent` afterwards, because the tail is truncated *after* it is
+     * filled — so "the last sample kept" and "the last sample the event has"
+     * are different indices, and mapping one onto the other by hand is a
+     * subscript nobody would notice being wrong.
+     */
+    private val predictedWindowX = FloatArray(predictedSamples.capacity)
+    private val predictedWindowY = FloatArray(predictedSamples.capacity)
+
+    /** Whether a stylus stroke is live and the frame callback should keep running. */
+    private var predicting = false
+
+    /** Whether a frame callback is outstanding, so it is posted exactly once. */
+    private var framePosted = false
+
+    /**
+     * The source the stroke opened with, carried onto every predicted sample.
+     *
+     * Read from the arbiter's decision rather than from [stylus] at fill time:
+     * the pen can be lifted and its eraser end put down while the tail's last
+     * frame is still in flight, and a tail that changed tool mid-stroke would
+     * describe a stroke that does not exist. The same reason `CanvasScreen`
+     * pins `strokeState.source` at pen-down for the real samples.
+     */
+    private var predictedSource = StrokeSource.STYLUS
+
+    /**
+     * §8's cadence: `predict()` once per frame, not per event.
+     *
+     * A field rather than a lambda at the post site — one object for the life
+     * of the handler instead of one per frame (`10-performance.md` §2.4).
+     */
+    private val frameCallback = Choreographer.FrameCallback {
+        framePosted = false
+        // The surface check is the loop's own kill switch, and it is load
+        // bearing rather than defensive: this callback reposts itself for as
+        // long as a stroke is live, and a surface torn down mid-stroke does not
+        // reliably deliver an `ACTION_CANCEL` to end that stroke. Without it a
+        // back navigation during a stroke leaves a frame callback running for
+        // the life of the process, holding this handler and its host.
+        if (predicting && predictor?.isUsable == true) {
+            // Reposted before the work, not after: `predictFrame` returns early
+            // on a dozen paths (no predictor, prediction disabled, nothing to
+            // predict) and every one of them must still leave the next frame
+            // scheduled, or the tail stops for the rest of the stroke the first
+            // time the predictor declines a frame.
+            postFrame()
+            predictFrame()
+        } else {
+            predicting = false
+        }
+    }
+
+    /**
+     * Starts the per-frame tail for a stylus stroke.
+     *
+     * Fingers are not predicted in v1 (§8: "finger latency is not the
+     * product"), and an eraser end is a stylus for this purpose — it is the
+     * same digitizer with the same lag.
+     */
+    private fun startPredicting(source: StrokeSource) {
+        if (predictor == null) return
+        if (source != StrokeSource.STYLUS && source != StrokeSource.ERASER_END) return
+        predictedSource = source
+        // §8's "re-enabled at the next ACTION_DOWN". Carrying the previous
+        // stroke's error would let one bad flick disable prediction for a
+        // session.
+        prediction.reset()
+        predicting = true
+        postFrame()
+    }
+
+    private fun stopPredicting() {
+        predicting = false
+        if (!framePosted) return
+        framePosted = false
+        Choreographer.getInstance().removeFrameCallback(frameCallback)
+    }
+
+    private fun postFrame() {
+        if (framePosted) return
+        framePosted = true
+        Choreographer.getInstance().postFrameCallback(frameCallback)
+    }
+
+    /**
+     * One frame's tail: predict, convert, truncate, hand over.
+     *
+     * Returns without calling the host on every path that has nothing to draw,
+     * and calling with an empty batch would be the same thing said louder — the
+     * host would clear a tail the *next real batch* is about to clear anyway.
+     */
+    private fun predictFrame() {
+        val p = predictor ?: return
+        if (!prediction.enabled) return
+        val id = drawingId
+        if (id == NO_POINTER) return
+        val slot = trackIndexOf(id)
+        if (slot < 0) return
+        val e = p.predict() ?: return
+        val pointer = e.findPointerIndex(id)
+        if (pointer < 0) return
+
+        predictedSamples.clear()
+        for (h in 0 until e.historySize) fill(e, pointer, h)
+        fill(e, pointer, CURRENT)
+        if (predictedSamples.size == 0) return
+
+        // §8's PREDICT_MAX_NS, measured from the last REAL sample rather than
+        // from the frame clock: "16 ms of lookahead" is 16 ms past where the
+        // pen actually is, and a frame callback that ran late would otherwise
+        // truncate a tail that was the right length.
+        val base = trackTimeNs[slot]
+        predictedSamples.size = prediction.keepCount(predictedSamples.size) {
+            predictedSamples[it].timeNs - base
+        }
+        if (predictedSamples.size == 0) return
+
+        // The furthest-ahead point is the one scored: it is the tip of the
+        // tail, the part the eye actually judges, and the hardest guess in the
+        // batch.
+        val last = predictedSamples.size - 1
+        prediction.predicted(predictedWindowX[last], predictedWindowY[last], predictedSamples[last].timeNs)
+
+        host.onStrokePredicted(predictedSamples)
+    }
+
+    /**
+     * Appends one predicted sample — canvas px into [predictedSamples], window
+     * px into the parallel arrays — or does nothing if the batch is full.
+     *
+     * [history] is the historical index, or [CURRENT] for the event's own
+     * sample. A predicted event carries its lookahead the same way a real one
+     * carries its backlog: the further-ahead points are *historical* and the
+     * event's own is the nearest, so both have to be read (§2's rule for real
+     * events, in the mirror).
+     */
+    private fun fill(e: MotionEvent, pointer: Int, history: Int) {
+        val slot = predictedSamples.size
+        val sample = predictedSamples.next() ?: return
+        val current = history == CURRENT
+        val windowX = if (current) e.getX(pointer) else e.getHistoricalX(pointer, history)
+        val windowY = if (current) e.getY(pointer) else e.getHistoricalY(pointer, history)
+        predictedWindowX[slot] = windowX
+        predictedWindowY[slot] = windowY
+        sample.set(
+            x = view.invertX(windowX, windowY),
+            y = view.invertY(windowX, windowY),
+            pressure = if (current) e.getPressure(pointer) else e.getHistoricalPressure(pointer, history),
+            tilt = if (current) {
+                e.getAxisValue(MotionEvent.AXIS_TILT, pointer)
+            } else {
+                e.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointer, history)
+            },
+            orientation = if (current) {
+                e.getOrientation(pointer)
+            } else {
+                e.getHistoricalOrientation(pointer, history)
+            },
+            timeNs = if (current) {
+                e.eventTime * 1_000_000L
+            } else {
+                e.getHistoricalEventTime(history) * 1_000_000L
+            },
+            source = predictedSource,
+            predicted = true,
+        )
+    }
+
     // -------------------------------------------------------- MotionEvent
 
     /**
@@ -461,6 +693,11 @@ class CanvasTouchHandler(
         val index = e.actionIndex
         val id = e.getPointerId(index)
         val timeNs = e.eventTime * 1_000_000L
+        // §8: one predictor per surface, recreated with it. `v` is the
+        // SurfaceView the session draws into, so building it from here means
+        // nothing has to be plumbed through the composable that owns both.
+        if (v != null) predictor = Predictor.forView(v, predictor)
+        recordForPrediction(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN ->
                 handleDown(
@@ -533,6 +770,11 @@ class CanvasTouchHandler(
     override fun onHover(v: View?, event: MotionEvent?): Boolean {
         val e = event ?: return false
         val timeNs = e.eventTime * 1_000_000L
+        if (v != null) predictor = Predictor.forView(v, predictor)
+        // §8 records hover too: hover history improves the first predicted
+        // samples after contact, which is the moment the tail is least accurate
+        // and the pen is moving fastest.
+        recordForPrediction(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_HOVER_ENTER ->
                 stylus.onHoverEnter(e.x, e.y, e.getAxisValue(MotionEvent.AXIS_DISTANCE), toolOf(e.getToolType(0)))
@@ -544,6 +786,25 @@ class CanvasTouchHandler(
         return true
     }
 
+    /**
+     * Feeds one real event to the predictor — §8's "every `DOWN`/`MOVE`/`UP`
+     * for a stylus pointer, including `ACTION_HOVER_MOVE`".
+     *
+     * Scoped to the pen: a finger or a mouse dragging across the glass is
+     * history the predictor would fit a curve to and then answer the pen's next
+     * `predict()` with. §8 does not predict fingers in v1 at all.
+     *
+     * Nothing predicted is ever recorded back (§8), which holds here by
+     * construction: this is only ever reached from [onTouch] and [onHover], and
+     * a predicted event never arrives through either.
+     */
+    private fun recordForPrediction(e: MotionEvent) {
+        val p = predictor ?: return
+        val tool = toolOf(e.getToolType(0))
+        if (tool != PointerTool.STYLUS && tool != PointerTool.ERASER) return
+        p.record(e)
+    }
+
     private fun toolOf(toolType: Int): PointerTool = when (toolType) {
         MotionEvent.TOOL_TYPE_STYLUS -> PointerTool.STYLUS
         MotionEvent.TOOL_TYPE_ERASER -> PointerTool.ERASER
@@ -553,5 +814,8 @@ class CanvasTouchHandler(
 
     private companion object {
         const val NO_POINTER = -1
+
+        /** [fill]'s "not a historical sample, the event's own". */
+        const val CURRENT = -1
     }
 }

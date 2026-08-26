@@ -206,4 +206,33 @@ class TileGridTest {
         assertEquals(IntRect(256, 256, 300, 300), g.tileRect(TileKey(1, 1)))
         assertEquals(IntRect(0, 0, 256, 256), g.tileRect(TileKey(0, 0)))
     }
+
+    @Test
+    fun `union covers both rects`() {
+        assertEquals(
+            IntRect(5, 0, 40, 60),
+            IntRect(10, 0, 40, 20).union(IntRect(5, 30, 20, 60)),
+            "each edge takes its own extreme, not one rect wholesale",
+        )
+        // Containment both ways round, which is where an implementation that
+        // took min/max of the wrong pair still passes the disjoint case above.
+        val big = IntRect(0, 0, 100, 100)
+        val small = IntRect(10, 10, 20, 20)
+        assertEquals(big, big.union(small))
+        assertEquals(big, small.union(big))
+    }
+
+    @Test
+    fun `an empty rect contributes nothing to a union`() {
+        // The case the four private copies of this existed to get right.
+        // IntRect.EMPTY is (0,0,0,0), so folding it in as an ordinary rect would
+        // drag the box out to the canvas origin — on the front-buffered path,
+        // a redraw from the top-left corner to the pen on every empty batch.
+        val r = IntRect(500, 400, 520, 420)
+        assertEquals(r, r.union(IntRect.EMPTY))
+        assertEquals(r, IntRect.EMPTY.union(r))
+        assertTrue(IntRect.EMPTY.union(IntRect.EMPTY).isEmpty)
+        // A zero-height rect is empty too, and is not special-cased by value.
+        assertEquals(r, r.union(IntRect(0, 0, 999, 0)))
+    }
 }

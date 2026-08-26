@@ -36,6 +36,7 @@ import ch.lkmc.bangnidraw.engine.core.LayerProps
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
+import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
@@ -200,6 +201,21 @@ fun CanvasScreen(onBack: () -> Unit) {
                     strokeState.driver = null
                     strokeState.engine?.cancelStroke()
                     strokeState.engine = null
+                }
+
+                // Roadmap 2.5b: §9's predicted tail. The same ring and the same
+                // publish as a real batch — the dabs carry `predictedFrom`, and
+                // the renderer routes them to the tail buffer from that.
+                override fun onStrokePredicted(samples: StrokeInputBatch) {
+                    val driver = strokeState.driver ?: return
+                    val engine = strokeState.engine ?: return
+                    val batch = engine.acquireDabBatch() ?: return
+                    // A tail is a guess, so a starved ring drops it without a
+                    // second thought: the next frame brings another, and the
+                    // real samples — which cannot be regenerated — keep the
+                    // slots they need.
+                    val emitted = driver.predict(samples, batch)
+                    if (emitted == 0) engine.releaseDabBatch(batch) else engine.stampDabs(batch)
                 }
             },
         )

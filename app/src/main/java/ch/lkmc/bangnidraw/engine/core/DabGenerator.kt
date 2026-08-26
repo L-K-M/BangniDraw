@@ -202,6 +202,46 @@ class DabGenerator(
         return 1
     }
 
+    /**
+     * An independent generator at this one's exact state, for §9's predicted
+     * tail.
+     *
+     * The tail runs the predicted samples through a copy so it continues the
+     * real stroke — same spacing remainder, same velocity, same jitter
+     * sequence — while the real generator's state is never advanced by a
+     * sample that was only a guess. Same `preset` and `seed`, so the copy's
+     * dabs are exactly the dabs the real samples would produce if the
+     * prediction is right, which is the whole claim §9 makes for it.
+     *
+     * **[firstBatch] is deliberately NOT carried over.** It points at the
+     * caller's batch — the real stroke's — and [end] uses it to rewrite the
+     * first dab of a tap in place. A copy holding that reference could reach
+     * back into the committed stroke's batch and rewrite a dab that is already
+     * on the layer. The tail never calls [end], so nulling it costs nothing
+     * and closes the one way a copy could touch anything but itself.
+     */
+    fun copy(): DabGenerator {
+        val other = DabGenerator(preset, seed)
+        other.last.set(last)
+        other.started = started
+        other.carry = carry
+        other.pathLength = pathLength
+        other.dabIndex = dabIndex
+        other.velocity = velocity
+        other.pendingDistance = pendingDistance
+        other.pressureOpacityMax = pressureOpacityMax
+        other.dabCount = dabCount
+        other.maxPressure = maxPressure
+        other.dabIndexOfFirst = dabIndexOfFirst
+        // `maxPressure` is carried for completeness, not because a test can
+        // see it: it feeds only `end()`'s tap rewrite, and a tail never ends.
+        // Left here rather than dropped so a future tail that DOES end starts
+        // from the truth — but nobody should expect a failure if it goes.
+        //
+        // firstBatch / firstIndex stay null / -1: see the KDoc.
+        return other
+    }
+
     // ------------------------------------------------------------------ internals
 
     private val interpolated = InterpolatedSample()

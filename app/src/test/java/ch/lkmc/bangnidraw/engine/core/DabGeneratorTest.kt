@@ -585,4 +585,135 @@ class DabGeneratorTest {
         assertEquals(1, generator.advance(sample(10f, 10f), batch))
         assertEquals(1, batch.count)
     }
+
+
+    // ------------------------------------------- §9's predicted-tail copy
+
+    @Test
+    fun `a copy emits exactly what the original would have emitted`() {
+        // §9's "continues the stabilized line", in its strong form. Comparing
+        // the copy against the ORIGINAL fed the same sample is the only shape
+        // that pins every piece of carried state at once: a first draft asserted
+        // only that the tail's first dab landed past the last real one and
+        // within 1.6 spacing steps, which a copy with `carry = 0` also
+        // satisfies — it survived that mutation.
+        // The preset has to EXERCISE the carried state or the comparison is
+        // vacuous. A first draft used `plain` with 10 px samples: spacing 0.5 on
+        // a radius of 10 makes the step exactly 5 px, so the carry is always 0,
+        // `plain` has no jitter so `dabIndex` is unused, and no velocity
+        // dynamics so the EMA is unused. Zeroing any of those in `copy()`
+        // survived. This preset gives each of them something to change —
+        // 7 px samples against a 3 px step leave a rolling remainder, the
+        // jitter reads `dabIndex`, and the velocity terms read the EMA.
+        val exercised = plain.copy(
+            spacing = 0.3f,
+            jitter = Jitter(position = 0.8f),
+            velocity = VelocityEffect(sizeAtFast = 0.5f, opacityAtFast = 0.5f),
+        )
+        val real = DabGenerator(exercised, seed = 7L)
+        val out = DabBatch()
+        real.begin(sample(0f, 0f, timeMs = 0L), out)
+        for (i in 1..8) real.advance(sample(i * 7f, 0f, timeMs = i * 8L), out)
+        // One sample sharing the previous timestamp, so `pendingDistance` is
+        // non-zero when the copy is taken. Devices really do stamp a whole
+        // historical run with the batch's event time, which is why
+        // `updateVelocity` defers the travel instead of dropping it — and
+        // without this line that deferred distance is 0 and copying it is
+        // untested.
+        real.advance(sample(59f, 0f, timeMs = 64L), out)
+
+        val next = sample(65f, 4f, timeMs = 72L)
+        val tailOut = DabBatch()
+        real.copy().advance(next, tailOut)
+        val realOut = DabBatch()
+        real.advance(next, realOut)
+
+        assertTrue(tailOut.count > 0, "the copy must keep emitting, not stall")
+        assertEquals(realOut.count, tailOut.count, "the copy emitted a different number of dabs")
+        for (i in 0 until realOut.count) {
+            assertEquals(realOut.x[i], tailOut.x[i], 0f, "dab $i x differs from the real continuation")
+            assertEquals(realOut.y[i], tailOut.y[i], 0f, "dab $i y differs from the real continuation")
+            assertEquals(realOut.radius[i], tailOut.radius[i], 0f, "dab $i radius differs")
+            assertEquals(realOut.flow[i], tailOut.flow[i], 0f, "dab $i flow differs")
+            assertEquals(realOut.angle[i], tailOut.angle[i], 0f, "dab $i angle differs")
+        }
+    }
+
+    @Test
+    fun `a copy never advances the generator it came from`() {
+        // The half that matters for correctness: a predicted sample must leave
+        // no trace on the real stroke, or the next REAL sample is spaced
+        // against a remainder the user never drew and the committed stroke
+        // depends on how many frames happened to be predicted.
+        val real = DabGenerator(plain, seed = 7L)
+        val out = DabBatch()
+        real.begin(sample(0f, 0f, timeMs = 0L), out)
+        for (i in 1..5) real.advance(sample(i * 10f, 0f, timeMs = i * 8L), out)
+
+        val countBefore = real.dabCount
+        val ceilingBefore = real.pressureOpacityMax
+        val tail = real.copy()
+        val tailOut = DabBatch()
+        repeat(6) { tail.advance(sample(60f + it * 10f, 0f, timeMs = 48L + it * 8L), tailOut) }
+        assertTrue(tailOut.count > 0, "the tail must have done something to be worth checking")
+        assertEquals(countBefore, real.dabCount, "the copy advanced the original's dab count")
+        assertEquals(ceilingBefore, real.pressureOpacityMax, "the copy advanced the original's ceiling")
+
+        // Strongest form: the real stroke's continuation is bit-identical to
+        // what it would have been had no tail ever run.
+        val withTail = DabBatch()
+        real.advance(sample(60f, 0f, timeMs = 48L), withTail)
+
+        val control = DabGenerator(plain, seed = 7L)
+        val controlOut = DabBatch()
+        control.begin(sample(0f, 0f, timeMs = 0L), controlOut)
+        for (i in 1..5) control.advance(sample(i * 10f, 0f, timeMs = i * 8L), controlOut)
+        val controlNext = DabBatch()
+        control.advance(sample(60f, 0f, timeMs = 48L), controlNext)
+
+        assertEquals(controlNext.count, withTail.count, "the tail changed how many dabs the real stroke emits")
+        for (i in 0 until withTail.count) {
+            assertEquals(controlNext.x[i], withTail.x[i], 0f, "dab $i x diverged after a tail ran")
+            assertEquals(controlNext.y[i], withTail.y[i], 0f, "dab $i y diverged after a tail ran")
+            assertEquals(controlNext.radius[i], withTail.radius[i], 0f, "dab $i radius diverged after a tail ran")
+        }
+    }
+
+    @Test
+    fun `a copy cannot rewrite the real stroke's first dab`() {
+        // `end()` rewrites a tap's first dab IN PLACE, through a reference to
+        // the caller's batch, using the maximum pressure the tap saw. A copy
+        // carrying that reference could reach into a committed stroke and
+        // change a dab already merged onto the layer.
+        //
+        // The pressure curve and the extra sample are both load-bearing. With
+        // `Curve.One` the rewrite recomputes the SAME radius and carrying the
+        // reference is invisible; with a linear curve and a harder press seen
+        // only by the copy, the two radii differ — so the mutation that carries
+        // `firstBatch` over is caught rather than surviving, as it did against
+        // a first draft of this test.
+        val pressured = plain.copy(pressureSize = Curve.Linear)
+        val real = DabGenerator(pressured, seed = 7L)
+        val out = DabBatch()
+        real.begin(sample(5f, 5f, pressure = 0.1f, timeMs = 0L), out)
+        assertTrue(out.count > 0, "a tap emits its opening dab")
+        val firstRadius = out.radius[0]
+
+        val tail = real.copy()
+        // Same position, so no dab and no path length — only the copy's
+        // maxPressure moves, which is exactly what end() would write.
+        tail.advance(sample(5f, 5f, pressure = 1f, timeMs = 8L), DabBatch())
+        tail.end(DabBatch())
+
+        assertEquals(firstRadius, out.radius[0], 0f, "the copy's end() rewrote the real batch's first dab")
+
+        // And the guard is not vacuous: the real generator's own end() DOES
+        // rewrite it, so the value being compared is one end() can change.
+        real.advance(sample(5f, 5f, pressure = 1f, timeMs = 8L), DabBatch())
+        real.end(DabBatch())
+        assertTrue(
+            out.radius[0] != firstRadius,
+            "end() must actually rewrite a tap's first dab, or this test proves nothing",
+        )
+    }
 }

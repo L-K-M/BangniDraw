@@ -1,7 +1,5 @@
 package ch.lkmc.bangnidraw.engine.core
 
-import kotlin.math.abs
-
 /**
  * Whether the predicted tail is worth drawing right now
  * (`docs/plan/07-input-and-stylus.md` §8, `03-canvas-engine.md` §9).

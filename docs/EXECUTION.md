@@ -307,12 +307,16 @@ outstanding. Whether a declined hole reached a person should not depend on which
 to fire. R-001 and R-005 were both path traversal through an unvalidated layer id, both
 declined three times by the same agent that scored the rounds, and both were right.
 
-Only rounds where a review actually ran count toward the **streak** rules (2, 3, 4, 5) — never
-toward rule 6, which fires precisely because no review ran. A *no review* round earns nothing
-and **pauses** any streak it interrupts rather than resetting it: a round that carries no
-information should not erase the information in the round before it, and resetting would hand
-a flaky reviewer an indefinite pardon from rule 3 — the rule that exists precisely because you
-grade your own dismissals. Otherwise "consecutive" is strict: any *scored* round of a
+Only rounds where a review actually ran count toward a **streak** — never toward rule 6, which
+fires precisely because no review ran. Since the one-round change, rule 4 is the only rule
+that counts consecutive rounds at all: rules 2, 3 and 5 fire on a single round and have no
+streak to interrupt. This paragraph used to name rules 2, 3, 4 and 5 and was left behind by
+that change; the *semantics* below are unaltered, and they now govern rule 4 alone.
+
+A *no review* round earns nothing and **pauses** any streak it interrupts rather than
+resetting it: a round that carries no information should not erase the information in the
+round before it, and resetting would hand a flaky reviewer an indefinite pardon from the one
+rule that still accumulates. Otherwise "consecutive" is strict: any *scored* round of a
 different kind resets the streak.
 
 That pause only ever matters when the loop continues past the `no review` round, and rule 6

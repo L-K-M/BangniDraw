@@ -89,8 +89,11 @@ happened to fire. It keys on the **finding's substance, never on the round's
 score**, so filing one as "pre-existing behavior" does not exempt it — otherwise
 the cheapest way out of a security finding is to relabel it a scope call.
 
-An unreviewed round **pauses** a streak rather than resetting it — the bullets
-above depend on that; the semantics are in the infrastructure paragraph below.
+An unreviewed round **pauses** a streak rather than resetting it. Since the
+one-round change only the integration-failure bullet still counts consecutive
+rounds, so it is the only one that depends on this; the semantics are in the
+infrastructure paragraph below. Kept because that rule is the one a flaky
+reviewer could otherwise pardon indefinitely.
 
 **When the reviewer contradicts itself** — asks for a change, then for its
 revert, on code you have not touched — re-check both positions against the code

@@ -628,8 +628,15 @@ object Shaders {
 
         // One tap: the layer, the stroke buffer and the tail at the same offset,
         // merged in §7.5's order. The layer's slice is v_uvw.z as in composite.
+        //
+        // The LAYER goes through fetchTile too, unlike composite.frag, because
+        // the preview draws the union of three key sets: a stroke on blank
+        // canvas has a stroke tile and no layer tile, which is the ordinary
+        // case on a new document, not an edge case. Sampling an array texture
+        // at slice -1 is undefined, so composite's plain `texture()` would read
+        // garbage exactly there.
         vec4 previewAt(vec2 uv) {
-            vec4 L = texture(u_tiles, vec3(uv, v_uvw.z));
+            vec4 L = fetchTile(u_tiles, v_uvw.z, uv);
             vec4 S = fetchTile(u_strokePage, v_strokeTailSlice.x, uv);
             vec4 T = fetchTile(u_tailPage, v_strokeTailSlice.y, uv);
             return mergeStroke(mergeStroke(L, S), T);

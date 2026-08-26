@@ -244,6 +244,29 @@ and the contradiction is noted here.
   `03-canvas-engine.md` §8.6 left open ("if graphics-core exposes it in the
   pinned version (to verify)"). It does, so `EngineSession.redraw()` calls it
   and the `empty-param commit()` fallback the plan describes is not needed.
+- **`execute` blocks and render requests ARE FIFO on the GL thread.**
+  `03-canvas-engine.md` §8.3 flags this as an assumption "to verify against
+  graphics-core", with a prepared fallback (do the merge at the top of the
+  multi-buffered callback, keyed by stroke id in `params`). Verified against
+  1.0.4's bytecode, so the fallback is **not needed** and 2.5a's `commit()`
+  follows §8.3's shape exactly. The chain is
+  `GLFrontBufferedRenderer.execute → GLRenderer.execute → GLThread.execute →
+  mHandler.post(runnable)`, while a render request goes
+  `GLThread.requestRender → HandlerUtilsKt.post → mHandler.postAtTime(runnable,
+  token, SystemClock.uptimeMillis())`. Both reach the **same** `Handler` on the
+  one `HandlerThread`, both stamped `uptimeMillis()`, and neither uses
+  `sendMessageAtFrontOfQueue` — `postAtTime`'s token only exists so the message
+  can be removed later, and does not reorder. Android's `MessageQueue` inserts
+  after every message whose `when` is less than or equal, so equal timestamps
+  run in post order.
+- **`GLFrontBufferedRenderer.execute` after release DROPS the block — it does
+  not throw.** It checks `isValid()` and, when false, takes a `Log.w` branch and
+  returns; the runnable never runs. That is what makes PR #13's R-063 fix load
+  bearing rather than defensive: `EngineSession.stampDabs` returns its
+  `DabRing` slot *inside* the queued block, so a dropped block silently strands
+  a slot, and a few of those leave `acquireDabBatch` returning null forever with
+  no exception anywhere to say why. Clearing the pinned engine at the disposal
+  seam is what keeps blocks from being queued onto a released renderer at all.
 - **`glBindFramebuffer(GL_FRAMEBUFFER, …)` sets the read *and* draw binding**,
   so `Accum → Scratch` needs two `GlFbo`s — one bound `GL_READ_FRAMEBUFFER`,
   one `GL_DRAW_FRAMEBUFFER`. Blitting through a single FBO object makes the

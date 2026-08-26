@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.engine.gl
 import android.opengl.GLES30
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
+import ch.lkmc.bangnidraw.engine.core.PreviewPlan
 import ch.lkmc.bangnidraw.engine.core.SliceHandle
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.TileIndex
@@ -124,6 +125,17 @@ class LayerTextures(
      * it the whole pool would let it allocate.
      */
     fun pageTexture(page: Int): Int = pool.textureOf(page)
+
+    /**
+     * The texture behind [page], or null when there is no such page.
+     *
+     * §7.5's preview binds three pages per draw and any of them may be absent
+     * for a whole run — `PreviewPlan.ABSENT` is -1, which is not a page. The
+     * caller fills the unit with a sibling's texture instead of leaving a
+     * sampler unbound.
+     */
+    fun pageTextureOrNull(page: Int): Int? =
+        if (page == PreviewPlan.ABSENT) null else pool.textureOf(page)
 
     /** Appends every key with content to [out], row-major. Cold paths only — [TileKey] boxes. */
     fun allKeys(out: MutableList<TileKey>) = index.allKeys(out)

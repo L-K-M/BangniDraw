@@ -124,12 +124,61 @@ object Shaders {
      * `Int` pixels and is the pinned oracle (PLAN.md §7): when one changes,
      * both change.
      */
-    val COMPOSITE_FRAG = """
-        $VERSION_LINE
-        precision highp float;
-        precision highp sampler2DArray;
-        #define MAX_TAPS $MAX_TAPS
-        #define TILE_PX $TILE_SIZE
+    /**
+     * The declarations every compositing fragment shader opens with.
+     *
+     * Shared with [PREVIEW_FRAG] so the two cannot drift on `MAX_TAPS` or
+     * `TILE_PX`, which both use to convert a canvas-px offset into tile uv.
+     */
+    internal val COMPOSITE_HEAD = listOf(
+        VERSION_LINE,
+        "precision highp float;",
+        "precision highp sampler2DArray;",
+        "#define MAX_TAPS $MAX_TAPS",
+        "#define TILE_PX $TILE_SIZE",
+    ).joinToString("\n")
+
+    /**
+     * The blend and the output, byte-identical in `composite.frag` and
+     * `preview.frag`.
+     *
+     * §7.5 defines the preview as `composite.frag` compiled with
+     * `#define PREVIEW`: one source, two programs. There is no preprocessor
+     * here, so the sharing has to be structural — this constant is spliced into
+     * both, and `StrokeShaderContractTest` asserts that it really is. Copying
+     * the W3C compositing arithmetic into a second string instead would let the
+     * preview and the commit diverge in exactly the way §7.5 exists to forbid,
+     * and nothing on the JVM would notice.
+     *
+     * `sampleLayer()` is what differs and is therefore *not* here: composite
+     * reads the layer, preview reads the layer merged with the stroke buffer
+     * and the tail. Both return a premultiplied, opacity-free colour, which is
+     * the contract this tail depends on.
+     */
+    internal val COMPOSITE_TAIL = """
+        // Straight-alpha separable blend functions B(Cb, Cs), per channel.
+        vec3 blendStraight(int mode, vec3 cb, vec3 cs) {
+        ${blendDispatch(indent = 12)}
+        }
+
+        void main() {
+            vec4 s = sampleLayer() * u_opacity;
+            if (u_blend == ${BlendMode.NORMAL.shaderId}) { o_color = s; return; }
+            vec4 b = texelFetch(u_backdrop, ivec2(gl_FragCoord.xy), 0);
+            vec3 cb = b.a > 0.0 ? b.rgb / b.a : vec3(0.0);
+            vec3 cs = s.a > 0.0 ? s.rgb / s.a : vec3(0.0);
+            vec3 f = blendStraight(u_blend, cb, cs);
+            // W3C compositing, premultiplied:
+            // co = cs'(1-ab) + cb'(1-as) + as*ab*B(Cb,Cs)
+            vec3 co = s.rgb * (1.0 - b.a) + b.rgb * (1.0 - s.a) + s.a * b.a * f;
+            float ao = s.a + b.a * (1.0 - s.a);
+            o_color = vec4(co, ao);
+        }
+    """.trimIndent()
+
+    val COMPOSITE_FRAG = listOf(
+        COMPOSITE_HEAD,
+        """
         uniform sampler2DArray u_tiles;
         uniform sampler2D u_backdrop;
         uniform int u_blend;
@@ -167,26 +216,9 @@ object Shaders {
             }
             return acc / (n * n);
         }
-
-        // Straight-alpha separable blend functions B(Cb, Cs), per channel.
-        vec3 blendStraight(int mode, vec3 cb, vec3 cs) {
-        ${blendDispatch(indent = 12)}
-        }
-
-        void main() {
-            vec4 s = sampleLayer() * u_opacity;
-            if (u_blend == ${BlendMode.NORMAL.shaderId}) { o_color = s; return; }
-            vec4 b = texelFetch(u_backdrop, ivec2(gl_FragCoord.xy), 0);
-            vec3 cb = b.a > 0.0 ? b.rgb / b.a : vec3(0.0);
-            vec3 cs = s.a > 0.0 ? s.rgb / s.a : vec3(0.0);
-            vec3 f = blendStraight(u_blend, cb, cs);
-            // W3C compositing, premultiplied:
-            // co = cs'(1-ab) + cb'(1-as) + as*ab*B(Cb,Cs)
-            vec3 co = s.rgb * (1.0 - b.a) + b.rgb * (1.0 - s.a) + s.a * b.a * f;
-            float ao = s.a + b.a * (1.0 - s.a);
-            o_color = vec4(co, ao);
-        }
-    """.trimIndent()
+        """.trimIndent(),
+        COMPOSITE_TAIL,
+    ).joinToString("\n")
 
     /**
      * Step 3 of §3.2: `Accum` → the window buffer as a textured quad.
@@ -414,10 +446,6 @@ object Shaders {
      */
     val MERGE_GLSL = """
         #define MIXLERP mix
-        uniform sampler2DArray u_layerPage;
-        uniform sampler2DArray u_strokePage;
-        uniform float u_layerSlice;
-        uniform float u_strokeSlice;
         uniform int   u_strokeMode;
         uniform float u_strokeOpacity;
         uniform float u_dilution;
@@ -490,6 +518,16 @@ object Shaders {
         // computes the common indent across every line of the *result*, so an
         // already-unindented include spliced into an indented literal would
         // strip the literal's own indentation with it.
+        // merge.frag's own plumbing. It lives here rather than in the shared
+        // include because `preview.frag` supplies its own — §7.5 gives the
+        // preview three array samplers (`u_tiles`, `u_strokePage`,
+        // `u_tailPage`) and per-vertex slices — and a uniform a program never
+        // reads is optimised out, leaving `glGetUniformLocation` at -1, which
+        // `GlProgram` throws on. AGENTS.md records that trap from `u_viewport`.
+        "uniform sampler2DArray u_layerPage;",
+        "uniform sampler2DArray u_strokePage;",
+        "uniform float u_layerSlice;",
+        "uniform float u_strokeSlice;",
         MERGE_GLSL,
         "in vec2 v_uv;",
         "out vec4 o_color;",
@@ -515,7 +553,138 @@ object Shaders {
         ),
     )
 
-    val ALL: List<Source> = listOf(COMPOSITE, PRESENT, CHECKER, DAB, MERGE)
+    // ------------------------------------------------- the truthful preview
+
+    /** The stroke buffer's and the tail's slices for this tile; −1 = absent. */
+    const val ATTR_STROKE_TAIL_SLICE = 2
+
+    /**
+     * §7.5's `preview.frag` vertex half: [COMPOSITE_VERT] plus the slices.
+     *
+     * The layer's slice rides in `a_uvw.z` as it always has; the stroke
+     * buffer's and the tail's cannot, because all three tiles are allocated
+     * independently and generally land on different pages at different slices.
+     * Two more floats per vertex is the whole cost.
+     */
+    val PREVIEW_VERT = """
+        $VERSION_LINE
+        precision highp float;
+        layout(location = $ATTR_POS) in vec2 a_canvas;
+        layout(location = $ATTR_UV) in vec3 a_uvw;
+        layout(location = $ATTR_STROKE_TAIL_SLICE) in vec2 a_strokeTailSlice;
+        uniform vec4 u_screen;
+        uniform mat4 u_projection;
+        uniform mat4 u_bufferTransform;
+        out vec3 v_uvw;
+        out vec2 v_strokeTailSlice;
+        void main() {
+            vec2 p = vec2(u_screen.x * a_canvas.x - u_screen.y * a_canvas.y + u_screen.z,
+                          u_screen.y * a_canvas.x + u_screen.x * a_canvas.y + u_screen.w);
+            gl_Position = u_projection * u_bufferTransform * vec4(p, 0.0, 1.0);
+            v_uvw = a_uvw;
+            v_strokeTailSlice = a_strokeTailSlice;
+        }
+    """.trimIndent()
+
+    /**
+     * §7.5's `preview.frag`: the live composite's middle pass, drawing the
+     * active layer as `mergeStroke(mergeStroke(L, S), T)` before the layer's
+     * blend mode and opacity.
+     *
+     * **Assembled from the same pieces as [COMPOSITE_FRAG]** — [COMPOSITE_HEAD]
+     * and [COMPOSITE_TAIL] are spliced into both — because §7.5 defines this
+     * shader as `composite.frag` with `#define PREVIEW`, and the promise that
+     * "what the user sees mid-stroke is what lands" is only worth anything if
+     * the two really are one source. What differs is `sampleLayer()`, and only
+     * that.
+     *
+     * **The merge runs per supersampling tap, not once on the average.** §7.5
+     * says so and it is not a detail: `mergeStroke` is non-linear — the opacity
+     * cap, the zero-alpha branches and MIX's `t` are all conditionals — so
+     * merging the box-filtered average is not the average of the merged taps.
+     * At `u_taps > 1` the two differ along every stroke edge, which is exactly
+     * where a preview that lied would be seen.
+     *
+     * The tail's slice is `−1` until 2.5b builds `TailBuffer`; `fetchTile`
+     * reads that as transparent and `mergeStroke(x, transparent)` returns `x`
+     * unchanged for every mode, so the seam costs nothing while it is empty.
+     */
+    val PREVIEW_FRAG = listOf(
+        COMPOSITE_HEAD,
+        "#define PREVIEW",
+        MERGE_GLSL,
+        """
+        uniform sampler2DArray u_tiles;
+        uniform sampler2DArray u_strokePage;
+        uniform sampler2DArray u_tailPage;
+        uniform sampler2D u_backdrop;
+        uniform int u_blend;
+        uniform float u_opacity;
+        uniform int u_taps;
+        uniform vec2 u_canvasPerScreen;
+        in vec3 v_uvw;
+        in vec2 v_strokeTailSlice;
+        out vec4 o_color;
+
+        // One tap: the layer, the stroke buffer and the tail at the same offset,
+        // merged in §7.5's order. The layer's slice is v_uvw.z as in composite.
+        //
+        // The LAYER goes through fetchTile too, unlike composite.frag, because
+        // the preview draws the union of three key sets: a stroke on blank
+        // canvas has a stroke tile and no layer tile, which is the ordinary
+        // case on a new document, not an edge case. Sampling an array texture
+        // at slice -1 is undefined, so composite's plain `texture()` would read
+        // garbage exactly there.
+        vec4 previewAt(vec2 uv) {
+            vec4 L = fetchTile(u_tiles, v_uvw.z, uv);
+            vec4 S = fetchTile(u_strokePage, v_strokeTailSlice.x, uv);
+            vec4 T = fetchTile(u_tailPage, v_strokeTailSlice.y, uv);
+            return mergeStroke(mergeStroke(L, S), T);
+        }
+
+        vec4 sampleLayer() {
+            int taps = clamp(u_taps, 1, MAX_TAPS);
+            if (taps == 1) return previewAt(v_uvw.xy);
+            vec4 acc = vec4(0.0);
+            float n = float(taps);
+            for (int j = 0; j < MAX_TAPS; j++) {
+                if (j >= taps) break;
+                for (int i = 0; i < MAX_TAPS; i++) {
+                    if (i >= taps) break;
+                    vec2 off = ((vec2(float(i), float(j)) + 0.5) / n - 0.5) * u_canvasPerScreen;
+                    acc += previewAt(v_uvw.xy + off / float(TILE_PX));
+                }
+            }
+            return acc / (n * n);
+        }
+        """.trimIndent(),
+        COMPOSITE_TAIL,
+    ).joinToString("\n")
+
+    val PREVIEW = Source(
+        name = "preview",
+        vertex = PREVIEW_VERT,
+        fragment = PREVIEW_FRAG,
+        uniforms = listOf(
+            Uniform("u_screen", "vec4"),
+            Uniform("u_projection", "mat4"),
+            Uniform("u_bufferTransform", "mat4"),
+            Uniform("u_tiles", "sampler2DArray"),
+            Uniform("u_strokePage", "sampler2DArray"),
+            Uniform("u_tailPage", "sampler2DArray"),
+            Uniform("u_backdrop", "sampler2D"),
+            Uniform("u_blend", "int"),
+            Uniform("u_opacity", "float"),
+            Uniform("u_taps", "int"),
+            Uniform("u_canvasPerScreen", "vec2"),
+            Uniform("u_strokeMode", "int"),
+            Uniform("u_strokeOpacity", "float"),
+            Uniform("u_dilution", "float"),
+            Uniform("u_alphaLock", "bool"),
+        ),
+    )
+
+    val ALL: List<Source> = listOf(COMPOSITE, PRESENT, CHECKER, DAB, MERGE, PREVIEW)
 
     /**
      * The `switch` body of `blendStraight`, built from [BlendMode] so the two

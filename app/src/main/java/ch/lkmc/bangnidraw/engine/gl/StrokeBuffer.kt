@@ -81,6 +81,9 @@ class StrokeBuffer(
     /** The GL texture backing a pool page — what the passes bind. */
     fun pageTexture(page: Int): Int = tiles.pageTexture(page)
 
+    /** As [LayerTextures.pageTextureOrNull] — null for an absent page. */
+    fun pageTextureOrNull(page: Int): Int? = tiles.pageTextureOrNull(page)
+
     /** Every key the stroke has touched, for [MergePass] to walk. */
     fun keys(out: MutableList<TileKey>) = tiles.allKeys(out)
 

@@ -32,6 +32,41 @@ class StrokeShaderContractTest {
     private fun eraseBranch(body: String): String =
         body.substringAfter("u_strokeMode == 1", "").substringBefore("u_strokeMode ==")
 
+    /**
+     * The body of the `u_strokeMode == [mode]` branch: the braced block, brace-
+     * matched, or the single statement up to its `;` when the branch is
+     * braceless (mode 1 is written that way).
+     *
+     * Textual position alone cannot tell "after the last mode comparison" from
+     * "inside the last mode branch" — a `MIXLERP(` call moved into mode 0's
+     * body sits after every `u_strokeMode ==` just as the fall-through does.
+     * Matching the braces is what makes the difference decidable, and it is
+     * decidable *because* `merge.glsl` uses early returns rather than an
+     * else-chain: nothing after mode 0's closing brace is reachable from
+     * either branch.
+     */
+    private fun branchBody(body: String, mode: String): String {
+        val at = body.indexOf("u_strokeMode == $mode")
+        if (at < 0) return ""
+        val brace = body.indexOf('{', at)
+        val semi = body.indexOf(';', at)
+        // Braceless: `if (...) return expr;` — the statement is the body.
+        if (brace < 0 || (semi in 0 until brace)) {
+            return if (semi < 0) body.substring(at) else body.substring(at, semi + 1)
+        }
+        var depth = 0
+        for (i in brace until body.length) {
+            when (body[i]) {
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return body.substring(brace, i + 1)
+                }
+            }
+        }
+        return body.substring(brace)
+    }
+
     /** GLSL with comments removed, so a term named only in prose cannot satisfy a check. */
     private fun stripped(source: String): String =
         source
@@ -66,16 +101,33 @@ class StrokeShaderContractTest {
             "merge.glsl must branch on mode 0 for PAINT",
         )
         // MIX is the fall-through, not an explicit `== 2`, so asserting one
-        // would fail against a correct shader. What can be pinned is that the
-        // fall-through really is MIX: the MIXLERP call must sit after every
-        // mode comparison, so no earlier branch can swallow mode 2.
+        // would fail against a correct shader. What gets pinned instead is that
+        // the fall-through really is MIX, and pinning it needs more than
+        // textual order: `lastIndexOf("u_strokeMode ==") < indexOf("MIXLERP(")`
+        // alone is satisfied just as well by a MIXLERP call moved INTO mode 0's
+        // body, so on its own it is a necessary condition wearing the costume
+        // of a sufficient one.
+        //
+        // Brace-matching each branch makes it sufficient. Neither mode branch
+        // may contain the MIX arithmetic, the call must sit past mode 0's
+        // closing brace, and both branches must `return` — with early returns
+        // rather than an else-chain, those three together mean nothing but
+        // mode 2 can reach it.
         assertTrue(
             !body.contains("u_strokeMode == 2"),
             "MIX is the fall-through; if that changes, pin the new form instead",
         )
+        val erase = branchBody(body, "1")
+        val paint = branchBody(body, "0")
+        assertTrue(erase.isNotEmpty() && paint.isNotEmpty(), "both mode branches must be findable: $body")
+        assertTrue(!erase.contains("MIXLERP("), "the ERASE branch must not do the MIX arithmetic: $erase")
+        assertTrue(!paint.contains("MIXLERP("), "the PAINT branch must not do the MIX arithmetic: $paint")
+        assertTrue(erase.contains("return"), "the ERASE branch must return, not fall through: $erase")
+        assertTrue(paint.contains("return"), "the PAINT branch must return, not fall through: $paint")
+        val paintEnd = body.indexOf(paint) + paint.length
         assertTrue(
-            body.lastIndexOf("u_strokeMode ==") < body.indexOf("MIXLERP("),
-            "the MIX arithmetic must follow every mode comparison",
+            body.indexOf("MIXLERP(") > paintEnd,
+            "the MIX arithmetic must sit past both branches, not inside one",
         )
     }
 

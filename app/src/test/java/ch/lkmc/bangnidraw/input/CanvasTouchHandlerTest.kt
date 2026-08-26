@@ -32,6 +32,7 @@ class CanvasTouchHandlerTest {
         val samples = mutableListOf<Pair<Float, Float>>()
         var lastPressure = -1f
         var lastTilt = -1f
+        var lastOrientation = -1f
         /** Every sample's timestamp, so the opening pair's dt is checkable. */
         val times = mutableListOf<Long>()
         /** Muted during the allocation gate's measured window, so the harness costs nothing. */
@@ -51,6 +52,7 @@ class CanvasTouchHandlerTest {
             if (record) { samples += x to y; times += timeNs }
             lastPressure = pressure
             lastTilt = tilt
+            lastOrientation = orientation
         }
         override fun onStrokeEnd(pointerId: Int) { events += "end" }
         override fun onStrokeCancel() { events += "cancel" }
@@ -454,18 +456,30 @@ class CanvasTouchHandlerTest {
         val h = handler(host)
         h.stylusOnly = false
         // The palm lands first and owns index 0.
-        h.handleDown(1, PointerTool.FINGER, 400f, 400f, ms(0), pressure = 0.1f, tilt = 0f)
+        h.handleDown(1, PointerTool.FINGER, 400f, 400f, ms(0), pressure = 0.1f, tilt = 0f, orientation = 0.1f)
         h.handleTick(ms(GestureArbiter.PENDING_MS))
         host.samples.clear()
 
         // Then the pen, which takes the gesture over (§5) and does the drawing.
-        h.handleDown(2, PointerTool.STYLUS, 100f, 100f, ms(200), pressure = 0.9f, tilt = 0.3f)
-        h.handleMove(1, 401f, 400f, ms(230), pressure = 0.1f, tilt = 0f)   // the palm, ignored
-        h.handleMove(2, 140f, 100f, ms(230), pressure = 0.75f, tilt = 0.4f)
+        h.handleDown(2, PointerTool.STYLUS, 100f, 100f, ms(200), pressure = 0.9f, tilt = 0.3f, orientation = 0.7f)
+        h.handleMove(1, 401f, 400f, ms(230), pressure = 0.1f, tilt = 0f, orientation = 0.1f) // the palm
+        h.handleMove(2, 140f, 100f, ms(230), pressure = 0.75f, tilt = 0.4f, orientation = 0.6f)
         h.handleMoveEnd(ms(230))
 
+        // "The palm is ignored" was a comment, not an assertion, and the
+        // assertions below could not have caught a leak: the pen's move is
+        // processed last, so it overwrites lastPressure/lastTilt whether or not
+        // the palm emitted anything first. The palm sits at x ~ 400 and the pen
+        // at x <= 140, and the view is identity here, so the split is clean.
+        // This is the SUPERSEDED case — a finger the pen took over from —
+        // which `a rejected palm emits no stroke samples` does not cover.
+        assertTrue(
+            host.samples.none { it.first > 300f },
+            "the superseded palm must not emit samples: ${host.samples}",
+        )
         assertEquals(0.75f, host.lastPressure, 1e-6f, "the sample must carry the PEN's pressure, not the palm's")
         assertEquals(0.4f, host.lastTilt, 1e-6f, "and the pen's tilt")
+        assertEquals(0.6f, host.lastOrientation, 1e-6f, "and the pen's orientation")
     }
 
     @Test
@@ -492,15 +506,15 @@ class CanvasTouchHandlerTest {
         h.stylus.onHoverEnter(300f, 300f, 5f, PointerTool.STYLUS)
         // 0.1 pressure, and ignored: this is the pointer whose axes must NOT
         // reach the host.
-        h.handleDown(1, PointerTool.FINGER, 400f, 400f, ms(0), pressure = 0.1f, tilt = 0f)
+        h.handleDown(1, PointerTool.FINGER, 400f, 400f, ms(0), pressure = 0.1f, tilt = 0f, orientation = 0.1f)
         h.stylus.onHoverExit(ms(10))
 
         // Past HOVER_GRACE_MS, so the next finger is no longer a palm.
-        h.handleDown(2, PointerTool.FINGER, 100f, 100f, ms(1000), pressure = 0.9f, tilt = 0.3f)
+        h.handleDown(2, PointerTool.FINGER, 100f, 100f, ms(1000), pressure = 0.9f, tilt = 0.3f, orientation = 0.7f)
         // Both move, the drawing finger under the tap slop so the window is
         // still open — and the palm last, which is what poisons a shared field.
-        h.handleMove(2, 102f, 100f, ms(1010), pressure = 0.8f, tilt = 0.25f)
-        h.handleMove(1, 401f, 400f, ms(1010), pressure = 0.1f, tilt = 0f)
+        h.handleMove(2, 102f, 100f, ms(1010), pressure = 0.8f, tilt = 0.25f, orientation = 0.55f)
+        h.handleMove(1, 401f, 400f, ms(1010), pressure = 0.1f, tilt = 0f, orientation = 0.1f)
         host.samples.clear()
 
         // 130 ms held: past PENDING_MS, so the tick inside handleMoveEnd
@@ -514,6 +528,7 @@ class CanvasTouchHandlerTest {
             "the opening sample must carry the DRAWING finger's pressure, not the palm's",
         )
         assertEquals(0.25f, host.lastTilt, 1e-6f, "and the drawing finger's tilt")
+        assertEquals(0.55f, host.lastOrientation, 1e-6f, "and the drawing finger's orientation")
     }
 
     @Test

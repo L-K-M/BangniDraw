@@ -1156,3 +1156,53 @@ consecutive are needed.
   fails the new assertion with `dab 0 flow diverged. Expected <0.94> ... actual
   <0.98>`. Not vacuous. It also passes unmodified, so there is no real
   non-determinism to escalate.
+
+## PR #13 (roadmap 2.4b) — GLM round 8
+
+**Round scored: nits-only. Second consecutive → STEADY STATE.** Three Minors,
+all about tests and a comment; no production code changed and no substantive
+claim was declined. Rounds 7 and 8 together satisfy the two-consecutive
+nits-only rule.
+
+- **R-067 ✅ the fall-through check could be satisfied from inside the last
+  branch** (PR #13, GLM round 8, Minor). **Applied, and strengthened past what
+  was suggested.** `body.lastIndexOf("u_strokeMode ==") < body.indexOf("MIXLERP(")`
+  proves textual order only: a `MIXLERP(` call moved *into* mode 0's body also
+  sits after every mode comparison. My comment claimed it meant "no earlier
+  branch can swallow mode 2" — a guarantee the check did not make, which is the
+  same defect as round 4's R-059 and, as the finding says, the risky part,
+  because the next reader trusts it.
+
+  The finding offers a comment correction and warns "do not add a check that
+  would false-fail against the current shader". A real check turned out to be
+  available: `merge.glsl` uses **early returns**, not an else-chain, so
+  brace-matching each branch decides the question. `branchBody` extracts a
+  braced block by brace count, or the single statement up to its `;` for the
+  braceless mode-1 form, and the test now pins that neither branch contains the
+  MIX arithmetic, that both `return`, and that `MIXLERP(` sits past mode 0's
+  closing brace. Necessary *and* sufficient, and the comment now says which.
+
+  Mutation-tested: adding `vec3 dead = MIXLERP(L.rgb, S.rgb, 0.5);` inside mode
+  0's block fails with "the PAINT branch must not do the MIX arithmetic". The
+  old assertion passed that mutation, which is exactly the finding's claim.
+
+- **R-068 ✅ `orientation` was accepted and never recorded** (PR #13, GLM round
+  8, Minor). **Applied.** `Host.onStrokeSample` took `orientation` and dropped
+  it, so the per-pointer axis fix was two-thirds pinned: a regression swapping
+  orientation between palm and pen passed the whole suite. `lastOrientation`
+  joins the other two, and both axis tests now pass distinct per-pointer
+  orientations and assert the drawing pointer's.
+
+- **R-069 ✅ "the palm, ignored" was a comment, not an assertion** (PR #13, GLM
+  round 8, Minor). **Applied.** In the per-pointer axes test the palm's move was
+  labelled ignored and nothing checked it — and the existing assertions could
+  not have: the pen moves last, so it overwrites `lastPressure`/`lastTilt`
+  whether or not the palm emitted first. `samples.none { it.first > 300f }`
+  closes it (palm at x ≈ 400, pen at x ≤ 140, identity view). This covers the
+  **superseded** case — a finger the pen took over from — which
+  `a rejected palm emits no stroke samples` does not.
+
+  Mutation-tested: relaxing `handleMove`'s emit guard from
+  `strokeLive && pointerId == drawingId` to `strokeLive` fails it with
+  "the superseded palm must not emit samples: [(100.0, 100.0), (401.0, 400.0),
+  (140.0, 100.0)]".

@@ -20,8 +20,14 @@ import kotlin.test.assertTrue
  * **What this cannot cover:** `MotionEvent` cannot be constructed in a JVM unit
  * test, so `onTouch`'s translation — action masking, historical samples, tool
  * types, axis lookups — is device-only and is stated as such rather than
- * mocked. Everything the handler *decides* is reachable here, which is why the
- * logic lives on methods that take primitives.
+ * mocked. Two things added in roadmap 2.5b/2.5c sit squarely in that gap and
+ * are named rather than left to look covered: **unbuffered dispatch**, which is
+ * two `View.requestUnbufferedDispatch` calls whose only observable effect is
+ * the *rate* events arrive at, and the **predicted tail's** per-frame path,
+ * which needs a real predictor and a `Choreographer`. The orientation
+ * conversion those paths share IS reachable here, through `handle*`, and is
+ * tested below. Everything the handler *decides* is reachable here, which is
+ * why the logic lives on methods that take primitives.
  */
 class CanvasTouchHandlerTest {
 
@@ -173,6 +179,13 @@ class CanvasTouchHandlerTest {
     fun `cancel rolls the stroke back and leaves the view alone`() {
         val host = Host()
         val h = handler(host)
+        // A NON-identity view, which is what makes the second assertion a test
+        // (REVIEW.md R-052). It used to assert `isIdentity` from an identity
+        // fixture, so it pinned the value the handler started with rather than
+        // the invariance its own name claims: a cancel that reset the view to
+        // identity — the exact bug worth catching — would have passed.
+        val before = ViewTransform(scale = 2.5f, rotation = 0.4f, tx = 30f, ty = -12f)
+        h.setView(before)
         h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
         h.handleTick(ms(GestureArbiter.PENDING_MS))
         host.events.clear()
@@ -187,7 +200,7 @@ class CanvasTouchHandlerTest {
         // adding none, and would be blind to exactly the case worth pinning:
         // a cancel that mutates the transform WITHOUT emitting. Mutation-checked
         // both ways (REVIEW.md R-051).
-        assertTrue(h.view.isIdentity, "a cancel must not nudge the view")
+        assertEquals(before, h.view, "a cancel must not nudge the view")
     }
 
     @Test
@@ -480,6 +493,54 @@ class CanvasTouchHandlerTest {
         assertEquals(0.75f, host.lastPressure, 1e-6f, "the sample must carry the PEN's pressure, not the palm's")
         assertEquals(0.4f, host.lastTilt, 1e-6f, "and the pen's tilt")
         assertEquals(0.6f, host.lastOrientation, 1e-6f, "and the pen's orientation")
+    }
+
+    @Test
+    fun `the pen's azimuth reaches the host canvas-relative, not screen-relative`() {
+        // §2's sample table: `orientation` is the azimuth MINUS the view
+        // rotation. The digitizer reports it against the screen, so on a
+        // rotated canvas a chisel tip would turn the wrong way — rotate the
+        // paper a quarter turn and every chisel stroke lands across the grain.
+        val host = Host()
+        val h = handler(host)
+        h.setView(ViewTransform(rotation = 0.5f))
+        h.handleDown(1, PointerTool.STYLUS, 100f, 100f, ms(0), orientation = 1.2f)
+        h.handleMove(1, 120f, 100f, ms(10), orientation = 1.2f)
+        h.handleMoveEnd(ms(10))
+
+        assertEquals(
+            0.7f, host.lastOrientation, 1e-6f,
+            "1.2 rad of azimuth on a canvas turned 0.5 rad is 0.7 rad on the paper",
+        )
+        // And it is genuinely different from forwarding the raw value, which is
+        // what this test exists to stop.
+        assertTrue(
+            abs(host.lastOrientation - 1.2f) > 1e-3f,
+            "the raw screen azimuth must not reach the host",
+        )
+    }
+
+    @Test
+    fun `a canvas-relative azimuth is wrapped, not left to run past pi`() {
+        // `normalizeAngle`'s job, and the reason the subtraction cannot stand
+        // alone: a pen at +2.9 rad on a canvas turned -2.9 rad is 5.8 rad of
+        // raw difference, which is -0.48 rad on the paper. Left unwrapped it
+        // would be a tip angle no shader clamps and no reader expects.
+        val host = Host()
+        val h = handler(host)
+        h.setView(ViewTransform(rotation = -2.9f))
+        h.handleDown(1, PointerTool.STYLUS, 100f, 100f, ms(0), orientation = 2.9f)
+        h.handleMove(1, 120f, 100f, ms(10), orientation = 2.9f)
+        h.handleMoveEnd(ms(10))
+
+        assertTrue(
+            host.lastOrientation > -PI.toFloat() && host.lastOrientation <= PI.toFloat(),
+            "orientation must land in (-pi, pi], was ${host.lastOrientation}",
+        )
+        assertEquals(
+            (5.8f - 2f * PI.toFloat()), host.lastOrientation, 1e-5f,
+            "5.8 rad wraps to about -0.48, not to 5.8",
+        )
     }
 
     @Test

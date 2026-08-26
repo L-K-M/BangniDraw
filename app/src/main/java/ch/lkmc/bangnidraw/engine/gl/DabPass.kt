@@ -105,8 +105,13 @@ class DabPass(
         from: Int = 0,
         until: Int = batch.count,
     ): IntRect {
-        require(from >= 0 && until <= batch.count && from <= until) {
-            "dab range $from..$until is outside 0..${batch.count}"
+        // `from in 0..until` is the first and third clauses at once, and the
+        // message no longer claims "outside 0..count" for a range that is
+        // inside it: `from = 5, until = 2` on a batch of 10 satisfies both
+        // bounds and still trips this, and the old wording sent whoever read
+        // the stack trace hunting an index error that was not there.
+        require(from in 0..until && until <= batch.count) {
+            "dab range [$from, $until) is not a valid range over ${batch.count} dabs"
         }
         val dabs = until - from
         if (dabs == 0) return IntRect.EMPTY

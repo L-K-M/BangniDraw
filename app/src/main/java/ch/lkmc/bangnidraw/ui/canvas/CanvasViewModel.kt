@@ -17,6 +17,7 @@ import ch.lkmc.bangnidraw.data.ProjectStore
 import ch.lkmc.bangnidraw.data.TileBufferPool
 import ch.lkmc.bangnidraw.data.TileFlusher
 import ch.lkmc.bangnidraw.data.TileStore
+import ch.lkmc.bangnidraw.data.Thumbnails
 import ch.lkmc.bangnidraw.data.highestDefaultNameIn
 import ch.lkmc.bangnidraw.engine.core.AutosavePolicy
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
@@ -159,6 +160,10 @@ class CanvasViewModel @Inject constructor(
     /** True when pixels or metadata changed since the last successful checkpoint. */
     @Volatile
     private var dirty = false
+
+    /** True when pixels changed since the last thumbnail write (06 §6.4). */
+    @Volatile
+    private var thumbDirty = false
 
     /** When the document first differed from disk — the ceiling clock's anchor. */
     @Volatile
@@ -317,6 +322,7 @@ class CanvasViewModel @Inject constructor(
         pixels.get(copy)
         strokeTiles.add(layer to key)
         dirty = true
+        thumbDirty = true
         flusher.markDirty(CpuTile(layer, key, revision, copy))
     }
 
@@ -446,6 +452,7 @@ class CanvasViewModel @Inject constructor(
             val mirror = pool.acquire()
             pixels.copyInto(mirror)
             strokeTiles.add(restore.layer to key)
+            thumbDirty = true
             flusher.markDirty(
                 CpuTile(restore.layer, key, revisions.incrementAndGet(), mirror),
             )
@@ -558,6 +565,17 @@ class CanvasViewModel @Inject constructor(
                 if (deletes.isNotEmpty()) {
                     historyStore?.delete(deletes)
                     withContext(Dispatchers.Main) { pendingDeletes.removeAll(deletes.toSet()) }
+                }
+                // The thumbnail follows the checkpoint (06 §6.4): the tiles
+                // it reads are on disk by the flush above, and only when
+                // pixels actually changed — never per stroke.
+                if (thumbDirty) {
+                    thumbDirty = false
+                    Thumbnails.write(
+                        folded,
+                        layerDirFor = { store.layerDir(folded.id, it) },
+                        target = File(store.projectDir(folded.id), "thumb.png"),
+                    )
                 }
             } catch (_: java.io.IOException) {
                 // Same family as a failed tile write: the storage-full state

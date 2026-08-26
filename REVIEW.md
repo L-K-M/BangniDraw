@@ -996,3 +996,67 @@ unreadable.
   know that. One line, no cost. Not unit-testable: `merge` needs a `StrokeBuffer`,
   which needs a `TilePool`, which needs a GL context; `engine/gl` has only
   shader-contract tests for this reason.
+
+## PR #13 (roadmap 2.4b) — GLM round 5
+
+- **R-061 ✅ a move-opened stroke stamped its opening pair with one timestamp**
+  (PR #13, GLM round 5, Major). **Applied; the stated impact refuted.**
+
+  The mechanism is real and the fix is the right one. When the arbiter opens a
+  stroke from `arbiter.move`, `onDraw` emitted the tracked *previous* position
+  — the finger-down point — stamped with `lastEventNs`, which `handleMove` had
+  just set to *this* move's time; `handleMove` then emitted the current
+  position with the same value. Two positions, one timestamp, zero elapsed
+  time. The `tick`-opened path was worse: `lastEventNs` there belongs to the
+  last pointer processed in the event, which need not be the drawing one.
+
+  `trackTimeNs` joins the other five per-pointer arrays, `store` writes all
+  seven together, `emitTracked(slot)` reads the slot's own time, and
+  `lastEventNs` is deleted — it had no other reader. Mutation-tested: restoring
+  the current-event stamp fails the new test with `expected:<0> but
+  was:<30000000>`.
+
+  **The impact as stated is wrong, and the correction matters because it is the
+  reason this is a Major-shaped fix and not a Major-shaped bug.** The finding
+  predicts "division by zero, NaN/Inf velocity, or a clamped-to-zero speed".
+  None occur. `DabGenerator.updateVelocity` opens with an explicit
+  `if (elapsedNs <= 0L)` branch that *defers* the distance into
+  `pendingDistance` rather than dividing by it, precisely so a run of
+  same-timestamp samples does not read as slower than the identical gesture
+  elsewhere; and `StrokeInput.timeNs` documents that it is "non-decreasing, and
+  not strictly increasing" and that "anything deriving speed from it owes a
+  zero-delta branch". The debt was already paid. So what the fix buys is
+  accuracy — the opening segment's speed goes from *deferred* to *measured* —
+  not the crash it was filed as. Applied on that basis, not the stated one.
+
+- **R-062 ⚠️ a live `StrokeDriver` could outlive its `EngineSession`** (PR #13,
+  GLM round 5, Major). **Pairing applied; two sub-claims corrected.**
+
+  The core observation holds. `onStrokeSample`, `onStrokeEnd` and
+  `onStrokeCancel` all read `session` — Compose state meaning "which engine
+  exists now" — while the driver was opened against whichever engine was
+  current at pen-down. `CanvasSurface`'s `AndroidView` sits inside
+  `key(canvas)`, so a canvas-size change builds a new `SurfaceView` and a new
+  `EngineSession` and releases the old one. `StrokeUiState.engine` now pins the
+  stroke to its own session, and every later call goes through it.
+
+  Applied even though **it cannot diverge in this PR**: only step 3's New
+  Canvas dialog changes the canvas size, and nothing else re-runs the factory.
+  The null case (dispose → `onSession(null)`) was already handled on every
+  path. It is worth pairing now precisely because the failure would be silent
+  when it does become reachable — `stampDabs` and `endStroke` both no-op when
+  no stroke is open, so a mismatch shows up as dabs quietly going nowhere
+  rather than as an error. Same reasoning as R-060.
+
+  Two corrections. First, the impact overstates it: "engine state-machine
+  errors, or an exception at `endStroke()`" cannot happen, because
+  `CanvasRenderer` guards both entry points with `stroke ?: return`. Second,
+  and more importantly, the suggested *"install `strokeState.driver` only once
+  the engine has accepted the stroke"* **cannot be implemented as written and
+  its diff does not do what its comment claims.** `EngineSession.beginStroke`
+  returns `Unit` and dispatches through `frontBuffered.execute { ... }` — the
+  refusal happens later, on the GL thread, and the main thread never learns of
+  it. Moving the assignment below the call therefore establishes nothing;
+  a comment saying "installed only once the engine has accepted" would be a
+  false claim of exactly the kind round 4's R-059 was about. Declined, and the
+  assignment stays where it is, next to the driver it pairs with.

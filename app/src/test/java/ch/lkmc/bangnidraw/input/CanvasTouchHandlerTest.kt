@@ -32,6 +32,8 @@ class CanvasTouchHandlerTest {
         val samples = mutableListOf<Pair<Float, Float>>()
         var lastPressure = -1f
         var lastTilt = -1f
+        /** Every sample's timestamp, so the opening pair's dt is checkable. */
+        val times = mutableListOf<Long>()
         /** Muted during the allocation gate's measured window, so the harness costs nothing. */
         var record = true
         override fun onViewChanged(view: ViewTransform) { this.view = view; if (record) events += "view" }
@@ -46,7 +48,7 @@ class CanvasTouchHandlerTest {
             // Muted with the rest of the recorder during the allocation gate:
             // `x to y` is a Pair, and the gate must measure the handler rather
             // than the harness that watches it.
-            if (record) samples += x to y
+            if (record) { samples += x to y; times += timeNs }
             lastPressure = pressure
             lastTilt = tilt
         }
@@ -512,6 +514,41 @@ class CanvasTouchHandlerTest {
             "the opening sample must carry the DRAWING finger's pressure, not the palm's",
         )
         assertEquals(0.25f, host.lastTilt, 1e-6f, "and the drawing finger's tilt")
+    }
+
+    @Test
+    fun `a stroke opened from a move keeps the down point's own timestamp`() {
+        // The opening sample is the position the pointer went DOWN at — the
+        // arbiter only resolves "draw" once the finger has crossed the slop,
+        // several ms later. Stamping it with the resolving move's time claimed
+        // the finger covered that distance in zero elapsed time.
+        //
+        // DabGenerator.updateVelocity does survive that: it has an explicit
+        // `elapsedNs <= 0` branch that defers the distance instead of dividing
+        // by it, and StrokeInput.timeNs documents the debt. So this is an
+        // accuracy fix, not a crash fix — the opening segment's speed goes
+        // from "unmeasurable, carried forward" to simply measured.
+        val host = Host()
+        val h = handler(host)
+        h.stylusOnly = false
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        // Past TAP_SLOP_DP * density = 16 px, so the arbiter opens the stroke
+        // from inside this very call.
+        h.handleMove(1, 140f, 100f, ms(30))
+        h.handleMoveEnd(ms(30))
+
+        assertTrue("begin(FINGER)" in host.events, "crossing the slop must open a stroke: ${host.events}")
+        assertEquals(2, host.samples.size, "the opening pair is the down point and the current one")
+        assertEquals(100f to 100f, host.samples[0], "the first sample is the finger-down point")
+        assertEquals(
+            ms(0), host.times[0],
+            "and carries the time it happened at, not the time it was noticed at",
+        )
+        assertEquals(ms(30), host.times[1], "the live sample carries its own move's time")
+        assertTrue(
+            host.times[1] > host.times[0],
+            "the opening segment must have a positive duration: ${host.times}",
+        )
     }
 
     private companion object {

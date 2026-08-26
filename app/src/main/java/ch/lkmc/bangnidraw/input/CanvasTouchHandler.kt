@@ -115,6 +115,20 @@ class CanvasTouchHandler(
     private val trackTilt = FloatArray(GestureArbiter.MAX_POINTERS)
     private val trackOrientation = FloatArray(GestureArbiter.MAX_POINTERS)
 
+    /**
+     * When each slot was last written, so an opening sample keeps the time it
+     * actually happened at rather than the time it was noticed at.
+     *
+     * The two differ on both paths that open a stroke from something other
+     * than a down. From a move past the slop, the slot holds the finger-*down*
+     * point; from `tick` inside [handleMoveEnd], it holds whatever position
+     * that pointer last reported, which may be several pointers and one whole
+     * event ago. A single `lastEventNs` stamped both with the current event's
+     * time — telling the generator the pen covered that distance in zero, or
+     * near zero, elapsed time.
+     */
+    private val trackTimeNs = LongArray(GestureArbiter.MAX_POINTERS)
+
     private var navigating = false
 
     /** A move arrived and its event has not been closed by [handleMoveEnd] yet. */
@@ -137,9 +151,6 @@ class CanvasTouchHandler(
     /** Which pointer is the pen, so only its own lift ends pen contact. */
     private var stylusPointerId = NO_POINTER
 
-    /** The timestamp of the event being processed, for the down sample. */
-    private var lastEventNs = 0L
-
     /** A field, not a lambda: an object allocated per event is what §2.4 forbids. */
     private val decisions = object : GestureListener {
         override fun onDraw(pointerId: Int, source: StrokeSource) {
@@ -151,7 +162,7 @@ class CanvasTouchHandler(
             // that never moves leaves no mark at all, and a fast stroke starts
             // at its second sample.
             val i = trackIndexOf(pointerId)
-            if (i >= 0) emitTracked(i, lastEventNs)
+            if (i >= 0) emitTracked(i)
         }
 
         override fun onNavigate() {
@@ -201,13 +212,12 @@ class CanvasTouchHandler(
         tilt: Float = 0f,
         orientation: Float = 0f,
     ) {
-        lastEventNs = timeNs
         arbiter.stylusNear = PalmRejection.rejects(PointerTool.FINGER, stylus, timeNs)
         if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
             stylusPointerId = pointerId
             stylus.onDown(x, y, tool)
         }
-        track(pointerId, x, y, pressure, tilt, orientation)
+        track(pointerId, x, y, pressure, tilt, orientation, timeNs)
         arbiter.down(pointerId, tool, x, y, timeNs, decisions)
         if (navigating) captureNavPointers()
     }
@@ -231,18 +241,13 @@ class CanvasTouchHandler(
         tilt: Float = 0f,
         orientation: Float = 0f,
     ) {
-        // Before the arbiter, because the arbiter can decide "draw" from a
-        // move — a finger past the slop — and the opening sample that decision
-        // emits would otherwise be stamped with the last DOWN's timestamp,
-        // hundreds of ms stale, skewing the velocity curve at stroke start.
-        lastEventNs = timeNs
-        // [track], by contrast, stays AFTER the arbiter: a decision made from
+        // [track] stays AFTER the arbiter: a decision made from
         // this move opens the stroke at the pointer's previous position and
         // axes — on the first move, the point it went down at. That is the
         // sample the stroke would otherwise lose; the live sample below then
         // adds the current one, so the opening segment survives.
         arbiter.move(pointerId, x, y, timeNs, decisions)
-        track(pointerId, x, y, pressure, tilt, orientation)
+        track(pointerId, x, y, pressure, tilt, orientation, timeNs)
         pendingMove = true
         if (strokeLive && pointerId == drawingId) {
             emitSample(x, y, pressure, tilt, orientation, timeNs)
@@ -284,13 +289,13 @@ class CanvasTouchHandler(
      * The sample a tracked pointer is currently standing on — position and axes
      * from the same slot, so they cannot come from different pointers.
      */
-    private fun emitTracked(slot: Int, timeNs: Long) = emitSample(
+    private fun emitTracked(slot: Int) = emitSample(
         trackX[slot],
         trackY[slot],
         trackPressure[slot],
         trackTilt[slot],
         trackOrientation[slot],
-        timeNs,
+        trackTimeNs[slot],
     )
 
     /** Which pointer the arbiter said is drawing, or [NO_POINTER]. */
@@ -402,25 +407,35 @@ class CanvasTouchHandler(
         pressure: Float,
         tilt: Float,
         orientation: Float,
+        timeNs: Long,
     ) {
         for (i in trackIds.indices) {
             if (trackIds[i] == pointerId) {
-                store(i, x, y, pressure, tilt, orientation)
+                store(i, x, y, pressure, tilt, orientation, timeNs)
                 return
             }
         }
         for (i in trackIds.indices) {
             if (trackIds[i] == NO_POINTER) {
                 trackIds[i] = pointerId
-                store(i, x, y, pressure, tilt, orientation)
+                store(i, x, y, pressure, tilt, orientation, timeNs)
                 return
             }
         }
     }
 
-    private fun store(i: Int, x: Float, y: Float, pressure: Float, tilt: Float, orientation: Float) {
+    private fun store(
+        i: Int,
+        x: Float,
+        y: Float,
+        pressure: Float,
+        tilt: Float,
+        orientation: Float,
+        timeNs: Long,
+    ) {
         trackX[i] = x; trackY[i] = y
         trackPressure[i] = pressure; trackTilt[i] = tilt; trackOrientation[i] = orientation
+        trackTimeNs[i] = timeNs
     }
 
     private fun trackIndexOf(pointerId: Int): Int {

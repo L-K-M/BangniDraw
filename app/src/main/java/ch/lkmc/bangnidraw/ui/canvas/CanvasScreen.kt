@@ -115,7 +115,10 @@ fun CanvasScreen(onBack: () -> Unit) {
                     strokeState.driver?.let { stale ->
                         strokeState.driver = null
                         stale.cancel()
-                        session?.cancelStroke()
+                        // The engine the stale stroke was opened on, which is
+                        // not necessarily the current one.
+                        strokeState.engine?.cancelStroke()
+                        strokeState.engine = null
                     }
                     val engine = session ?: return
                     val active = stack.layers.getOrNull(stack.activeIndex) ?: return
@@ -126,6 +129,7 @@ fun CanvasScreen(onBack: () -> Unit) {
                     // make every stroke of a jittering brush identical.
                     val driver = StrokeDriver(preset, seed = strokeState.nextSeed(), zoom = view.scale)
                     strokeState.driver = driver
+                    strokeState.engine = engine
                     // Carried for every later sample. onStrokeBegin inspects
                     // `source` to pick erase mode, so passing a hardcoded
                     // STYLUS to the driver afterwards would report an eraser or
@@ -156,7 +160,10 @@ fun CanvasScreen(onBack: () -> Unit) {
                     timeNs: Long,
                 ) {
                     val driver = strokeState.driver ?: return
-                    val engine = session ?: return
+                    // The stroke's own engine, not `session`. Identity, not
+                    // nullability: a replaced session is non-null and would
+                    // accept these calls while having no stroke open.
+                    val engine = strokeState.engine ?: return
                     val batch = engine.acquireDabBatch() ?: return
                     val emitted = if (driver.isActive) {
                         driver.sample(x, y, pressure, tilt, orientation, timeNs, strokeState.source, batch)
@@ -172,7 +179,8 @@ fun CanvasScreen(onBack: () -> Unit) {
                     // leave a dead stroke's driver installed for the next
                     // sample to feed.
                     strokeState.driver = null
-                    val engine = session
+                    val engine = strokeState.engine
+                    strokeState.engine = null
                     if (engine == null) {
                         driver.cancel()
                         return
@@ -190,7 +198,8 @@ fun CanvasScreen(onBack: () -> Unit) {
                 override fun onStrokeCancel() {
                     strokeState.driver?.cancel()
                     strokeState.driver = null
-                    session?.cancelStroke()
+                    strokeState.engine?.cancelStroke()
+                    strokeState.engine = null
                 }
             },
         )
@@ -285,6 +294,26 @@ private const val DEFAULT_EDGE = 2048
  */
 internal class StrokeUiState {
     var driver: StrokeDriver? = null
+
+    /**
+     * The session [driver] was opened against, so every later call reaches
+     * *that* engine rather than whichever one happens to be current.
+     *
+     * `session` is Compose state fed by `CanvasSurface`'s `AndroidView`, which
+     * is wrapped in `key(canvas)`: a canvas-size change builds a new
+     * `SurfaceView`, a new `EngineSession`, and releases the old one. Reading
+     * `session` in a sample handler therefore answers "which engine exists
+     * now", not "which engine has this stroke open" — and the difference is
+     * invisible until the two diverge.
+     *
+     * It cannot diverge yet: only the New Canvas dialog of step 3 changes the
+     * canvas size, and nothing else re-runs the factory. Paired now anyway,
+     * because the day that dialog lands there is nothing to notice the gap —
+     * the engine's own guards make the mismatch silent rather than loud
+     * (`stampDabs` and `endStroke` both no-op when no stroke is open), so it
+     * would surface as dabs quietly going nowhere.
+     */
+    var engine: EngineSession? = null
 
     /** The stroke's source, fixed at pen-down and carried to every sample. */
     var source: StrokeSource = StrokeSource.STYLUS

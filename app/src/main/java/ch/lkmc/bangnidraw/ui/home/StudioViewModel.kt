@@ -133,6 +133,22 @@ class StudioViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The hold menu's duplicate (06 §8): tiles yes, history no, fresh ids.
+     * The localized " copy" suffix is built here — the store never holds
+     * display text — and an empty source title gets the localized fallback
+     * first, so the copy is never titled just "copy".
+     */
+    fun duplicate(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            store.duplicate(id, titleTransform = { old ->
+                old.ifEmpty { context.getString(R.string.studio_untitled) } +
+                    context.getString(R.string.studio_copy_suffix)
+            })
+            refresh()
+        }
+    }
+
     /** The hold menu's rename (06 §8); a blank title keeps the old name. */
     fun rename(id: String, title: String) {
         val trimmed = title.trim()

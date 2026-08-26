@@ -67,8 +67,8 @@ import ch.lkmc.bangnidraw.R
  * The Studio: the shelf of paintings, newest first, and the way to start a
  * new one (PLAN.md §5; `docs/plan/08-ui-and-layout.md` §2). Roadmap 3c: the
  * shelf is real — a grid of thumbnails with the hold menu (delete with
- * confirm, rename; duplicate and share are stubs until step 4), the storage
- * readout, and the New Canvas dialog.
+ * confirm, rename, and — since step 4 — duplicate; share stays a stub until
+ * ShareCache lands), the storage readout, and the New Canvas dialog.
  *
  * Two 08 §2 refinements deliberately wait: the width-class `gridMinCell`
  * table (one adaptive minimum serves every class until `LayoutSpec` lands
@@ -182,6 +182,7 @@ fun StudioScreen(
                             painting = painting,
                             onOpen = { onOpenPainting(painting.id) },
                             onRename = { title -> viewModel.rename(painting.id, title) },
+                            onDuplicate = { viewModel.duplicate(painting.id) },
                             onDelete = {
                                 viewModel.delete(painting.id)
                                 Toast.makeText(
@@ -229,6 +230,7 @@ private fun PaintingCell(
     painting: StudioViewModel.Painting,
     onOpen: () -> Unit,
     onRename: (String) -> Unit,
+    onDuplicate: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -288,14 +290,13 @@ private fun PaintingCell(
                     text = { Text(stringResource(R.string.studio_rename)) },
                     onClick = { menuOpen = false; renaming = true },
                 )
-                // Stubs until roadmap step 4 (duplicate needs the id remap,
-                // share needs ShareCache); disabled rather than hidden so the
-                // menu's final shape is already learnable.
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.studio_duplicate)) },
-                    onClick = {},
-                    enabled = false,
+                    onClick = { menuOpen = false; onDuplicate() },
                 )
+                // A stub until later in step 4: share needs ShareCache and
+                // the FileProvider; disabled rather than hidden so the
+                // menu's final shape is already learnable.
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.studio_share)) },
                     onClick = {},

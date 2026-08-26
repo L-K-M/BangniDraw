@@ -379,6 +379,50 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun `duplicate copies tiles but not history and gets a fresh id, remapped layer ids and no gallery URI`() {
+        // 06 §8, `docs/plan/11-testing.md` §5's exact case.
+        val doc = document(id = "src")
+        store.checkpoint(doc, HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1, entries = 1))
+        val srcTiles = TileStore(store.layerDir("src", LayerId("layer-b")))
+        val pixels = ByteArray(TILE_BYTES) { 5 }
+        srcTiles.write(TileKey(0, 1), pixels)
+        HistoryStore(File(store.projectDir("src"), "history")).append(
+            ch.lkmc.bangnidraw.engine.core.HistoryEntry.PaperColor(
+                activeBefore = LayerId("layer-b"), activeAfter = LayerId("layer-b"),
+                before = 0, after = 1,
+            ),
+            seq = 1, ts = 1, payloads = emptyList(),
+        )
+
+        val newId = store.duplicate("src", { it + " copy" }, now = 9_000)
+        kotlin.test.assertNotNull(newId)
+        kotlin.test.assertNotEquals("src", newId)
+
+        val copy = assertIs<ProjectStore.LoadResult.Loaded>(store.load(newId)).document
+        assertEquals("Cat study copy", copy.title)
+        assertEquals(9_000, copy.createdAt)
+        assertEquals(9_000, copy.updatedAt)
+        assertEquals(null, copy.galleryUri)
+        assertEquals(0, copy.lastGallerySyncAt)
+        assertEquals(0, copy.historyCursor)
+        assertEquals(HistoryRecord(), assertIs<ProjectStore.LoadResult.Loaded>(store.load(newId)).history)
+        assertTrue(!File(store.projectDir(newId), "history").exists(), "history is not copied")
+
+        // Fresh ids everywhere, and the tile travelled to the remapped dir.
+        val srcIds = doc.stack.layers.map { it.id.value }.toSet()
+        val copyIds = copy.stack.layers.map { it.id.value }.toSet()
+        assertTrue(copyIds.intersect(srcIds).isEmpty(), "every layer id is remapped")
+        assertEquals(copy.stack.layers[1].id, copy.stack.active.id, "active follows the remap")
+        val movedTile = copy.stack.layers[1].tiles
+        assertEquals(setOf(TileKey(0, 1)), movedTile)
+        val read = TileStore(store.layerDir(newId, copy.stack.layers[1].id)).read(TileKey(0, 1))
+        assertEquals(TileStore.Read.Pixels(pixels), read)
+        // The source is untouched.
+        assertIs<ProjectStore.LoadResult.Loaded>(store.load("src"))
+        assertTrue(srcTiles.read(TileKey(0, 1)) is TileStore.Read.Pixels)
+    }
+
+    @Test
     fun `delete removes the folder and nothing else`() {
         store.checkpoint(document(id = "keep"))
         store.checkpoint(document(id = "kill"))

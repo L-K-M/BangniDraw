@@ -162,6 +162,94 @@ class ProjectStore(private val root: File) {
     }
 
     /**
+     * Copies one painting to a fresh id (06 §8): tiles and thumbnail come
+     * along, **history does not** — entries embed the old layer ids, and
+     * rewriting a journal is a migration with no payoff for a "start from
+     * here". Every layer id is remapped (directory names and records), the
+     * copy gets no gallery identity of its own, `view`/`lastTool`/the name
+     * counter are kept, and [titleTransform] localizes the " copy" suffix so
+     * this class never holds display text. Runs only from the Studio, so no
+     * Canvas holds the source open.
+     *
+     * `project.json` is written **last**, so a kill mid-copy leaves a folder
+     * [list] skips — never a half-painting on the shelf. Returns the new id,
+     * or null when the source could not be read or the copy could not be
+     * written.
+     */
+    fun duplicate(
+        sourceId: String,
+        titleTransform: (String) -> String,
+        now: Long = System.currentTimeMillis(),
+    ): String? {
+        if (!isValidId(sourceId)) return null
+        val sourceJson = File(projectDir(sourceId), ProjectFile.FILE_NAME)
+        if (!sourceJson.isFile) return null
+        return try {
+            val source = json.decodeFromString(
+                ProjectFile.serializer(),
+                sourceJson.readText(Charsets.UTF_8),
+            )
+            val newId = java.util.UUID.randomUUID().toString()
+            // The same trust boundary as load: a record id from a
+            // hand-editable file never reaches a path join. An unsafe id's
+            // layer is dropped from the copy exactly as load would drop it;
+            // a source with no safe layer left is corrupt, not duplicable.
+            val safeLayers = source.layers.filter { isSafePathSegment(it.id) }
+            if (safeLayers.isEmpty()) {
+                Log.w(TAG, "project $sourceId: duplicate skipped, no readable layer")
+                return null
+            }
+            val idMap = safeLayers.associate { it.id to java.util.UUID.randomUUID().toString() }
+            val targetDir = projectDir(newId)
+            if (!targetDir.mkdirs()) throw IOException("could not create $targetDir")
+
+            for (record in safeLayers) {
+                val newLayerId = idMap.getValue(record.id)
+                val sourceDir = File(layersDir(sourceId), record.id)
+                val children = sourceDir.listFiles() ?: continue
+                val destDir = File(layersDir(newId), newLayerId)
+                if (!destDir.mkdirs()) throw IOException("could not create $destDir")
+                for (child in children) {
+                    // Tiles only: an in-flight .tmp is a crashed writer's
+                    // leftover, not content.
+                    if (TileStore.parseName(child.name) == null) continue
+                    child.copyTo(File(destDir, child.name))
+                }
+            }
+            File(projectDir(sourceId), THUMB_NAME).takeIf { it.isFile }
+                ?.copyTo(File(targetDir, THUMB_NAME))
+
+            val copy = source.copy(
+                id = newId,
+                title = titleTransform(source.title),
+                createdAt = now,
+                updatedAt = now,
+                layers = safeLayers.map { it.copy(id = idMap.getValue(it.id)) },
+                activeLayerId = idMap[source.activeLayerId] ?: idMap.values.first(),
+                history = HistoryRecord(),
+                galleryUri = null,
+                lastGallerySyncAt = 0L,
+                galleryModifiedAt = 0L,
+                galleryBytes = 0L,
+            )
+            AtomicFiles.write(
+                File(targetDir, ProjectFile.FILE_NAME),
+                json.encodeToString(ProjectFile.serializer(), copy).toByteArray(Charsets.UTF_8),
+            )
+            newId
+        } catch (e: SerializationException) {
+            Log.w(TAG, "project $sourceId: duplicate skipped, unreadable project.json", e)
+            null
+        } catch (e: IOException) {
+            Log.w(TAG, "project $sourceId: duplicate failed", e)
+            null
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "project $sourceId: duplicate skipped, invalid project.json", e)
+            null
+        }
+    }
+
+    /**
      * Records a gallery sync's outcome on a painting that is not open — the
      * Studio-open background sync (06 §9.3). Same read-modify-write shape as
      * [rename]; `updatedAt` deliberately does not move, because a sync is

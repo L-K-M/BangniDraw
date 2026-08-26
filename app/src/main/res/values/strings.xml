@@ -25,6 +25,9 @@
     <string name="studio_delete_body">The painting and its undo history are removed from this device.</string>
     <string name="studio_delete_gallery_too">Also delete the copy in the gallery</string>
     <string name="studio_deleted">Deleted</string>
+    <!-- Appended to a duplicated painting’s title (06 §8). Leading space
+         deliberate. -->
+    <string name="studio_copy_suffix">" copy"</string>
 
     <!-- New Canvas dialog (08 §2.1) -->
     <string name="new_canvas_title">New painting</string>

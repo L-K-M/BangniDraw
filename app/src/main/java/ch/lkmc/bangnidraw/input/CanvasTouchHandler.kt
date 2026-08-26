@@ -92,10 +92,28 @@ class CanvasTouchHandler(
     private val prevX = FloatArray(2)
     private val prevY = FloatArray(2)
 
-    /** The last position of every tracked pointer, so a move has a previous. */
+    /**
+     * The last position **and axes** of every tracked pointer, so a move has a
+     * previous and a decision has the right pointer's pressure.
+     *
+     * The axes live here rather than in three fields for the same reason the
+     * position does: the arbiter can decide "draw" from the *clock* rather than
+     * from an event — `beginFingerDraw` fires out of `tick`, which
+     * [handleMoveEnd] calls after the whole event's pointers have been fed. A
+     * single set of axis fields would by then hold the last-processed pointer's
+     * values, which for a palm-plus-pen event is the palm's, and that opening
+     * sample would carry them. Same defect class as the `actionIndex` bug the
+     * axis parameters fixed, reached through the clock instead of the event.
+     *
+     * [track] writes all six together, so the axes can never belong to a
+     * different pointer than the position beside them.
+     */
     private val trackIds = IntArray(GestureArbiter.MAX_POINTERS) { NO_POINTER }
     private val trackX = FloatArray(GestureArbiter.MAX_POINTERS)
     private val trackY = FloatArray(GestureArbiter.MAX_POINTERS)
+    private val trackPressure = FloatArray(GestureArbiter.MAX_POINTERS) { 1f }
+    private val trackTilt = FloatArray(GestureArbiter.MAX_POINTERS)
+    private val trackOrientation = FloatArray(GestureArbiter.MAX_POINTERS)
 
     private var navigating = false
 
@@ -133,7 +151,7 @@ class CanvasTouchHandler(
             // that never moves leaves no mark at all, and a fast stroke starts
             // at its second sample.
             val i = trackIndexOf(pointerId)
-            if (i >= 0) emitSample(trackX[i], trackY[i], lastEventNs)
+            if (i >= 0) emitTracked(i, lastEventNs)
         }
 
         override fun onNavigate() {
@@ -183,14 +201,13 @@ class CanvasTouchHandler(
         tilt: Float = 0f,
         orientation: Float = 0f,
     ) {
-        setAxes(pressure, tilt, orientation)
         lastEventNs = timeNs
         arbiter.stylusNear = PalmRejection.rejects(PointerTool.FINGER, stylus, timeNs)
         if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
             stylusPointerId = pointerId
             stylus.onDown(x, y, tool)
         }
-        track(pointerId, x, y)
+        track(pointerId, x, y, pressure, tilt, orientation)
         arbiter.down(pointerId, tool, x, y, timeNs, decisions)
         if (navigating) captureNavPointers()
     }
@@ -214,16 +231,22 @@ class CanvasTouchHandler(
         tilt: Float = 0f,
         orientation: Float = 0f,
     ) {
-        setAxes(pressure, tilt, orientation)
         // Before the arbiter, because the arbiter can decide "draw" from a
         // move — a finger past the slop — and the opening sample that decision
         // emits would otherwise be stamped with the last DOWN's timestamp,
         // hundreds of ms stale, skewing the velocity curve at stroke start.
         lastEventNs = timeNs
+        // [track], by contrast, stays AFTER the arbiter: a decision made from
+        // this move opens the stroke at the pointer's previous position and
+        // axes — on the first move, the point it went down at. That is the
+        // sample the stroke would otherwise lose; the live sample below then
+        // adds the current one, so the opening segment survives.
         arbiter.move(pointerId, x, y, timeNs, decisions)
-        track(pointerId, x, y)
+        track(pointerId, x, y, pressure, tilt, orientation)
         pendingMove = true
-        if (strokeLive && pointerId == drawingId) emitSample(x, y, timeNs)
+        if (strokeLive && pointerId == drawingId) {
+            emitSample(x, y, pressure, tilt, orientation, timeNs)
+        }
     }
 
     /**
@@ -239,13 +262,14 @@ class CanvasTouchHandler(
      * this runs per sample and the `Pair` would be an allocation on the touch
      * path (§2.4).
      */
-    private fun setAxes(pressure: Float, tilt: Float, orientation: Float) {
-        this.pressure = pressure
-        this.tilt = tilt
-        this.orientation = orientation
-    }
-
-    private fun emitSample(x: Float, y: Float, timeNs: Long) {
+    private fun emitSample(
+        x: Float,
+        y: Float,
+        pressure: Float,
+        tilt: Float,
+        orientation: Float,
+        timeNs: Long,
+    ) {
         host.onStrokeSample(
             view.invertX(x, y),
             view.invertY(x, y),
@@ -257,18 +281,17 @@ class CanvasTouchHandler(
     }
 
     /**
-     * The axes of the pointer whose event is being processed **right now**.
-     *
-     * Scratch for the duration of one `handle*` call, not per-event state.
-     * That distinction is the whole bug this replaced: axes used to be set once
-     * per `MotionEvent` from `actionIndex`, which for `ACTION_MOVE` is always
-     * pointer 0, so every pointer was sampled with the first one's pressure and
-     * tilt. Taking them as parameters makes the selection impossible to get
-     * wrong — and, unlike a lookup inside `onTouch`, reachable from a JVM test.
+     * The sample a tracked pointer is currently standing on — position and axes
+     * from the same slot, so they cannot come from different pointers.
      */
-    private var pressure = 1f
-    private var tilt = 0f
-    private var orientation = 0f
+    private fun emitTracked(slot: Int, timeNs: Long) = emitSample(
+        trackX[slot],
+        trackY[slot],
+        trackPressure[slot],
+        trackTilt[slot],
+        trackOrientation[slot],
+        timeNs,
+    )
 
     /** Which pointer the arbiter said is drawing, or [NO_POINTER]. */
     private var drawingId = NO_POINTER
@@ -372,20 +395,32 @@ class CanvasTouchHandler(
         }
     }
 
-    private fun track(pointerId: Int, x: Float, y: Float) {
+    private fun track(
+        pointerId: Int,
+        x: Float,
+        y: Float,
+        pressure: Float,
+        tilt: Float,
+        orientation: Float,
+    ) {
         for (i in trackIds.indices) {
             if (trackIds[i] == pointerId) {
-                trackX[i] = x; trackY[i] = y
+                store(i, x, y, pressure, tilt, orientation)
                 return
             }
         }
         for (i in trackIds.indices) {
             if (trackIds[i] == NO_POINTER) {
                 trackIds[i] = pointerId
-                trackX[i] = x; trackY[i] = y
+                store(i, x, y, pressure, tilt, orientation)
                 return
             }
         }
+    }
+
+    private fun store(i: Int, x: Float, y: Float, pressure: Float, tilt: Float, orientation: Float) {
+        trackX[i] = x; trackY[i] = y
+        trackPressure[i] = pressure; trackTilt[i] = tilt; trackOrientation[i] = orientation
     }
 
     private fun trackIndexOf(pointerId: Int): Int {

@@ -288,7 +288,23 @@ class DabPass(
             GLES30.glDeleteBuffers(1, cornerVbo, 0)
             GLES30.glDeleteBuffers(1, instanceVbo, 0)
             built = false
+            // The staging pair goes with the capacity that describes it.
+            // `instanceCapacityDabs = 0` alone would leave both alive but
+            // unreachable-by-bookkeeping: the next `ensureInstanceCapacity`
+            // reallocates from MIN_INSTANCE_DABS regardless, so the grown ones
+            // could never be read again — and `instanceBuffer` is a direct
+            // buffer, whose off-heap bytes are freed only when the buffer
+            // object itself becomes unreachable. A pass kept across
+            // context-loss cycles would hold one dead megabyte per cycle.
+            //
+            // `distinctKeys` and `seen` are deliberately NOT reset: their sizes
+            // track the tile grid rather than this capacity, nothing here
+            // invalidates them, and they are on-heap. They are reuse; these two
+            // are waste.
             instanceCapacityDabs = 0
+            instanceData = FloatArray(0)
+            instanceBuffer = ByteBuffer.allocateDirect(0)
+                .order(ByteOrder.nativeOrder()).asFloatBuffer()
         }
         fbo.release()
     }

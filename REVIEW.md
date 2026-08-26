@@ -895,3 +895,59 @@ unreadable.
   Round 1's mutation check already demonstrated the window is tight — deleting
   the scaling from the ERASE branch alone fails this assertion, and did not
   before the scoping landed.
+
+## PR #13 (roadmap 2.4b) — GLM round 3
+
+- **R-057 ✅ the axis fields are per-*handler*, not per-`handle*`-call** (PR #13,
+  GLM round 3, Minor). **Applied — and it is a live bug, not the documentation
+  nit it was filed as.** The report frames the risk conditionally: *"If a future
+  change emits a sample from `handleMoveEnd` … it will silently stamp the palm's
+  pressure/tilt onto the pen's stroke."* That future change is already in the
+  tree. `GestureArbiter.tick` resolves the pending window on the clock —
+  `if (!stylusOnly && heldMs >= PENDING_MS) beginFingerDraw(ids[slot], out)` —
+  and `beginFingerDraw` calls `onDraw`, whose handler emits the stroke's opening
+  sample. `handleMoveEnd` calls `tick`, and sets no axes.
+
+  So the reachable sequence is §5's own: a palm lands while the pen hovers and
+  is ignored, the pen leaves, its 500 ms grace expires, and the user draws with
+  a finger while the palm still rests. Both pointers move; the palm is processed
+  last (it is the lower pointer index only by accident, but the arbiter ignores
+  its move, so nothing else overwrites the fields); `handleMoveEnd` then opens
+  the finger's stroke carrying the palm's axes. The new test
+  `a finger stroke that resolves on the clock carries its own axes` fails on the
+  pre-fix handler with `actual <0.1>` — the palm's pressure, on the finger's
+  first sample — which is the same defect class round 1 fixed, arriving through
+  the clock instead of through `actionIndex`.
+
+  The fix is to stop having a "current pointer" at all: `trackPressure`,
+  `trackTilt` and `trackOrientation` join `trackX`/`trackY`, and `track()`
+  writes all six together, so the axes physically cannot belong to a different
+  pointer than the position beside them. `emitTracked(slot, timeNs)` reads one
+  slot. The three fields and `setAxes` are gone, which also disposes of the
+  comment the reviewer was reading: a claim that could be violated is replaced
+  by a structure that cannot be.
+
+  `track()` deliberately stays **after** `arbiter.move` in `handleMove`. Moving
+  it earlier would make an arbiter decision see the current sample, which sounds
+  tidier and is wrong: on the first move past the slop the previous slot value
+  is the finger-**down** point, and that is the sample the stroke would
+  otherwise lose. The live sample two lines later supplies the current one, so
+  the opening segment survives. (Reordering also silently changes what
+  `captureNavPointers` records as the gesture's previous position.)
+
+- **R-058 ✅ `DabPass.release()` keeps the direct instance buffer alive** (PR #13,
+  GLM round 3, Minor). **Applied.** `release()` reset `instanceCapacityDabs = 0`
+  but left `instanceData` and `instanceBuffer` pointing at the grown
+  allocations. Because the capacity is what `ensureInstanceCapacity` gates on
+  (`if (dabs <= instanceCapacityDabs) return`), a capacity of 0 guarantees the
+  next call reallocates both — so the retained pair could never be read again,
+  and `instanceBuffer` is a *direct* buffer whose off-heap bytes survive until
+  the buffer object itself is unreachable. A pass kept across context-loss
+  cycles held one dead allocation per cycle. Both are now reset to the empty
+  forms the field initialisers use.
+
+  `distinctKeys` and `seen` are deliberately left alone: their sizes track the
+  tile grid rather than this capacity, nothing in `release()` invalidates them,
+  and they are on-heap. They are reuse; the other two were waste. Not
+  unit-testable — `release()` is pure GL — so the reasoning is recorded here
+  rather than pinned.

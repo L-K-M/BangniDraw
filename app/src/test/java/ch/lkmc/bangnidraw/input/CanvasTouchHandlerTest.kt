@@ -466,6 +466,54 @@ class CanvasTouchHandlerTest {
         assertEquals(0.4f, host.lastTilt, 1e-6f, "and the pen's tilt")
     }
 
+    @Test
+    fun `a finger stroke that resolves on the clock carries its own axes`() {
+        // The same defect as the test above, reached through the CLOCK rather
+        // than through an event — and this is the path that made per-pointer
+        // storage necessary rather than merely tidy.
+        //
+        // `GestureArbiter.tick` resolves the pending window by calling
+        // `beginFingerDraw`, whose `onDraw` emits the stroke's opening sample.
+        // `handleMoveEnd` calls `tick` AFTER the whole event's pointers have
+        // been fed, so a single set of axis fields would by then hold the
+        // last-processed pointer's values. With a palm moving last, the finger
+        // stroke opened at the palm's pressure — every time.
+        //
+        // The setup is the one §5 describes: a palm lands while the pen is
+        // hovering (so the arbiter ignores it), the pen goes away, its grace
+        // expires, and the user then draws with a finger while the palm still
+        // rests on the glass.
+        val host = Host()
+        val h = handler(host)
+        h.stylusOnly = false
+
+        h.stylus.onHoverEnter(300f, 300f, 5f, PointerTool.STYLUS)
+        // 0.1 pressure, and ignored: this is the pointer whose axes must NOT
+        // reach the host.
+        h.handleDown(1, PointerTool.FINGER, 400f, 400f, ms(0), pressure = 0.1f, tilt = 0f)
+        h.stylus.onHoverExit(ms(10))
+
+        // Past HOVER_GRACE_MS, so the next finger is no longer a palm.
+        h.handleDown(2, PointerTool.FINGER, 100f, 100f, ms(1000), pressure = 0.9f, tilt = 0.3f)
+        // Both move, the drawing finger under the tap slop so the window is
+        // still open — and the palm last, which is what poisons a shared field.
+        h.handleMove(2, 102f, 100f, ms(1010), pressure = 0.8f, tilt = 0.25f)
+        h.handleMove(1, 401f, 400f, ms(1010), pressure = 0.1f, tilt = 0f)
+        host.samples.clear()
+
+        // 130 ms held: past PENDING_MS, so the tick inside handleMoveEnd
+        // resolves the window and opens the stroke.
+        h.handleMoveEnd(ms(1130))
+
+        assertTrue("begin(FINGER)" in host.events, "the pending window must resolve into a stroke: ${host.events}")
+        assertEquals(1, host.samples.size, "opening the stroke must emit exactly one sample")
+        assertEquals(
+            0.8f, host.lastPressure, 1e-6f,
+            "the opening sample must carry the DRAWING finger's pressure, not the palm's",
+        )
+        assertEquals(0.25f, host.lastTilt, 1e-6f, "and the drawing finger's tilt")
+    }
+
     private companion object {
         const val WARMUP = 200
         const val MOVES = 2000

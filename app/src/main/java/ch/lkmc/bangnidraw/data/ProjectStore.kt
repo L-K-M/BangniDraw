@@ -70,6 +70,8 @@ class ProjectStore(private val root: File) {
         val thumbnail: File?,
         val bytes: Long,
         val galleryUri: String?,
+        /** For §9.3's Studio-open staleness rule; 0 = never synced. */
+        val lastGallerySyncAt: Long = 0L,
     )
 
     /** True when [id] may name a project folder; checked before any path. */
@@ -160,6 +162,50 @@ class ProjectStore(private val root: File) {
     }
 
     /**
+     * Records a gallery sync's outcome on a painting that is not open — the
+     * Studio-open background sync (06 §9.3). Same read-modify-write shape as
+     * [rename]; `updatedAt` deliberately does not move, because a sync is
+     * looking, not painting.
+     */
+    fun updateGalleryFields(
+        id: String,
+        galleryUri: String?,
+        lastGallerySyncAt: Long,
+        galleryModifiedAt: Long,
+        galleryBytes: Long,
+    ): Boolean {
+        if (!isValidId(id)) return false
+        val jsonFile = File(projectDir(id), ProjectFile.FILE_NAME)
+        if (!jsonFile.isFile) return false
+        return try {
+            val file = json.decodeFromString(
+                ProjectFile.serializer(),
+                jsonFile.readText(Charsets.UTF_8),
+            )
+            val bytes = json.encodeToString(
+                ProjectFile.serializer(),
+                file.copy(
+                    galleryUri = galleryUri,
+                    lastGallerySyncAt = lastGallerySyncAt,
+                    galleryModifiedAt = galleryModifiedAt,
+                    galleryBytes = galleryBytes,
+                ),
+            ).toByteArray(Charsets.UTF_8)
+            AtomicFiles.write(jsonFile, bytes)
+            true
+        } catch (e: SerializationException) {
+            Log.w(TAG, "project $id: gallery fields skipped, unreadable project.json", e)
+            false
+        } catch (e: IOException) {
+            Log.w(TAG, "project $id: gallery fields write failed", e)
+            false
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "project $id: gallery fields skipped, invalid project.json", e)
+            false
+        }
+    }
+
+    /**
      * Free space beside the shelf's total — the Studio's storage readout
      * (06 §7). `usableSpace` of a path that does not exist yet is 0, and the
      * root is only created by the first checkpoint, so an empty shelf reads
@@ -221,6 +267,9 @@ class ProjectStore(private val root: File) {
                 stack = stack,
                 historyCursor = file.history.cursor,
                 galleryUri = file.galleryUri,
+                lastGallerySyncAt = file.lastGallerySyncAt,
+                galleryModifiedAt = file.galleryModifiedAt,
+                galleryBytes = file.galleryBytes,
                 createdAt = file.createdAt,
                 updatedAt = file.updatedAt,
             )
@@ -354,6 +403,7 @@ class ProjectStore(private val root: File) {
                 thumbnail = File(dir, THUMB_NAME).takeIf { it.isFile },
                 bytes = folderBytes(dir),
                 galleryUri = file.galleryUri,
+                lastGallerySyncAt = file.lastGallerySyncAt,
             )
         }
         out.sortByDescending { it.updatedAt }

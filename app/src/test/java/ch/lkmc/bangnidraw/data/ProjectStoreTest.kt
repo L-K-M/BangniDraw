@@ -60,6 +60,9 @@ class ProjectStoreTest {
         stack = stack,
         historyCursor = 3,
         galleryUri = "content://media/external/images/42",
+        lastGallerySyncAt = 1_755_500_000_000L,
+        galleryModifiedAt = 1_755_500_000L,
+        galleryBytes = 123_456L,
         createdAt = 1_755_000_000_000L,
         updatedAt = updatedAt,
     )
@@ -342,6 +345,28 @@ class ProjectStoreTest {
         assertEquals("Harbour", loaded.document.title)
         assertEquals(5_000, loaded.document.updatedAt)
         assertEquals(doc.copy(title = "Harbour", updatedAt = 5_000), loaded.document)
+    }
+
+    @Test
+    fun `gallery sync outcomes persist without moving updatedAt`() {
+        val doc = document(id = "g-1", updatedAt = 100)
+        store.checkpoint(doc)
+        assertTrue(
+            store.updateGalleryFields(
+                "g-1",
+                galleryUri = "content://media/9",
+                lastGallerySyncAt = 2_000,
+                galleryModifiedAt = 2,
+                galleryBytes = 42,
+            ),
+        )
+        val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load("g-1"))
+        assertEquals("content://media/9", loaded.document.galleryUri)
+        assertEquals(2_000, loaded.document.lastGallerySyncAt)
+        assertEquals(2, loaded.document.galleryModifiedAt)
+        assertEquals(42, loaded.document.galleryBytes)
+        // A sync is looking, not painting: "edited 5 min ago" must not move.
+        assertEquals(100, loaded.document.updatedAt)
     }
 
     @Test

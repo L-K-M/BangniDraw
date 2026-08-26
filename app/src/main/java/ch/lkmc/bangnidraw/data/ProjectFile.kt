@@ -108,6 +108,9 @@ internal fun Document.toProjectFile(
     nextLayerName = stack.nextName,
     history = history,
     galleryUri = galleryUri,
+    lastGallerySyncAt = lastGallerySyncAt,
+    galleryModifiedAt = galleryModifiedAt,
+    galleryBytes = galleryBytes,
 )
 
 /**

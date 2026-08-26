@@ -28,6 +28,16 @@ data class Document(
      */
     val historyCursor: Int = 0,
     val galleryUri: String? = null,
+    /** Epoch ms of the last gallery sync; 0 = never (06 §3). */
+    val lastGallerySyncAt: Long = 0L,
+    /**
+     * The gallery row's `DATE_MODIFIED` (seconds) and `SIZE` as of our last
+     * write — 06 §9.2's tamper check: a row whose values moved was edited by
+     * another app and is abandoned, never overwritten. 0 = unknown, treated
+     * as ours (folders written before the rule).
+     */
+    val galleryModifiedAt: Long = 0L,
+    val galleryBytes: Long = 0L,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
 ) {

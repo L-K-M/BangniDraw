@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.engine.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -108,6 +109,33 @@ class BufferScissorTest {
             BufferScissor.bounds(IntRect(0, 0, 10, 10), bad, 100, 100).isEmpty,
             "NaN must not become a coerced-to-zero scissor that hides the frame",
         )
+    }
+
+    @Test
+    fun `toGlScissor refuses the inputs GL would mishandle`() {
+        val out = IntArray(4)
+        // An INVERTED rect is the one glScissor genuinely rejects: it raises
+        // GL_INVALID_VALUE for a negative width or height, and leaves the
+        // previous box in force. Caught here rather than silently installed.
+        assertFailsWith<IllegalArgumentException> {
+            BufferScissor.toGlScissor(IntRect(50, 10, 10, 40), bufferHeight = 100, out = out)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            BufferScissor.toGlScissor(IntRect(10, 40, 50, 10), bufferHeight = 100, out = out)
+        }
+        // And an unclipped rect, which GL would ACCEPT with a negative y and
+        // quietly scissor the wrong rows — the failure the guard exists for.
+        assertFailsWith<IllegalArgumentException> {
+            BufferScissor.toGlScissor(IntRect(0, 0, 50, 150), bufferHeight = 100, out = out)
+        }
+        // Everything `bounds` produces passes, or the guard would be a bug of
+        // its own: this is its output for a whole-buffer rect.
+        BufferScissor.toGlScissor(
+            BufferScissor.bounds(IntRect(-9, -9, 999, 999), identity(), 100, 100),
+            bufferHeight = 100,
+            out = out,
+        )
+        assertEquals(listOf(0, 0, 100, 100), out.toList())
     }
 
     @Test

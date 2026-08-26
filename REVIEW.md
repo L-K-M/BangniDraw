@@ -1324,3 +1324,69 @@ claim in *two* files.
   contents afterwards. It now says the seam was fixed in its own commit ahead of
   the first line of 2.5 code, and notes explicitly that rows stay `⬜` until
   their PR merges.
+
+## PR #14 (roadmap 2.5a) — GLM round 2
+
+**Round scored: dismissed only.** The round's one substantive claim — a code
+change — was refuted on a premise the finding did not check, and what was
+applied is documentation plus a widened guard. Scored this way deliberately
+rather than as "nits only": a round that refuses the only behavioural ask is
+dismissed-only whatever else it tidies. First of the streak; two consecutive
+are needed.
+
+- **R-084 ❌ `stampDabs`'s `!isSupported` gate drops batches while support is
+  unknown** (PR #14, GLM round 2, Major). **Refuted; the comments it caught
+  were genuinely wrong and are fixed.**
+
+  The finding reasons from "`isSupported` … is only known after the first
+  `ensureContext`" — quoting a comment I wrote in round 1 — to the conclusion
+  that a batch published before the first GL callback "reads
+  `isSupported == false` and is released without ever being drawn", and
+  escalates with *"If `isSupported` defaults to `false` … every session's first
+  stroke is truncated."* It defaults to **`true`**:
+
+  ```kotlin
+  @Volatile
+  var isSupported: Boolean = true
+      private set
+  ```
+
+  and the only write is `isSupported = renderer.onContextCreated(...)`, so the
+  flag only ever goes true → false. Before the probe, the value read is the
+  initial `true` and the batch is published normally; the gate cannot fire on a
+  supported device at any point in the session. The secondary
+  happens-before concern is answered by the `@Volatile` that is already there,
+  and whose KDoc says why.
+
+  The gate stays because it is an optimisation with no downside — without it the
+  batch is queued and then released undrawn by the callback's drain, which is
+  one pointless round trip. What the finding is right about is that my round-1
+  comment contradicted the code it sat beside: it claimed batches are published
+  "without consulting `isSupported`" *after* I had made `stampDabs` consult it.
+  Both comments now say the same true thing.
+
+- **R-085 ✅ the `toGlScissor` comment misstated GL's error semantics** (PR #14,
+  GLM round 2, Minor). **Applied, and the guard widened to match.**
+
+  My round-1 comment said GL answers a negative scissor with
+  `GL_INVALID_VALUE` and keeps the previous box. That conflates two cases.
+  `glScissor` rejects a negative **width or height** — that is the documented
+  error condition, and the one where the previous box survives. A negative
+  **x or y** is legal: the box is accepted and intersected with the
+  framebuffer. So unclipped input would not have failed loudly at all; it would
+  have scissored the wrong rows and drawn a plausible frame in the wrong place,
+  which is worse and is what the comment should have said.
+
+  Worth recording that this is the third comment in this PR to claim something
+  the code or the platform does not do — after `BufferScissor`'s
+  no-allocation claim and `EngineSession`'s `isSupported` line above. The
+  pattern is mine: a justification written from memory rather than checked.
+
+  The guard now also rejects inverted rects, the case GL genuinely refuses,
+  which the narrower `require` did not cover. Safe for every caller by
+  construction — `bounds` yields `left <= right` and `top <= bottom` — and
+  mutation-tested: dropping that half of the condition fails the new
+  `toGlScissor refuses the inputs GL would mishandle` test. (A first draft of
+  that `require` included `rect.right <= Int.MAX_VALUE`, which is always true —
+  removed before committing rather than shipped as a condition that cannot
+  fail.)

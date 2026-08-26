@@ -102,14 +102,24 @@ object BufferScissor {
      */
     fun toGlScissor(rect: IntRect, bufferHeight: Int, out: IntArray) {
         require(out.size >= 4) { "a scissor needs 4 ints, was ${out.size}" }
-        // Unclipped input would make `bufferHeight - rect.bottom` negative, and
-        // GL answers a negative scissor with GL_INVALID_VALUE and *keeps the
-        // previous box* — so the draw would silently touch pixels outside the
-        // dirty region instead of failing. The pairing with [bounds], which
-        // clips, is what makes that unreachable; this says so out loud.
-        require(rect.top >= 0 && rect.bottom <= bufferHeight) {
+        // Two different failures, and an earlier version of this comment
+        // conflated them. `glScissor` raises GL_INVALID_VALUE for a negative
+        // **width or height** only — that is the one case where the call is
+        // rejected and the previous box stays in force. A negative **x or y**
+        // is perfectly legal: the box is accepted and intersected with the
+        // framebuffer, so unclipped input here would not fail, it would scissor
+        // the wrong rows and draw a plausible frame in the wrong place.
+        //
+        // The guard covers both, which the narrower one did not: [bounds]
+        // produces `left <= right` and `top <= bottom` by construction, so
+        // requiring it cannot reject a legitimate caller, and it is the half
+        // that catches the case GL actually rejects.
+        require(
+            rect.left >= 0 && rect.top >= 0 && rect.bottom <= bufferHeight &&
+                rect.right >= rect.left && rect.bottom >= rect.top
+        ) {
             "toGlScissor needs a rect already clipped to the buffer, was " +
-                "top=${rect.top} bottom=${rect.bottom} height=$bufferHeight"
+                "$rect height=$bufferHeight"
         }
         out[0] = rect.left
         out[1] = bufferHeight - rect.bottom

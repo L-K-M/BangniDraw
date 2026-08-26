@@ -94,11 +94,13 @@ class EngineSession(
     ) {
         ensureContext()
         if (!isSupported) {
-            // Not just `return`: batches are published without consulting
-            // `isSupported` (it is only known after the first `ensureContext`),
-            // so bailing out silently would strand every one of them and their
-            // ring slots — `acquireDabBatch` returning null for the rest of the
-            // session, which is R-063's shape on the live path.
+            // Not just `return`. [stampDabs] does gate on `isSupported`, but the
+            // flag starts **true** and only ever flips to false once
+            // [ensureContext] has probed — so batches published before that
+            // probe are queued normally and are sitting here when it fails.
+            // Bailing out silently would strand every one of them and their
+            // ring slots: `acquireDabBatch` returning null for the rest of the
+            // session, R-063's shape on the live path.
             drainPending(stamp = false)
             return
         }
@@ -328,8 +330,17 @@ class EngineSession(
             return
         }
         if (!isSupported) {
-            // Released on the spot rather than published into a queue nothing
-            // will draw.
+            // Safe to read here, and safe to act on: `isSupported` starts
+            // **true** and only ever goes true → false, when [ensureContext]'s
+            // probe fails on the GL thread. So this cannot fire on a supported
+            // device — not even before the first frame, where the initial
+            // `true` is the value read — and it never discards a batch that
+            // would have been drawn. `@Volatile` supplies the happens-before
+            // edge for the one transition there is.
+            //
+            // The gate is an optimisation, not the correctness path: without it
+            // the batch would be queued and then released undrawn by
+            // [onDrawFrontBufferedLayer]'s drain. It just saves the round trip.
             dabRing.release(batch)
             return
         }

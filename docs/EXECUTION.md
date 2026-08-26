@@ -122,23 +122,46 @@ For each round:
       - Yes, and the head did not end green — one follow-up fix commit could not save it:
         **`integration failed`**. Revert to the last green state before continuing.
 
-   c. **Did the review raise a substantive finding you did not apply** — declined, refuted, or
-      deferred, whether to a later PR in the plan or as an out-of-scope follow-up? (Deferring
-      to a later PR is the most common kind here, and it is still not applying the finding.)
-      - And the head ended green: **`dismissed only`**, however many cosmetic fixes you
-        applied alongside it. One applied typo must not launder a refused blocker into the
-        faster streak.
-      - And the head did not end green: **`integration failed`**, exactly as at (b) and (d),
-        and revert to the last green state before continuing. The outcome decides, not the
-        weight of the findings — so a refused blocker must not launder a red head into
-        `dismissed only` either. Without this branch the loop could reach steady state under
-        rule 3 with a broken head and no revert. But if you pushed nothing this round there
-        is nothing to revert and nothing you broke: a red head is then the flaky-job or
-        moved-base case below. Fix or re-run CI until the head is green, then score the round
-        here as written: the score is *deferred* until the head is green, never undefined.
-        (An earlier draft said "this score does not apply", which left that round in no bucket
-        at all — the exhaustiveness this procedure claims is only worth having if no branch
-        can opt out of it.)
+   c. **What you did NOT apply does not score the round.** A finding you declined, refuted or
+      deferred is recorded — never silently dropped — but only findings you *accepted* decide
+      the score, which (b) and (d) settle by what you applied.
+
+      **Recorded where**, since this step no longer encodes it in the score and "recorded" is
+      worth nothing without a destination: in `REVIEW.md`, under its own `R-NNN` id, with the
+      reason and — for a refutation — the evidence that settles it; in the commit message of
+      the round that declined it; and in the chat scorecard when the loop ends. `REVIEW.md` is
+      the durable one of the three, and it is what a later round consults before re-applying
+      something a previous round declined.
+
+      The `dismissed only` label survives for a round that applied **nothing** — the table
+      below still awards it there — so what this change removed is the automatic signal for a
+      round that declined something *while also applying* something, which is precisely the
+      round that now scores `nits only` or `useful feedback` and looks productive from the
+      score alone. For those, the record has to be written rather than inferred. **Changed 2026-08-26 at the
+      user's direction**; this step used to route any unapplied substantive finding to
+      `dismissed only` "however many cosmetic fixes you applied alongside it".
+
+      That branch was written under the two-round thresholds, and the one-round change had
+      already hollowed it out: `nits only` and `dismissed only` are both single-round exits
+      now, so there is no "faster streak" left for an applied typo to launder a refused
+      blocker into. What it still did was relabel, and the label is not worth a rule.
+
+      Two obligations *were* riding on that label, and they move onto the finding itself
+      rather than disappearing with it — the same correction the security escalation needed:
+
+      - **Re-read the decline before you make it.** `dismissed only` used to carry "I have
+        stopped learning from this reviewer; check that it is actually true". That check is
+        owed whenever you decline, whatever the round scores, and it is owed *before* the
+        decline under one round, because there may be no second round in which to reconsider.
+      - **An out-of-scope deferral still owes the follow-up list** that rule 5 describes,
+        even when the round scores `nits only` because you also applied a cosmetic fix. What
+        you owe the next PR keys on the deferral, never on the round's score.
+
+      A red head is still never mergeable and still scores `integration failed` when you
+      pushed something — (b) covers a substantive push, (d) a cosmetic one, and neither cares
+      what you declined. If you pushed nothing there is nothing to revert: fix or re-run CI
+      until the head is green, then score the round as written. The score is *deferred* until
+      the head is green, never undefined.
 
    d. **Did the review raise any finding at all?** Restatements and self-answered "✅ fine"
       items are not findings.
@@ -183,12 +206,13 @@ For each round:
    | applied a real fix, push green | `useful feedback` |
    | applied a real fix, push red, one follow-up fix rescued it | `useful feedback` |
    | applied a real fix, push red, one follow-up fix could not save it | `integration failed` |
-   | applied a typo, **declined a blocker** | `dismissed only` |
+   | applied a real fix, **declined a blocker**, green | `useful feedback` (was `dismissed only` before 2026-08-26) |
+   | applied a typo, **declined a blocker**, green | `nits only` (was `dismissed only` before 2026-08-26) |
    | declined a blocker, applied nothing | `dismissed only` |
    | declined a blocker, applied a cosmetic fix, head left red | `integration failed` |
    | applied a real fix, then reverted it as contradicting `PLAN.md` | `integration failed` |
    | declined a blocker, pushed nothing, head red from a flake | score deferred until green |
-   | deferred a blocker to a later PR, applied a nit, green | `dismissed only` |
+   | deferred a blocker to a later PR, applied a nit, green | `nits only`; the follow-up list is still owed |
    | applied only cosmetic fixes, green | `nits only` |
    | applied only a cosmetic fix, and it broke the build for good | `integration failed` |
    | review raised only nits, you declined them all | `dismissed only` |
@@ -210,6 +234,14 @@ plainly, because whoever reads this next should know exactly what was given up:
   introduced a defect caught in the next on three occasions — the clearest being #13's round
   6, which caught a dispose-path regression that round 5's own fix had introduced. The round
   that catches that class is the one this change skips.
+- Step (c) of the scoring procedure went with it on 2026-08-26, in a second pass: only
+  findings you *accept* score a round now. That step routed any unapplied substantive
+  finding to `dismissed only` regardless of what you applied alongside it, and its stated
+  purpose — stopping "one applied typo" from laundering "a refused blocker into the faster
+  streak" — had already been dissolved by this same change, since `nits only` and
+  `dismissed only` both became single-round exits. It was relabelling, not gating. The two
+  obligations it incidentally carried are now attached to the decline itself, where they
+  cannot be lost to a score.
 - Rule 2's cost is different in kind from the other two, and was going unstated. A nits-only
   round is evidence about the *reviewer's* coverage, not about your grading, so neither bullet
   above covers it: one such round now ends the loop on the strength of a single pass. A hole

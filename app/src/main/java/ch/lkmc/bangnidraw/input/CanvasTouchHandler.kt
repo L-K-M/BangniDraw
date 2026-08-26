@@ -950,11 +950,22 @@ class CanvasTouchHandler(
      *
      * A *class* is broader than the pen: `SOURCE_MOUSE` is `0x2002` and
      * `SOURCE_TOUCHSCREEN` is `0x1002`, so both carry `SOURCE_CLASS_POINTER`'s
-     * `0x2` and both get unbuffered hover out of this call as well. That is
-     * harmless — a smoother mouse cursor on a DeX desk costs one wakeup per
-     * mouse move while the pointer is over the canvas — but it is what the code
-     * does, and saying "covers a hovering pen" implied a narrower effect than
-     * that.
+     * `0x2` and both get unbuffered hover out of this call as well. Harmless —
+     * a smoother cursor, and more main-thread wakeups while pointer-class
+     * events target this view — but it is what the code does, and "covers a
+     * hovering pen" implied a narrower effect than that.
+     *
+     * **How long the request stands is deliberately not stated here.** An
+     * earlier version of this comment priced it as "one wakeup per mouse move
+     * while the pointer is over the canvas", which assumes the request dies
+     * with the hover stream. A hover stream ends in `ACTION_HOVER_EXIT`, not
+     * `ACTION_UP` or `ACTION_CANCEL`, so it may well stand until some later
+     * gesture ends — but the platform javadoc is not in the SDK's stub sources
+     * and could not be reached to settle it. Rather than swap one unverified
+     * bound for another, the cost is left unquantified: whoever trims wakeups
+     * here should read `ViewRootImpl`'s input path first. The `ACTION_DOWN`
+     * path asks for pointer-class unbuffered dispatch anyway, so nothing here
+     * depends on the answer.
      *
      * **`SOURCE_CLASS_POINTER`, not `SOURCE_STYLUS`**, which is what
      * `07-input-and-stylus.md` §2.1 writes — it flagged the call "(to verify)",

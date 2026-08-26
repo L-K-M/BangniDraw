@@ -866,3 +866,32 @@ unreadable.
   `aspect = 1` the two axes coincide exactly. It belongs with the flat and
   bristle tips of `04-tools.md` §2, which is the first PR that can actually see
   it. Recorded in `12-roadmap.md`.
+
+## PR #13 (roadmap 2.4b) — GLM round 2
+
+- **R-056 ❌ `eraseBranch`'s window runs to end-of-source, weakening both ERASE
+  pins** (PR #13, GLM round 2, Major). **Refuted.** The reasoning is sound and
+  the conclusion would follow — `substringBefore` does return the whole receiver
+  when the delimiter is absent — but the premise is false. It claims that
+  because MIX is the fall-through, "after `u_strokeMode == 1` there is no
+  further `u_strokeMode ==` comparison anywhere in the shader". There is:
+  `merge.glsl` tests **mode 1 before mode 0**, so the mode-0 comparison bounds
+  the window.
+
+  Extracted from the shipped `MERGE_GLSL` and printed, the comparisons appear in
+  the order `[u_strokeMode == 1, u_strokeMode == 0]`, and the window is exactly:
+
+  ```
+  ") return u_alphaLock ? L : L * (1.0 - S.a); if ("
+  ```
+
+  It contains neither PAINT's `S + L * (1.0 - S.a)` nor `MIXLERP(` — checked
+  both ways, not eyeballed. The suggested extra `.substringBefore("MIXLERP(")`
+  would be a harmless no-op today, and is declined only because it would encode
+  a false belief about the branch order into the test: the next reader would
+  take it as evidence that MIX can fall inside the ERASE window, and would be
+  wrong.
+
+  Round 1's mutation check already demonstrated the window is tight — deleting
+  the scaling from the ERASE branch alone fails this assertion, and did not
+  before the scoping landed.

@@ -436,24 +436,34 @@ class CanvasTouchHandlerTest {
     }
 
     @Test
-    fun `the drawing pointer's own axes reach the host, not the first pointer's`() {
-        // For ACTION_MOVE the action's pointer-index bits are always zero, so
-        // reading pressure from `actionIndex` gave every pointer the FIRST
-        // pointer's axes. That is wrong exactly in the setup this class exists
-        // for: a palm down as pointer 0 and the pen drawing as pointer 1, where
-        // every pen sample would carry the palm's pressure and a tilt of zero.
+    fun `the drawing pointer's own axes reach the host, not another pointer's`() {
+        // The regression this pins: for ACTION_MOVE the action's pointer-index
+        // bits are always zero, so axes read at `actionIndex` gave EVERY
+        // pointer the first pointer's values — wrong exactly in the setup this
+        // class exists for, a palm resting as pointer 0 and the pen drawing as
+        // pointer 1.
+        //
+        // Two pointers with different axes, and the drawing one is not the
+        // first: with one pointer down the two readings coincide and the test
+        // could not tell a correct selection from the buggy one. The axes are
+        // parameters of handleMove precisely so this is decidable here rather
+        // than only on a device.
         val host = Host()
         val h = handler(host)
         h.stylusOnly = false
-        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        // The palm lands first and owns index 0.
+        h.handleDown(1, PointerTool.FINGER, 400f, 400f, ms(0), pressure = 0.1f, tilt = 0f)
         h.handleTick(ms(GestureArbiter.PENDING_MS))
+        host.samples.clear()
 
-        h.setAxes(pressure = 0.75f, tilt = 0.4f, orientation = 0f)
-        h.handleMove(1, 140f, 100f, ms(30))
-        h.handleMoveEnd(ms(30))
+        // Then the pen, which takes the gesture over (§5) and does the drawing.
+        h.handleDown(2, PointerTool.STYLUS, 100f, 100f, ms(200), pressure = 0.9f, tilt = 0.3f)
+        h.handleMove(1, 401f, 400f, ms(230), pressure = 0.1f, tilt = 0f)   // the palm, ignored
+        h.handleMove(2, 140f, 100f, ms(230), pressure = 0.75f, tilt = 0.4f)
+        h.handleMoveEnd(ms(230))
 
-        assertEquals(0.75f, host.lastPressure, 1e-6f, "the sample must carry its own pointer's pressure")
-        assertEquals(0.4f, host.lastTilt, 1e-6f, "and its own tilt")
+        assertEquals(0.75f, host.lastPressure, 1e-6f, "the sample must carry the PEN's pressure, not the palm's")
+        assertEquals(0.4f, host.lastTilt, 1e-6f, "and the pen's tilt")
     }
 
     private companion object {

@@ -21,17 +21,20 @@ class StrokeDriverTest {
         spacing: Float = 0.3f,
         stabilizer: Float = 0f,
         size: Float = 20f,
-        pressureOpacity: Curve = Curve.Linear,
+        // The production default, deliberately. An earlier revision defaulted
+        // this to Curve.Linear to make the opacity-ceiling test strict, which
+        // also silently swapped every OTHER test in this file off the curve
+        // real presets ship — so `Curve.One`'s own path (a flat curve, whose
+        // lookup and clamping are their own code) would have lost all coverage
+        // here to buy strictness in one test. The ceiling test asks for Linear
+        // explicitly instead.
+        pressureOpacity: Curve = Curve.One,
     ) = BrushPreset(
         id = "t",
         name = "test",
         size = size,
         spacing = spacing,
         stabilizer = stabilizer,
-        // Linear, not BrushPreset's default Curve.One. With the default,
-        // pressureOpacityMax is 1 whatever the pressure, so the opacity-ceiling
-        // test below could not distinguish a light stroke from a heavy one and
-        // a driver that ignored pressure entirely would have passed it.
         pressureOpacity = pressureOpacity,
     )
 
@@ -39,7 +42,8 @@ class StrokeDriverTest {
         spacing: Float = 0.3f,
         stabilizer: Float = 0f,
         size: Float = 20f,
-    ) = StrokeDriver(preset(spacing, stabilizer, size), seed = 1L)
+        pressureOpacity: Curve = Curve.One,
+    ) = StrokeDriver(preset(spacing, stabilizer, size, pressureOpacity), seed = 1L)
 
     private fun batch() = DabBatch()
 
@@ -154,8 +158,12 @@ class StrokeDriverTest {
         // §7.4's `o = preset.opacity · pressureOpacityMax` (04 §3.3), which is
         // the number the merge caps the buffer at. A light stroke must cap
         // lower than a heavy one, or pressure-opacity does nothing.
-        val light = driver()
-        val heavy = driver()
+        // Linear here, not the shared default: with BrushPreset's shipped
+        // Curve.One, pressureOpacityMax is 1 whatever the pressure, both
+        // ceilings are 1, and a driver that ignored pressure entirely would
+        // pass. The curve has to vary for the property to exist at all.
+        val light = driver(pressureOpacity = Curve.Linear)
+        val heavy = driver(pressureOpacity = Curve.Linear)
         light.line(batch(), 100f, 300f, pressure = 0.2f)
         heavy.line(batch(), 100f, 300f, pressure = 1f)
         assertTrue(

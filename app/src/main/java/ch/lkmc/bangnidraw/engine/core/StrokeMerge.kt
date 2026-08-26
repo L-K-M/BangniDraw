@@ -104,6 +104,15 @@ object StrokeMerge {
         lerp: ColorLerp = ColorLerp.Linear,
         scratch: Scratch = Scratch(),
     ): Rgba {
+        // §7.6: an RMW stroke writes the layer directly, dab by dab, and never
+        // reaches a merge — so a spec with `rmw` set here is a caller that has
+        // mistaken which path it is on. Without this it would quietly return a
+        // plausible PAINT composite for a stroke that should have been smudged,
+        // and a reference that answers wrong questions confidently is worse
+        // than one that refuses. Same reasoning as `StrokeSpec.init`'s guard.
+        require(spec.rmw == null) {
+            "RMW strokes bypass the stroke buffer and never merge (§7.6): $spec"
+        }
         val s = cap(stroke, spec.opacity)
         return when (spec.mode) {
             // 05 §1: the eraser is a no-op on an alpha-locked layer. Not "erase

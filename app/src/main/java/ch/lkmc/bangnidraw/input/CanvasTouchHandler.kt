@@ -173,7 +173,17 @@ class CanvasTouchHandler(
 
     // ------------------------------------------------------- primitive path
 
-    internal fun handleDown(pointerId: Int, tool: PointerTool, x: Float, y: Float, timeNs: Long) {
+    internal fun handleDown(
+        pointerId: Int,
+        tool: PointerTool,
+        x: Float,
+        y: Float,
+        timeNs: Long,
+        pressure: Float = 1f,
+        tilt: Float = 0f,
+        orientation: Float = 0f,
+    ) {
+        setAxes(pressure, tilt, orientation)
         lastEventNs = timeNs
         arbiter.stylusNear = PalmRejection.rejects(PointerTool.FINGER, stylus, timeNs)
         if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
@@ -195,7 +205,16 @@ class CanvasTouchHandler(
      * the canvas twice per event, each time with one finger stale — the anchor
      * drifts, and a symmetric pinch visibly slides the point it should hold.
      */
-    internal fun handleMove(pointerId: Int, x: Float, y: Float, timeNs: Long) {
+    internal fun handleMove(
+        pointerId: Int,
+        x: Float,
+        y: Float,
+        timeNs: Long,
+        pressure: Float = 1f,
+        tilt: Float = 0f,
+        orientation: Float = 0f,
+    ) {
+        setAxes(pressure, tilt, orientation)
         // Before the arbiter, because the arbiter can decide "draw" from a
         // move — a finger past the slop — and the opening sample that decision
         // emits would otherwise be stamped with the last DOWN's timestamp,
@@ -220,6 +239,12 @@ class CanvasTouchHandler(
      * this runs per sample and the `Pair` would be an allocation on the touch
      * path (§2.4).
      */
+    private fun setAxes(pressure: Float, tilt: Float, orientation: Float) {
+        this.pressure = pressure
+        this.tilt = tilt
+        this.orientation = orientation
+    }
+
     private fun emitSample(x: Float, y: Float, timeNs: Long) {
         host.onStrokeSample(
             view.invertX(x, y),
@@ -232,11 +257,14 @@ class CanvasTouchHandler(
     }
 
     /**
-     * The axes of the pointer currently drawing, refreshed from every event.
+     * The axes of the pointer whose event is being processed **right now**.
      *
-     * Fields rather than parameters threaded through the arbiter: the arbiter
-     * is pure and knows nothing about pressure, and `handleMove`'s primitive
-     * signature is what makes the handler drivable from a JVM test.
+     * Scratch for the duration of one `handle*` call, not per-event state.
+     * That distinction is the whole bug this replaced: axes used to be set once
+     * per `MotionEvent` from `actionIndex`, which for `ACTION_MOVE` is always
+     * pointer 0, so every pointer was sampled with the first one's pressure and
+     * tilt. Taking them as parameters makes the selection impossible to get
+     * wrong — and, unlike a lookup inside `onTouch`, reachable from a JVM test.
      */
     private var pressure = 1f
     private var tilt = 0f
@@ -244,13 +272,6 @@ class CanvasTouchHandler(
 
     /** Which pointer the arbiter said is drawing, or [NO_POINTER]. */
     private var drawingId = NO_POINTER
-
-    /** Sets the axes for the next sample; `onTouch` reads them off the event. */
-    internal fun setAxes(pressure: Float, tilt: Float, orientation: Float) {
-        this.pressure = pressure
-        this.tilt = tilt
-        this.orientation = orientation
-    }
 
     /** Applies one navigation step from every pointer's position in this event. */
     internal fun handleMoveEnd(timeNs: Long) {
@@ -391,37 +412,33 @@ class CanvasTouchHandler(
         val id = e.getPointerId(index)
         val timeNs = e.eventTime * 1_000_000L
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                setAxes(
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN ->
+                handleDown(
+                    id, toolOf(e.getToolType(index)), e.getX(index), e.getY(index), timeNs,
                     e.getPressure(index),
                     e.getAxisValue(MotionEvent.AXIS_TILT, index),
                     e.getOrientation(index),
                 )
-                handleDown(id, toolOf(e.getToolType(index)), e.getX(index), e.getY(index), timeNs)
-            }
 
             MotionEvent.ACTION_MOVE -> {
                 for (h in 0 until e.historySize) {
                     val hNs = e.getHistoricalEventTime(h) * 1_000_000L
                     for (p in 0 until e.pointerCount) {
-                        // Per pointer, inside the loop. For ACTION_MOVE the
-                        // action's pointer-index bits are always zero, so
-                        // `index` is pointer 0 — and reading the axes there
-                        // gave every pointer the FIRST pointer's pressure and
-                        // tilt. That is wrong exactly when it matters most:
-                        // with a palm down as pointer 0 and the pen drawing as
-                        // pointer 1, every pen sample carried the palm's
-                        // pressure and a tilt of zero.
-                        setAxes(
-                            e.getHistoricalPressure(p, h),
-                            e.getHistoricalAxisValue(MotionEvent.AXIS_TILT, p, h),
-                            e.getHistoricalOrientation(p, h),
-                        )
+                        // Axes read at index `p`, the same pointer handleMove
+                        // is given. For ACTION_MOVE the action's pointer-index
+                        // bits are always zero, so reading them at
+                        // `actionIndex` gave every pointer the FIRST pointer's
+                        // pressure and tilt — wrong exactly when it matters
+                        // most, with a palm down as pointer 0 and the pen
+                        // drawing as pointer 1.
                         handleMove(
                             e.getPointerId(p),
                             e.getHistoricalX(p, h),
                             e.getHistoricalY(p, h),
                             hNs,
+                            e.getHistoricalPressure(p, h),
+                            e.getHistoricalAxisValue(MotionEvent.AXIS_TILT, p, h),
+                            e.getHistoricalOrientation(p, h),
                         )
                     }
                     // Each historical sample is a complete event's worth of
@@ -429,12 +446,12 @@ class CanvasTouchHandler(
                     handleMoveEnd(hNs)
                 }
                 for (p in 0 until e.pointerCount) {
-                    setAxes(
+                    handleMove(
+                        e.getPointerId(p), e.getX(p), e.getY(p), timeNs,
                         e.getPressure(p),
                         e.getAxisValue(MotionEvent.AXIS_TILT, p),
                         e.getOrientation(p),
                     )
-                    handleMove(e.getPointerId(p), e.getX(p), e.getY(p), timeNs)
                 }
                 handleMoveEnd(timeNs)
             }

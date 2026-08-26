@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.engine.core
 import kotlin.math.hypot
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -424,6 +425,22 @@ class StrokeDriverTest {
         assertTrue(warmup.count > 0)
         assertEquals(-1, warmup.predictedFrom, "real dabs are not marked predicted")
         assertEquals(warmup.count, warmup.committedCount, "and all of them commit")
+    }
+
+    @Test
+    fun `a batch that already carries a tail is refused`() {
+        // `markPredictedFromHere` marks from the batch's CURRENT count, so a
+        // leftover tail would end up below the new mark and be counted as
+        // committed — merged into the layer at pen-up, which turns a guess into
+        // permanent ink. Silent and unrecoverable, so it is a throw rather than
+        // a comment.
+        val d = driver()
+        val out = batch()
+        d.halfLine(out, 100f, 200f, 100f, steps = 12)
+        val points = samples(200f, 260f, 100f, 96_000_000L, 4)
+        d.predict(points, out)
+        assertTrue(out.predictedFrom >= 0, "the first tail marked the batch")
+        assertFailsWith<IllegalArgumentException> { d.predict(points, out) }
     }
 
     @Test

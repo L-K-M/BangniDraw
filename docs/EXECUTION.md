@@ -290,7 +290,7 @@ decline created the risk is the one scoring the round. The obligation therefore 
 Without that tie-breaker the cheapest way out of a security finding is to relabel it as a
 scope call, and rule 5 would end the loop in one round with a follow-up list instead of a
 decision. (R-005 is not saved by any of this, for the reason given above: it was never raised
-before the exit.) That is now load-bearing rather than a backstop, and it is the reason
+before the exit.) The obligation is now load-bearing rather than a backstop, and it is the reason
 this section still spells the PR #7 history out instead of trimming it. Read a
 `dismissed only` round as "I have stopped learning from this reviewer", and check that it is
 actually true before you act on it — under one round there is no second chance to notice you

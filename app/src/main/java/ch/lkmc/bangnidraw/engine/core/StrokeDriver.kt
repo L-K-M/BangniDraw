@@ -167,15 +167,25 @@ class StrokeDriver(
      * Returns 0 for a stroke that is not open — a tail with nothing to
      * continue is not a tail — and 0 for an empty batch.
      *
-     * **[out] must carry no predicted dabs of its own.**
+     * **[out] must carry no predicted dabs of its own**, and the `require`
+     * below is what says so.
      * [DabBatch.markPredictedFromHere] marks from the batch's *current* count,
      * so a leftover tail below that mark would be counted as committed and
      * merged into the layer at pen-up — a wrong guess turned into permanent
      * ink. Every caller takes a freshly acquired ring slot, which
-     * `DabRing.acquire` clears, so the precondition holds; it is stated because
-     * nothing in the method's own body would enforce it.
+     * `DabRing.acquire` clears, so this can only fire on a wiring bug: a slot
+     * reused without a clear, or a second `predict()` into one batch.
+     *
+     * Guarded rather than merely documented, for the same reason
+     * [DabGenerator.copyInto]'s preset check is kept: the failure it prevents
+     * is silent and permanent, and one integer comparison a frame is not a
+     * price. A comment saying "nothing enforces this" is an invitation to the
+     * bug, not a defence against it.
      */
     fun predict(samples: StrokeInputBatch, out: DabBatch): Int {
+        require(out.predictedFrom < 0) {
+            "predict() needs a batch with no tail of its own, was marked at ${out.predictedFrom}"
+        }
         if (!isActive || samples.size == 0) return 0
         // On the first frame `copy()` builds the pair AND is the sync; on every
         // later one the same two objects are re-synced in place, which is what

@@ -1524,3 +1524,42 @@ reviewer: a comment added *while applying* round 1 claimed `pressureOpacityMax`
 read only by `StrokeDriver.opacityCeiling`, which the merge applies once at
 pen-up. Dropping it from `copyInto` kills no test, and both `DabGenerator`'s
 KDoc and the test comment now say so.
+
+### Round 2 — one refusal
+
+Round 2 raised four findings. Three applied: the `predict` precondition is now a
+`require` rather than a comment (see below), the 2.5b roadmap row no longer bans
+a `TailBufferTest` for a class it had just stopped naming, and EXECUTION.md's
+"That is now load-bearing" got its antecedent back after round 1's insertion
+pushed it six lines from its referent.
+
+- **R-090 — declined.** *"`DabPass.stamp`'s range `require` throws on the render
+  thread; clamp `from`/`until` instead"*: the concern is that the range is
+  produced by another component (`DabBatch.predictedFrom`, split by
+  `CanvasRenderer.stampDabs`) and a producer off-by-one would kill the process
+  mid-stroke rather than spoil one frame.
+
+  The range cannot be out of bounds from that caller, and it is now provable
+  rather than conventional. `DabBatch.count` is `private set` and moves only in
+  `add` (`count = i + 1`, guarded by `isFull`) and `clear` (`count = 0`);
+  `predictedFrom` was given `private set` in round 1 of this PR and moves only
+  in `markPredictedFromHere` (`predictedFrom = count`, and only while it is
+  negative) and `clear` (`-1`, together with the count). So
+  `committedCount ∈ [0, count]` holds by construction, and both halves of the
+  split — `0..committedCount` and `committedCount..count` — are in range.
+  Round 1's `private set` is what closed the door this finding is worried about;
+  clamping now would be the second lock on it.
+
+  The wider point is a choice this codebase has already made in the same place.
+  `BufferScissor.toGlScissor` carries exactly this shape — a `require` on the GL
+  thread whose own comment calls it "a tripwire for a caller that bypassed
+  `bounds`" — and DabPass's "a crash loses the painting" line is about
+  `PoolExhausted`, an *expected* runtime outcome the pass declines gracefully,
+  not about a malformed argument. A clamp does not make a wiring bug survivable;
+  it makes it invisible, and draws a plausible frame from a header that was
+  already wrong. That is the failure mode this project keeps choosing against.
+
+  Consistency cuts the same way in both directions this round, which is why the
+  sibling finding was applied rather than declined: preconditions that can only
+  fire on a wiring bug stay loud, in `copyInto` (R-087), in `stamp` (here), and
+  now in `predict` too.

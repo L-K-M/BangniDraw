@@ -7,11 +7,50 @@
 
     <!-- Studio -->
     <string name="studio_new">New sketch</string>
-    <string name="studio_empty">Nothing on the shelf yet — tap New sketch to start one.</string>
+    <string name="studio_empty">No paintings yet.</string>
+    <string name="studio_empty_hint">Tap + to start one. Everything you draw is saved as you go.</string>
     <string name="studio_about">About</string>
-    <!-- Shown for a painting whose stored title is empty. The numbered
-         "Sketch N" naming arrives with Prefs in roadmap 3c (06 §10). -->
+    <!-- The word new paintings are titled with: "Sketch N", the number from
+         Prefs.nextSketchNumber (06 §10). Also the display fallback for a
+         painting whose stored title is empty. -->
     <string name="studio_untitled">Sketch</string>
+    <!-- {count} paintings · {bytes} on device · {free} free (08 §2). -->
+    <string name="studio_storage">%1$d paintings · %2$s on device · %3$s free</string>
+    <string name="studio_open">Open</string>
+    <string name="studio_rename">Rename</string>
+    <string name="studio_duplicate">Duplicate</string>
+    <string name="studio_share">Share</string>
+    <string name="studio_delete">Delete</string>
+    <string name="studio_delete_title">Delete “%1$s”?</string>
+    <string name="studio_delete_body">The painting and its undo history are removed from this device.</string>
+    <string name="studio_delete_gallery_too">Also delete the copy in the gallery</string>
+    <string name="studio_deleted">Deleted</string>
+
+    <!-- New Canvas dialog (08 §2.1) -->
+    <string name="new_canvas_title">New painting</string>
+    <string name="new_canvas_create">Create</string>
+    <string name="new_canvas_cancel">Cancel</string>
+    <string name="canvas_preset_phone">Phone sketch</string>
+    <string name="canvas_preset_square">Square 2048</string>
+    <string name="canvas_preset_tablet">Tablet</string>
+    <string name="canvas_preset_large">Large 4096</string>
+    <string name="canvas_preset_custom">Custom</string>
+    <string name="canvas_preset_fits">fits %1$d layers</string>
+    <string name="canvas_preset_too_large">Too large for this device</string>
+    <string name="canvas_width">Width</string>
+    <string name="canvas_height">Height</string>
+    <string name="size_too_small">Each side needs at least %1$d px</string>
+    <string name="size_too_large_format">The format tops out at %1$d px per side</string>
+    <string name="size_too_many_tiles">Too many tiles — make one side smaller</string>
+    <string name="size_too_large_device">Too large for this device — at most %1$d px per side</string>
+    <string name="orientation_landscape">Landscape</string>
+    <string name="orientation_portrait">Portrait</string>
+    <string name="paper_label">Paper</string>
+    <string name="paper_white">White paper</string>
+    <string name="paper_warm">Warm white paper</string>
+    <string name="paper_gray">Gray paper</string>
+    <string name="paper_black">Black paper</string>
+    <string name="paper_transparent">Transparent paper</string>
 
     <!-- Canvas -->
     <string name="canvas_back">Back to the Studio</string>

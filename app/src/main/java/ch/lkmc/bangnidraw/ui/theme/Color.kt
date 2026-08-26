@@ -30,3 +30,13 @@ val Indigo = Color(0xFF2B2ED6)
 val IndigoSoft = Color(0xFF7D80FF)
 
 val OnAccent = Color(0xFF1E1B16)
+
+// The New Canvas dialog's paper swatches (docs/plan/08-ui-and-layout.md
+// §2.1): white, warm white, mid-gray, black; transparent is
+// Color.Transparent. The "+" custom-paper picker waits for the color
+// panel (roadmap step 7). Paper is a document property, so these become
+// ARGB ints at creation.
+val PaperSwatchWhite = Color(0xFFFFFFFF)
+val PaperSwatchWarm = Color(0xFFF8F1E3)
+val PaperSwatchGray = Color(0xFF9E9E9E)
+val PaperSwatchBlack = Color(0xFF000000)

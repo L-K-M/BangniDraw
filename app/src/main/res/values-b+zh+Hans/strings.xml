@@ -8,9 +8,45 @@
      the shelf is 画. 帮你Draw stays as written — it is the name. -->
 <resources>
     <string name="studio_new">新建草图</string>
-    <string name="studio_empty">架子上还空着——点「新建草图」开始画一张。</string>
+    <string name="studio_empty">还没有画。</string>
+    <string name="studio_empty_hint">点 + 开始画一张。你画的每一笔都会随手保存。</string>
     <string name="studio_about">关于</string>
     <string name="studio_untitled">草图</string>
+    <string name="studio_storage">%1$d 张画 · 占用 %2$s · 可用 %3$s</string>
+    <string name="studio_open">打开</string>
+    <string name="studio_rename">重命名</string>
+    <string name="studio_duplicate">创建副本</string>
+    <string name="studio_share">分享</string>
+    <string name="studio_delete">删除</string>
+    <string name="studio_delete_title">删除「%1$s」？</string>
+    <string name="studio_delete_body">这张画和它的撤销历史将从此设备移除。</string>
+    <string name="studio_delete_gallery_too">同时删除相册里的副本</string>
+    <string name="studio_deleted">已删除</string>
+
+    <string name="new_canvas_title">新画布</string>
+    <string name="new_canvas_create">创建</string>
+    <string name="new_canvas_cancel">取消</string>
+    <string name="canvas_preset_phone">手机速写</string>
+    <string name="canvas_preset_square">方形 2048</string>
+    <string name="canvas_preset_tablet">平板</string>
+    <string name="canvas_preset_large">大幅 4096</string>
+    <string name="canvas_preset_custom">自定义</string>
+    <string name="canvas_preset_fits">可容纳 %1$d 个图层</string>
+    <string name="canvas_preset_too_large">对此设备来说太大</string>
+    <string name="canvas_width">宽</string>
+    <string name="canvas_height">高</string>
+    <string name="size_too_small">每边至少需要 %1$d 像素</string>
+    <string name="size_too_large_format">文件格式上限为每边 %1$d 像素</string>
+    <string name="size_too_many_tiles">图块太多——请缩小一边</string>
+    <string name="size_too_large_device">对此设备来说太大——每边最多 %1$d 像素</string>
+    <string name="orientation_landscape">横向</string>
+    <string name="orientation_portrait">纵向</string>
+    <string name="paper_label">纸张</string>
+    <string name="paper_white">白色纸张</string>
+    <string name="paper_warm">暖白纸张</string>
+    <string name="paper_gray">灰色纸张</string>
+    <string name="paper_black">黑色纸张</string>
+    <string name="paper_transparent">透明纸张</string>
 
     <string name="canvas_back">返回画室</string>
     <string name="canvas_reset_view">复位视图</string>

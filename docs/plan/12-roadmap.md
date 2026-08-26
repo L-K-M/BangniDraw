@@ -149,7 +149,7 @@ Status: ⬜ not started · 🔁 open, in review · ✅ landed on `main` (with th
 | 2.5a | `fable/front-buffered-stroke` | 2b's first half — the front-buffered path itself: `onDrawFrontBufferedLayer` (§8.1's drain, stamp, dirty rect, scissored recomposite), §7.5's truthful preview (`composite.frag` under `#define PREVIEW`, sharing `merge.glsl`'s `mergeStroke` — already split out for exactly this in 2.4b), `renderFrontBufferedLayer` wiring in `EngineSession`/`CanvasScreen`, `commit()` and `cancel()` (§8.3, §8.4), ring-slot release in `onDrawMultiBufferedLayer` (2.3b's `check(params.isEmpty())` comes out), and the buffer transform on the scissor (§8.5) | Device: the stroke appears **under the pen while it draws** rather than at pen-up, and pen-up leaves the same pixels the preview showed — §7.5's whole claim; `ACTION_CANCEL` mid-stroke leaves no trace. JVM: `StrokeShaderContractTest` gains the PREVIEW variant, pinning that the preview and the merge go through the *same* `mergeStroke` — which is what makes "the preview does not lie" checkable at all without a GL context | ✅ #14, merged 2026-08-26 (`9a4bb6a`) |
 | 2.5b | `fable/predicted-tail` | The predicted tail, end to end: `Predictor` (the wrapper that keeps `MotionEventPredictor` out of `engine/core`), the tail buffer (a second `StrokeBuffer`, not a class of its own), `DabGenerator.copy()` — `Stabilizer.copy()` already exists from 2.2 — the `Choreographer`-driven `predict()` of 07 §8, the tail's terms in §8.1's dirty rect, and adaptive disable (`PREDICT_ERR_DISABLE_PX` 12 px EMA, `PREDICT_MAX_NS` 16 ms) | Device: an S Pen scribble shows no visible gap between pen and ink, and no hook at pen-up. JVM: `PredictionGateTest` for the adaptive disable and the 16 ms truncation, and `StrokeDriverTest` gains the predicted-tail cases — "continues the stabilized line" and "never advances the real state". No `PredictorTest`, and no dedicated tail-buffer test: rationale in the note below | ✅ #15, merged 2026-08-26 (`64f9827`) |
 | 2.5c | `fable/stylus-axes-dispatch` | Stylus polish, all in `input/`: the canvas-relative orientation fix (`StrokeInput.orientation` is the azimuth **minus** the view rotation and `CanvasTouchHandler` forwards it raw), unbuffered dispatch (`requestUnbufferedDispatch` on `ACTION_DOWN`), R-052's carry-in, and #15's one deferred nit — `DabPass.stamp`'s range `require` reports "outside 0..count" for an *inverted* range that is in bounds, which sends a future debugger hunting an index error that is not there | Device: palm rejection holds during a real stylus stroke, and the stroke keeps up with a fast scribble. JVM: `CanvasTouchHandlerTest` gains an orientation case and R-052's cancel test is fixed to assert invariance rather than the fixture's starting value | ✅ #16, merged 2026-08-26 (`de621a1`) |
-| 2.5d | `fable/debug-overlay` | §11's debug overlay behind `Prefs.debugLatency`: frame budgets, the last N real vs predicted points, and the pool/memory line `CanvasRenderer.describe()` already produces | Device: the overlay reports dab stamping ≤ 1 ms and the dirty-rect recomposite ≤ 2 ms on a real stroke, which is how 10-performance.md's targets stop being aspirational. **This completes step 2** | ⬜ |
+| 2.5d | `fable/debug-overlay` | §11's debug overlay behind `Prefs.debugLatency`: frame budgets, the last N real vs predicted points, and the pool/memory line `CanvasRenderer.describe()` already produces | Device: the overlay reports dab stamping ≤ 1 ms and the dirty-rect recomposite ≤ 2 ms on a real stroke, which is how 10-performance.md's targets stop being aspirational. **This completes step 2** | ✅ #18, merged 2026-08-26 (`1182dae`) — **step 2 complete** |
 
 **`GestureArbiter` is `engine/core`, not `input/`.** The old 2.4 row listed it
 among the `input/` classes; PLAN.md §3's tree puts it beside `ViewTransform` and
@@ -459,6 +459,74 @@ names alone would be wrong in the commonest case this step tests: a kill with
 no layer adds since the checkpoint replays no adds at all, so the high-water
 mark is empty and the counter would reset to 1 beside a checkpoint that already
 holds a "Layer 1".
+
+**Split into three PRs, and the seams are named here before the first line of
+code** (rule 1). Step 3 is an M step carrying PR 2.1's four *load*
+obligations plus a fifth from this document's own step-3 notes above — the
+`nextName` counter, split across 3a and 3b below — and step 2's history is the argument for splitting *now* rather than
+when the diff stops fitting. Every step-2 split was made ahead of the code —
+2.3 and 2.4 in the original table, 2.5 into 2.5a/2.5b before any 2.5 code
+existed (`b1c839c`), and 2.5b again into 2.5b/c/d before 2.5b's code
+(`1a74df4`) — and none of them cost a re-plan. The row that was *not* split is
+the one that hurt: 2.4b was measured, both candidate seams were examined and
+rejected for stated reasons, and it still landed at ~3,030 lines against an M
+band topping out at ~2,500 (`ebc65c3`). Note also what 2.5 shows about the
+limits of an advance split: it was split twice, because the second seam only
+became visible once 2.5a had landed. **An advance split is a first estimate,
+not a promise** — the value is in naming a seam before the work makes the
+choice for you, not in never revising it. The test each part has to pass is the
+one 2.5b's note set: **each is independently demoable and leaves `main`
+shippable**, so a step that stops after any of them has shipped something a
+person can use rather than scaffolding.
+
+| PR | Branch | Implementation | Acceptance | Status |
+| --- | --- | --- | --- | --- |
+| 3a | `fable/project-store` | The painting survives: `CpuTile`, `TileStore` (deflated premultiplied RGBA8, `<tx>_<ty>.tile`), `ProjectStore` (folder per uuid, `project.json` written last, tmp+rename), and the readback path step 2 left stubbed — `EngineSession.endStroke` passes `readback = null` today, and §10.1's enqueue plus the CPU mirror are what turn merged tiles into bytes on disk. Carries **all four** of PR 2.1's load obligations (not the fifth: `nextName` is only half 3a's, below), because every one of them is a `ProjectStore.load` behavior: the layer-id→path policy (R-001), the case-insensitive id collision, R-020's NaN/Infinity token, and the unreadable-**layers** count beside §4's unreadable-tiles count. Also `TileFlusher`'s writer half (see the note below) and the one checkpoint trigger that needs no clock: on leave and `ON_STOP`, so `project.json` is written before the screen is popped | Device: paint, leave the canvas, reopen it — the painting is there to the last completed stroke. `adb shell am force-stop` while leaving the canvas leaves `project.json` old or new, never torn. JVM: `TileStoreTest` (deflate round trip, premultiplied bytes untouched), `ProjectStoreTest` on a temp folder (write-last commit point, recovery from a stray `.tmp`, and one case per load obligation), `TileFlusherTest`'s storage-full case | ⬜ |
+| 3b | `fable/history-journal` | Undo: `HistoryJournal` and `AutosavePolicy` in `engine/core` (pure), `HistoryStore` (`history/<seq>.entry`), undo/redo in the canvas top strip with the "capped at N steps / M MB" readout, `AutosavePolicy`'s quiet and ceiling clocks on top of 3a's leave-and-stop checkpoint, and `TileFlusher`'s job queue. Carries the **replay half** of the `nextName` obligation — re-deriving the counter as `max(persisted, high-water + 1)` over the recovered stack *and* the names replay assigns, plus marking `@string/layer_default` `translatable="false"`, without which the scan under-recovers under a second locale | Device: three strokes, undo twice, redo once; then `adb shell am crash ch.lkmc.bangnidraw.debug` mid-sequence and reopen — intact to the last completed stroke, and undo still steps back through earlier ones. JVM: `HistoryJournalTest` (undo/redo/truncate-on-new-edit/prune, round trip through the on-disk encoding), `AutosavePolicyTest` (quiet window, ceiling), `LayerStackTest` gains the invariants the journal inverts | ⬜ |
+| 3c | `fable/studio-real` | The Studio: `StudioScreen` becomes real (shelf grid newest-first, hold menu with delete-and-confirm, storage readout), `NewCanvasDialog` (presets from `CanvasPresets`, custom within `MemoryBudget`, paper colour), the thumbnail writer (`thumb.png` from the readback composite on checkpoint), and `Prefs` (DataStore) — **created here**, not extended: 2.5d gates the overlay on `BuildConfig.DEBUG` and only *names* `Prefs.debugLatency` in two comments so the rename has one home, so no `Prefs` exists on `main` and 3a/3b have nothing to touch | Device: create a canvas from the dialog, see it in the shelf with a fresh thumbnail and "edited just now", delete it with confirmation. **This completes step 3.** JVM: whatever `Prefs` and the shelf ordering put in `engine/core`; the screens themselves are covered by the device check | ⬜ |
+
+*Why these three seams and not others.* The split is by **what a person can do
+after it**, which is the only line that keeps each part shippable:
+
+- **3a** is "your painting is still there tomorrow" — the single largest thing
+  step 3 promises, and the one with no partial version. It is also where the
+  four carried-in obligations belong, because all four are `ProjectStore.load`
+  policy; scattering them across PRs would leave the guard on one side of a
+  merge and the case it guards on the other.
+- **3b** is "you can take it back". It needs 3a's tiles to have somewhere to
+  come from — a journal of before-tiles is meaningless without a store — which
+  is why it follows rather than parallels.
+- **3c** is "you have more than one painting". It needs both: a shelf with no
+  `ProjectStore` has nothing to list, and a thumbnail needs the readback
+  composite 3a wires.
+
+*What the split deliberately does not do.* It does not put `TileStore` and
+`ProjectStore` in separate PRs, though they are separable classes. A PR that
+lands only the tile codec demos nothing — "bytes round-trip through deflate" is
+a JVM test, not something a person can see — and rule 1's test is a demo, not a
+line count. If 3a measures past the M band once written, the seam to use is
+`ProjectStore.load`'s *obligations*: land the store and the happy path, then the
+four degradation cases with their tests. That is a named fallback, not a
+licence — measure first, and if 3a fits, it stays one PR.
+
+*`TileFlusher` spans 3a and 3b too, and the line between them is its job
+queue.* 06 §6.3 gives the flusher two jobs that look like one: it is the single
+coalescing writer (one coroutine on `Dispatchers.IO.limitedParallelism(1)`, a
+tile dirtied five times before the drain is written once, storage-full lifts
+the mirror cap and keeps committing) *and* it is what enforces §5.6's ordering —
+entry written before the tiles that entry's undo restores. The first is 3a's,
+because 3a is where tiles first reach disk and where a write can first fail.
+The second is 3b's, because there is no entry to order tiles against until the
+journal exists, and an ordering rule that cannot be violated yet also cannot be
+tested yet. So 3a lands `TileFlusher` with `markDirty` and the drain;
+3b adds the `FlushJob` queue (`WriteEntry`, `DeleteLayerDir`, `Checkpoint`) and
+`TornWriteTest`.
+
+*The `nextName` counter spans two of these, and that is stated rather than
+discovered.* Persisting it is 3a's (`project.json` gains the field); re-deriving
+it on replay is 3b's, because replay is what 3b builds. Neither half is useful
+alone, and 3a must not be read as "the counter is done" — the acceptance that
+proves it is 3b's kill-and-reopen.
 
 **Depends on.** Step 2 (tiles and readback are what gets saved).
 

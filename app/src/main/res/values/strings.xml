@@ -28,6 +28,11 @@
     <!-- Appended to a duplicated painting’s title (06 §8). Leading space
          deliberate. -->
     <string name="studio_copy_suffix">" copy"</string>
+    <string name="share_as_png">Share as PNG</string>
+    <string name="share_as_jpeg">Share as JPEG</string>
+    <string name="save_to_gallery">Save to gallery as new image</string>
+    <string name="studio_saved_to_gallery">Saved to the gallery</string>
+    <string name="studio_save_failed">Could not save</string>
 
     <!-- New Canvas dialog (08 §2.1) -->
     <string name="new_canvas_title">New painting</string>

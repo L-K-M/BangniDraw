@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The FileProvider serves ONLY the share staging area
+     (docs/plan/06-document-and-persistence.md §9.5): a cache path named
+     "share", never the project store — a receiving app must never be able
+     to address a painting's folder. -->
+<paths>
+    <cache-path name="share" path="share/" />
+</paths>

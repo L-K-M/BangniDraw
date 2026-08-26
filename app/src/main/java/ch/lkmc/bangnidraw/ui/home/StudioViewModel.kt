@@ -4,10 +4,16 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.data.CpuFlatten
+import ch.lkmc.bangnidraw.data.GalleryExporter
+import ch.lkmc.bangnidraw.data.GalleryNames
+import ch.lkmc.bangnidraw.data.ImageEncode
 import ch.lkmc.bangnidraw.data.Prefs
 import ch.lkmc.bangnidraw.data.ProjectStore
+import ch.lkmc.bangnidraw.data.ShareCache
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Document
+import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
@@ -22,6 +28,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -30,15 +38,19 @@ import kotlinx.coroutines.withContext
  * `docs/plan/06-document-and-persistence.md` §7, §8;
  * `docs/plan/08-ui-and-layout.md` §2): the shelf, newest first, with its
  * storage readout; creating a painting from the New Canvas dialog's spec;
- * delete and rename from the hold menu. Duplicate and share stay stubs until
- * roadmap step 4.
+ * the hold menu's verbs; and — since step 4 — the gallery mirror's
+ * Studio-open sweep and the share path.
  */
 @HiltViewModel
 class StudioViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val store: ProjectStore,
     private val prefs: Prefs,
+    private val exporter: GalleryExporter,
+    private val shareCache: ShareCache,
 ) : ViewModel() {
+
+    private var staleSyncJob: Job? = null
 
     data class Painting(
         val id: String,
@@ -90,6 +102,73 @@ class StudioViewModel @Inject constructor(
                 freeBytes = store.freeBytes(),
                 loaded = true,
             )
+            syncStale(listed)
+        }
+    }
+
+    /**
+     * 06 §9.3's Studio-open row: any painting edited since its last gallery
+     * sync catches up in the background, one at a time, on the CPU path. A
+     * running sweep is left to finish rather than restarted per refresh.
+     */
+    private fun syncStale(listed: List<ProjectStore.Summary>) {
+        if (staleSyncJob?.isActive == true) return
+        val stale = listed.filter {
+            GallerySyncDecision.isStaleOnDisk(it.updatedAt, it.lastGallerySyncAt)
+        }
+        if (stale.isEmpty()) return
+        staleSyncJob = viewModelScope.launch(Dispatchers.IO) {
+            if (!prefs.gallerySync.first()) return@launch
+            for (summary in stale) {
+                val doc = (store.load(summary.id) as? ProjectStore.LoadResult.Loaded)
+                    ?.document ?: continue
+                val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+                val png = ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
+                val outcome = exporter.sync(
+                    recordedUri = doc.galleryUri,
+                    recordedModifiedAt = doc.galleryModifiedAt,
+                    recordedBytes = doc.galleryBytes,
+                    displayName = GalleryNames.sanitizeDisplayName(
+                        doc.title,
+                        context.getString(R.string.studio_untitled),
+                    ),
+                    png = png,
+                ) ?: continue
+                store.updateGalleryFields(
+                    doc.id,
+                    galleryUri = outcome.galleryUri,
+                    lastGallerySyncAt = outcome.syncedAt,
+                    galleryModifiedAt = outcome.modifiedAt,
+                    galleryBytes = outcome.bytes,
+                )
+            }
+        }
+    }
+
+    /**
+     * §9.5's share: the same flatten, staged in `cacheDir/share` and served
+     * through the FileProvider; [onReady] gets the grantable URI and mime on
+     * the main thread and fires the chooser.
+     */
+    fun share(id: String, format: ImageEncode.Format, onReady: (android.net.Uri, String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val doc = (store.load(id) as? ProjectStore.LoadResult.Loaded)?.document
+                ?: return@launch
+            val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+            val bytes = ImageEncode.encode(rgba, doc.width, doc.height, format, quality = 90)
+            val name = GalleryNames.sanitizeDisplayName(
+                doc.title,
+                context.getString(R.string.studio_untitled),
+            )
+            val ext = if (format == ImageEncode.Format.PNG) "png" else "jpg"
+            val mime = if (format == ImageEncode.Format.PNG) "image/png" else "image/jpeg"
+            val uri = try {
+                shareCache.stage("$name.$ext", bytes)
+            } catch (e: IOException) {
+                android.util.Log.w("StudioViewModel", "share staging failed", e)
+                return@launch
+            }
+            withContext(Dispatchers.Main) { onReady(uri, mime) }
         }
     }
 
@@ -125,9 +204,37 @@ class StudioViewModel @Inject constructor(
         }
     }
 
-    /** The hold menu's delete, after its confirm dialog (06 §8). */
-    fun delete(id: String) {
+    /**
+     * §9.5's export "Save as…": a fresh gallery item, not the mirror.
+     * [onDone] reports success on the main thread for the toast.
+     */
+    fun saveAsNewGalleryItem(id: String, onDone: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
+            val doc = (store.load(id) as? ProjectStore.LoadResult.Loaded)?.document
+            val ok = if (doc == null) {
+                false
+            } else {
+                val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+                exporter.saveAs(
+                    GalleryNames.sanitizeDisplayName(
+                        doc.title,
+                        context.getString(R.string.studio_untitled),
+                    ),
+                    ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG),
+                )
+            }
+            withContext(Dispatchers.Main) { onDone(ok) }
+        }
+    }
+
+    /**
+     * The hold menu's delete, after its confirm dialog (06 §8). The gallery
+     * copy goes only when the checkbox said so — it is the user's, and best
+     * effort either way.
+     */
+    fun delete(id: String, alsoGallery: Boolean, galleryUri: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (alsoGallery && galleryUri != null) exporter.delete(galleryUri)
             store.delete(id)
             refresh()
         }

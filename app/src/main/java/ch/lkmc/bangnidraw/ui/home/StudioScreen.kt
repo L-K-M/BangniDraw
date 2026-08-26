@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.ui.home
 
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.text.format.DateUtils
 import android.text.format.Formatter
@@ -62,6 +63,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.data.ImageEncode
 
 /**
  * The Studio: the shelf of paintings, newest first, and the way to start a
@@ -183,8 +185,30 @@ fun StudioScreen(
                             onOpen = { onOpenPainting(painting.id) },
                             onRename = { title -> viewModel.rename(painting.id, title) },
                             onDuplicate = { viewModel.duplicate(painting.id) },
-                            onDelete = {
-                                viewModel.delete(painting.id)
+                            onSaveAs = {
+                                viewModel.saveAsNewGalleryItem(painting.id) { ok ->
+                                    Toast.makeText(
+                                        context,
+                                        if (ok) R.string.studio_saved_to_gallery
+                                        else R.string.studio_save_failed,
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                            onShare = { format ->
+                                viewModel.share(painting.id, format) { uri, mime ->
+                                    val send = Intent(Intent.ACTION_SEND).apply {
+                                        type = mime
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(
+                                        Intent.createChooser(send, painting.title),
+                                    )
+                                }
+                            },
+                            onDelete = { alsoGallery ->
+                                viewModel.delete(painting.id, alsoGallery, painting.galleryUri)
                                 Toast.makeText(
                                     context, R.string.studio_deleted, Toast.LENGTH_SHORT,
                                 ).show()
@@ -231,11 +255,14 @@ private fun PaintingCell(
     onOpen: () -> Unit,
     onRename: (String) -> Unit,
     onDuplicate: () -> Unit,
-    onDelete: () -> Unit,
+    onSaveAs: () -> Unit,
+    onShare: (ImageEncode.Format) -> Unit,
+    onDelete: (alsoGallery: Boolean) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
+    var sharing by remember { mutableStateOf(false) }
     val view = LocalView.current
     val title = painting.title.ifEmpty { stringResource(R.string.studio_untitled) }
 
@@ -294,13 +321,9 @@ private fun PaintingCell(
                     text = { Text(stringResource(R.string.studio_duplicate)) },
                     onClick = { menuOpen = false; onDuplicate() },
                 )
-                // A stub until later in step 4: share needs ShareCache and
-                // the FileProvider; disabled rather than hidden so the
-                // menu's final shape is already learnable.
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.studio_share)) },
-                    onClick = {},
-                    enabled = false,
+                    onClick = { menuOpen = false; sharing = true },
                 )
                 DropdownMenuItem(
                     text = {
@@ -354,7 +377,7 @@ private fun PaintingCell(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { confirmDelete = false; onDelete() }) {
+                TextButton(onClick = { confirmDelete = false; onDelete(deleteGalleryToo) }) {
                     Text(
                         stringResource(R.string.studio_delete),
                         color = MaterialTheme.colorScheme.error,
@@ -363,6 +386,39 @@ private fun PaintingCell(
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) {
+                    Text(stringResource(R.string.new_canvas_cancel))
+                }
+            },
+        )
+    }
+
+    if (sharing) {
+        // §9.5's small export sheet: the format choice the system share
+        // sheet cannot offer, plus nothing else. JPEG is matted over white
+        // (no alpha in the format).
+        AlertDialog(
+            onDismissRequest = { sharing = false },
+            title = { Text(stringResource(R.string.studio_share)) },
+            text = {
+                Column {
+                    TextButton(onClick = {
+                        sharing = false
+                        onShare(ImageEncode.Format.PNG)
+                    }) { Text(stringResource(R.string.share_as_png)) }
+                    TextButton(onClick = {
+                        sharing = false
+                        onShare(ImageEncode.Format.JPEG)
+                    }) { Text(stringResource(R.string.share_as_jpeg)) }
+                    // §9.5's "Save as…": a new gallery item, not the mirror.
+                    TextButton(onClick = {
+                        sharing = false
+                        onSaveAs()
+                    }) { Text(stringResource(R.string.save_to_gallery)) }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { sharing = false }) {
                     Text(stringResource(R.string.new_canvas_cancel))
                 }
             },

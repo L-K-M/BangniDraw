@@ -8,7 +8,12 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.data.ApplicationScope
+import ch.lkmc.bangnidraw.data.CpuFlatten
 import ch.lkmc.bangnidraw.data.CpuTile
+import ch.lkmc.bangnidraw.data.GalleryExporter
+import ch.lkmc.bangnidraw.data.GalleryNames
+import ch.lkmc.bangnidraw.data.ImageEncode
+import ch.lkmc.bangnidraw.data.Prefs
 import ch.lkmc.bangnidraw.data.HistoryCodec
 import ch.lkmc.bangnidraw.data.HistoryPixels
 import ch.lkmc.bangnidraw.data.HistoryRecord
@@ -22,6 +27,7 @@ import ch.lkmc.bangnidraw.data.highestDefaultNameIn
 import ch.lkmc.bangnidraw.engine.core.AutosavePolicy
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Document
+import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
 import ch.lkmc.bangnidraw.engine.core.HistoryEntry
 import ch.lkmc.bangnidraw.engine.core.HistoryJournal
 import ch.lkmc.bangnidraw.engine.core.LayerId
@@ -49,6 +55,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -75,6 +83,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 class CanvasViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val store: ProjectStore,
+    private val exporter: GalleryExporter,
+    private val prefs: Prefs,
     @ApplicationScope private val appScope: CoroutineScope,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -164,6 +174,21 @@ class CanvasViewModel @Inject constructor(
     /** True when pixels changed since the last thumbnail write (06 §6.4). */
     @Volatile
     private var thumbDirty = false
+
+    /**
+     * True when *content* (pixels; a title, once the Canvas can edit one)
+     * changed since the last checkpoint — the only thing that moves
+     * `updatedAt`. Distinct from [dirty]: a gallery sync outcome dirties the
+     * metadata but is looking, not painting (06 §6.1).
+     */
+    @Volatile
+    private var contentDirty = false
+
+    /** The [revisions] value the gallery last mirrored (06 §9.3's counter). */
+    @Volatile
+    private var lastSyncedRevision = 0
+
+    private var gallerySyncJob: Job? = null
 
     /** When the document first differed from disk — the ceiling clock's anchor. */
     @Volatile
@@ -322,6 +347,7 @@ class CanvasViewModel @Inject constructor(
         pixels.get(copy)
         strokeTiles.add(layer to key)
         dirty = true
+        contentDirty = true
         thumbDirty = true
         flusher.markDirty(CpuTile(layer, key, revision, copy))
     }
@@ -372,6 +398,7 @@ class CanvasViewModel @Inject constructor(
     /** Called at pen-up on the main thread; arms the autosave clocks. */
     fun onStrokeCommitted() {
         dirty = true
+        contentDirty = true
         noteChange()
     }
 
@@ -452,6 +479,7 @@ class CanvasViewModel @Inject constructor(
             val mirror = pool.acquire()
             pixels.copyInto(mirror)
             strokeTiles.add(restore.layer to key)
+            contentDirty = true
             thumbDirty = true
             flusher.markDirty(
                 CpuTile(restore.layer, key, revisions.incrementAndGet(), mirror),
@@ -495,14 +523,20 @@ class CanvasViewModel @Inject constructor(
      */
     fun leave(afterWrite: () -> Unit) {
         appScope.launch {
-            withContext(NonCancellable) { checkpoint() }
+            withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
             withContext(Dispatchers.Main) { afterWrite() }
         }
     }
 
-    /** The `ON_STOP` checkpoint (§6.2): fire-and-forget, cancellation-proof. */
+    /**
+     * The `ON_STOP` checkpoint (§6.2): fire-and-forget, cancellation-proof.
+     * Gallery-wise it counts as a leave (06 §9.3's ON_STOP row) — the CPU
+     * flatten has no GL thread to fail to get.
+     */
     fun checkpointNow() {
-        appScope.launch { withContext(NonCancellable) { checkpoint() } }
+        appScope.launch {
+            withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
+        }
     }
 
     override fun onCleared() {
@@ -512,7 +546,9 @@ class CanvasViewModel @Inject constructor(
         // delivered or dropped it.
         session?.onStrokeMerged = null
         session = null
-        appScope.launch { withContext(NonCancellable) { checkpoint() } }
+        appScope.launch {
+            withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
+        }
     }
 
     /**
@@ -526,11 +562,17 @@ class CanvasViewModel @Inject constructor(
         autosaveJob?.cancel()
         autosaveJob = viewModelScope.launch {
             delay(AutosavePolicy.delayMs(now - since))
-            checkpointNow()
+            // A quiet/ceiling checkpoint, not a leave: the gallery debounce
+            // gets the 30 s floor (06 §9.3).
+            appScope.launch {
+                withContext(NonCancellable) {
+                    checkpoint(GallerySyncDecision.Trigger.CHECKPOINT)
+                }
+            }
         }
     }
 
-    private suspend fun checkpoint() {
+    private suspend fun checkpoint(trigger: GallerySyncDecision.Trigger) {
         val doc = document ?: return
         checkpointMutex.withLock {
             if (!dirty && store.exists(doc.id)) return
@@ -560,6 +602,7 @@ class CanvasViewModel @Inject constructor(
             try {
                 store.checkpoint(folded, record)
                 dirty = false
+                contentDirty = false
                 dirtySinceMs = null
                 // Now — and only now — the dropped entries' files (§5.6).
                 if (deletes.isNotEmpty()) {
@@ -577,6 +620,7 @@ class CanvasViewModel @Inject constructor(
                         target = File(store.projectDir(folded.id), "thumb.png"),
                     )
                 }
+                maybeSyncGallery(folded, trigger, now)
             } catch (_: java.io.IOException) {
                 // Same family as a failed tile write: the storage-full state
                 // and its retry-on-next-checkpoint own this. `dirty` stays
@@ -585,9 +629,64 @@ class CanvasViewModel @Inject constructor(
         }
     }
 
+    /**
+     * §9's mirror, after a checkpoint: the tiles it flattens are on disk by
+     * the flush that just ran. The §9.3 debounce is [GallerySyncDecision]'s;
+     * a newer sync cancels a running one (conflated), and a failed sync
+     * changes nothing — the next trigger retries.
+     */
+    private suspend fun maybeSyncGallery(
+        doc: Document,
+        trigger: GallerySyncDecision.Trigger,
+        now: Long,
+    ) {
+        if (!prefs.gallerySync.first()) return
+        val pixelRevision = revisions.get()
+        val due = GallerySyncDecision.isDue(
+            trigger = trigger,
+            pixelRevision = pixelRevision,
+            lastSyncedRevision = lastSyncedRevision,
+            nowMs = now,
+            lastSyncAtMs = doc.lastGallerySyncAt,
+        )
+        if (!due) return
+        gallerySyncJob?.cancel()
+        gallerySyncJob = appScope.launch {
+            val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+            coroutineContext.ensureActive()
+            val png = ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
+            coroutineContext.ensureActive()
+            val name = GalleryNames.sanitizeDisplayName(
+                doc.title,
+                context.getString(R.string.studio_untitled),
+            )
+            val outcome = exporter.sync(
+                recordedUri = doc.galleryUri,
+                recordedModifiedAt = doc.galleryModifiedAt,
+                recordedBytes = doc.galleryBytes,
+                displayName = name,
+                png = png,
+            ) ?: return@launch
+            withContext(Dispatchers.Main) {
+                lastSyncedRevision = pixelRevision
+                document = document?.copy(
+                    galleryUri = outcome.galleryUri,
+                    lastGallerySyncAt = outcome.syncedAt,
+                    galleryModifiedAt = outcome.modifiedAt,
+                    galleryBytes = outcome.bytes,
+                )
+                // Metadata only: the next checkpoint persists it, and
+                // updatedAt stays put — a sync is looking, not painting.
+                dirty = true
+            }
+        }
+    }
+
     /** The model's tile sets catch up with what the readback delivered. */
     private fun fold(doc: Document, now: Long): Document {
-        if (strokeTiles.isEmpty()) return doc.copy(updatedAt = if (dirty) now else doc.updatedAt)
+        if (strokeTiles.isEmpty()) {
+            return doc.copy(updatedAt = if (contentDirty) now else doc.updatedAt)
+        }
         val byLayer = HashMap<LayerId, MutableSet<TileKey>>()
         val iterator = strokeTiles.iterator()
         while (iterator.hasNext()) {
@@ -601,7 +700,7 @@ class CanvasViewModel @Inject constructor(
         }
         return doc.copy(
             stack = doc.stack.copy(layers = layers),
-            updatedAt = now,
+            updatedAt = if (contentDirty) now else doc.updatedAt,
         )
     }
 

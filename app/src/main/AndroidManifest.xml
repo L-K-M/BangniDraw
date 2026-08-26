@@ -34,6 +34,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Serves the share sheet's staged PNG/JPEG copies and nothing else:
+             file_paths.xml exposes only cacheDir/share
+             (docs/plan/06-document-and-persistence.md §9.5). Not exported;
+             receivers get per-URI read grants from the share intent. No
+             permission is involved — this stays within PLAN.md §9's
+             no-permissions promise. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

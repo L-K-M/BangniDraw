@@ -123,8 +123,12 @@ class BufferScissorTest {
         assertFailsWith<IllegalArgumentException> {
             BufferScissor.toGlScissor(IntRect(10, 40, 50, 10), bufferHeight = 100, out = out)
         }
-        // And an unclipped rect, which GL would ACCEPT with a negative y and
-        // quietly scissor the wrong rows — the failure the guard exists for.
+        // And an unclipped rect. GL would ACCEPT this one — a negative y is
+        // legal — and intersecting the box with the framebuffer reproduces the
+        // dirty rect clipped to the buffer exactly, so it would render
+        // correctly. Rejected anyway, as a tripwire for a caller that bypassed
+        // `bounds`; unlike the inverted rects above, nothing visible is at
+        // stake here.
         assertFailsWith<IllegalArgumentException> {
             BufferScissor.toGlScissor(IntRect(0, 0, 50, 150), bufferHeight = 100, out = out)
         }

@@ -1373,9 +1373,11 @@ are needed.
   `glScissor` rejects a negative **width or height** — that is the documented
   error condition, and the one where the previous box survives. A negative
   **x or y** is legal: the box is accepted and intersected with the
-  framebuffer. So unclipped input would not have failed loudly at all; it would
-  have scissored the wrong rows and drawn a plausible frame in the wrong place,
-  which is worse and is what the comment should have said.
+  framebuffer.
+
+  **The replacement I wrote was also wrong, and round 3 caught it — see
+  R-086.** It claimed unclipped input would "scissor the wrong rows"; the
+  intersection actually reproduces the clipped dirty rect exactly.
 
   Worth recording that this is the third comment in this PR to claim something
   the code or the platform does not do — after `BufferScissor`'s
@@ -1390,3 +1392,43 @@ are needed.
   that `require` included `rect.right <= Int.MAX_VALUE`, which is always true —
   removed before committing rather than shipped as a condition that cannot
   fail.)
+
+## PR #14 (roadmap 2.5a) — GLM round 3
+
+**Round scored: nits only.** One finding, applied, documentation only — no
+behaviour changed and nothing was declined. That breaks round 2's
+dismissed-only streak and starts a nits-only one at 1; two consecutive are
+needed.
+
+- **R-086 ✅ unclipped scissor rects render the *correct* region, not "the wrong
+  rows"** (PR #14, GLM round 3, Minor). **Applied. The finding is right, and
+  what it caught is the comment I wrote in round 2 to fix a wrong comment.**
+
+  Round 2 replaced a false claim about `GL_INVALID_VALUE` with a different false
+  claim: that unclipped input "would scissor the wrong rows and draw a plausible
+  frame in the wrong place". It would not. `toGlScissor` emits
+  `(left, H − bottom, right − left, bottom − top)`; a `bottom > H` gives a
+  negative `y`, which GL accepts, and the scissor's effective region is the box
+  intersected with the framebuffer. Since the y-flip presumes a target exactly
+  `bufferHeight` tall, that intersection *is* the dirty rect clipped to the
+  buffer. Checked by computing both regions over six cases including
+  `top < 0`, `bottom > H` and both at once — all six match exactly.
+
+  So the guard's two halves are worth very different amounts, and the comment
+  now says which is which: `right >= left && bottom >= top` is load-bearing,
+  because that is the case GL rejects while silently keeping the previous
+  frame's box; the clipping half is a tripwire for a caller that bypassed
+  `bounds`, with nothing visible at stake. Corrected in the source, the test
+  comment, and R-085 above.
+
+  **This is the fourth false justification in this PR, and the first one written
+  by the commit that named the pattern.** The other three — `BufferScissor`'s
+  no-allocation claim, `EngineSession`'s `isSupported` line, and round 1's GL
+  semantics — were at least written before the pattern was visible. This one
+  was written immediately after, in a commit whose own message says
+  "justifications written from memory instead of checked", and was itself
+  written from memory instead of checked. The code has been correct every time;
+  the explanations have not. The practical rule this yields, and the one worth
+  keeping: a claim about *platform behaviour* gets computed or looked up before
+  it is written down, exactly like a claim about a test that cannot fail gets
+  mutation-tested.

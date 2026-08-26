@@ -102,18 +102,25 @@ object BufferScissor {
      */
     fun toGlScissor(rect: IntRect, bufferHeight: Int, out: IntArray) {
         require(out.size >= 4) { "a scissor needs 4 ints, was ${out.size}" }
-        // Two different failures, and an earlier version of this comment
-        // conflated them. `glScissor` raises GL_INVALID_VALUE for a negative
-        // **width or height** only — that is the one case where the call is
-        // rejected and the previous box stays in force. A negative **x or y**
-        // is perfectly legal: the box is accepted and intersected with the
-        // framebuffer, so unclipped input here would not fail, it would scissor
-        // the wrong rows and draw a plausible frame in the wrong place.
+        // The two halves of this guard are worth very different amounts, and
+        // two earlier versions of this comment got the difference wrong in
+        // opposite directions. What is true:
         //
-        // The guard covers both, which the narrower one did not: [bounds]
-        // produces `left <= right` and `top <= bottom` by construction, so
-        // requiring it cannot reject a legitimate caller, and it is the half
-        // that catches the case GL actually rejects.
+        // `glScissor` raises GL_INVALID_VALUE for a negative **width or
+        // height** only. That is the dangerous case: the call is rejected and
+        // the *previous* box stays in force, so a later draw silently uses some
+        // other frame's scissor. The `right >= left && bottom >= top` half is
+        // what catches it, and it is the load-bearing half.
+        //
+        // A negative **x or y** is legal. The box is accepted and intersected
+        // with the framebuffer, and since fragments exist only inside the
+        // framebuffer — and the y-flip below presumes a target exactly
+        // `bufferHeight` tall — that intersection is *precisely* the dirty rect
+        // clipped to the buffer. Unclipped input would therefore render the
+        // right pixels, not the wrong rows. The clipping half of this guard is
+        // a tripwire for a caller that bypassed [bounds], not a defence against
+        // visible corruption, and saying otherwise sends the next reader
+        // hunting a failure mode that does not exist.
         require(
             rect.left >= 0 && rect.top >= 0 && rect.bottom <= bufferHeight &&
                 rect.right >= rect.left && rect.bottom >= rect.top

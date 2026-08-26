@@ -18,66 +18,76 @@ value class LayerId(val value: String) {
         // Deliberately a path-segment floor, not a UUID regex: the security
         // property is "cannot escape the project folder", and ids in tests and
         // future fixtures need not be UUIDs to satisfy it.
-        require(
-            // "." and ".." are already refused by the endsWith(".") clause
-            // below, and are named anyway: they are the two ids a traversal
-            // actually uses, and a reader auditing this guard should not have
-            // to derive their rejection from a rule about trailing dots.
-            value.isNotEmpty() && value != "." && value != ".." &&
-                // Win32 silently strips a trailing dot or space from a path
-                // segment, so "sketch " becomes "sketch" the moment the project
-                // folder is copied to a Windows machine: project.json still
-                // names "sketch " while the tiles now live in layers/sketch/,
-                // and the layer loads empty. Data loss with no error anywhere.
-                !value.endsWith(".") && !value.endsWith(" ") &&
-                // NAME_MAX is 255 *bytes* on the filesystems Android puts app
-                // storage on. An over-long id is not a traversal problem but a
-                // worse one: it passes here, and `layers/<id>/` then fails with
-                // ENAMETOOLONG at open time, turning the logged skip that
-                // `06-document-and-persistence.md` §4 promises into a failed
-                // document open. Bytes, not chars — a 200-character CJK id is over.
-                value.toByteArray(Charsets.UTF_8).size <= MAX_BYTES &&
-                value.none {
-                    // isISOControl subsumes the old NUL check and also takes
-                    // \n, \r and \t, which are legal in a Linux filename and
-                    // ruin every log line and archive that later names this
-                    // directory.
-                    // isIdentifierIgnorable adds the *whole* Cf category on
-                    // top of the C0/C1 controls — its contract is "a
-                    // non-whitespace ISO control, or general category FORMAT",
-                    // so U+00AD and U+061C are in it too, not just the
-                    // U+200B..U+206F and U+FEFF ranges one might assume:
-                    // U+202E (right-to-left override),
-                    // U+200B (zero-width space), U+FEFF. Those render as
-                    // nothing, or reverse what follows them, so two ids that
-                    // compare unequal can look identical in a log or the layer
-                    // panel — the filename-spoofing trick, aimed at whoever is
-                    // reading the directory listing.
-                    // U+2028 and U+2029 are Zl and Zp, not Cf, so neither of
-                    // the two predicates above reaches them — and they end a
-                    // line in a log or a JSON dump exactly as \n does.
-                    it.isISOControl() || it.isIdentifierIgnorable() ||
-                        it == '\u2028' || it == '\u2029' || it in FORBIDDEN
-                }
-        ) {
+        require(isSafePathSegment(value)) {
             "layer id must be a single safe path segment, was \"$value\""
         }
     }
-
-    private companion object {
-        /** NAME_MAX on ext4/f2fs, in bytes. */
-        const val MAX_BYTES = 255
-
-        /**
-         * Separators, plus the characters Windows refuses in a filename. A
-         * project folder is meant to be copied between machines, so the floor
-         * is the portable one rather than Android's — which is why `:` and `\`
-         * were already here. Reserved device names (`CON`, `NUL`, …) are
-         * deliberately still not covered; see REVIEW.md R-014.
-         */
-        val FORBIDDEN = charArrayOf('/', '\\', ':', '*', '?', '<', '>', '|', '"')
-    }
 }
+
+/**
+ * True when [value] can safely name one directory or file under the project
+ * root — the rule [LayerId] enforces on layer ids and `ProjectStore` enforces
+ * on project ids (`docs/plan/06-document-and-persistence.md` §2: both are
+ * validated before any path is built from them, so a hand-edited
+ * `project.json` cannot escape the folder).
+ *
+ * One function rather than two copies, because the two callers guard the same
+ * boundary: a project id that could traverse out of `filesDir/projects/` is
+ * exactly as dangerous as a layer id that could traverse out of its project.
+ */
+internal fun isSafePathSegment(value: String): Boolean =
+    // "." and ".." are already refused by the endsWith(".") clause
+    // below, and are named anyway: they are the two ids a traversal
+    // actually uses, and a reader auditing this guard should not have
+    // to derive their rejection from a rule about trailing dots.
+    value.isNotEmpty() && value != "." && value != ".." &&
+        // Win32 silently strips a trailing dot or space from a path
+        // segment, so "sketch " becomes "sketch" the moment the project
+        // folder is copied to a Windows machine: project.json still
+        // names "sketch " while the tiles now live in layers/sketch/,
+        // and the layer loads empty. Data loss with no error anywhere.
+        !value.endsWith(".") && !value.endsWith(" ") &&
+        // NAME_MAX is 255 *bytes* on the filesystems Android puts app
+        // storage on. An over-long id is not a traversal problem but a
+        // worse one: it passes here, and `layers/<id>/` then fails with
+        // ENAMETOOLONG at open time, turning the logged skip that
+        // `06-document-and-persistence.md` §4 promises into a failed
+        // document open. Bytes, not chars — a 200-character CJK id is over.
+        value.toByteArray(Charsets.UTF_8).size <= SEGMENT_MAX_BYTES &&
+        value.none {
+            // isISOControl subsumes the old NUL check and also takes
+            // \n, \r and \t, which are legal in a Linux filename and
+            // ruin every log line and archive that later names this
+            // directory.
+            // isIdentifierIgnorable adds the *whole* Cf category on
+            // top of the C0/C1 controls — its contract is "a
+            // non-whitespace ISO control, or general category FORMAT",
+            // so U+00AD and U+061C are in it too, not just the
+            // U+200B..U+206F and U+FEFF ranges one might assume:
+            // U+202E (right-to-left override),
+            // U+200B (zero-width space), U+FEFF. Those render as
+            // nothing, or reverse what follows them, so two ids that
+            // compare unequal can look identical in a log or the layer
+            // panel — the filename-spoofing trick, aimed at whoever is
+            // reading the directory listing.
+            // U+2028 and U+2029 are Zl and Zp, not Cf, so neither of
+            // the two predicates above reaches them — and they end a
+            // line in a log or a JSON dump exactly as \n does.
+            it.isISOControl() || it.isIdentifierIgnorable() ||
+                it == '\u2028' || it == '\u2029' || it in SEGMENT_FORBIDDEN
+        }
+
+/** NAME_MAX on ext4/f2fs, in bytes. */
+private const val SEGMENT_MAX_BYTES = 255
+
+/**
+ * Separators, plus the characters Windows refuses in a filename. A
+ * project folder is meant to be copied between machines, so the floor
+ * is the portable one rather than Android's — which is why `:` and `\`
+ * were already here. Reserved device names (`CON`, `NUL`, …) are
+ * deliberately still not covered; see REVIEW.md R-014.
+ */
+private val SEGMENT_FORBIDDEN = charArrayOf('/', '\\', ':', '*', '?', '<', '>', '|', '"')
 
 /**
  * Everything about a layer except its pixels — the part that goes into

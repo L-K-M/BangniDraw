@@ -78,33 +78,45 @@ fun DebugOverlay(
         }
     }
 
-    // Read HERE, in this composable's own scope, and not only inside the `Text`
-    // below. Compose restarts the smallest scope that read a state value, so a
-    // read confined to the `Column`'s content lambda restarts the Column alone
-    // — leaving the `Canvas` sibling holding its original draw lambda, and the
-    // plot frozen on whatever the trace held at first composition. Numbers
-    // ticking over four times a second beside a picture that never moves is the
-    // most misleading thing this overlay could do. Reading it here recomposes
-    // the whole function, which is what redraws both.
+    // The text's copy of the sample. The plot does NOT get its redraw from
+    // this read — see the note in the `Canvas` below, which is where that
+    // problem actually lives.
     val sample = frame
 
     Box(modifier = modifier.fillMaxSize()) {
         // The points first, so the text sits on top of them rather than under.
         Canvas(modifier = Modifier.fillMaxSize()) {
             // Read straight from the trace rather than snapshotting it into
-            // `sample`: these are main-thread objects and this lambda is
-            // rebuilt by the same 4 Hz recomposition, so copying 64 pairs into
-            // the state object would buy nothing.
+            // `sample`: these are main-thread objects, so copying 64 pairs into
+            // the state object four times a second would buy nothing.
             //
-            // What makes that rebuild happen is the `val sample = frame` above:
-            // recomposing this function hands `Canvas` a new draw lambda, and a
-            // new lambda invalidates the draw. Nothing inside here has to touch
-            // the sample.
+            // **The redraw heartbeat is the `frame` read below**, and it has to
+            // be a read inside *this lambda*. A state read in the draw phase is
+            // observed and invalidates the draw directly, which is Compose's
+            // documented deferred-read pattern.
+            //
+            // What does NOT work is relying on recomposition to hand `Canvas` a
+            // fresh draw lambda. That was this file's first attempt and it is
+            // wrong under strong skipping — on by default from Compose compiler
+            // 2.0.20, and this project is on Kotlin 2.4.10 — which memoizes
+            // lambdas *including* those capturing unstable values. The lambda
+            // captures `latency`, whose instance never changes, so the memoized
+            // instance comes back equal, `drawBehind`'s element is structurally
+            // equal, the node is never updated and the draw is never
+            // invalidated. The plot would render once and freeze while the
+            // numbers kept ticking beside it.
+            val f = frame
             for (i in 0 until latency.size) {
                 // Newest at full strength, oldest nearly gone — which is what
                 // makes a drifting predictor legible as drift rather than as a
                 // cloud. `latency` is indexed newest-first for exactly this.
                 val fade = 1f - i.toFloat() / latency.size
+                // Dimmed once the gate has switched the tail off: those pairs
+                // are the last ones that were ever scored, and they would
+                // otherwise sit at full strength looking current. This is also
+                // what makes the `f` read above load-bearing rather than a bare
+                // heartbeat a later cleanup would delete as unused.
+                val alpha = (if (f.predictionEnabled) 0.9f else 0.35f) * fade
                 val px = latency.predictedXAt(i)
                 val py = latency.predictedYAt(i)
                 val ax = latency.actualXAt(i)
@@ -113,13 +125,13 @@ fun DebugOverlay(
                 // does, so they are already in its coordinate space — §8's
                 // threshold is in screen px for the same reason.
                 drawLine(
-                    color = Color(0xFFFF6D00).copy(alpha = 0.9f * fade),
+                    color = Color(0xFFFF6D00).copy(alpha = alpha),
                     start = Offset(ax, ay),
                     end = Offset(px, py),
                     strokeWidth = 2f,
                 )
                 drawCircle(
-                    color = Color(0xFF00E5FF).copy(alpha = 0.9f * fade),
+                    color = Color(0xFF00E5FF).copy(alpha = alpha),
                     radius = 3f,
                     center = Offset(px, py),
                 )

@@ -379,7 +379,8 @@ class CanvasRenderer(
         // Accumulated rather than assigned: §8.1's drain stamps every batch
         // that arrived since the last callback, so one *frame* is several
         // `stampDabs` calls and §11's "≤ 1 ms for a typical batch" is about the
-        // frame's total. `drawStrokeFrame` publishes and clears it.
+        // frame's total. [beginFrame] opens the window and [publishFrame]
+        // consumes it.
         pendingStampNs += clock.nowNanos() - startNs
         pendingDabs += batch.count
         return dirty
@@ -659,13 +660,20 @@ class CanvasRenderer(
         state.invalidate()
         if (!compositeIntoAccum(current, screenTransform, pass, dirtyCanvas, windowRect, spec)) return
         presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform, bufferRect)
+        // The clock stops HERE, before the error check. `checkGlDebug` drains
+        // `glGetError` in a loop — a driver round-trip, and a synchronisation
+        // point on some drivers — and it is a cost only debug builds pay. Since
+        // debug builds are also the only ones that show the overlay, leaving it
+        // inside the span would measure §11's "≤ 2 ms" against a number release
+        // never pays, making the budget read as harder to meet than it is.
+        val compositeNs = clock.nowNanos() - startNs
         GlErrors.checkGlDebug("drawStrokeFrame")
-        publishFrame(clock.nowNanos() - startNs)
+        publishFrame(compositeNs)
     }
 
     /**
-     * Hands one front-buffered frame's timings to [perf] and resets the drain's
-     * accumulators.
+     * Hands one front-buffered frame's timings to [perf] and **consumes** the
+     * drain's accumulation.
      *
      * **CPU time, and the overlay says so.** These are wall-clock spans around
      * GL *calls*, which return as soon as the driver has queued the work — so
@@ -687,6 +695,15 @@ class CanvasRenderer(
             compositeMs = compositeNs / NANOS_PER_MS,
             dabs = pendingDabs,
         )
+        // Consumed, not merely read. [beginFrame] resets too, and both are
+        // needed for different failures: `beginFrame` covers the frame that
+        // accumulated and never published, this covers a second publish between
+        // two `beginFrame`s — which would otherwise re-report the whole drain
+        // as another frame, inflating the stamp time, the dab count and the
+        // frame counter at once. Today's single caller does neither, so this is
+        // the cheap half of not depending on that.
+        pendingStampNs = 0L
+        pendingDabs = 0
         perf.tilesResident = pool?.usedSlices ?: 0
         perf.tilesBudget = pool?.sliceCapacity ?: 0
     }

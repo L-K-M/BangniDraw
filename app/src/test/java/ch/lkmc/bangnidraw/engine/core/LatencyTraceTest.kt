@@ -63,7 +63,14 @@ class LatencyTraceTest {
         // which Kotlin's `%` leaves at -1 rather than wrapping to the end.
         val t = trace(capacity = 4)
         for (i in 1..4 ) t.put(i.toFloat())
-        assertEquals(0, (4) % 4, "the fixture really does leave head at 0")
+        // After exactly `capacity` records `head` is back at 0, which is the
+        // state a `%` without the `+ capacity` gets wrong — index 0 has to read
+        // the END of the array. The two assertions below are the observable
+        // proof of that; `head` itself is invisible to a test by design, as the
+        // note in `clear empties the window` explains.
+        //
+        // An earlier draft asserted `4 % 4 == 0` here and told the reader it
+        // pinned the fixture's head. It pinned a compile-time constant.
         assertEquals(4f, t.predictedXAt(0), 0f, "the newest entry must still be reachable")
         assertEquals(1f, t.predictedXAt(3), 0f, "and the oldest")
     }

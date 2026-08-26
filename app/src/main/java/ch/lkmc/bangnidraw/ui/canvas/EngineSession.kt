@@ -58,7 +58,13 @@ class EngineSession(
      * The pool and capability line for the overlay's last row.
      *
      * A function rather than a value because it builds a string: called four
-     * times a second by the overlay's sampler, never on the render path. Racy
+     * times a second by the overlay's sampler, never on the render path — and
+     * on the **main thread, outside any GL context**, so nothing it reaches may
+     * issue a GL call. It does not today, checked rather than assumed:
+     * `GlCaps.describe` formats values captured once at context creation ("read
+     * here and never re-queried"), `TilePool.describe` formats counters, and
+     * `accum.bytes` is a field. A `glGetString` added to any of them would be
+     * invalid from here. Racy
      * by construction — it reads GL-thread state from the main thread — and
      * that is acceptable for a diagnostic line no decision is made from, which
      * is exactly why the *numbers* above it go through `@Volatile` fields

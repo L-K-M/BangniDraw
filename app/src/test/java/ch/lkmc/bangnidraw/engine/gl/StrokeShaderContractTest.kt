@@ -226,6 +226,85 @@ class StrokeShaderContractTest {
         }
     }
 
+    // --------------------------------------------------- the truthful preview
+
+    @Test
+    fun `the preview and the merge are one source, not two copies`() {
+        // §7.5's entire claim is that "what the user sees mid-stroke is what
+        // lands". That is a claim about two SHADERS agreeing, and the only way
+        // to check it without a GL context is to check that they are assembled
+        // from the same strings — a copied `mergeStroke` would satisfy every
+        // other assertion in this file while drifting on the next edit.
+        assertTrue(
+            Shaders.PREVIEW_FRAG.contains(Shaders.MERGE_GLSL),
+            "preview.frag must embed the shared merge source verbatim",
+        )
+        assertTrue(
+            Shaders.MERGE_FRAG.contains(Shaders.MERGE_GLSL),
+            "merge.frag must embed the shared merge source verbatim",
+        )
+        // And the compositing half, which §7.5 gets by defining preview.frag as
+        // composite.frag under `#define PREVIEW`.
+        assertTrue(
+            Shaders.COMPOSITE_FRAG.contains(Shaders.COMPOSITE_TAIL),
+            "composite.frag must be built from the shared blend/main tail",
+        )
+        assertTrue(
+            Shaders.PREVIEW_FRAG.contains(Shaders.COMPOSITE_TAIL),
+            "preview.frag must be built from the SAME blend/main tail",
+        )
+        assertTrue(
+            Shaders.PREVIEW_FRAG.contains(Shaders.COMPOSITE_HEAD),
+            "preview.frag must share composite's MAX_TAPS/TILE_PX header",
+        )
+    }
+
+    @Test
+    fun `the preview merges the layer, then the stroke buffer, then the tail`() {
+        val body = stripped(Shaders.PREVIEW_FRAG)
+        // §7.5: s = mergeStroke(mergeStroke(L, S), T). The nesting is the
+        // order, and reversing it is not a no-op — an eraser tail over a paint
+        // stroke is not a paint stroke over an eraser tail.
+        assertTrue(
+            body.contains("mergeStroke(mergeStroke(L, S), T)"),
+            "the preview must merge the stroke buffer first and the tail on top: $body",
+        )
+        // Absent slices read as transparent, which is what lets 2.5a ship the
+        // tail seam before 2.5b fills it.
+        assertTrue(
+            body.contains("fetchTile(u_strokePage, v_strokeTailSlice.x, uv)"),
+            "the stroke buffer must be fetched through the absent-slice guard",
+        )
+        assertTrue(
+            body.contains("fetchTile(u_tailPage, v_strokeTailSlice.y, uv)"),
+            "the tail must be fetched through the absent-slice guard",
+        )
+    }
+
+    @Test
+    fun `the preview merges per supersampling tap, not once on the average`() {
+        // §7.5 says the merge runs inside sampleLayer's tap loop. It matters
+        // because `mergeStroke` is NOT linear — the opacity cap, the zero-alpha
+        // branches and MIX's `t` are conditionals — so merging the box-filtered
+        // average differs from averaging the merged taps along every stroke
+        // edge, which is precisely where a lying preview would be visible.
+        val body = stripped(Shaders.PREVIEW_FRAG)
+        assertTrue(
+            body.contains("acc += previewAt("),
+            "the tap loop must accumulate MERGED taps: $body",
+        )
+        assertTrue(
+            !body.contains("acc += texture("),
+            "a raw texture fetch in the preview's tap loop means the merge moved out of it",
+        )
+        // The single-tap fast path must take the same route, or u_taps == 1 and
+        // u_taps == 2 would disagree about what the preview shows.
+        assertTrue(
+            body.contains("if (taps == 1) return previewAt(v_uvw.xy);"),
+            "the one-tap path must merge too",
+        )
+    }
+
     // ------------------------------------------------------- the dab shape
 
     @Test

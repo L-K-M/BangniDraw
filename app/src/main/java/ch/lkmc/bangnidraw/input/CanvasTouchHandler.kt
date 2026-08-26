@@ -1,6 +1,8 @@
 package ch.lkmc.bangnidraw.input
 
+import android.os.Build
 import android.view.Choreographer
+import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import ch.lkmc.bangnidraw.engine.core.GestureArbiter
@@ -314,10 +316,35 @@ class CanvasTouchHandler(
             view.invertY(x, y),
             pressure,
             tilt,
-            orientation,
+            canvasOrientation(orientation),
             timeNs,
         )
     }
+
+    /**
+     * The pen's azimuth in **canvas** space: the screen-space azimuth minus the
+     * view's rotation, wrapped to (−π, π] (§2's sample table).
+     *
+     * The digitizer reports azimuth relative to the *screen*. A chisel tip
+     * takes its angle from that value, so on a rotated canvas the tip would
+     * turn the wrong way — rotate the paper 90° and every chisel stroke lands
+     * across the grain. Converted here beside the x/y conversion, because this
+     * class owns the view transform during a gesture and nothing downstream
+     * should have to know a screen exists.
+     *
+     * **Nothing shows this on the shipped preset**, and it is worth being exact
+     * about why rather than leaving the next reader to guess. `DabGenerator`
+     * takes a dab's angle from `sample.orientation` under *two* conditions:
+     * when the tip elongates under tilt (`elongation > 1f`), or when
+     * `preset.orientation` is `TipOrientation.Stylus`. `INK_PEN` — the only
+     * preset in `BrushPresets.ALL` — has `tilt = TiltEffect.None`, whose
+     * `elongate` is false, and `orientation = TipOrientation.Fixed`, so its
+     * dabs are drawn at angle 0 and neither door opens. Fixed now because the
+     * flat and bristle tips of `04-tools.md` walk straight through both, and a
+     * wrong azimuth there is not a subtle defect.
+     */
+    private fun canvasOrientation(screenAzimuth: Float): Float =
+        ViewTransform.normalizeAngle(screenAzimuth - view.rotation)
 
     /**
      * The sample a tracked pointer is currently standing on — position and axes
@@ -703,11 +730,18 @@ class CanvasTouchHandler(
             } else {
                 e.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointer, history)
             },
-            orientation = if (current) {
-                e.getOrientation(pointer)
-            } else {
-                e.getHistoricalOrientation(pointer, history)
-            },
+            // Canvas-relative, exactly as the real path converts it in
+            // [emitSample]. A tail whose azimuth were left in screen space
+            // would draw a chisel tip at a different angle from the real dabs
+            // it is predicting — §7.5's "the preview does not lie", broken by
+            // the one path that never goes through `onStrokeSample`.
+            orientation = canvasOrientation(
+                if (current) {
+                    e.getOrientation(pointer)
+                } else {
+                    e.getHistoricalOrientation(pointer, history)
+                },
+            ),
             timeNs = if (current) {
                 e.eventTime * 1_000_000L
             } else {
@@ -737,14 +771,21 @@ class CanvasTouchHandler(
         // nothing has to be plumbed through the composable that owns both.
         attachPredictor(v)
         recordForPrediction(e)
+        // Before the `when`, not inside its DOWN arm. That arm matches
+        // ACTION_POINTER_DOWN too, so the call needed a nested re-check of the
+        // value the `when` had already switched on — invisible to anyone
+        // scanning the arms, and silently inherited by whatever action is added
+        // to that arm next.
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) requestUnbuffered(v, e)
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN ->
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 handleDown(
                     id, toolOf(e.getToolType(index)), e.getX(index), e.getY(index), timeNs,
                     e.getPressure(index),
                     e.getAxisValue(MotionEvent.AXIS_TILT, index),
                     e.getOrientation(index),
                 )
+            }
 
             MotionEvent.ACTION_MOVE -> {
                 for (h in 0 until e.historySize) {
@@ -815,8 +856,10 @@ class CanvasTouchHandler(
         // and the pen is moving fastest.
         recordForPrediction(e)
         when (e.actionMasked) {
-            MotionEvent.ACTION_HOVER_ENTER ->
+            MotionEvent.ACTION_HOVER_ENTER -> {
+                requestUnbufferedHover(v)
                 stylus.onHoverEnter(e.x, e.y, e.getAxisValue(MotionEvent.AXIS_DISTANCE), toolOf(e.getToolType(0)))
+            }
             MotionEvent.ACTION_HOVER_MOVE ->
                 stylus.onHoverMove(e.x, e.y, e.getAxisValue(MotionEvent.AXIS_DISTANCE))
             MotionEvent.ACTION_HOVER_EXIT -> stylus.onHoverExit(timeNs)
@@ -872,6 +915,59 @@ class CanvasTouchHandler(
                 return
             }
         }
+    }
+
+    /**
+     * §2.1's unbuffered dispatch: events at the digitizer's rate instead of
+     * batched to vsync.
+     *
+     * On `ACTION_DOWN` only. The `MotionEvent` overload returns early unless
+     * the event is a touch event with action DOWN or MOVE, so calling it on
+     * `ACTION_POINTER_DOWN` would do nothing — and the request already lasts
+     * until the whole gesture ends, so a second pointer has nothing to add.
+     * Re-issued per stroke for the same reason: it does *not* survive the
+     * gesture that requested it.
+     *
+     * For **all** tool types, as §2.1 says: the finger path benefits equally on
+     * a phone. The cost is more main-thread wakeups while a pointer is down,
+     * which is the entire point — the front-buffered path of §8.1 turns each
+     * extra sample into ink under the pen sooner, and this thread does nothing
+     * else while a stroke is live.
+     */
+    private fun requestUnbuffered(v: View?, e: MotionEvent) {
+        v?.requestUnbufferedDispatch(e)
+    }
+
+    /**
+     * The hover half, which needs the **other** overload.
+     *
+     * `requestUnbufferedDispatch(MotionEvent)` is documented to act only on
+     * touch streams, so it does nothing for hover; the source-taking overload
+     * is what covers a hovering pen, and it is API 30 while this app's minSdk
+     * is 29 (both levels read out of the SDK's own `api-versions.xml`, not
+     * assumed). On 29 hover stays vsync-batched, which costs a slightly
+     * coarser hover cursor and nothing else — no stroke has begun yet.
+     *
+     * A *class* is broader than the pen: `SOURCE_MOUSE` is `0x2002` and
+     * `SOURCE_TOUCHSCREEN` is `0x1002`, so both carry `SOURCE_CLASS_POINTER`'s
+     * `0x2` and both get unbuffered hover out of this call as well. That is
+     * harmless — a smoother mouse cursor on a DeX desk costs one wakeup per
+     * mouse move while the pointer is over the canvas — but it is what the code
+     * does, and saying "covers a hovering pen" implied a narrower effect than
+     * that.
+     *
+     * **`SOURCE_CLASS_POINTER`, not `SOURCE_STYLUS`**, which is what
+     * `07-input-and-stylus.md` §2.1 writes — it flagged the call "(to verify)",
+     * and this is the verification. The parameter is annotated
+     * `@InputSourceClass`, so it takes a source *class* rather than a source:
+     * `SOURCE_STYLUS` is `0x4002`, whose low bit happens to be
+     * `SOURCE_CLASS_POINTER`, so it would most likely have worked by accident
+     * while being the wrong constant. Android Lint rejects it outright
+     * (`WrongConstant`), which is how this was caught rather than shipped.
+     */
+    private fun requestUnbufferedHover(v: View?) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        v?.requestUnbufferedDispatch(InputDevice.SOURCE_CLASS_POINTER)
     }
 
     private fun toolOf(toolType: Int): PointerTool = when (toolType) {

@@ -7,6 +7,7 @@ import android.view.MotionEvent
 import android.view.View
 import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.GestureListener
+import ch.lkmc.bangnidraw.engine.core.LatencyTrace
 import ch.lkmc.bangnidraw.engine.core.NavigationStep
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PredictionGate
@@ -285,7 +286,14 @@ class CanvasTouchHandler(
             // sees, so a stroke at 8x zoom must not become eight times more
             // tolerant of a bad guess. [emitSample] converts to canvas px on
             // the way to the host; the gate is fed before that.
-            prediction.actual(x, y, timeNs)
+            if (prediction.actual(x, y, timeNs)) {
+                latency.record(
+                    prediction.scoredPredictedX,
+                    prediction.scoredPredictedY,
+                    prediction.scoredActualX,
+                    prediction.scoredActualY,
+                )
+            }
             emitSample(x, y, pressure, tilt, orientation, timeNs)
         }
     }
@@ -526,6 +534,15 @@ class CanvasTouchHandler(
     val prediction = PredictionGate()
 
     /**
+     * §8's "last N real vs predicted points", for the debug overlay of 2.5d.
+     *
+     * Fed from the one place that knows both halves of a pair — the scoring in
+     * [PredictionGate.actual] — so what the overlay draws and the error it
+     * prints beside them come from the same arithmetic.
+     */
+    val latency = LatencyTrace()
+
+    /**
      * Built from the `View` that dispatches to us, on the first event, and
      * rebuilt if that view is ever replaced (§8: one per surface).
      *
@@ -631,6 +648,9 @@ class CanvasTouchHandler(
         // stroke's error would let one bad flick disable prediction for a
         // session.
         prediction.reset()
+        // The window too: last stroke's misses say nothing about this one, and
+        // an overlay showing both would read as one long erratic stroke.
+        latency.clear()
         predicting = true
         postFrame()
     }

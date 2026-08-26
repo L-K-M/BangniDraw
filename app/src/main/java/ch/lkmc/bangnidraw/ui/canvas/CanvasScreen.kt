@@ -300,6 +300,23 @@ fun CanvasScreen(onBack: () -> Unit) {
                 .fillMaxSize()
                 .safeDrawingPadding(),
         ) {
+            // §5.3's overlay, debug builds only. Drawn first so the back
+            // button and the reset pill stay on top of it and reachable — the
+            // overlay fills the box and would otherwise swallow their taps.
+            //
+            // `Prefs.debugLatency` is what 07 §8 and the roadmap call this
+            // switch; no `Prefs` exists until step 3, so the gate is
+            // BuildConfig.DEBUG, the same one the session already takes.
+            val engine = session
+            if (BuildConfig.DEBUG && engine != null) {
+                DebugOverlay(
+                    perf = engine.perf,
+                    prediction = touch.prediction,
+                    latency = touch.latency,
+                    describe = engine::describeEngine,
+                )
+            }
+
             IconButton(
                 onClick = onBack,
                 modifier = Modifier.align(Alignment.TopStart),

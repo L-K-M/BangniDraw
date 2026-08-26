@@ -5,6 +5,7 @@ import android.util.Log
 import ch.lkmc.bangnidraw.engine.core.BlendMode
 import ch.lkmc.bangnidraw.engine.core.BufferScissor
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.core.Clock
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.DabBatch
@@ -14,6 +15,7 @@ import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
+import ch.lkmc.bangnidraw.engine.core.PerfStats
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.SANDWICH_MARGIN_PX
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
@@ -48,6 +50,15 @@ import ch.lkmc.bangnidraw.engine.core.ViewTransform
 class CanvasRenderer(
     private val canvas: CanvasSize,
     private val budget: MemoryBudget.Result,
+    /**
+     * §11's budgets, measured (`10-performance.md` §5.3). Written here on the
+     * GL thread and read by the debug overlay on the main thread; the default
+     * is a live instance rather than null so no call site needs a null check on
+     * the render path.
+     */
+    val perf: PerfStats = PerfStats(),
+    /** Injected so a test can hand it values; `System.nanoTime` in production. */
+    private val clock: Clock = Clock.SYSTEM,
 ) {
 
     private val grid = TileGrid(canvas.width, canvas.height)
@@ -312,6 +323,7 @@ class CanvasRenderer(
         // rect owed to anyone here either.
         clearTail()
         stroke = spec
+        perf.resetPeaks()
         strokeBufferMode = mode
         strokeR = colorR
         strokeG = colorG
@@ -344,6 +356,7 @@ class CanvasRenderer(
         if (stroke == null) return IntRect.EMPTY
         val pass = dabPass ?: return IntRect.EMPTY
         val buffer = strokeBuffer ?: return IntRect.EMPTY
+        val startNs = clock.nowNanos()
         val committed = batch.committedCount
         var dirty = IntRect.EMPTY
         if (committed > 0) {
@@ -363,7 +376,37 @@ class CanvasRenderer(
                 dirty = dirty.union(tailRect)
             }
         }
+        // Accumulated rather than assigned: §8.1's drain stamps every batch
+        // that arrived since the last callback, so one *frame* is several
+        // `stampDabs` calls and §11's "≤ 1 ms for a typical batch" is about the
+        // frame's total. [beginFrame] opens the window and [publishFrame]
+        // consumes it.
+        pendingStampNs += clock.nowNanos() - startNs
+        pendingDabs += batch.count
         return dirty
+    }
+
+    /** Stamp time and dab count accumulated across one frame's drain (§8.1 step 1). */
+    private var pendingStampNs = 0L
+    private var pendingDabs = 0
+
+    /**
+     * Opens one front-buffered frame's measurement, discarding whatever the
+     * previous attempt accumulated.
+     *
+     * Called where the drain begins, beside [clearTail], because resetting on
+     * the *publish* path is not enough: `drawStrokeFrame` returns early on an
+     * empty window rect, an empty buffer rect and a failed `Accum` bind, and
+     * `EngineSession` does not call it at all when the drain dirtied nothing —
+     * which a pool-exhausted stamp does, having spent real time first. Every
+     * one of those paths would roll its milliseconds into the next frame that
+     * *did* publish, and the overlay would report a 4 ms stamp for a frame that
+     * took 0.4. A number that is wrong only on the rare path is worse than no
+     * number, because nothing marks it as the rare path.
+     */
+    fun beginFrame() {
+        pendingStampNs = 0L
+        pendingDabs = 0
     }
 
     /**
@@ -393,6 +436,7 @@ class CanvasRenderer(
      * slices the enqueued reads have not been issued against yet.
      */
     fun endStroke(readback: Readback?, revision: Int): Int {
+        val startNs = clock.nowNanos()
         val spec = stroke ?: return 0
         val buffer = strokeBuffer ?: return 0
         val pass = mergePass ?: return 0
@@ -428,6 +472,7 @@ class CanvasRenderer(
             invalidate(SandwichPolicy.Op.StrokeCommit)
         }
         buffer.reset()
+        perf.commitMs = (clock.nowNanos() - startNs) / NANOS_PER_MS
         return merged
     }
 
@@ -611,10 +656,56 @@ class CanvasRenderer(
         val bufferRect = BufferScissor.bounds(windowRect, bufferTransform, bufferWidth, bufferHeight)
         if (bufferRect.isEmpty) return
 
+        val startNs = clock.nowNanos()
         state.invalidate()
         if (!compositeIntoAccum(current, screenTransform, pass, dirtyCanvas, windowRect, spec)) return
         presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform, bufferRect)
+        // The clock stops HERE, before the error check. `checkGlDebug` drains
+        // `glGetError` in a loop — a driver round-trip, and a synchronisation
+        // point on some drivers — and it is a cost only debug builds pay. Since
+        // debug builds are also the only ones that show the overlay, leaving it
+        // inside the span would measure §11's "≤ 2 ms" against a number release
+        // never pays, making the budget read as harder to meet than it is.
+        val compositeNs = clock.nowNanos() - startNs
         GlErrors.checkGlDebug("drawStrokeFrame")
+        publishFrame(compositeNs)
+    }
+
+    /**
+     * Hands one front-buffered frame's timings to [perf] and **consumes** the
+     * drain's accumulation.
+     *
+     * **CPU time, and the overlay says so.** These are wall-clock spans around
+     * GL *calls*, which return as soon as the driver has queued the work — so
+     * this measures the cost of building the frame, not of the GPU drawing it.
+     * That is still the number §11's budgets are about (they bound what the
+     * render thread spends per frame, and a stroke stutters when the thread is
+     * late, not when the GPU is), but reading these as GPU time would flatter
+     * the engine. Real GPU timing needs `GL_EXT_disjoint_timer_query`, which is
+     * not in §13's probe and is not worth adding before a device exists to run
+     * it on.
+     *
+     * A failed composite returns before this, deliberately: a frame that was
+     * abandoned half-built has a duration but not a meaning, and averaging it
+     * in would make a broken frame look like a fast one.
+     */
+    private fun publishFrame(compositeNs: Long) {
+        perf.frame(
+            stampMs = pendingStampNs / NANOS_PER_MS,
+            compositeMs = compositeNs / NANOS_PER_MS,
+            dabs = pendingDabs,
+        )
+        // Consumed, not merely read. [beginFrame] resets too, and both are
+        // needed for different failures: `beginFrame` covers the frame that
+        // accumulated and never published, this covers a second publish between
+        // two `beginFrame`s — which would otherwise re-report the whole drain
+        // as another frame, inflating the stamp time, the dab count and the
+        // frame counter at once. Today's single caller does neither, so this is
+        // the cheap half of not depending on that.
+        pendingStampNs = 0L
+        pendingDabs = 0
+        perf.tilesResident = pool?.usedSlices ?: 0
+        perf.tilesBudget = pool?.sliceCapacity ?: 0
     }
 
     /**
@@ -1046,5 +1137,10 @@ class CanvasRenderer(
         append(caps?.describe() ?: "no GL context")
         append(" | pool ").append(pool?.describe() ?: "none")
         append(" | accum ").append(accum.bytes).append(" B")
+    }
+
+    private companion object {
+        /** Nanos to millis, as a float divisor so the overlay gets sub-ms resolution. */
+        const val NANOS_PER_MS = 1_000_000f
     }
 }

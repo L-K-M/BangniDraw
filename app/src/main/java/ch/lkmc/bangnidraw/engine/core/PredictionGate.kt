@@ -53,6 +53,12 @@ class PredictionGate {
         seeded = false
         pending = false
         hasActual = false
+        // The scored pair is deliberately NOT cleared: it describes a
+        // comparison that really happened, and it is only ever read straight
+        // after `actual` returns true. Zeroing it would put a point at the
+        // canvas origin in front of anyone who read it out of turn, which is
+        // worse than a stale one — a stale pair looks stale, an origin looks
+        // like a measurement.
     }
 
     /**
@@ -97,6 +103,27 @@ class PredictionGate {
     private var lastY = 0f
     private var lastNs = 0L
 
+    /**
+     * The pair the most recent scoring compared, for §8's overlay to draw.
+     *
+     * Published from here rather than recomputed by the caller because the
+     * *actual* point is interpolated to the predicted instant, and that
+     * interpolation is the one part of this class that is easy to get subtly
+     * wrong. A second implementation in the overlay's feeder would be a second
+     * chance to get it wrong, drawing points that disagree with the error the
+     * same overlay reports beside them.
+     *
+     * Only meaningful right after [actual] returned true.
+     */
+    var scoredPredictedX: Float = 0f
+        private set
+    var scoredPredictedY: Float = 0f
+        private set
+    var scoredActualX: Float = 0f
+        private set
+    var scoredActualY: Float = 0f
+        private set
+
     /** Whether a prediction is waiting for the pen to reach its instant. */
     val hasPending: Boolean get() = pending
 
@@ -139,9 +166,16 @@ class PredictionGate {
      * own motion between samples into the predictor's error: at 240 Hz and a
      * brisk 3000 px/s that is over 12 px of pure sampling offset, enough to
      * trip [DISABLE_PX] on a predictor that was exactly right.
+     *
+     * **Returns true when this call scored a pending prediction**, which is
+     * when [scoredPredictedX] and friends are worth reading. A return value
+     * rather than a counter the caller polls: scoring happens on at most one
+     * sample in many, and the alternative is every caller remembering the
+     * previous count to notice the edge.
      */
-    fun actual(x: Float, y: Float, timeNs: Long) {
-        if (!x.isFinite() || !y.isFinite()) return
+    fun actual(x: Float, y: Float, timeNs: Long): Boolean {
+        if (!x.isFinite() || !y.isFinite()) return false
+        var scored = false
         if (pending && hasActual && timeNs >= pendingNs) {
             val span = timeNs - lastNs
             // A zero (or inverted) span means both samples carry one instant —
@@ -153,13 +187,21 @@ class PredictionGate {
             } else {
                 1f
             }
-            observe(pendingX, pendingY, lastX + (x - lastX) * t, lastY + (y - lastY) * t)
+            val atX = lastX + (x - lastX) * t
+            val atY = lastY + (y - lastY) * t
+            observe(pendingX, pendingY, atX, atY)
+            scoredPredictedX = pendingX
+            scoredPredictedY = pendingY
+            scoredActualX = atX
+            scoredActualY = atY
             pending = false
+            scored = true
         }
         hasActual = true
         lastX = x
         lastY = y
         lastNs = timeNs
+        return scored
     }
 
     /**

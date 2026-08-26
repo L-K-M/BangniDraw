@@ -131,9 +131,13 @@ For each round:
       reason and — for a refutation — the evidence that settles it; in the commit message of
       the round that declined it; and in the chat scorecard when the loop ends. `REVIEW.md` is
       the durable one of the three, and it is what a later round consults before re-applying
-      something a previous round declined. Losing the `dismissed only` label removed the only
-      *automatic* signal that a round refused something, so the record has to be written
-      rather than inferred. **Changed 2026-08-26 at the
+      something a previous round declined.
+
+      The `dismissed only` label survives for a round that applied **nothing** — the table
+      below still awards it there — so what this change removed is the automatic signal for a
+      round that declined something *while also applying* something, which is precisely the
+      round that now scores `nits only` or `useful feedback` and looks productive from the
+      score alone. For those, the record has to be written rather than inferred. **Changed 2026-08-26 at the
       user's direction**; this step used to route any unapplied substantive finding to
       `dismissed only` "however many cosmetic fixes you applied alongside it".
 

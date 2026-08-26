@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.ui.home
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
@@ -52,6 +54,15 @@ fun StudioScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showAbout by rememberSaveable { mutableStateOf(false) }
+
+    // Re-list on every return to the foreground of this screen — coming back
+    // from the Canvas is the case that matters: its leave checkpoint has
+    // finished by the time navigation pops (CanvasViewModel.leave), so the
+    // shelf lists the write, not the state before it.
+    LifecycleResumeEffect(Unit) {
+        viewModel.refresh()
+        onPauseOrDispose { }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -106,13 +117,21 @@ fun StudioScreen(
                     )
                 }
             } else {
-                // Roadmap step 3: the shelf grid of thumbnails.
+                // A plain tappable list until roadmap 3c's shelf grid of
+                // thumbnails; what matters in 3a is that a painting can be
+                // reopened at all.
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     state.paintings.forEach { painting ->
                         Text(
-                            text = painting.title,
+                            text = painting.title.ifEmpty {
+                                stringResource(R.string.studio_untitled)
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenPainting(painting.id) }
+                                .padding(vertical = 12.dp),
                         )
                     }
                 }

@@ -1,5 +1,8 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import android.view.HapticFeedbackConstants
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -10,6 +13,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -20,20 +24,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import android.view.HapticFeedbackConstants
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.DisposableEffect
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
-import ch.lkmc.bangnidraw.engine.core.CanvasSize
-import ch.lkmc.bangnidraw.input.CanvasInputHost
-import ch.lkmc.bangnidraw.input.CanvasTouchHandler
-import ch.lkmc.bangnidraw.engine.core.Layer
-import ch.lkmc.bangnidraw.engine.core.LayerId
-import ch.lkmc.bangnidraw.engine.core.LayerProps
-import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
@@ -41,38 +44,78 @@ import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.input.CanvasInputHost
+import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 
 /**
  * The Canvas: where one painting is painted (PLAN.md §5).
  *
- * Roadmap 2.3b: the engine now draws. The paper fills the fitted canvas rect
- * through the real `view ∘ fit`, and the reset-view pill springs the view back
- * to identity.
+ * Roadmap 3a: the painting persists. [CanvasViewModel] opens or creates the
+ * routed project, the engine's readback funnels merged tiles to disk, and the
+ * leave/`ON_STOP` checkpoints write `project.json`
+ * (`docs/plan/06-document-and-persistence.md` §6.2's clock-free rows; the
+ * quiet and ceiling clocks are 3b's).
  *
- * **No touch navigation yet.** Every gesture component — `CanvasTouchHandler`,
- * `GestureArbiter`, `PalmRejection`, `StylusState` — is roadmap 2.4, and
- * `07-input-and-stylus.md` §2 makes `CanvasTouchHandler` the single owner of
- * `MotionEvent`, so pulling half of it forward would split one coherent area
- * across two PRs. The scaffold's `detectTransformGestures` is gone rather than
- * left in place: it drove a Compose drawing, and leaving it wired to the
- * engine would be a second `MotionEvent` owner — exactly what 2.4 must not
- * inherit. The view is driven programmatically here, which is what the pill
- * and the debug nudge below are for.
- *
- * The document is a single empty layer on white, held in composable state:
- * `ProjectStore` and the real document model arrive in roadmap step 3.
+ * Both back paths — the arrow and the system gesture — go through
+ * [CanvasViewModel.leave], which navigates only after the checkpoint has
+ * landed, so the Studio never lists a shelf the write has not reached.
  */
 @Composable
-fun CanvasScreen(onBack: () -> Unit) {
-    var view by remember { mutableStateOf(ViewTransform()) }
-    val canvas = remember { CanvasSize(DEFAULT_EDGE, DEFAULT_EDGE) }
-    val stack = remember {
-        LayerStack(
-            layers = listOf(Layer(LayerProps(id = LayerId("layer-1"), name = "Layer 1"))),
-            activeIndex = 0,
-            nextName = 2,
+fun CanvasScreen(onBack: () -> Unit, viewModel: CanvasViewModel = hiltViewModel()) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val leave = { viewModel.leave(onBack) }
+    BackHandler(onBack = leave)
+
+    // §6.2's ON_STOP row: the last callback before the process may be
+    // reclaimed. Fire-and-forget — the write survives on the app scope.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) viewModel.checkpointNow()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    when (val current = state) {
+        CanvasViewModel.UiState.Loading -> Box(Modifier.fillMaxSize())
+
+        is CanvasViewModel.UiState.Failed -> Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .safeDrawingPadding(),
+        ) {
+            IconButton(onClick = leave, modifier = Modifier.align(Alignment.TopStart)) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.canvas_back),
+                    tint = MaterialTheme.colorScheme.onBackground,
+                )
+            }
+            Text(
+                text = stringResource(current.message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
+
+        is CanvasViewModel.UiState.Ready -> CanvasContent(
+            state = current,
+            viewModel = viewModel,
+            onLeave = leave,
         )
     }
+}
+
+@Composable
+private fun CanvasContent(
+    state: CanvasViewModel.UiState.Ready,
+    viewModel: CanvasViewModel,
+    onLeave: () -> Unit,
+) {
+    var view by remember { mutableStateOf(ViewTransform()) }
+    val stack = state.stack
     var session by remember { mutableStateOf<EngineSession?>(null) }
 
     // The stroke in flight. Plain vars, not Compose state: they change several
@@ -81,13 +124,22 @@ fun CanvasScreen(onBack: () -> Unit) {
     val strokeState = remember { StrokeUiState() }
     val density = LocalDensity.current
     val view0 = LocalView.current
+    val context = LocalContext.current
+
+    // 06 §4's one honest toast per open, when something could not be read.
+    LaunchedEffect(state.warning) {
+        state.warning?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+    }
 
     // Roadmap 2.4a: real two-finger navigation. The handler owns the view
     // transform while a gesture is running and reports it back here.
     // view0 is in the key because the host below captures it for the snap
     // haptic: a composition that moved to a different View would otherwise keep
     // ticking the old one. Safe now that CanvasSurface re-attaches on update.
-    val touch = remember(density, view0) {
+    // `stack` is in the key for the same capture reason: the host reads the
+    // active layer at pen-down, and 3a's stack is fixed per open, so a changed
+    // stack means a different painting.
+    val touch = remember(density, view0, stack) {
         CanvasTouchHandler(
             density = density.density,
             host = object : CanvasInputHost {
@@ -96,17 +148,13 @@ fun CanvasScreen(onBack: () -> Unit) {
                     // A single tick as the canvas clicks to straight (§7).
                     view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
-                // Undo and redo arrive with the history journal in step 3; the
+                // Undo and redo arrive with the history journal in step 3b; the
                 // gestures are recognised now so the arbiter's behaviour is not
                 // written twice, and doing nothing is honest until then.
                 override fun onUndoRequested() = Unit
                 override fun onRedoRequested() = Unit
                 override fun onColorPick(x: Float, y: Float) = Unit
 
-                // Roadmap 2.4b: the stroke reaches pixels. Dabs land in a
-                // stroke buffer and merge into the layer on pen-up (§7.1,
-                // §7.4), so the mark appears when the pen lifts. The live
-                // front-buffered preview of §7.5 is 2.5's.
                 override fun onStrokeBegin(pointerId: Int, source: StrokeSource) {
                     // A begin while one is already open means the previous
                     // stroke's end was lost — a gesture transition, a torn-down
@@ -194,6 +242,9 @@ fun CanvasScreen(onBack: () -> Unit) {
                         driver.cancel()
                     }
                     engine.endStroke()
+                    // The commit's pixels reach disk through the readback; the
+                    // ViewModel only needs to know the document changed.
+                    viewModel.onStrokeCommitted()
                 }
 
                 override fun onStrokeCancel() {
@@ -230,9 +281,9 @@ fun CanvasScreen(onBack: () -> Unit) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         CanvasSurface(
-            canvas = canvas,
+            canvas = state.canvas,
             stack = stack,
-            paperColor = PAPER_WHITE,
+            paperColor = state.paperColor,
             view = view,
             modifier = Modifier.fillMaxSize(),
             debugBuild = BuildConfig.DEBUG,
@@ -247,8 +298,7 @@ fun CanvasScreen(onBack: () -> Unit) {
                 // held on a *released* EngineSession would not. That is the
                 // reachable half of the problem — a surface torn down mid-
                 // gesture (back navigation, system teardown) still delivers
-                // trailing move and cancel events — where the replacement half
-                // waits on step 3.
+                // trailing move and cancel events.
                 //
                 // The driver is cancelled but `cancelStroke` is deliberately
                 // NOT called on the old engine: it has been released, and
@@ -279,8 +329,13 @@ fun CanvasScreen(onBack: () -> Unit) {
                 strokeState.engine = null
                 stale?.cancel()
                 session = attached
+                // The ViewModel streams the painting's tiles into an arriving
+                // engine (§5.7's reopen path) and stops waiting on a departed
+                // one.
+                viewModel.attachSession(attached)
             },
             touchHandler = touch,
+            onTile = viewModel::onTileReadback,
         )
 
         // Not in `onSession`: that fires once, from the AndroidView factory, so
@@ -305,7 +360,7 @@ fun CanvasScreen(onBack: () -> Unit) {
             // overlay fills the box and would otherwise swallow their taps.
             //
             // `Prefs.debugLatency` is what 07 §8 and the roadmap call this
-            // switch; no `Prefs` exists until step 3, so the gate is
+            // switch; no `Prefs` exists until step 3c, so the gate is
             // BuildConfig.DEBUG, the same one the session already takes.
             val engine = session
             if (BuildConfig.DEBUG && engine != null) {
@@ -318,7 +373,7 @@ fun CanvasScreen(onBack: () -> Unit) {
             }
 
             IconButton(
-                onClick = onBack,
+                onClick = onLeave,
                 modifier = Modifier.align(Alignment.TopStart),
             ) {
                 Icon(
@@ -344,19 +399,32 @@ fun CanvasScreen(onBack: () -> Unit) {
                     Text(stringResource(R.string.canvas_reset_view))
                 }
             }
+
+            // §6.3's storage-full banner: persistent while the state holds,
+            // gone with the first successful write.
+            val storageFull by viewModel.storageFull.collectAsStateWithLifecycle()
+            if (storageFull) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.err_storage_full),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
         }
     }
 }
 
-/** Opaque white, the paper of a new sketch until the New Canvas dialog lands. */
-private const val PAPER_WHITE = 0xFFFFFFFF.toInt()
-
 /** 8 dp squares, per `03-canvas-engine.md` §3.2 step 1. */
 private const val CHECKER_DP = 8
-
-/** A square canvas until the New Canvas dialog can choose one (roadmap step 3). */
-private const val DEFAULT_EDGE = 2048
-
 
 /**
  * The stroke in flight, plus the colour it paints with.
@@ -364,8 +432,8 @@ private const val DEFAULT_EDGE = 2048
  * Plain fields rather than Compose state: these change several hundred times a
  * second on the input path and nothing composes from them, so making them
  * observable would recompose the whole screen once per pen sample. The colour
- * becomes a real palette selection with the tool UI of roadmap step 3; until
- * then a stroke is black, which is enough for 2.4b's device check and honest
+ * becomes a real palette selection with the tool UI of roadmap step 5; until
+ * then a stroke is black, which is enough for the device checks and honest
  * about what exists.
  */
 internal class StrokeUiState {
@@ -382,7 +450,7 @@ internal class StrokeUiState {
      * now", not "which engine has this stroke open" — and the difference is
      * invisible until the two diverge.
      *
-     * It cannot diverge yet: only the New Canvas dialog of step 3 changes the
+     * It cannot diverge yet: only the New Canvas dialog of step 3c changes the
      * canvas size, and nothing else re-runs the factory. Paired now anyway,
      * because the day that dialog lands there is nothing to notice the gap —
      * the engine's own guards make the mismatch silent rather than loud

@@ -42,6 +42,11 @@ fun CanvasSurface(
     onSession: (EngineSession?) -> Unit,
     /** Attached to the SurfaceView as its touch and hover listener (roadmap 2.4a). */
     touchHandler: ch.lkmc.bangnidraw.input.CanvasTouchHandler? = null,
+    /**
+     * §10.1's readback sink, handed to the session at construction — it wires
+     * the `Readback` machinery, so it cannot arrive later (roadmap 3a).
+     */
+    onTile: ((ch.lkmc.bangnidraw.engine.core.LayerId, ch.lkmc.bangnidraw.engine.core.TileKey, Int, java.nio.ByteBuffer) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val budget = remember(canvas) { MemoryBudget.compute(readDeviceMemory(context), canvas) }
@@ -58,7 +63,7 @@ fun CanvasSurface(
         modifier = modifier,
         factory = { ctx ->
             SurfaceView(ctx).also { surface ->
-                val session = EngineSession(surface, canvas, budget, debugBuild)
+                val session = EngineSession(surface, canvas, budget, debugBuild, onTile)
                 sessionHolder[0] = session
                 session.setStack(stack)
                 session.setPaperColor(paperColor)

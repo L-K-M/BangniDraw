@@ -4,11 +4,14 @@ import android.view.SurfaceView
 import androidx.graphics.lowlatency.BufferInfo
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
 import androidx.graphics.opengl.egl.EGLManager
+import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.DabBatch
+import ch.lkmc.bangnidraw.engine.core.DabRing
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
+import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
 
@@ -163,6 +166,110 @@ class EngineSession(
             renderer.checkerA = colorA
             renderer.checkerB = colorB
         }
+        redraw()
+    }
+
+    // ------------------------------------------------------- the stroke (§7)
+
+    /**
+     * Opens a stroke on the GL thread (§7.1).
+     *
+     * Fire-and-forget, like every other command here: the answer
+     * `CanvasRenderer.beginStroke` returns cannot come back synchronously
+     * without blocking the input thread on the GL thread, which is what
+     * `02-architecture.md` §3.3 forbids. A refused stroke — an RMW tool, a
+     * context still coming up — simply produces no dabs, and every later call
+     * for it is a no-op, so refusing late costs nothing.
+     */
+    fun beginStroke(spec: StrokeSpec, mode: BufferMode, r: Float, g: Float, b: Float) {
+        frontBuffered.execute { renderer.beginStroke(spec, mode, r, g, b) }
+    }
+
+    /**
+     * The single-producer/single-consumer ring of `02-architecture.md` §3.2:
+     * the main thread fills a slot, the GL thread consumes it and returns it.
+     *
+     * A ring rather than a copy per event, because a copy would allocate a
+     * whole `DabBatch` — 8 KiB of `FloatArray`s at the default capacity — on
+     * every `ACTION_MOVE`, which is precisely the per-sample allocation
+     * `10-performance.md` §2.4 exists to forbid. Handing the caller's own
+     * scratch over instead would race the input path's refill against the GL
+     * thread's read.
+     */
+    private val dabRing = DabRing()
+
+    // Slots are released from BOTH threads: the input thread through
+    // [releaseDabBatch] and the empty-batch path, the GL thread from inside
+    // [stampDabs]'s execute block. That is safe because DabRing's `acquire` and
+    // `release` are `@Synchronized` — checked, not assumed. "Single-producer/
+    // single-consumer" above describes the *dab flow*, not the release path,
+    // and it would be a poor thing to leave a reader inferring lock-freedom
+    // from.
+
+    /**
+     * Borrows a batch to fill, or null when the GL thread still holds every
+     * slot.
+     *
+     * **A null means the caller drops that sample**, and the caller does. §3.5
+     * describes a producer that keeps its samples and coalesces them into the
+     * next batch; `CanvasScreen.onStrokeSample` does not do that yet — it
+     * returns, and the sample's position, pressure and tilt are gone. The
+     * driver resumes from its last accepted sample, so the path degrades rather
+     * than breaks.
+     *
+     * Said plainly rather than promised, because a doc claiming §3.5's
+     * "nothing is lost" while the only producer drops on the floor is worse
+     * than no doc. Implementing the coalescing belongs with 2.5's ring-driven
+     * front-buffered path, where a starved ring stops being hypothetical.
+     */
+    fun acquireDabBatch(): DabBatch? = dabRing.acquire()
+
+    /**
+     * Hands a borrowed batch back unused — the generator emitted nothing for
+     * this sample, which the stabilizer's leash makes routine. Without this the
+     * slot would stay checked out and the ring would starve after eight quiet
+     * samples.
+     */
+    fun releaseDabBatch(batch: DabBatch) = dabRing.release(batch)
+
+    /**
+     * Stamps a batch borrowed from [acquireDabBatch] and returns it to the ring
+     * once the GL thread is done with it.
+     *
+     * The release happens **inside** the GL block, not after `execute`
+     * returns: `execute` only queues, so releasing here would hand the slot
+     * back while the GL thread was still reading it.
+     */
+    fun stampDabs(batch: DabBatch) {
+        if (batch.count == 0) {
+            dabRing.release(batch)
+            return
+        }
+        frontBuffered.execute {
+            renderer.stampDabs(batch)
+            dabRing.release(batch)
+        }
+        redraw()
+    }
+
+    /**
+     * Merges the stroke into its layer (§7.4).
+     *
+     * **§10.1's readback is not wired yet** — `readback = null` below, and
+     * `revision = 0` with it. `Readback` exists and is tested, but its consumer
+     * is `TileStore`, which arrives with step 3's persistence; enqueueing into
+     * nothing would be a readback whose results are dropped on the GL thread.
+     * Said here because a doc claiming the readback runs would send anyone
+     * tracing §10.1 straight past the gap.
+     */
+    fun endStroke() {
+        frontBuffered.execute { renderer.endStroke(readback = null, revision = 0) }
+        redraw()
+    }
+
+    /** §4: a cancelled stroke leaves no trace. */
+    fun cancelStroke() {
+        frontBuffered.execute { renderer.cancelStroke() }
         redraw()
     }
 

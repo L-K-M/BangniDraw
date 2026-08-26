@@ -803,3 +803,406 @@ unreadable.
 
   Carried in `docs/plan/12-roadmap.md` as a 2.4b carry-in, to be done when that
   file is next touched.
+
+## PR #13 (roadmap 2.4b) — GLM round 1
+
+- **R-053 ❌ `DabRing` slots are released from two threads, so the ring can
+  starve permanently** (PR #13, GLM round 1, Major). **Refuted.** The premise —
+  releases arriving from both the input thread and the GL thread — is correct,
+  and worth saying out loud, which is why `EngineSession` now carries a comment
+  about it. The conclusion is not: `DabRing.acquire` and `DabRing.release` are
+  both `@Synchronized` (`engine/core/Dab.kt`), as is `freeSlots`. The finding
+  itself is conditional — "If `DabRing` uses a non-atomic index/flag" — and the
+  answer is that it does not. There is no lost-slot window and no starvation.
+
+  Not applied, and specifically *not* routed through `frontBuffered.execute`, as
+  the finding's fallback suggests: that would defer every empty-batch release by
+  a GL-thread hop, so a run of samples the stabilizer swallows would hold slots
+  for a frame each and manufacture the starvation the change was meant to
+  prevent.
+
+- **R-054 ❌ `IntRect.forDab(x, y, radius)` may not bound the rotated ellipse,
+  so dabs could be dropped from neighbouring tiles** (PR #13, GLM round 1,
+  Info). **Refuted**, twice over. `aspect` is minor/major and is bounded to
+  `0.1..1` (`TipShape.Flat.MIN_ASPECT`, and `StrokeDriverTest` pins
+  `aspect in (0, 1]` for every emitted dab), so it only ever *shrinks* the
+  ellipse below `radius` — the circumscribing circle of radius `radius` bounds
+  it at every angle. And `forDab` already pads: it floors/ceils
+  `x ± radius ± 1`, a full pixel beyond the radius.
+
+  The one case worth checking is the sub-pixel dab, where the quad is padded to
+  `max(radius, 1) + 1 = 2` px while `forDab` gives only `radius + 1 = 1.3` px.
+  That is still sound, because the *painted* extent is bounded by the falloff,
+  not the quad: `coverage` is zero at and beyond `drawRadius = max(radius, 1)`,
+  and `radius + 1 ≥ max(radius, 1)` holds for every radius. No painted pixel
+  falls outside the rect.
+
+- **R-055 ⏸️ The anti-alias feather is 1 px on the major axis but `aspect` px on
+  the minor axis of an elliptical dab** (PR #13, GLM round 1, Minor).
+  **Deferred**, with the finding's own analysis corrected in two places.
+
+  The asymmetry is real. `v_local.y` is divided by `aspect`, so the `[inner, r]`
+  band of width 1 in local units is `(r − inner)·aspect` canvas px across the
+  minor axis.
+
+  But the finding has the sign backwards. It reasons from "aspect 8", and
+  `aspect` is minor/major — it cannot exceed 1. So the long edges of a flat
+  brush are not *blurred* to 8 px; they are *sharpened* to `aspect` px, which at
+  `aspect = 0.25` is a quarter-pixel band and therefore **aliased**. The defect
+  is the opposite of the one reported, and it breaks the promise §7.3 actually
+  makes ("never thinner than 1 canvas px").
+
+  The suggested fix — `inner = r − 1/aspect` — is also not right. It buys a 1 px
+  minor-axis band by making the *major*-axis band `1/aspect` px: at
+  `aspect = 0.25` a hardness-1.0 brush would get a 4 px feather along its long
+  axis, trading an aliased edge for a smeared one. A correct fix normalises per
+  fragment by the gradient — `fwidth(d)` is exactly right here, since a merge
+  renders a tile 1:1 with canvas px — but `DabStamp`, the CPU twin §15 requires
+  this shader to match, has no derivative to mirror it with, so the twin needs
+  the analytic gradient written out.
+
+  Deferred rather than rushed because it is **unreachable today**: every shipped
+  preset is `TipShape.Round`, `BrushPresets.ALL` is `[INK_PEN]`, and at
+  `aspect = 1` the two axes coincide exactly. It belongs with the flat and
+  bristle tips of `04-tools.md` §2, which is the first PR that can actually see
+  it. Recorded in `12-roadmap.md`.
+
+## PR #13 (roadmap 2.4b) — GLM round 2
+
+- **R-056 ❌ `eraseBranch`'s window runs to end-of-source, weakening both ERASE
+  pins** (PR #13, GLM round 2, Major). **Refuted.** The reasoning is sound and
+  the conclusion would follow — `substringBefore` does return the whole receiver
+  when the delimiter is absent — but the premise is false. It claims that
+  because MIX is the fall-through, "after `u_strokeMode == 1` there is no
+  further `u_strokeMode ==` comparison anywhere in the shader". There is:
+  `merge.glsl` tests **mode 1 before mode 0**, so the mode-0 comparison bounds
+  the window.
+
+  Extracted from the shipped `MERGE_GLSL` and printed, the comparisons appear in
+  the order `[u_strokeMode == 1, u_strokeMode == 0]`, and the window is exactly:
+
+  ```
+  ") return u_alphaLock ? L : L * (1.0 - S.a); if ("
+  ```
+
+  It contains neither PAINT's `S + L * (1.0 - S.a)` nor `MIXLERP(` — checked
+  both ways, not eyeballed. The suggested extra `.substringBefore("MIXLERP(")`
+  would be a harmless no-op today, and is declined only because it would encode
+  a false belief about the branch order into the test: the next reader would
+  take it as evidence that MIX can fall inside the ERASE window, and would be
+  wrong.
+
+  Round 1's mutation check already demonstrated the window is tight — deleting
+  the scaling from the ERASE branch alone fails this assertion, and did not
+  before the scoping landed.
+
+## PR #13 (roadmap 2.4b) — GLM round 3
+
+- **R-057 ✅ the axis fields are per-*handler*, not per-`handle*`-call** (PR #13,
+  GLM round 3, Minor). **Applied — and it is a live bug, not the documentation
+  nit it was filed as.** The report frames the risk conditionally: *"If a future
+  change emits a sample from `handleMoveEnd` … it will silently stamp the palm's
+  pressure/tilt onto the pen's stroke."* That future change is already in the
+  tree. `GestureArbiter.tick` resolves the pending window on the clock —
+  `if (!stylusOnly && heldMs >= PENDING_MS) beginFingerDraw(ids[slot], out)` —
+  and `beginFingerDraw` calls `onDraw`, whose handler emits the stroke's opening
+  sample. `handleMoveEnd` calls `tick`, and sets no axes.
+
+  So the reachable sequence is §5's own: a palm lands while the pen hovers and
+  is ignored, the pen leaves, its 500 ms grace expires, and the user draws with
+  a finger while the palm still rests. Both pointers move; the palm is processed
+  last (it is the lower pointer index only by accident, but the arbiter ignores
+  its move, so nothing else overwrites the fields); `handleMoveEnd` then opens
+  the finger's stroke carrying the palm's axes. The new test
+  `a finger stroke that resolves on the clock carries its own axes` fails on the
+  pre-fix handler with `actual <0.1>` — the palm's pressure, on the finger's
+  first sample — which is the same defect class round 1 fixed, arriving through
+  the clock instead of through `actionIndex`.
+
+  The fix is to stop having a "current pointer" at all: `trackPressure`,
+  `trackTilt` and `trackOrientation` join `trackX`/`trackY`, and `track()`
+  writes all six together, so the axes physically cannot belong to a different
+  pointer than the position beside them. `emitTracked(slot, timeNs)` reads one
+  slot. The three fields and `setAxes` are gone, which also disposes of the
+  comment the reviewer was reading: a claim that could be violated is replaced
+  by a structure that cannot be.
+
+  `track()` deliberately stays **after** `arbiter.move` in `handleMove`. Moving
+  it earlier would make an arbiter decision see the current sample, which sounds
+  tidier and is wrong: on the first move past the slop the previous slot value
+  is the finger-**down** point, and that is the sample the stroke would
+  otherwise lose. The live sample two lines later supplies the current one, so
+  the opening segment survives. (Reordering also silently changes what
+  `captureNavPointers` records as the gesture's previous position.)
+
+- **R-058 ✅ `DabPass.release()` keeps the direct instance buffer alive** (PR #13,
+  GLM round 3, Minor). **Applied.** `release()` reset `instanceCapacityDabs = 0`
+  but left `instanceData` and `instanceBuffer` pointing at the grown
+  allocations. Because the capacity is what `ensureInstanceCapacity` gates on
+  (`if (dabs <= instanceCapacityDabs) return`), a capacity of 0 guarantees the
+  next call reallocates both — so the retained pair could never be read again,
+  and `instanceBuffer` is a *direct* buffer whose off-heap bytes survive until
+  the buffer object itself is unreachable. A pass kept across context-loss
+  cycles held one dead allocation per cycle. Both are now reset to the empty
+  forms the field initialisers use.
+
+  `distinctKeys` and `seen` are deliberately left alone: their sizes track the
+  tile grid rather than this capacity, nothing in `release()` invalidates them,
+  and they are on-heap. They are reuse; the other two were waste. Not
+  unit-testable — `release()` is pure GL — so the reasoning is recorded here
+  rather than pinned.
+
+## PR #13 (roadmap 2.4b) — GLM round 4
+
+- **R-059 ⚠️ `Readback`'s both-busy wait is not the §10.1 ordering rule its KDoc
+  claims** (PR #13, GLM round 4, Major). **Diagnosis accepted and the KDoc
+  rewritten; the suggested code change declined.**
+
+  The mechanism is exactly right and the claim it demolishes was mine. The class
+  KDoc said the both-PBOs-busy wait in `enqueue` "is the correctness rule, not
+  back-pressure", and that a merge for stroke *n+1* cannot be issued until
+  stroke *n*'s readback has been mapped. Neither half survives reading
+  `enqueueChunk`: the wait fires only when the round-robin lands on a slot still
+  in flight, so a readback of ≤ `READBACK_CHUNK` (64) tiles — any normal stroke
+  — leaves the other slot free and the next `enqueue` skips the wait entirely.
+  A comment asserting a guarantee the code does not provide, on the class whose
+  whole job is ordering, is worse than no comment: it is the thing step 3 would
+  have read and believed. Corrected, at length, including where the rule really
+  has to live.
+
+  The suggested fix — `for (chunk in chunks) if (chunk.inFlight) drain(chunk,
+  block = true)` at the top of `enqueue` — is declined, on the finding's own
+  reasoning. It says, correctly, that "the in-file drain alone cannot protect a
+  capture that happens before `enqueue` runs". The journal's "before" is
+  captured at the merge call site, upstream of `enqueue`; draining every slot
+  here would therefore add a blocking GL-thread stall — the stall the two-PBO
+  design exists to avoid — while leaving the hole exactly as open as it was.
+  The call the capture site needs is `finish()`, which already exists and
+  already drains every slot blockingly. What is missing is the *caller*, and
+  the caller is step 3's: `TileStore`, the journal and the undo stack do not
+  exist yet, and `CanvasRenderer.endStroke` is passed `readback = null` today.
+  Recorded in the KDoc so step 3 cannot miss it.
+
+- **R-060 ✅ `MergePass.merge` leaves the previous stroke's keys on the
+  empty-buffer path** (PR #13, GLM round 4, Minor). **Applied.** `keys.clear()`
+  sat below `if (buffer.isEmpty) return 0`, so that exit handed the caller a key
+  list belonging to a different stroke, while the KDoc two lines above promises
+  `keys` holds every key *this* merge touched and "must be read back in full".
+
+  Latent, not live: `CanvasRenderer.endStroke` gates its readback on
+  `merged > 0`, so the stale list is never read today. That is the reason to fix
+  it rather than a reason not to — the invariant currently holds by the call
+  site's discipline instead of the method's, and the next caller has no way to
+  know that. One line, no cost. Not unit-testable: `merge` needs a `StrokeBuffer`,
+  which needs a `TilePool`, which needs a GL context; `engine/gl` has only
+  shader-contract tests for this reason.
+
+## PR #13 (roadmap 2.4b) — GLM round 5
+
+- **R-061 ✅ a move-opened stroke stamped its opening pair with one timestamp**
+  (PR #13, GLM round 5, Major). **Applied; the stated impact refuted.**
+
+  The mechanism is real and the fix is the right one. When the arbiter opens a
+  stroke from `arbiter.move`, `onDraw` emitted the tracked *previous* position
+  — the finger-down point — stamped with `lastEventNs`, which `handleMove` had
+  just set to *this* move's time; `handleMove` then emitted the current
+  position with the same value. Two positions, one timestamp, zero elapsed
+  time. The `tick`-opened path was worse: `lastEventNs` there belongs to the
+  last pointer processed in the event, which need not be the drawing one.
+
+  `trackTimeNs` joins the other five per-pointer arrays, `store` writes all
+  seven together, `emitTracked(slot)` reads the slot's own time, and
+  `lastEventNs` is deleted — it had no other reader. Mutation-tested: restoring
+  the current-event stamp fails the new test with `expected:<0> but
+  was:<30000000>`.
+
+  **The impact as stated is wrong, and the correction matters because it is the
+  reason this is a Major-shaped fix and not a Major-shaped bug.** The finding
+  predicts "division by zero, NaN/Inf velocity, or a clamped-to-zero speed".
+  None occur. `DabGenerator.updateVelocity` opens with an explicit
+  `if (elapsedNs <= 0L)` branch that *defers* the distance into
+  `pendingDistance` rather than dividing by it, precisely so a run of
+  same-timestamp samples does not read as slower than the identical gesture
+  elsewhere; and `StrokeInput.timeNs` documents that it is "non-decreasing, and
+  not strictly increasing" and that "anything deriving speed from it owes a
+  zero-delta branch". The debt was already paid. So what the fix buys is
+  accuracy — the opening segment's speed goes from *deferred* to *measured* —
+  not the crash it was filed as. Applied on that basis, not the stated one.
+
+- **R-062 ⚠️ a live `StrokeDriver` could outlive its `EngineSession`** (PR #13,
+  GLM round 5, Major). **Pairing applied; two sub-claims corrected.**
+
+  The core observation holds. `onStrokeSample`, `onStrokeEnd` and
+  `onStrokeCancel` all read `session` — Compose state meaning "which engine
+  exists now" — while the driver was opened against whichever engine was
+  current at pen-down. `CanvasSurface`'s `AndroidView` sits inside
+  `key(canvas)`, so a canvas-size change builds a new `SurfaceView` and a new
+  `EngineSession` and releases the old one. `StrokeUiState.engine` now pins the
+  stroke to its own session, and every later call goes through it.
+
+  Applied even though the *replacement* case **cannot diverge in this PR**:
+  only step 3's New Canvas dialog changes the canvas size, and nothing else
+  re-runs the factory. ~~The null case (dispose → `onSession(null)`) was already
+  handled on every path.~~ **That sentence was wrong, and round 5's own delta is
+  what made it wrong — see R-063.** It was true of the reads the delta replaced,
+  not of the ones it introduced. It is worth pairing now precisely because the failure would be silent
+  when it does become reachable — `stampDabs` and `endStroke` both no-op when
+  no stroke is open, so a mismatch shows up as dabs quietly going nowhere
+  rather than as an error. Same reasoning as R-060.
+
+  Two corrections. First, the impact overstates it: "engine state-machine
+  errors, or an exception at `endStroke()`" cannot happen, because
+  `CanvasRenderer` guards both entry points with `stroke ?: return`. Second,
+  and more importantly, the suggested *"install `strokeState.driver` only once
+  the engine has accepted the stroke"* **cannot be implemented as written and
+  its diff does not do what its comment claims.** `EngineSession.beginStroke`
+  returns `Unit` and dispatches through `frontBuffered.execute { ... }` — the
+  refusal happens later, on the GL thread, and the main thread never learns of
+  it. Moving the assignment below the call therefore establishes nothing;
+  a comment saying "installed only once the engine has accepted" would be a
+  false claim of exactly the kind round 4's R-059 was about. Declined, and the
+  assignment stays where it is, next to the driver it pairs with.
+
+## PR #13 (roadmap 2.4b) — GLM round 6
+
+- **R-063 ✅ pinning the stroke to its engine removed the dispose path's safety
+  net** (PR #13, GLM round 6, Major). **Applied. A regression introduced by
+  round 5's own fix, and the finding is exactly right — including its reading
+  of what my REVIEW.md entry got wrong.**
+
+  R-062 replaced every `session` read in the stroke handlers with
+  `strokeState.engine`. `session` is nulled by `CanvasSurface`'s
+  `DisposableEffect` → `onSession(null)`, which is what made `onStrokeSample`'s
+  `?: return`, `onStrokeEnd`'s `driver.cancel()` branch and `onStrokeCancel`'s
+  `?.` safe on teardown. Nothing cleared the new pin, so after disposal it held
+  a **released** `EngineSession` and all three handlers went straight through to
+  it. My entry claimed "the null case was already handled on every path": true
+  of the reads I removed, false of the reads I added. Struck through above
+  rather than quietly edited, because the mistake is the point — a fix that
+  narrows one hole by widening another is the failure mode this loop exists to
+  catch, and it took the reviewer to see it.
+
+  Reachable, unlike R-062's replacement case: a surface torn down mid-gesture —
+  back navigation, system teardown — still delivers trailing move and cancel
+  events. The consequences are worse than the finding says, too.
+  `stampDabs`, `endStroke` and `cancelStroke` all queue through
+  `frontBuffered.execute` with **no** `isValid()` guard (only `redraw()` has
+  one), and `stampDabs` returns its `DabRing` slot *inside* the queued block —
+  so a block that never runs never releases, and a few of those strand the ring
+  until every later `acquireDabBatch` returns null.
+
+  Fixed at the seam the reviewer names: `onSession` now cancels the driver and
+  drops the pin before assigning `session`, which covers arrival and departure
+  alike. `cancelStroke` is deliberately *not* called on the outgoing engine —
+  it is exactly the released one, and §4 says a cancelled stroke leaves no
+  trace, so there is nothing it still owes. Not unit-testable: `onSession` is a
+  lambda inside a composable and this project has no Compose test
+  infrastructure. Considered and rejected: guarding `EngineSession`'s methods
+  with `isValid()` instead — it returns false before the surface is ready too,
+  so it would silently drop legitimate early calls, and the `stampDabs` guard
+  would leak the very batch it declined to stamp.
+
+## PR #13 (roadmap 2.4b) — GLM round 7
+
+**Round scored: nits-only.** Nothing raised this round changed behavior. The
+Major's mechanism is structurally impossible here, the first Minor's premise is
+contingent on a contract I verified does not hold, and what was applied is a
+no-op reorder plus test assertions. First round of the nits-only streak; two
+consecutive are needed.
+
+- **R-064 ⚠️ `driver.cancel()` runs while the released engine is still pinned**
+  (PR #13, GLM round 7, Major). **Reorder applied; the mechanism refuted.**
+  The finding is explicitly conditional — *"If the driver's `cancel()`
+  synchronously dispatches its cancel path (a common design for input
+  drivers)"* — and the condition is false, not merely unmet. `StrokeDriver.cancel`
+  is `isActive = false` and nothing else; the class takes `(preset, seed, zoom)`
+  and holds no listener, no host, no callback of any kind, so it cannot reach
+  `onStrokeCancel` even in principle. There is no re-entrant window to close and
+  no `DabRing` slot to strand.
+
+  Applied anyway, on the finding's *other* argument — "dropping the pin first is
+  strictly safer and costs nothing" — which is true and is the whole reason this
+  is a nit rather than a decline. Nulling before the side effect makes the seam
+  correct on its own terms instead of on a fact about `StrokeDriver`. The comment
+  says which of the two it is, so a later reader does not conclude a re-entrancy
+  hazard was found here.
+
+- **R-065 ❌ `onSession` changed from idempotent to destructive on repeat
+  emissions** (PR #13, GLM round 7, Minor). **Refuted; the contract documented
+  instead, which is the action the finding itself asks for in that case.**
+  The finding is honest that it is contingent — *"This is contingent on
+  `CanvasSurface`'s emission contract, which isn't visible in this chunk, so
+  verify before acting"* — so I verified it. `onSession` has exactly two call
+  sites: `AndroidView`'s `factory` (line 66), which runs once per view instance,
+  and `DisposableEffect(Unit)`'s `onDispose` (line 94). `update` does not call
+  it. A canvas-size change goes through `key(canvas)`, which disposes (emitting
+  null) before the new factory runs. So a non-null session is never re-emitted
+  without an intervening null, and the re-attach scenario has no path.
+
+  The suggested `if (attached === session) return@CanvasSurface` is declined as
+  dead code defending an emission the contract does not make — and the finding's
+  own fallback says so: *"If the callback is strictly transition-only, document
+  that contract at the CanvasSurface call site instead."* Done.
+
+- **R-066 ✅ the "exact" replay test omitted flow and aspect** (PR #13, GLM round
+  7, Minor). **Applied, and widened past what was asked.** The test's stated
+  justification is journal replay, which needs the whole dab back, and it
+  compared three fields. `angle` and `hardness` were missing too, so all four
+  were added rather than the two named.
+
+  Mutation-tested, because an assertion that reads as coverage is this PR's most
+  frequent defect: introducing a process-wide counter into `DabGenerator`'s flow
+  computation — precisely the non-replayed state the test claims to guard —
+  fails the new assertion with `dab 0 flow diverged. Expected <0.94> ... actual
+  <0.98>`. Not vacuous. It also passes unmodified, so there is no real
+  non-determinism to escalate.
+
+## PR #13 (roadmap 2.4b) — GLM round 8
+
+**Round scored: nits-only. Second consecutive → STEADY STATE.** Three Minors,
+all about tests and a comment; no production code changed and no substantive
+claim was declined. Rounds 7 and 8 together satisfy the two-consecutive
+nits-only rule.
+
+- **R-067 ✅ the fall-through check could be satisfied from inside the last
+  branch** (PR #13, GLM round 8, Minor). **Applied, and strengthened past what
+  was suggested.** `body.lastIndexOf("u_strokeMode ==") < body.indexOf("MIXLERP(")`
+  proves textual order only: a `MIXLERP(` call moved *into* mode 0's body also
+  sits after every mode comparison. My comment claimed it meant "no earlier
+  branch can swallow mode 2" — a guarantee the check did not make, which is the
+  same defect as round 4's R-059 and, as the finding says, the risky part,
+  because the next reader trusts it.
+
+  The finding offers a comment correction and warns "do not add a check that
+  would false-fail against the current shader". A real check turned out to be
+  available: `merge.glsl` uses **early returns**, not an else-chain, so
+  brace-matching each branch decides the question. `branchBody` extracts a
+  braced block by brace count, or the single statement up to its `;` for the
+  braceless mode-1 form, and the test now pins that neither branch contains the
+  MIX arithmetic, that both `return`, and that `MIXLERP(` sits past mode 0's
+  closing brace. Necessary *and* sufficient, and the comment now says which.
+
+  Mutation-tested: adding `vec3 dead = MIXLERP(L.rgb, S.rgb, 0.5);` inside mode
+  0's block fails with "the PAINT branch must not do the MIX arithmetic". The
+  old assertion passed that mutation, which is exactly the finding's claim.
+
+- **R-068 ✅ `orientation` was accepted and never recorded** (PR #13, GLM round
+  8, Minor). **Applied.** `Host.onStrokeSample` took `orientation` and dropped
+  it, so the per-pointer axis fix was two-thirds pinned: a regression swapping
+  orientation between palm and pen passed the whole suite. `lastOrientation`
+  joins the other two, and both axis tests now pass distinct per-pointer
+  orientations and assert the drawing pointer's.
+
+- **R-069 ✅ "the palm, ignored" was a comment, not an assertion** (PR #13, GLM
+  round 8, Minor). **Applied.** In the per-pointer axes test the palm's move was
+  labelled ignored and nothing checked it — and the existing assertions could
+  not have: the pen moves last, so it overwrites `lastPressure`/`lastTilt`
+  whether or not the palm emitted first. `samples.none { it.first > 300f }`
+  closes it (palm at x ≈ 400, pen at x ≤ 140, identity view). This covers the
+  **superseded** case — a finger the pen took over from — which
+  `a rejected palm emits no stroke samples` does not.
+
+  Mutation-tested: relaxing `handleMove`'s emit guard from
+  `strokeLive && pointerId == drawingId` to `strokeLive` fails it with
+  "the superseded palm must not emit samples: [(100.0, 100.0), (401.0, 400.0),
+  (140.0, 100.0)]".

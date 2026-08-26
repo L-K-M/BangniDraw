@@ -4,6 +4,10 @@ import android.opengl.GLES30
 import android.util.Log
 import ch.lkmc.bangnidraw.engine.core.BlendMode
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.core.TileKey
+import ch.lkmc.bangnidraw.engine.core.StrokeSpec
+import ch.lkmc.bangnidraw.engine.core.DabBatch
+import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.LayerId
@@ -76,6 +80,26 @@ class CanvasRenderer(
     private var present: GlProgram? = null
     private var checker: GlProgram? = null
     private var compositePass: CompositePass? = null
+    private var dab: GlProgram? = null
+    private var merge: GlProgram? = null
+    private var dabPass: DabPass? = null
+    private var mergePass: MergePass? = null
+    private var strokeBuffer: StrokeBuffer? = null
+
+    /**
+     * The stroke in progress, or null between strokes. Set at pen-down and
+     * cleared at merge or cancel — the one place that says whether a stroke
+     * exists, so [strokeBuffer] never has to be interrogated for it.
+     */
+    private var stroke: StrokeSpec? = null
+    private var strokeR = 0f
+    private var strokeG = 0f
+    private var strokeB = 0f
+    private var strokeBufferMode = BufferMode.Accumulate
+
+    /** Reused across strokes: the merge walks it and the readback reads it. */
+    private val mergedKeys = ArrayList<TileKey>()
+    private val mergeQuad = FullRectQuad()
     /**
      * One per pass, not one shared.
      *
@@ -157,11 +181,13 @@ class CanvasRenderer(
         // assigned only after the try, so on a failure the earlier programs
         // would simply go out of scope and leak their GL ids until the context
         // is destroyed — once per retry, on a path that is retryable.
-        val linked = ArrayList<GlProgram>(3)
+        val linked = ArrayList<GlProgram>(5)
         try {
             linked += GlProgram.link(Shaders.COMPOSITE)
             linked += GlProgram.link(Shaders.PRESENT)
             linked += GlProgram.link(Shaders.CHECKER)
+            linked += GlProgram.link(Shaders.DAB)
+            linked += GlProgram.link(Shaders.MERGE)
         } catch (e: GlProgramException) {
             linked.forEach(GlProgram::release)
             Log.e(GL_TAG, "shader link failed on ${probed.describe()}", e)
@@ -178,9 +204,94 @@ class CanvasRenderer(
         val tiles = TilePool(probed, budget)
         pool = tiles
         sandwich = SandwichCache(grid, tiles, compositeProgram, state)
+        dab = linked[3]
+        merge = linked[4]
+        dabPass = DabPass(linked[3], state)
+        mergePass = MergePass(linked[4], state, tiles, mergeQuad)
+        strokeBuffer = StrokeBuffer(grid, tiles)
         isReady = true
         return true
     }
+
+    // ------------------------------------------------- the stroke (§7)
+
+    /**
+     * Opens a stroke (`docs/plan/03-canvas-engine.md` §7.1).
+     *
+     * Returns false and opens nothing when the engine is not ready or the
+     * stroke is a read-modify-write one: §7.6's smudge and blur write the layer
+     * directly, dab by dab, and `SmudgePass` does not exist yet. Refusing here
+     * is what keeps a tool that has no path from silently painting through the
+     * wrong one.
+     */
+    fun beginStroke(spec: StrokeSpec, mode: BufferMode, colorR: Float, colorG: Float, colorB: Float): Boolean {
+        if (!isReady) return false
+        if (!spec.usesStrokeBuffer) return false
+        val buffer = strokeBuffer ?: return false
+        // A stroke already open means the previous one never ended — a pen-up
+        // lost to a cancelled gesture. Drop its buffer rather than merging it:
+        // §4 says a cancelled stroke leaves no trace.
+        if (stroke != null) buffer.reset()
+        stroke = spec
+        strokeBufferMode = mode
+        strokeR = colorR
+        strokeG = colorG
+        strokeB = colorB
+        return true
+    }
+
+    /**
+     * Stamps a batch into the open stroke's buffer and returns the canvas rect
+     * it dirtied, for the caller to redraw. Empty when no stroke is open.
+     */
+    fun stampDabs(batch: DabBatch): IntRect {
+        if (stroke == null) return IntRect.EMPTY
+        val pass = dabPass ?: return IntRect.EMPTY
+        val buffer = strokeBuffer ?: return IntRect.EMPTY
+        return pass.stamp(batch, buffer, strokeBufferMode, strokeR, strokeG, strokeB)
+    }
+
+    /**
+     * Merges the open stroke into its layer and hands the touched keys to
+     * [readback] (§7.4, §10.1). Returns the tiles merged.
+     *
+     * The buffer is reset **after** the readback is enqueued, not before: the
+     * merge has already consumed it by then, but resetting first would free
+     * slices the enqueued reads have not been issued against yet.
+     */
+    fun endStroke(readback: Readback?, revision: Int): Int {
+        val spec = stroke ?: return 0
+        val buffer = strokeBuffer ?: return 0
+        val pass = mergePass ?: return 0
+        val textures = textures(spec.layerId)
+        stroke = null
+        if (textures == null) {
+            buffer.reset()
+            return 0
+        }
+        val merged = pass.merge(textures, buffer, spec, mergedKeys)
+        if (merged > 0) {
+            readback?.enqueue(spec.layerId, textures, mergedKeys, revision)
+            // SandwichPolicy's own name for this case: a stroke merged into
+            // the active layer. The active layer is in neither cached half, so
+            // it decides which halves this actually stales.
+            invalidate(SandwichPolicy.Op.StrokeCommit)
+        }
+        buffer.reset()
+        return merged
+    }
+
+    /**
+     * Abandons the open stroke. §4: a cancelled stroke leaves **no trace** — no
+     * history entry, no pixels — which is exactly what the buffer makes cheap.
+     */
+    fun cancelStroke() {
+        stroke = null
+        strokeBuffer?.reset()
+    }
+
+    /** The rect the open stroke has dirtied so far, for the caller's redraw. */
+    val strokeDirty: IntRect get() = strokeBuffer?.dirty ?: IntRect.EMPTY
 
     /** A new surface, or a resize: `Accum` and `Scratch` are the only casualties. */
     fun onSurfaceChanged(width: Int, height: Int) {
@@ -558,6 +669,26 @@ class CanvasRenderer(
     fun onContextLost() {
         for (textures in layers.values) textures.forgetAll()
         sandwich?.forgetAll()
+        // A stroke in progress cannot survive: its buffer's slices went with
+        // the context. Forgetting rather than resetting, because resetting
+        // would free handles into a pool that no longer exists — §12's rule
+        // that nothing is freed on context loss.
+        stroke = null
+        strokeBuffer = null
+        dabPass = null
+        mergePass = null
+        // Every program reference, not just this PR's two. The ids died with
+        // the context, and `release()` calls `release()` on each of them; if a
+        // recreated context has reused one of those names, that glDeleteProgram
+        // deletes a live program belonging to the new context. Nulling only
+        // `dab` and `merge` would fix two fifths of one bug.
+        composite = null
+        present = null
+        checker = null
+        dab = null
+        merge = null
+        compositePass = null
+        sandwich = null
         pool = null
         isReady = false
         // Per context, like GlFbo.loggedIncomplete and
@@ -576,17 +707,27 @@ class CanvasRenderer(
         layers.clear()
         sandwich?.release()
         compositePass?.release()
+        dabPass?.release()
+        mergePass?.release()
+        strokeBuffer?.reset()
         presentQuad.release()
         checkerQuad.release()
+        mergeQuad.release()
         composite?.release()
         present?.release()
         checker?.release()
+        dab?.release()
+        merge?.release()
         accum.release(state)
         scratch.release(state)
         fbo.release()
         readFbo.release()
         pool?.release(state)
         pool = null
+        stroke = null
+        strokeBuffer = null
+        dabPass = null
+        mergePass = null
         isReady = false
     }
 

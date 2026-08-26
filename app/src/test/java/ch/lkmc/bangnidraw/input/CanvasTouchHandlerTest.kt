@@ -28,6 +28,13 @@ class CanvasTouchHandlerTest {
     private class Host : CanvasInputHost {
         var view = ViewTransform()
         val events = mutableListOf<String>()
+        /** Every stroke sample, in the canvas px the host is promised. */
+        val samples = mutableListOf<Pair<Float, Float>>()
+        var lastPressure = -1f
+        var lastTilt = -1f
+        var lastOrientation = -1f
+        /** Every sample's timestamp, so the opening pair's dt is checkable. */
+        val times = mutableListOf<Long>()
         /** Muted during the allocation gate's measured window, so the harness costs nothing. */
         var record = true
         override fun onViewChanged(view: ViewTransform) { this.view = view; if (record) events += "view" }
@@ -36,6 +43,17 @@ class CanvasTouchHandlerTest {
         override fun onRedoRequested() { events += "redo" }
         override fun onColorPick(x: Float, y: Float) { events += "pick" }
         override fun onStrokeBegin(pointerId: Int, source: StrokeSource) { events += "begin($source)" }
+        override fun onStrokeSample(
+            x: Float, y: Float, pressure: Float, tilt: Float, orientation: Float, timeNs: Long,
+        ) {
+            // Muted with the rest of the recorder during the allocation gate:
+            // `x to y` is a Pair, and the gate must measure the handler rather
+            // than the harness that watches it.
+            if (record) { samples += x to y; times += timeNs }
+            lastPressure = pressure
+            lastTilt = tilt
+            lastOrientation = orientation
+        }
         override fun onStrokeEnd(pointerId: Int) { events += "end" }
         override fun onStrokeCancel() { events += "cancel" }
     }
@@ -348,6 +366,204 @@ class CanvasTouchHandlerTest {
             "with right angles on, the snap target is 90 degrees, not zero",
         )
         assertTrue("snap" in host.events, "entering the snap must still report for the haptic")
+    }
+
+    @Test
+    fun `stroke samples reach the host in canvas pixels, not view pixels`() {
+        // §6's pipeline inverts the view before the samples leave this class,
+        // and it has to: a brush size is in canvas px so a pencil is the same
+        // width on the paper at any zoom. Forwarding view px would make every
+        // brush scale with the zoom.
+        val host = Host()
+        val h = handler(host)
+        h.stylusOnly = false
+        h.setView(ViewTransform(scale = 2f, tx = 100f, ty = 50f))
+        h.handleDown(1, PointerTool.FINGER, 300f, 250f, ms(0))
+        h.handleTick(ms(GestureArbiter.PENDING_MS))   // resolve the pending window into a draw
+        h.handleMove(1, 500f, 450f, ms(30))
+        h.handleMoveEnd(ms(30))
+
+        assertTrue(host.samples.size >= 2, "a draw must emit samples, got ${host.samples}")
+        // (500,450) in view px, with scale 2 and translation (100,50), is
+        // (200,200) on the canvas.
+        val (x, y) = host.samples.last()
+        assertEquals(200f, x, 1e-3f, "sample x must be canvas px")
+        assertEquals(200f, y, 1e-3f, "sample y must be canvas px")
+        // The opening down under the same transform: (300,250) view px at
+        // scale 2 with translation (100,50) is (100,100) on the canvas. Without
+        // this, a regression that inverted moves but emitted the down in view
+        // px would pass both this test and the identity-view one.
+        val (downX, downY) = host.samples.first()
+        assertEquals(100f, downX, 1e-3f, "the opening down must be canvas px too")
+        assertEquals(100f, downY, 1e-3f, "the opening down must be canvas px too")
+    }
+
+    @Test
+    fun `the down that opens a stroke is itself a sample`() {
+        // Without it a slow tap-and-hold leaves no mark at all, and a fast
+        // stroke visibly starts at its second sample.
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(1, PointerTool.FINGER, 10f, 20f, ms(0))
+        h.handleTick(ms(GestureArbiter.PENDING_MS))
+        assertEquals(1, host.samples.size, "the opening down must emit one sample")
+        assertEquals(10f to 20f, host.samples.first())
+    }
+
+    @Test
+    fun `a navigating gesture emits no stroke samples`() {
+        val host = Host()
+        val h = handler(host)
+        // Pinned, or the test passes for the wrong reason if the default ever
+        // flips: in stylus-only mode a finger is refused before the arbiter or
+        // palm rejection runs at all, and their coverage vanishes silently.
+        h.stylusOnly = false
+        h.handleDown(1, PointerTool.FINGER, 100f, 200f, ms(0))
+        h.handleDown(2, PointerTool.FINGER, 300f, 200f, ms(10))
+        h.handleMove(1, 150f, 200f, ms(30))
+        h.handleMove(2, 350f, 200f, ms(30))
+        h.handleMoveEnd(ms(30))
+        assertTrue(host.samples.isEmpty(), "a two-finger pan must not draw: ${host.samples}")
+    }
+
+    @Test
+    fun `a rejected palm emits no stroke samples`() {
+        val host = Host()
+        val h = handler(host)
+        h.stylusOnly = false
+        h.handleDown(1, PointerTool.STYLUS, 50f, 50f, ms(0))   // the pen owns the gesture
+        host.samples.clear()
+        h.handleDown(2, PointerTool.FINGER, 400f, 400f, ms(5)) // the palm
+        h.handleMove(2, 410f, 400f, ms(20))
+        h.handleMoveEnd(ms(20))
+        assertTrue(host.samples.isEmpty(), "a palm must not draw: ${host.samples}")
+    }
+
+    @Test
+    fun `the drawing pointer's own axes reach the host, not another pointer's`() {
+        // The regression this pins: for ACTION_MOVE the action's pointer-index
+        // bits are always zero, so axes read at `actionIndex` gave EVERY
+        // pointer the first pointer's values — wrong exactly in the setup this
+        // class exists for, a palm resting as pointer 0 and the pen drawing as
+        // pointer 1.
+        //
+        // Two pointers with different axes, and the drawing one is not the
+        // first: with one pointer down the two readings coincide and the test
+        // could not tell a correct selection from the buggy one. The axes are
+        // parameters of handleMove precisely so this is decidable here rather
+        // than only on a device.
+        val host = Host()
+        val h = handler(host)
+        h.stylusOnly = false
+        // The palm lands first and owns index 0.
+        h.handleDown(1, PointerTool.FINGER, 400f, 400f, ms(0), pressure = 0.1f, tilt = 0f, orientation = 0.1f)
+        h.handleTick(ms(GestureArbiter.PENDING_MS))
+        host.samples.clear()
+
+        // Then the pen, which takes the gesture over (§5) and does the drawing.
+        h.handleDown(2, PointerTool.STYLUS, 100f, 100f, ms(200), pressure = 0.9f, tilt = 0.3f, orientation = 0.7f)
+        h.handleMove(1, 401f, 400f, ms(230), pressure = 0.1f, tilt = 0f, orientation = 0.1f) // the palm
+        h.handleMove(2, 140f, 100f, ms(230), pressure = 0.75f, tilt = 0.4f, orientation = 0.6f)
+        h.handleMoveEnd(ms(230))
+
+        // "The palm is ignored" was a comment, not an assertion, and the
+        // assertions below could not have caught a leak: the pen's move is
+        // processed last, so it overwrites lastPressure/lastTilt whether or not
+        // the palm emitted anything first. The palm sits at x ~ 400 and the pen
+        // at x <= 140, and the view is identity here, so the split is clean.
+        // This is the SUPERSEDED case — a finger the pen took over from —
+        // which `a rejected palm emits no stroke samples` does not cover.
+        assertTrue(
+            host.samples.none { it.first > 300f },
+            "the superseded palm must not emit samples: ${host.samples}",
+        )
+        assertEquals(0.75f, host.lastPressure, 1e-6f, "the sample must carry the PEN's pressure, not the palm's")
+        assertEquals(0.4f, host.lastTilt, 1e-6f, "and the pen's tilt")
+        assertEquals(0.6f, host.lastOrientation, 1e-6f, "and the pen's orientation")
+    }
+
+    @Test
+    fun `a finger stroke that resolves on the clock carries its own axes`() {
+        // The same defect as the test above, reached through the CLOCK rather
+        // than through an event — and this is the path that made per-pointer
+        // storage necessary rather than merely tidy.
+        //
+        // `GestureArbiter.tick` resolves the pending window by calling
+        // `beginFingerDraw`, whose `onDraw` emits the stroke's opening sample.
+        // `handleMoveEnd` calls `tick` AFTER the whole event's pointers have
+        // been fed, so a single set of axis fields would by then hold the
+        // last-processed pointer's values. With a palm moving last, the finger
+        // stroke opened at the palm's pressure — every time.
+        //
+        // The setup is the one §5 describes: a palm lands while the pen is
+        // hovering (so the arbiter ignores it), the pen goes away, its grace
+        // expires, and the user then draws with a finger while the palm still
+        // rests on the glass.
+        val host = Host()
+        val h = handler(host)
+        h.stylusOnly = false
+
+        h.stylus.onHoverEnter(300f, 300f, 5f, PointerTool.STYLUS)
+        // 0.1 pressure, and ignored: this is the pointer whose axes must NOT
+        // reach the host.
+        h.handleDown(1, PointerTool.FINGER, 400f, 400f, ms(0), pressure = 0.1f, tilt = 0f, orientation = 0.1f)
+        h.stylus.onHoverExit(ms(10))
+
+        // Past HOVER_GRACE_MS, so the next finger is no longer a palm.
+        h.handleDown(2, PointerTool.FINGER, 100f, 100f, ms(1000), pressure = 0.9f, tilt = 0.3f, orientation = 0.7f)
+        // Both move, the drawing finger under the tap slop so the window is
+        // still open — and the palm last, which is what poisons a shared field.
+        h.handleMove(2, 102f, 100f, ms(1010), pressure = 0.8f, tilt = 0.25f, orientation = 0.55f)
+        h.handleMove(1, 401f, 400f, ms(1010), pressure = 0.1f, tilt = 0f, orientation = 0.1f)
+        host.samples.clear()
+
+        // 130 ms held: past PENDING_MS, so the tick inside handleMoveEnd
+        // resolves the window and opens the stroke.
+        h.handleMoveEnd(ms(1130))
+
+        assertTrue("begin(FINGER)" in host.events, "the pending window must resolve into a stroke: ${host.events}")
+        assertEquals(1, host.samples.size, "opening the stroke must emit exactly one sample")
+        assertEquals(
+            0.8f, host.lastPressure, 1e-6f,
+            "the opening sample must carry the DRAWING finger's pressure, not the palm's",
+        )
+        assertEquals(0.25f, host.lastTilt, 1e-6f, "and the drawing finger's tilt")
+        assertEquals(0.55f, host.lastOrientation, 1e-6f, "and the drawing finger's orientation")
+    }
+
+    @Test
+    fun `a stroke opened from a move keeps the down point's own timestamp`() {
+        // The opening sample is the position the pointer went DOWN at — the
+        // arbiter only resolves "draw" once the finger has crossed the slop,
+        // several ms later. Stamping it with the resolving move's time claimed
+        // the finger covered that distance in zero elapsed time.
+        //
+        // DabGenerator.updateVelocity does survive that: it has an explicit
+        // `elapsedNs <= 0` branch that defers the distance instead of dividing
+        // by it, and StrokeInput.timeNs documents the debt. So this is an
+        // accuracy fix, not a crash fix — the opening segment's speed goes
+        // from "unmeasurable, carried forward" to simply measured.
+        val host = Host()
+        val h = handler(host)
+        h.stylusOnly = false
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        // Past TAP_SLOP_DP * density = 16 px, so the arbiter opens the stroke
+        // from inside this very call.
+        h.handleMove(1, 140f, 100f, ms(30))
+        h.handleMoveEnd(ms(30))
+
+        assertTrue("begin(FINGER)" in host.events, "crossing the slop must open a stroke: ${host.events}")
+        assertEquals(2, host.samples.size, "the opening pair is the down point and the current one")
+        assertEquals(100f to 100f, host.samples[0], "the first sample is the finger-down point")
+        assertEquals(
+            ms(0), host.times[0],
+            "and carries the time it happened at, not the time it was noticed at",
+        )
+        assertEquals(ms(30), host.times[1], "the live sample carries its own move's time")
+        assertTrue(
+            host.times[1] > host.times[0],
+            "the opening segment must have a positive duration: ${host.times}",
+        )
     }
 
     private companion object {

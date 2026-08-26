@@ -290,7 +290,232 @@ object Shaders {
      * Mixbox variants of `11-testing.md` §4 that have nothing to check until
      * then.
      */
-    val ALL: List<Source> = listOf(COMPOSITE, PRESENT, CHECKER)
+    // ------------------------------------------------------- dab (§7.2, §7.3)
+
+    /** Instanced attribute slots for [DAB_VERT], shared with `DabPass`'s VAO. */
+    const val ATTR_DAB_CORNER = 0
+    const val ATTR_DAB_CENTER = 1
+    const val ATTR_DAB_RADIUS = 2
+    const val ATTR_DAB_HARDNESS = 3
+    const val ATTR_DAB_FLOW = 4
+    const val ATTR_DAB_ANGLE = 5
+    const val ATTR_DAB_ASPECT = 6
+
+    /**
+     * §7.3's `dab.vert`: one instanced quad per dab, in canvas px, mapped into
+     * the target slice's 0..1 tile space.
+     *
+     * One deviation from the snippet, for the same reason as `u_viewport` in
+     * [COMPOSITE_VERT]. The snippet declares `i_color` as a per-instance
+     * attribute, but §6 is explicit that "colour and the stroke opacity are per
+     * stroke (uniforms), never per dab" and that the eight per-dab fields are
+     * `DAB_STRIDE`. A ninth per-instance `vec3` would contradict the dab layout
+     * `02-architecture.md` §3.2 pins, and would send the same value 1 024 times
+     * per batch. It is `u_color` here.
+     *
+     * The clamp and the area weight are `DabStamp.drawRadius`/`areaWeight`
+     * (§15's twin); `StrokeShaderContractTest` holds the two together.
+     */
+    val DAB_VERT = """
+        $VERSION_LINE
+        precision highp float;
+        layout(location = $ATTR_DAB_CORNER)   in vec2  a_corner;
+        layout(location = $ATTR_DAB_CENTER)   in vec2  i_center;
+        layout(location = $ATTR_DAB_RADIUS)   in float i_radius;
+        layout(location = $ATTR_DAB_HARDNESS) in float i_hardness;
+        layout(location = $ATTR_DAB_FLOW)     in float i_flow;
+        layout(location = $ATTR_DAB_ANGLE)    in float i_angle;
+        layout(location = $ATTR_DAB_ASPECT)   in float i_aspect;
+        uniform vec2 u_tileOrigin;
+        uniform vec3 u_color;
+        out vec2 v_local;
+        flat out float v_radius;
+        flat out float v_hardness;
+        flat out vec4  v_color;
+        void main() {
+            float r = max(i_radius, 1.0);
+            float pad = r + 1.0;
+            float c = cos(i_angle), s = sin(i_angle);
+            vec2 axisMajor = vec2(c, s), axisMinor = vec2(-s, c);
+            vec2 p = i_center + a_corner.x * pad * axisMajor
+                              + a_corner.y * pad * i_aspect * axisMinor;
+            vec2 d = p - i_center;
+            v_local = vec2(dot(d, axisMajor), dot(d, axisMinor) / i_aspect);
+            v_radius = r;
+            v_hardness = i_hardness;
+            float area = i_radius < 1.0 ? i_radius * i_radius : 1.0;
+            v_color = vec4(u_color, 1.0) * (i_flow * area);
+            vec2 t = (p - u_tileOrigin) / float($TILE_SIZE);
+            gl_Position = vec4(t * 2.0 - 1.0, 0.0, 1.0);
+        }
+    """.trimIndent()
+
+    /**
+     * §7.3's `dab.frag`. The falloff is `DabStamp.coverage`'s, and the
+     * `r - 1.0` term is what keeps the anti-aliased band at least a canvas
+     * pixel wide even at hardness 1.0 — without it `inner == r`, `smoothstep`
+     * degenerates, and every diagonal edge aliases.
+     *
+     * Premultiplied out, blended `GL_ONE, GL_ONE_MINUS_SRC_ALPHA` or under
+     * `GL_MAX` depending on the preset's `BufferMode` (§7.2). An eraser runs
+     * this exact shader with `u_color = 0`, so the buffer accumulates coverage
+     * in alpha alone.
+     */
+    val DAB_FRAG = """
+        $VERSION_LINE
+        precision highp float;
+        in vec2 v_local;
+        flat in float v_radius;
+        flat in float v_hardness;
+        flat in vec4  v_color;
+        out vec4 o_color;
+        void main() {
+            float d = length(v_local);
+            float r = v_radius;
+            float inner = clamp(min(r * v_hardness, r - 1.0), 0.0, r);
+            float m = 1.0 - smoothstep(inner, r, d);
+            o_color = v_color * m;
+        }
+    """.trimIndent()
+
+    val DAB = Source(
+        name = "dab",
+        vertex = DAB_VERT,
+        fragment = DAB_FRAG,
+        uniforms = listOf(
+            Uniform("u_tileOrigin", "vec2"),
+            Uniform("u_color", "vec3"),
+        ),
+    )
+
+    // ----------------------------------------------------------- merge (§7.4)
+
+    /**
+     * `mergeStroke` and its uniforms, split out so `merge.frag` and — with
+     * 2.5's front-buffered path — `preview.frag` share **one** copy. §7.5
+     * requires the preview and the commit to run the same arithmetic on the
+     * same inputs, and two transcriptions of §7.4's table would be two chances
+     * to diverge.
+     *
+     * Substituted textually rather than through a GLSL `#include`, which ES 3.0
+     * has no preprocessor support for.
+     *
+     * `MIXLERP` is the compile-time mixing variant of §7.4. Only the plain
+     * `mix` form is built today: decision 5 selects `RgbMixer`, which §7.4 says
+     * "means the plain variant always", and the pigment form needs the Mixbox
+     * LUT that `09-color-and-mixing.md` §5 owns and this PR does not ship.
+     *
+     * **One deviation from the document's own skeleton, following its table.**
+     * §7.4's table says of ERASE "(alpha-lock: the eraser is a no-op on locked
+     * layers — 05 §1)", but the `merge.frag` skeleton beneath it returns
+     * `L * (1.0 - S.a)` unconditionally. Transcribing the skeleton would erase
+     * through a lock on the GPU while `StrokeMerge` refused to on the CPU, so
+     * the branch consults `u_alphaLock`.
+     */
+    val MERGE_GLSL = """
+        #define MIXLERP mix
+        uniform sampler2DArray u_layerPage;
+        uniform sampler2DArray u_strokePage;
+        uniform float u_layerSlice;
+        uniform float u_strokeSlice;
+        uniform int   u_strokeMode;
+        uniform float u_strokeOpacity;
+        uniform float u_dilution;
+        uniform bool  u_alphaLock;
+
+        vec4 fetchTile(sampler2DArray page, float slice, vec2 uv) {
+            return slice < 0.0 ? vec4(0.0) : texture(page, vec3(uv, slice));
+        }
+
+        vec4 mergeStroke(vec4 L, vec4 S) {
+            if (S.a > u_strokeOpacity) S *= u_strokeOpacity / S.a;
+            if (u_strokeMode == 1) return u_alphaLock ? L : L * (1.0 - S.a);
+            if (u_strokeMode == 0) {
+                if (u_alphaLock) return vec4(S.rgb * L.a + L.rgb * (1.0 - S.a), L.a);
+                return S + L * (1.0 - S.a);
+            }
+            float aOut = S.a + L.a * (1.0 - S.a);
+            float t = aOut > 0.0 ? S.a / aOut : 0.0;
+            if (L.a > 0.0) t *= 1.0 - u_dilution;
+            if (u_alphaLock) { t = S.a; aOut = L.a; }
+            if (aOut <= 0.0) return vec4(0.0);
+            if (L.a <= 0.0) return S.a <= 0.0 ? vec4(0.0) : S;
+            if (S.a <= 0.0) return L;
+            vec3 cL = L.rgb / L.a;
+            vec3 cS = S.rgb / S.a;
+            vec3 c = MIXLERP(cL, cS, clamp(t, 0.0, 1.0));
+            return vec4(c * aOut, aOut);
+        }
+    """.trimIndent()
+
+    /**
+     * A tile-to-tile quad. No screen transform: a merge renders a tile into a
+     * tile and never touches the view.
+     *
+     * Driven by [FullRectQuad], whose uv runs `(0,0)..(1,1)` across a rect of
+     * `(0,0)..(w,h)` — so the uv **is** the normalized position and doubles as
+     * the clip coordinate, with no viewport uniform to keep in step. The
+     * position attribute the quad also supplies is left undeclared: this pass
+     * has no use for canvas pixels, and an attribute a shader does not consume
+     * costs nothing.
+     *
+     * The mapping is the identity in both directions — texel row 0 lands on
+     * target row 0 — so §3.1's y-down convention passes through untouched,
+     * which is what a tile-to-tile pass must do whichever way rows are stored.
+     */
+    val TILE_VERT = """
+        $VERSION_LINE
+        precision highp float;
+        layout(location = $ATTR_UV) in vec3 a_uvw;
+        out vec2 v_uv;
+        void main() {
+            v_uv = a_uvw.xy;
+            gl_Position = vec4(a_uvw.xy * 2.0 - 1.0, 0.0, 1.0);
+        }
+    """.trimIndent()
+
+    /**
+     * §7.4's `merge.frag`: one 256×256 quad per key, reading the layer tile and
+     * the stroke tile and writing the layer tile's replacement.
+     *
+     * Because it reads `L` and writes `L`, `MergePass` ping-pongs into a
+     * scratch slice taken with `allocateNotOn` and swaps handles — §2.1's rule
+     * that a pass never renders into a slice of a page it samples.
+     */
+    val MERGE_FRAG = listOf(
+        VERSION_LINE,
+        "precision highp float;",
+        "precision highp sampler2DArray;",
+        // Concatenated rather than interpolated into a raw string: `trimIndent`
+        // computes the common indent across every line of the *result*, so an
+        // already-unindented include spliced into an indented literal would
+        // strip the literal's own indentation with it.
+        MERGE_GLSL,
+        "in vec2 v_uv;",
+        "out vec4 o_color;",
+        "void main() {",
+        "    o_color = mergeStroke(fetchTile(u_layerPage, u_layerSlice, v_uv),",
+        "                          fetchTile(u_strokePage, u_strokeSlice, v_uv));",
+        "}",
+    ).joinToString("\n")
+
+    val MERGE = Source(
+        name = "merge",
+        vertex = TILE_VERT,
+        fragment = MERGE_FRAG,
+        uniforms = listOf(
+            Uniform("u_layerPage", "sampler2DArray"),
+            Uniform("u_strokePage", "sampler2DArray"),
+            Uniform("u_layerSlice", "float"),
+            Uniform("u_strokeSlice", "float"),
+            Uniform("u_strokeMode", "int"),
+            Uniform("u_strokeOpacity", "float"),
+            Uniform("u_dilution", "float"),
+            Uniform("u_alphaLock", "bool"),
+        ),
+    )
+
+    val ALL: List<Source> = listOf(COMPOSITE, PRESENT, CHECKER, DAB, MERGE)
 
     /**
      * The `switch` body of `blendStraight`, built from [BlendMode] so the two

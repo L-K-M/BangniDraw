@@ -35,6 +35,9 @@ class GlProgram private constructor(
     fun uniform2f(uniform: String, x: Float, y: Float) =
         GLES30.glUniform2f(location(uniform), x, y)
 
+    fun uniform3f(uniform: String, x: Float, y: Float, z: Float) =
+        GLES30.glUniform3f(location(uniform), x, y, z)
+
     fun uniform4f(uniform: String, x: Float, y: Float, z: Float, w: Float) =
         GLES30.glUniform4f(location(uniform), x, y, z, w)
 

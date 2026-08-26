@@ -92,10 +92,42 @@ class CanvasTouchHandler(
     private val prevX = FloatArray(2)
     private val prevY = FloatArray(2)
 
-    /** The last position of every tracked pointer, so a move has a previous. */
+    /**
+     * The last position **and axes** of every tracked pointer, so a move has a
+     * previous and a decision has the right pointer's pressure.
+     *
+     * The axes live here rather than in three fields for the same reason the
+     * position does: the arbiter can decide "draw" from the *clock* rather than
+     * from an event — `beginFingerDraw` fires out of `tick`, which
+     * [handleMoveEnd] calls after the whole event's pointers have been fed. A
+     * single set of axis fields would by then hold the last-processed pointer's
+     * values, which for a palm-plus-pen event is the palm's, and that opening
+     * sample would carry them. Same defect class as the `actionIndex` bug the
+     * axis parameters fixed, reached through the clock instead of the event.
+     *
+     * [track] writes all six together, so the axes can never belong to a
+     * different pointer than the position beside them.
+     */
     private val trackIds = IntArray(GestureArbiter.MAX_POINTERS) { NO_POINTER }
     private val trackX = FloatArray(GestureArbiter.MAX_POINTERS)
     private val trackY = FloatArray(GestureArbiter.MAX_POINTERS)
+    private val trackPressure = FloatArray(GestureArbiter.MAX_POINTERS) { 1f }
+    private val trackTilt = FloatArray(GestureArbiter.MAX_POINTERS)
+    private val trackOrientation = FloatArray(GestureArbiter.MAX_POINTERS)
+
+    /**
+     * When each slot was last written, so an opening sample keeps the time it
+     * actually happened at rather than the time it was noticed at.
+     *
+     * The two differ on both paths that open a stroke from something other
+     * than a down. From a move past the slop, the slot holds the finger-*down*
+     * point; from `tick` inside [handleMoveEnd], it holds whatever position
+     * that pointer last reported, which may be several pointers and one whole
+     * event ago. A single `lastEventNs` stamped both with the current event's
+     * time — telling the generator the pen covered that distance in zero, or
+     * near zero, elapsed time.
+     */
+    private val trackTimeNs = LongArray(GestureArbiter.MAX_POINTERS)
 
     private var navigating = false
 
@@ -124,7 +156,13 @@ class CanvasTouchHandler(
         override fun onDraw(pointerId: Int, source: StrokeSource) {
             navigating = false
             strokeLive = true
+            drawingId = pointerId
             host.onStrokeBegin(pointerId, source)
+            // The down that opened the stroke is a sample too. Without it a tap
+            // that never moves leaves no mark at all, and a fast stroke starts
+            // at its second sample.
+            val i = trackIndexOf(pointerId)
+            if (i >= 0) emitTracked(i)
         }
 
         override fun onNavigate() {
@@ -137,6 +175,7 @@ class CanvasTouchHandler(
         override fun onCancelStroke() {
             if (!strokeLive) return
             strokeLive = false
+            drawingId = NO_POINTER
             host.onStrokeCancel()
         }
         override fun onTapUndo() = host.onUndoRequested()
@@ -145,6 +184,7 @@ class CanvasTouchHandler(
         override fun onIgnore(pointerId: Int) = Unit
         override fun onStrokeEnd(pointerId: Int) {
             strokeLive = false
+            drawingId = NO_POINTER
             host.onStrokeEnd(pointerId)
         }
         override fun onNavigateEnd() {
@@ -162,13 +202,22 @@ class CanvasTouchHandler(
 
     // ------------------------------------------------------- primitive path
 
-    internal fun handleDown(pointerId: Int, tool: PointerTool, x: Float, y: Float, timeNs: Long) {
+    internal fun handleDown(
+        pointerId: Int,
+        tool: PointerTool,
+        x: Float,
+        y: Float,
+        timeNs: Long,
+        pressure: Float = 1f,
+        tilt: Float = 0f,
+        orientation: Float = 0f,
+    ) {
         arbiter.stylusNear = PalmRejection.rejects(PointerTool.FINGER, stylus, timeNs)
         if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
             stylusPointerId = pointerId
             stylus.onDown(x, y, tool)
         }
-        track(pointerId, x, y)
+        track(pointerId, x, y, pressure, tilt, orientation, timeNs)
         arbiter.down(pointerId, tool, x, y, timeNs, decisions)
         if (navigating) captureNavPointers()
     }
@@ -183,11 +232,74 @@ class CanvasTouchHandler(
      * the canvas twice per event, each time with one finger stale — the anchor
      * drifts, and a symmetric pinch visibly slides the point it should hold.
      */
-    internal fun handleMove(pointerId: Int, x: Float, y: Float, timeNs: Long) {
+    internal fun handleMove(
+        pointerId: Int,
+        x: Float,
+        y: Float,
+        timeNs: Long,
+        pressure: Float = 1f,
+        tilt: Float = 0f,
+        orientation: Float = 0f,
+    ) {
+        // [track] stays AFTER the arbiter: a decision made from
+        // this move opens the stroke at the pointer's previous position and
+        // axes — on the first move, the point it went down at. That is the
+        // sample the stroke would otherwise lose; the live sample below then
+        // adds the current one, so the opening segment survives.
         arbiter.move(pointerId, x, y, timeNs, decisions)
-        track(pointerId, x, y)
+        track(pointerId, x, y, pressure, tilt, orientation, timeNs)
         pendingMove = true
+        if (strokeLive && pointerId == drawingId) {
+            emitSample(x, y, pressure, tilt, orientation, timeNs)
+        }
     }
+
+    /**
+     * Forwards one pen sample to the host in **canvas** px (§2, §6).
+     *
+     * The conversion happens here because this class owns the view transform
+     * during a gesture and nothing downstream should have to know about
+     * screens: `03-canvas-engine.md` §6's pipeline reads
+     * "ScreenTransform.invert → StrokeInput samples", and a brush size is in
+     * canvas px so that a pencil is the same width on the paper at any zoom.
+     *
+     * Through [ViewTransform.invertX]/[invertY] rather than `invert`, because
+     * this runs per sample and the `Pair` would be an allocation on the touch
+     * path (§2.4).
+     */
+    private fun emitSample(
+        x: Float,
+        y: Float,
+        pressure: Float,
+        tilt: Float,
+        orientation: Float,
+        timeNs: Long,
+    ) {
+        host.onStrokeSample(
+            view.invertX(x, y),
+            view.invertY(x, y),
+            pressure,
+            tilt,
+            orientation,
+            timeNs,
+        )
+    }
+
+    /**
+     * The sample a tracked pointer is currently standing on — position and axes
+     * from the same slot, so they cannot come from different pointers.
+     */
+    private fun emitTracked(slot: Int) = emitSample(
+        trackX[slot],
+        trackY[slot],
+        trackPressure[slot],
+        trackTilt[slot],
+        trackOrientation[slot],
+        trackTimeNs[slot],
+    )
+
+    /** Which pointer the arbiter said is drawing, or [NO_POINTER]. */
+    private var drawingId = NO_POINTER
 
     /** Applies one navigation step from every pointer's position in this event. */
     internal fun handleMoveEnd(timeNs: Long) {
@@ -288,20 +400,42 @@ class CanvasTouchHandler(
         }
     }
 
-    private fun track(pointerId: Int, x: Float, y: Float) {
+    private fun track(
+        pointerId: Int,
+        x: Float,
+        y: Float,
+        pressure: Float,
+        tilt: Float,
+        orientation: Float,
+        timeNs: Long,
+    ) {
         for (i in trackIds.indices) {
             if (trackIds[i] == pointerId) {
-                trackX[i] = x; trackY[i] = y
+                store(i, x, y, pressure, tilt, orientation, timeNs)
                 return
             }
         }
         for (i in trackIds.indices) {
             if (trackIds[i] == NO_POINTER) {
                 trackIds[i] = pointerId
-                trackX[i] = x; trackY[i] = y
+                store(i, x, y, pressure, tilt, orientation, timeNs)
                 return
             }
         }
+    }
+
+    private fun store(
+        i: Int,
+        x: Float,
+        y: Float,
+        pressure: Float,
+        tilt: Float,
+        orientation: Float,
+        timeNs: Long,
+    ) {
+        trackX[i] = x; trackY[i] = y
+        trackPressure[i] = pressure; trackTilt[i] = tilt; trackOrientation[i] = orientation
+        trackTimeNs[i] = timeNs
     }
 
     private fun trackIndexOf(pointerId: Int): Int {
@@ -329,17 +463,32 @@ class CanvasTouchHandler(
         val timeNs = e.eventTime * 1_000_000L
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN ->
-                handleDown(id, toolOf(e.getToolType(index)), e.getX(index), e.getY(index), timeNs)
+                handleDown(
+                    id, toolOf(e.getToolType(index)), e.getX(index), e.getY(index), timeNs,
+                    e.getPressure(index),
+                    e.getAxisValue(MotionEvent.AXIS_TILT, index),
+                    e.getOrientation(index),
+                )
 
             MotionEvent.ACTION_MOVE -> {
                 for (h in 0 until e.historySize) {
                     val hNs = e.getHistoricalEventTime(h) * 1_000_000L
                     for (p in 0 until e.pointerCount) {
+                        // Axes read at index `p`, the same pointer handleMove
+                        // is given. For ACTION_MOVE the action's pointer-index
+                        // bits are always zero, so reading them at
+                        // `actionIndex` gave every pointer the FIRST pointer's
+                        // pressure and tilt — wrong exactly when it matters
+                        // most, with a palm down as pointer 0 and the pen
+                        // drawing as pointer 1.
                         handleMove(
                             e.getPointerId(p),
                             e.getHistoricalX(p, h),
                             e.getHistoricalY(p, h),
                             hNs,
+                            e.getHistoricalPressure(p, h),
+                            e.getHistoricalAxisValue(MotionEvent.AXIS_TILT, p, h),
+                            e.getHistoricalOrientation(p, h),
                         )
                     }
                     // Each historical sample is a complete event's worth of
@@ -347,7 +496,12 @@ class CanvasTouchHandler(
                     handleMoveEnd(hNs)
                 }
                 for (p in 0 until e.pointerCount) {
-                    handleMove(e.getPointerId(p), e.getX(p), e.getY(p), timeNs)
+                    handleMove(
+                        e.getPointerId(p), e.getX(p), e.getY(p), timeNs,
+                        e.getPressure(p),
+                        e.getAxisValue(MotionEvent.AXIS_TILT, p),
+                        e.getOrientation(p),
+                    )
                 }
                 handleMoveEnd(timeNs)
             }

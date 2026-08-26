@@ -28,6 +28,9 @@ class CanvasTouchHandlerTest {
     private class Host : CanvasInputHost {
         var view = ViewTransform()
         val events = mutableListOf<String>()
+        /** Every stroke sample, in the canvas px the host is promised. */
+        val samples = mutableListOf<Pair<Float, Float>>()
+        var lastPressure = -1f
         /** Muted during the allocation gate's measured window, so the harness costs nothing. */
         var record = true
         override fun onViewChanged(view: ViewTransform) { this.view = view; if (record) events += "view" }
@@ -36,6 +39,15 @@ class CanvasTouchHandlerTest {
         override fun onRedoRequested() { events += "redo" }
         override fun onColorPick(x: Float, y: Float) { events += "pick" }
         override fun onStrokeBegin(pointerId: Int, source: StrokeSource) { events += "begin($source)" }
+        override fun onStrokeSample(
+            x: Float, y: Float, pressure: Float, tilt: Float, orientation: Float, timeNs: Long,
+        ) {
+            // Muted with the rest of the recorder during the allocation gate:
+            // `x to y` is a Pair, and the gate must measure the handler rather
+            // than the harness that watches it.
+            if (record) samples += x to y
+            lastPressure = pressure
+        }
         override fun onStrokeEnd(pointerId: Int) { events += "end" }
         override fun onStrokeCancel() { events += "cancel" }
     }
@@ -348,6 +360,65 @@ class CanvasTouchHandlerTest {
             "with right angles on, the snap target is 90 degrees, not zero",
         )
         assertTrue("snap" in host.events, "entering the snap must still report for the haptic")
+    }
+
+    @Test
+    fun `stroke samples reach the host in canvas pixels, not view pixels`() {
+        // §6's pipeline inverts the view before the samples leave this class,
+        // and it has to: a brush size is in canvas px so a pencil is the same
+        // width on the paper at any zoom. Forwarding view px would make every
+        // brush scale with the zoom.
+        val host = Host()
+        val h = handler(host)
+        h.stylusOnly = false
+        h.setView(ViewTransform(scale = 2f, tx = 100f, ty = 50f))
+        h.handleDown(1, PointerTool.FINGER, 300f, 250f, ms(0))
+        h.handleTick(ms(GestureArbiter.PENDING_MS))   // resolve the pending window into a draw
+        h.handleMove(1, 500f, 450f, ms(30))
+        h.handleMoveEnd(ms(30))
+
+        assertTrue(host.samples.size >= 2, "a draw must emit samples, got ${host.samples}")
+        // (500,450) in view px, with scale 2 and translation (100,50), is
+        // (200,200) on the canvas.
+        val (x, y) = host.samples.last()
+        assertEquals(200f, x, 1e-3f, "sample x must be canvas px")
+        assertEquals(200f, y, 1e-3f, "sample y must be canvas px")
+    }
+
+    @Test
+    fun `the down that opens a stroke is itself a sample`() {
+        // Without it a slow tap-and-hold leaves no mark at all, and a fast
+        // stroke visibly starts at its second sample.
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(1, PointerTool.FINGER, 10f, 20f, ms(0))
+        h.handleTick(ms(GestureArbiter.PENDING_MS))
+        assertEquals(1, host.samples.size, "the opening down must emit one sample")
+        assertEquals(10f to 20f, host.samples.first())
+    }
+
+    @Test
+    fun `a navigating gesture emits no stroke samples`() {
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(1, PointerTool.FINGER, 100f, 200f, ms(0))
+        h.handleDown(2, PointerTool.FINGER, 300f, 200f, ms(10))
+        h.handleMove(1, 150f, 200f, ms(30))
+        h.handleMove(2, 350f, 200f, ms(30))
+        h.handleMoveEnd(ms(30))
+        assertTrue(host.samples.isEmpty(), "a two-finger pan must not draw: ${host.samples}")
+    }
+
+    @Test
+    fun `a rejected palm emits no stroke samples`() {
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(1, PointerTool.STYLUS, 50f, 50f, ms(0))   // the pen owns the gesture
+        host.samples.clear()
+        h.handleDown(2, PointerTool.FINGER, 400f, 400f, ms(5)) // the palm
+        h.handleMove(2, 410f, 400f, ms(20))
+        h.handleMoveEnd(ms(20))
+        assertTrue(host.samples.isEmpty(), "a palm must not draw: ${host.samples}")
     }
 
     private companion object {

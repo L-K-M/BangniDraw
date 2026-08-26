@@ -36,6 +36,28 @@ data class ViewTransform(
         Pair(a * x - b * y + tx, b * x + a * y + ty)
 
     /** Inverse of [apply]: a touch in view pixels → canvas pixels. */
+    /**
+     * [invert]'s x, without the [Pair].
+     *
+     * The stroke path calls this per pen sample — several hundred times a
+     * second on a 240 Hz digitizer — where `10-performance.md` §2.4 allows no
+     * allocation, and a `Pair<Float, Float>` is two boxed floats and an object.
+     * [invert] stays for the callers that are not on that path and read better
+     * with a destructuring.
+     */
+    fun invertX(x: Float, y: Float): Float {
+        val dx = x - tx
+        val dy = y - ty
+        return (cos(rotation) * dx + sin(rotation) * dy) / scale
+    }
+
+    /** [invert]'s y, without the [Pair] — see [invertX]. */
+    fun invertY(x: Float, y: Float): Float {
+        val dx = x - tx
+        val dy = y - ty
+        return (-sin(rotation) * dx + cos(rotation) * dy) / scale
+    }
+
     fun invert(x: Float, y: Float): Pair<Float, Float> {
         val dx = x - tx
         val dy = y - ty

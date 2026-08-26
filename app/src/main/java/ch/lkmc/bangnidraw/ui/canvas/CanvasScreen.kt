@@ -34,6 +34,11 @@ import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerProps
 import ch.lkmc.bangnidraw.engine.core.LayerStack
+import ch.lkmc.bangnidraw.engine.core.BrushPresets
+import ch.lkmc.bangnidraw.engine.core.StrokeDriver
+import ch.lkmc.bangnidraw.engine.core.StrokeMode
+import ch.lkmc.bangnidraw.engine.core.StrokeSource
+import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 
 /**
@@ -68,6 +73,11 @@ fun CanvasScreen(onBack: () -> Unit) {
         )
     }
     var session by remember { mutableStateOf<EngineSession?>(null) }
+
+    // The stroke in flight. Plain vars, not Compose state: they change several
+    // hundred times a second on the input path and nothing draws from them, so
+    // making them observable would recompose the whole screen per pen sample.
+    val strokeState = remember { StrokeUiState() }
     val density = LocalDensity.current
     val view0 = LocalView.current
 
@@ -91,6 +101,75 @@ fun CanvasScreen(onBack: () -> Unit) {
                 override fun onUndoRequested() = Unit
                 override fun onRedoRequested() = Unit
                 override fun onColorPick(x: Float, y: Float) = Unit
+
+                // Roadmap 2.4b: the stroke reaches pixels. Dabs land in a
+                // stroke buffer and merge into the layer on pen-up (§7.1,
+                // §7.4), so the mark appears when the pen lifts. The live
+                // front-buffered preview of §7.5 is 2.5's.
+                override fun onStrokeBegin(pointerId: Int, source: StrokeSource) {
+                    val engine = session ?: return
+                    val active = stack.layers.getOrNull(stack.activeIndex) ?: return
+                    val preset = BrushPresets.DEFAULT
+                    val erasing = preset.eraseMode || source == StrokeSource.ERASER_END
+                    // A new seed per stroke: DabGenerator derives every dab's
+                    // jitter and grain phase from it, so one shared seed would
+                    // make every stroke of a jittering brush identical.
+                    val driver = StrokeDriver(preset, seed = strokeState.nextSeed(), zoom = view.scale)
+                    strokeState.driver = driver
+                    val spec = StrokeSpec(
+                        layerId = active.id,
+                        mode = if (erasing) StrokeMode.ERASE else StrokeMode.PAINT,
+                        // The ceiling is only known once the stroke has ended —
+                        // it is the maximum pressure actually used — so the
+                        // spec sent at pen-down carries the preset's own
+                        // opacity and endStroke re-sends the measured one.
+                        opacity = preset.opacity,
+                        alphaLock = active.props.alphaLock,
+                    )
+                    engine.beginStroke(
+                        spec, preset.bufferMode,
+                        strokeState.colorR, strokeState.colorG, strokeState.colorB,
+                    )
+                }
+
+                override fun onStrokeSample(
+                    x: Float,
+                    y: Float,
+                    pressure: Float,
+                    tilt: Float,
+                    orientation: Float,
+                    timeNs: Long,
+                ) {
+                    val driver = strokeState.driver ?: return
+                    val engine = session ?: return
+                    val batch = engine.acquireDabBatch() ?: return
+                    val emitted = if (driver.isActive) {
+                        driver.sample(x, y, pressure, tilt, orientation, timeNs, StrokeSource.STYLUS, batch)
+                    } else {
+                        driver.begin(x, y, pressure, tilt, orientation, timeNs, StrokeSource.STYLUS, batch)
+                    }
+                    if (emitted == 0) engine.releaseDabBatch(batch) else engine.stampDabs(batch)
+                }
+
+                override fun onStrokeEnd(pointerId: Int) {
+                    val driver = strokeState.driver ?: return
+                    val engine = session ?: return
+                    val batch = engine.acquireDabBatch()
+                    if (batch != null) {
+                        if (driver.end(batch) == 0) engine.releaseDabBatch(batch)
+                        else engine.stampDabs(batch)
+                    } else {
+                        driver.cancel()
+                    }
+                    strokeState.driver = null
+                    engine.endStroke()
+                }
+
+                override fun onStrokeCancel() {
+                    strokeState.driver?.cancel()
+                    strokeState.driver = null
+                    session?.cancelStroke()
+                }
             },
         )
     }
@@ -171,3 +250,31 @@ private const val CHECKER_DP = 8
 /** A square canvas until the New Canvas dialog can choose one (roadmap step 3). */
 private const val DEFAULT_EDGE = 2048
 
+
+/**
+ * The stroke in flight, plus the colour it paints with.
+ *
+ * Plain fields rather than Compose state: these change several hundred times a
+ * second on the input path and nothing composes from them, so making them
+ * observable would recompose the whole screen once per pen sample. The colour
+ * becomes a real palette selection with the tool UI of roadmap step 3; until
+ * then a stroke is black, which is enough for 2.4b's device check and honest
+ * about what exists.
+ */
+internal class StrokeUiState {
+    var driver: StrokeDriver? = null
+
+    /** Straight sRGB, 0..1 — `dab.vert`'s `u_color`. */
+    var colorR = 0f
+    var colorG = 0f
+    var colorB = 0f
+
+    private var seed = 1L
+
+    /**
+     * A fresh seed per stroke. `DabGenerator` derives every dab's jitter and
+     * grain phase from it, so one shared seed would make every stroke of a
+     * jittering brush trace the same wobble.
+     */
+    fun nextSeed(): Long = seed++
+}

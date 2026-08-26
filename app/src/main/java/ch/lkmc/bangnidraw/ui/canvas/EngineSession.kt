@@ -4,11 +4,14 @@ import android.view.SurfaceView
 import androidx.graphics.lowlatency.BufferInfo
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
 import androidx.graphics.opengl.egl.EGLManager
+import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.DabBatch
+import ch.lkmc.bangnidraw.engine.core.DabRing
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
+import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
 
@@ -163,6 +166,85 @@ class EngineSession(
             renderer.checkerA = colorA
             renderer.checkerB = colorB
         }
+        redraw()
+    }
+
+    // ------------------------------------------------------- the stroke (§7)
+
+    /**
+     * Opens a stroke on the GL thread (§7.1).
+     *
+     * Fire-and-forget, like every other command here: the answer
+     * `CanvasRenderer.beginStroke` returns cannot come back synchronously
+     * without blocking the input thread on the GL thread, which is what
+     * `02-architecture.md` §3.3 forbids. A refused stroke — an RMW tool, a
+     * context still coming up — simply produces no dabs, and every later call
+     * for it is a no-op, so refusing late costs nothing.
+     */
+    fun beginStroke(spec: StrokeSpec, mode: BufferMode, r: Float, g: Float, b: Float) {
+        frontBuffered.execute { renderer.beginStroke(spec, mode, r, g, b) }
+    }
+
+    /**
+     * The single-producer/single-consumer ring of `02-architecture.md` §3.2:
+     * the main thread fills a slot, the GL thread consumes it and returns it.
+     *
+     * A ring rather than a copy per event, because a copy would allocate a
+     * whole `DabBatch` — 8 KiB of `FloatArray`s at the default capacity — on
+     * every `ACTION_MOVE`, which is precisely the per-sample allocation
+     * `10-performance.md` §2.4 exists to forbid. Handing the caller's own
+     * scratch over instead would race the input path's refill against the GL
+     * thread's read.
+     */
+    private val dabRing = DabRing()
+
+    /**
+     * Borrows a batch to fill, or null when the GL thread still holds every
+     * slot.
+     *
+     * §3.5: a null is not a dropped dab. The producer keeps its samples and
+     * coalesces them into the next batch, so nothing is lost — only delayed by
+     * a frame, and at 8 × 1 024 dabs that is seconds of airbrush.
+     */
+    fun acquireDabBatch(): DabBatch? = dabRing.acquire()
+
+    /**
+     * Hands a borrowed batch back unused — the generator emitted nothing for
+     * this sample, which the stabilizer's leash makes routine. Without this the
+     * slot would stay checked out and the ring would starve after eight quiet
+     * samples.
+     */
+    fun releaseDabBatch(batch: DabBatch) = dabRing.release(batch)
+
+    /**
+     * Stamps a batch borrowed from [acquireDabBatch] and returns it to the ring
+     * once the GL thread is done with it.
+     *
+     * The release happens **inside** the GL block, not after `execute`
+     * returns: `execute` only queues, so releasing here would hand the slot
+     * back while the GL thread was still reading it.
+     */
+    fun stampDabs(batch: DabBatch) {
+        if (batch.count == 0) {
+            dabRing.release(batch)
+            return
+        }
+        frontBuffered.execute {
+            renderer.stampDabs(batch)
+            dabRing.release(batch)
+        }
+        redraw()
+    }
+
+    /** Merges the stroke into its layer and reads the touched tiles back (§7.4, §10.1). */
+    fun endStroke() {
+        frontBuffered.execute { renderer.endStroke(readback = null, revision = 0) }
+        redraw()
+    }
+
+    /** §4: a cancelled stroke leaves no trace. */
+    fun cancelStroke() {
+        frontBuffered.execute { renderer.cancelStroke() }
         redraw()
     }
 

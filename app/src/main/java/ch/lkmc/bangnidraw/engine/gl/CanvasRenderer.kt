@@ -84,6 +84,7 @@ class CanvasRenderer(
     private var merge: GlProgram? = null
     private var dabPass: DabPass? = null
     private var mergePass: MergePass? = null
+    private var preview: GlProgram? = null
     private var strokeBuffer: StrokeBuffer? = null
 
     /**
@@ -181,13 +182,14 @@ class CanvasRenderer(
         // assigned only after the try, so on a failure the earlier programs
         // would simply go out of scope and leak their GL ids until the context
         // is destroyed — once per retry, on a path that is retryable.
-        val linked = ArrayList<GlProgram>(5)
+        val linked = ArrayList<GlProgram>(6)
         try {
             linked += GlProgram.link(Shaders.COMPOSITE)
             linked += GlProgram.link(Shaders.PRESENT)
             linked += GlProgram.link(Shaders.CHECKER)
             linked += GlProgram.link(Shaders.DAB)
             linked += GlProgram.link(Shaders.MERGE)
+            linked += GlProgram.link(Shaders.PREVIEW)
         } catch (e: GlProgramException) {
             linked.forEach(GlProgram::release)
             Log.e(GL_TAG, "shader link failed on ${probed.describe()}", e)
@@ -200,7 +202,9 @@ class CanvasRenderer(
         composite = compositeProgram
         present = presentProgram
         checker = checkerProgram
-        compositePass = CompositePass(compositeProgram, state)
+        val previewProgram = linked[5]
+        preview = previewProgram
+        compositePass = CompositePass(compositeProgram, state, previewProgram)
         val tiles = TilePool(probed, budget)
         pool = tiles
         sandwich = SandwichCache(grid, tiles, compositeProgram, state)

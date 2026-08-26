@@ -125,6 +125,16 @@ class LayerTextures(
      */
     fun pageTexture(page: Int): Int = pool.textureOf(page)
 
+    /**
+     * The texture behind [page], or null when there is no such page.
+     *
+     * §7.5's preview binds three pages per draw and any of them may be absent
+     * for a whole run — `PreviewPlan.ABSENT` is -1, which is not a page. The
+     * caller fills the unit with a sibling's texture instead of leaving a
+     * sampler unbound.
+     */
+    fun pageTextureOrNull(page: Int): Int? = if (page < 0) null else pool.textureOf(page)
+
     /** Appends every key with content to [out], row-major. Cold paths only — [TileKey] boxes. */
     fun allKeys(out: MutableList<TileKey>) = index.allKeys(out)
 

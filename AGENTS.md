@@ -273,6 +273,19 @@ and the contradiction is noted here.
   destination its own source and copies the texture onto itself, with no GL
   error and a plausible-looking result at every zoom where the backdrop
   happens not to matter.
+- **`requestUnbufferedDispatch(int)` takes a source *class*, not a source.**
+  `07-input-and-stylus.md` §2.1 writes
+  `requestUnbufferedDispatch(InputDevice.SOURCE_STYLUS)` and marks it "(to
+  verify)"; verified, and it is wrong. The parameter carries the platform's
+  `@InputSourceClass` annotation, so the argument must be one of the
+  `SOURCE_CLASS_*` constants — `SOURCE_STYLUS` is `0x4002`, and only its low
+  bit is `SOURCE_CLASS_POINTER` (`0x2`), so passing it would probably have
+  worked while being the wrong value. Android Lint fails the build on it
+  (`WrongConstant`), which is what caught it. The hover call therefore passes
+  `InputDevice.SOURCE_CLASS_POINTER`, which covers a hovering pen and costs
+  nothing extra. The API levels either overload arrived at — 30 for the `int`
+  one, 21 for the `MotionEvent` one — are read out of the SDK's own
+  `data/api-versions.xml`, not assumed.
 - **§8.1's step 5 is not a separate pass — the tail is drawn *by* §7.5's
   preview.** The plan lists "draw the predicted tail on top, restricted to the
   same rect" as a fifth step after the composite, which reads as a second draw.

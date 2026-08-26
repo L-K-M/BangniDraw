@@ -1563,3 +1563,50 @@ pushed it six lines from its referent.
   sibling finding was applied rather than declined: preconditions that can only
   fire on a wiring bug stay loud, in `copyInto` (R-087), in `stamp` (here), and
   now in `predict` too.
+
+---
+
+## PR #16 — stylus axes and dispatch (roadmap 2.5c)
+
+### Round 1 — one refusal
+
+Three findings. Two applied — the unbuffered request hoisted out of the `when`
+arm whose nested re-check duplicated the value it switched on, and the hover
+KDoc corrected to say that `SOURCE_CLASS_POINTER` unbuffers mouse and
+touchscreen hover too, not only a pen.
+
+- **R-091 — declined (refuted).** *"The wrapped canvas azimuth creates a seam
+  for interpolated or predicted samples"*: the concern is that downstream code
+  blending orientation between two samples would lerp the long way when they
+  straddle ±π — 3.13 and −3.13 passing through 0 — and that subtracting
+  `view.rotation` *moves* that seam, so a stroke clean at rotation 0 breaks
+  after the paper is turned.
+
+  The hazard is real in general and is already handled, by a helper that exists
+  for exactly it. Every site that combines two orientations goes through
+  `Stabilizer.easeAngle`, and there are three, enumerated rather than assumed:
+
+  - `Stabilizer.push` (`Stabilizer.kt:122`) — the per-sample ease,
+  - `Stabilizer.finish` (`Stabilizer.kt:176`) — the pen-up catch-up walk,
+  - `DabGenerator` (`DabGenerator.kt:294`) — interpolating between two samples
+    to place a dab.
+
+  `easeAngle` is the shortest-arc formula the finding asks for, reduced modularly
+  instead of through trig: `delta = (to − from) % 2π`, then `−= 2π` above π and
+  `+= 2π` below −π, then `from + delta·t`. For 3.13 and −3.13 that yields
+  +0.023, the short way. Nowhere else differences or averages orientation —
+  `DabGenerator.kt:300` and `:326` are plain assignments, and `StrokeInput.set`
+  copies.
+
+  It is also already tested, and the test straddles ±π exactly as the finding
+  proposes: `StabilizerTest`'s
+  `the orientation eases the short way around the circle` pushes from just under
+  π to just over −π and asserts the result stays near π rather than crossing
+  zero. `StabilizerTest` line 51 even names that test as what covers the input
+  layer's wrapping.
+
+  So no new test was added — one would duplicate that case — and no call site
+  needed changing. Worth recording rather than dismissing, because the finding
+  is correct about *where* the seam sits and would be a real bug in a codebase
+  that lerped orientation raw; what makes it a non-issue here is a helper that
+  predates this PR.

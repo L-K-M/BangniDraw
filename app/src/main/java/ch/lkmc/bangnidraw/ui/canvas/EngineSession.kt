@@ -44,6 +44,29 @@ class EngineSession(
     val renderer = CanvasRenderer(canvas, budget)
 
     /**
+     * §11's budgets as measured, for the debug overlay (`10-performance.md`
+     * §5.3).
+     *
+     * The renderer's own instance, not a copy: it is written on the GL thread
+     * and read on the main thread through its `@Volatile` fields, which is the
+     * whole design. Exposed here because `CanvasScreen` holds the session, not
+     * the renderer.
+     */
+    val perf get() = renderer.perf
+
+    /**
+     * The pool and capability line for the overlay's last row.
+     *
+     * A function rather than a value because it builds a string: called four
+     * times a second by the overlay's sampler, never on the render path. Racy
+     * by construction — it reads GL-thread state from the main thread — and
+     * that is acceptable for a diagnostic line no decision is made from, which
+     * is exactly why the *numbers* above it go through `@Volatile` fields
+     * instead.
+     */
+    fun describeEngine(): String = renderer.describe()
+
+    /**
      * `GLFrontBufferedRenderer` starts its GL thread inside its own
      * constructor, so a callback can fire before this line finishes assigning.
      *
@@ -154,6 +177,9 @@ class EngineSession(
                     // graphics-core coalesces requests — leaves the tail alone
                     // instead of wiping a guess that is still the best there is.
                     dirty = renderer.clearTail()
+                    // Same "once per stamping frame" moment: what the stamps
+                    // below cost belongs to this frame and no other.
+                    renderer.beginFrame()
                 }
                 dirty = dirty.union(renderer.stampDabs(next))
             }

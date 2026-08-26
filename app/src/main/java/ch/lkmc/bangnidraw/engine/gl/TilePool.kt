@@ -68,6 +68,17 @@ class TilePool(
 
     val pageCount: Int get() = allocator.pageCount
     val usedSlices: Int get() = allocator.usedCount
+
+    /**
+     * Every slice this pool can ever hold — the denominator the debug overlay
+     * shows [usedSlices] against.
+     *
+     * From [maxPages], which is `budget.poolArrayCount` **coerced to at least
+     * 1**. Computing it at the call site from `poolArrayCount` would drop that
+     * coercion and report a capacity of 0 for a pool that can hold a page,
+     * which reads as an exhausted pool rather than a tiny one.
+     */
+    val sliceCapacity: Int get() = slicesPerPage * maxPages
     val residentBytes: Long get() = allocator.residentBytes
 
     /** The GL texture of [page]. */

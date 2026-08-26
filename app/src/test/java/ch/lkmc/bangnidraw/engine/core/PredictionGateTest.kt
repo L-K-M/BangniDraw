@@ -226,6 +226,29 @@ class PredictionGateTest {
         assertEquals(0f, gate.error, 1e-4f)
     }
 
+    @Test
+    fun `actual reports whether it scored, and publishes the pair it compared`() {
+        // The overlay's feed (§8). The *actual* point is interpolated to the
+        // predicted instant, so publishing it from here is what stops the
+        // overlay from drawing points that disagree with the error printed
+        // beside them.
+        val gate = PredictionGate()
+        assertFalse(gate.actual(0f, 0f, 0L), "the first sample has no prediction to score")
+        gate.predicted(10f, 0f, 100 * ms)
+        assertFalse(gate.actual(1f, 0f, 50 * ms), "the pen has not reached the instant yet")
+        assertTrue(gate.actual(3f, 0f, 150 * ms), "now it has")
+
+        assertEquals(10f, gate.scoredPredictedX, 1e-5f)
+        assertEquals(0f, gate.scoredPredictedY, 1e-5f)
+        // Interpolated at 100 ms between (1,0)@50 and (3,0)@150: exactly 2.
+        assertEquals(2f, gate.scoredActualX, 1e-5f, "the pair must carry the INTERPOLATED point")
+        assertEquals(0f, gate.scoredActualY, 1e-5f)
+        // And it agrees with the error the same call folded in.
+        assertEquals(8f, gate.error, 1e-4f)
+
+        assertFalse(gate.actual(4f, 0f, 200 * ms), "nothing pending, so nothing scored")
+    }
+
     // --------------------------------------------------------- truncation
 
     @Test

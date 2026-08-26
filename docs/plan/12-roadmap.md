@@ -206,6 +206,20 @@ row's own JVM gate demands. A cut that produces a PR nobody can review as a
 unit is worse than a large PR that is one — and a cut that separates a claim
 from its evidence is worse still.
 
+**Carried in from PR 2.4b's review.** When flat and bristle tips land
+(`04-tools.md` §2), the dab's anti-alias feather needs normalising per axis.
+`dab.frag` evaluates the falloff in aspect-normalised local space, so the
+`[inner, r]` band is 1 canvas px across the major axis but `aspect` px across
+the minor one — and since `aspect` is minor/major and cannot exceed 1, the long
+edges of a flat brush get a *sub-pixel* band and alias, breaking §7.3's promise
+that the band is "never thinner than 1 canvas px". Unreachable today: every
+shipped preset is `TipShape.Round`, where the two axes coincide. The fix is a
+per-fragment normalisation by the gradient — `fwidth(d)` is exact here, because
+a merge renders a tile 1:1 with canvas px — and it must move `DabStamp` with it,
+which needs the analytic gradient since the CPU twin has no derivatives. Do not
+take the shortcut of `inner = r - 1/aspect`: it buys the minor axis its pixel by
+giving the major axis a `1/aspect` px smear. REVIEW.md R-055 has the derivation.
+
 **Carried in from PR 2.4a's review.** Two items, both raised after steady state
 and neither affecting coverage today. `NavigationStep.applyTo` returns
 `view.gesture(...)` and the snap then re-`copy`s it, so a navigation step

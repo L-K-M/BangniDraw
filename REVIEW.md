@@ -803,3 +803,66 @@ unreadable.
 
   Carried in `docs/plan/12-roadmap.md` as a 2.4b carry-in, to be done when that
   file is next touched.
+
+## PR #13 (roadmap 2.4b) — GLM round 1
+
+- **R-053 ❌ `DabRing` slots are released from two threads, so the ring can
+  starve permanently** (PR #13, GLM round 1, Major). **Refuted.** The premise —
+  releases arriving from both the input thread and the GL thread — is correct,
+  and worth saying out loud, which is why `EngineSession` now carries a comment
+  about it. The conclusion is not: `DabRing.acquire` and `DabRing.release` are
+  both `@Synchronized` (`engine/core/Dab.kt`), as is `freeSlots`. The finding
+  itself is conditional — "If `DabRing` uses a non-atomic index/flag" — and the
+  answer is that it does not. There is no lost-slot window and no starvation.
+
+  Not applied, and specifically *not* routed through `frontBuffered.execute`, as
+  the finding's fallback suggests: that would defer every empty-batch release by
+  a GL-thread hop, so a run of samples the stabilizer swallows would hold slots
+  for a frame each and manufacture the starvation the change was meant to
+  prevent.
+
+- **R-054 ❌ `IntRect.forDab(x, y, radius)` may not bound the rotated ellipse,
+  so dabs could be dropped from neighbouring tiles** (PR #13, GLM round 1,
+  Info). **Refuted**, twice over. `aspect` is minor/major and is bounded to
+  `0.1..1` (`TipShape.Flat.MIN_ASPECT`, and `StrokeDriverTest` pins
+  `aspect in (0, 1]` for every emitted dab), so it only ever *shrinks* the
+  ellipse below `radius` — the circumscribing circle of radius `radius` bounds
+  it at every angle. And `forDab` already pads: it floors/ceils
+  `x ± radius ± 1`, a full pixel beyond the radius.
+
+  The one case worth checking is the sub-pixel dab, where the quad is padded to
+  `max(radius, 1) + 1 = 2` px while `forDab` gives only `radius + 1 = 1.3` px.
+  That is still sound, because the *painted* extent is bounded by the falloff,
+  not the quad: `coverage` is zero at and beyond `drawRadius = max(radius, 1)`,
+  and `radius + 1 ≥ max(radius, 1)` holds for every radius. No painted pixel
+  falls outside the rect.
+
+- **R-055 ⏸️ The anti-alias feather is 1 px on the major axis but `aspect` px on
+  the minor axis of an elliptical dab** (PR #13, GLM round 1, Minor).
+  **Deferred**, with the finding's own analysis corrected in two places.
+
+  The asymmetry is real. `v_local.y` is divided by `aspect`, so the `[inner, r]`
+  band of width 1 in local units is `(r − inner)·aspect` canvas px across the
+  minor axis.
+
+  But the finding has the sign backwards. It reasons from "aspect 8", and
+  `aspect` is minor/major — it cannot exceed 1. So the long edges of a flat
+  brush are not *blurred* to 8 px; they are *sharpened* to `aspect` px, which at
+  `aspect = 0.25` is a quarter-pixel band and therefore **aliased**. The defect
+  is the opposite of the one reported, and it breaks the promise §7.3 actually
+  makes ("never thinner than 1 canvas px").
+
+  The suggested fix — `inner = r − 1/aspect` — is also not right. It buys a 1 px
+  minor-axis band by making the *major*-axis band `1/aspect` px: at
+  `aspect = 0.25` a hardness-1.0 brush would get a 4 px feather along its long
+  axis, trading an aliased edge for a smeared one. A correct fix normalises per
+  fragment by the gradient — `fwidth(d)` is exactly right here, since a merge
+  renders a tile 1:1 with canvas px — but `DabStamp`, the CPU twin §15 requires
+  this shader to match, has no derivative to mirror it with, so the twin needs
+  the analytic gradient written out.
+
+  Deferred rather than rushed because it is **unreachable today**: every shipped
+  preset is `TipShape.Round`, `BrushPresets.ALL` is `[INK_PEN]`, and at
+  `aspect = 1` the two axes coincide exactly. It belongs with the flat and
+  bristle tips of `04-tools.md` §2, which is the first PR that can actually see
+  it. Recorded in `12-roadmap.md`.

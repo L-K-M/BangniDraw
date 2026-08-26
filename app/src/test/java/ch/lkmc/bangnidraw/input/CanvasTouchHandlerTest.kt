@@ -31,6 +31,7 @@ class CanvasTouchHandlerTest {
         /** Every stroke sample, in the canvas px the host is promised. */
         val samples = mutableListOf<Pair<Float, Float>>()
         var lastPressure = -1f
+        var lastTilt = -1f
         /** Muted during the allocation gate's measured window, so the harness costs nothing. */
         var record = true
         override fun onViewChanged(view: ViewTransform) { this.view = view; if (record) events += "view" }
@@ -47,6 +48,7 @@ class CanvasTouchHandlerTest {
             // than the harness that watches it.
             if (record) samples += x to y
             lastPressure = pressure
+            lastTilt = tilt
         }
         override fun onStrokeEnd(pointerId: Int) { events += "end" }
         override fun onStrokeCancel() { events += "cancel" }
@@ -383,6 +385,13 @@ class CanvasTouchHandlerTest {
         val (x, y) = host.samples.last()
         assertEquals(200f, x, 1e-3f, "sample x must be canvas px")
         assertEquals(200f, y, 1e-3f, "sample y must be canvas px")
+        // The opening down under the same transform: (300,250) view px at
+        // scale 2 with translation (100,50) is (100,100) on the canvas. Without
+        // this, a regression that inverted moves but emitted the down in view
+        // px would pass both this test and the identity-view one.
+        val (downX, downY) = host.samples.first()
+        assertEquals(100f, downX, 1e-3f, "the opening down must be canvas px too")
+        assertEquals(100f, downY, 1e-3f, "the opening down must be canvas px too")
     }
 
     @Test
@@ -401,6 +410,10 @@ class CanvasTouchHandlerTest {
     fun `a navigating gesture emits no stroke samples`() {
         val host = Host()
         val h = handler(host)
+        // Pinned, or the test passes for the wrong reason if the default ever
+        // flips: in stylus-only mode a finger is refused before the arbiter or
+        // palm rejection runs at all, and their coverage vanishes silently.
+        h.stylusOnly = false
         h.handleDown(1, PointerTool.FINGER, 100f, 200f, ms(0))
         h.handleDown(2, PointerTool.FINGER, 300f, 200f, ms(10))
         h.handleMove(1, 150f, 200f, ms(30))
@@ -413,12 +426,34 @@ class CanvasTouchHandlerTest {
     fun `a rejected palm emits no stroke samples`() {
         val host = Host()
         val h = handler(host)
+        h.stylusOnly = false
         h.handleDown(1, PointerTool.STYLUS, 50f, 50f, ms(0))   // the pen owns the gesture
         host.samples.clear()
         h.handleDown(2, PointerTool.FINGER, 400f, 400f, ms(5)) // the palm
         h.handleMove(2, 410f, 400f, ms(20))
         h.handleMoveEnd(ms(20))
         assertTrue(host.samples.isEmpty(), "a palm must not draw: ${host.samples}")
+    }
+
+    @Test
+    fun `the drawing pointer's own axes reach the host, not the first pointer's`() {
+        // For ACTION_MOVE the action's pointer-index bits are always zero, so
+        // reading pressure from `actionIndex` gave every pointer the FIRST
+        // pointer's axes. That is wrong exactly in the setup this class exists
+        // for: a palm down as pointer 0 and the pen drawing as pointer 1, where
+        // every pen sample would carry the palm's pressure and a tilt of zero.
+        val host = Host()
+        val h = handler(host)
+        h.stylusOnly = false
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        h.handleTick(ms(GestureArbiter.PENDING_MS))
+
+        h.setAxes(pressure = 0.75f, tilt = 0.4f, orientation = 0f)
+        h.handleMove(1, 140f, 100f, ms(30))
+        h.handleMoveEnd(ms(30))
+
+        assertEquals(0.75f, host.lastPressure, 1e-6f, "the sample must carry its own pointer's pressure")
+        assertEquals(0.4f, host.lastTilt, 1e-6f, "and its own tilt")
     }
 
     private companion object {

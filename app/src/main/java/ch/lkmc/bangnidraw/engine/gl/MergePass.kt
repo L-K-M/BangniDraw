@@ -40,7 +40,14 @@ class MergePass(
 
     /**
      * Merges every key [buffer] touched into [layer] and returns how many
-     * tiles changed — what `Readback` then reads out.
+     * tiles changed.
+     *
+     * **The count is a metric, never a prefix length into [keys].** Three paths
+     * `continue` past a key — an absent stroke slice, a pool refusal, a failed
+     * FBO bind — so `merged` can be smaller than `keys.size` while [keys] still
+     * holds every touched key. [keys] must be read back in full;
+     * `Readback.enqueue` re-resolves each key against the layer and skips the
+     * ones that have no slice.
      *
      * [keys] is the caller's scratch list, reused across strokes.
      *

@@ -243,6 +243,12 @@ class StrokeMergeTest {
             spec(StrokeMode.ERASE), spec(StrokeMode.ERASE, alphaLock = true),
             spec(StrokeMode.MIX), spec(StrokeMode.MIX, alphaLock = true),
             spec(StrokeMode.MIX, dilution = 0.7f), spec(StrokeMode.PAINT, opacity = 0.35f),
+            // Partial opacity for ERASE and MIX too. The cap rescales colour
+            // alongside alpha, and a cap that got that wrong would break
+            // rgb <= a only at intermediate opacities — which only PAINT was
+            // sweeping.
+            spec(StrokeMode.ERASE, opacity = 0.35f),
+            spec(StrokeMode.MIX, opacity = 0.35f, dilution = 0.7f),
         )
         for (sp in specs) {
             for (layer in samples()) {
@@ -270,6 +276,27 @@ class StrokeMergeTest {
                     layer, Rgba(0.5f, 0.5f, 0.5f, 1f), spec(mode, opacity = 0f), scratch = scratch,
                 )
                 assertEquals(layer, merged, "$mode at opacity 0 must be identity on $layer")
+            }
+        }
+    }
+
+    @Test
+    fun `the packed round trip used by the cross-check is itself lossless to 8 bits`() {
+        // fromPacked was written for this and then left uncalled — a helper in
+        // the file whose whole job is to be the evidence, exercising nothing.
+        // The property matters: every cross-check above compares through
+        // toPacked, so if that conversion were lossy the agreement it reports
+        // would be the conversion's, not the arithmetic's.
+        for (c in samples()) {
+            val round = fromPacked(toPacked(c))
+            for ((name, pair) in listOf(
+                "r" to (c.r to round.r), "g" to (c.g to round.g),
+                "b" to (c.b to round.b), "a" to (c.a to round.a),
+            )) {
+                assertTrue(
+                    abs(pair.first - pair.second) <= 1f / 255f,
+                    "$name drifted past 8-bit precision on $c: ${pair.first} vs ${pair.second}",
+                )
             }
         }
     }

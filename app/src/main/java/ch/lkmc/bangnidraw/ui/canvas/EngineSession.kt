@@ -198,13 +198,29 @@ class EngineSession(
      */
     private val dabRing = DabRing()
 
+    // Slots are released from BOTH threads: the input thread through
+    // [releaseDabBatch] and the empty-batch path, the GL thread from inside
+    // [stampDabs]'s execute block. That is safe because DabRing's `acquire` and
+    // `release` are `@Synchronized` — checked, not assumed. "Single-producer/
+    // single-consumer" above describes the *dab flow*, not the release path,
+    // and it would be a poor thing to leave a reader inferring lock-freedom
+    // from.
+
     /**
      * Borrows a batch to fill, or null when the GL thread still holds every
      * slot.
      *
-     * §3.5: a null is not a dropped dab. The producer keeps its samples and
-     * coalesces them into the next batch, so nothing is lost — only delayed by
-     * a frame, and at 8 × 1 024 dabs that is seconds of airbrush.
+     * **A null means the caller drops that sample**, and the caller does. §3.5
+     * describes a producer that keeps its samples and coalesces them into the
+     * next batch; `CanvasScreen.onStrokeSample` does not do that yet — it
+     * returns, and the sample's position, pressure and tilt are gone. The
+     * driver resumes from its last accepted sample, so the path degrades rather
+     * than breaks.
+     *
+     * Said plainly rather than promised, because a doc claiming §3.5's
+     * "nothing is lost" while the only producer drops on the floor is worse
+     * than no doc. Implementing the coalescing belongs with 2.5's ring-driven
+     * front-buffered path, where a starved ring stops being hypothetical.
      */
     fun acquireDabBatch(): DabBatch? = dabRing.acquire()
 
@@ -236,7 +252,16 @@ class EngineSession(
         redraw()
     }
 
-    /** Merges the stroke into its layer and reads the touched tiles back (§7.4, §10.1). */
+    /**
+     * Merges the stroke into its layer (§7.4).
+     *
+     * **§10.1's readback is not wired yet** — `readback = null` below, and
+     * `revision = 0` with it. `Readback` exists and is tested, but its consumer
+     * is `TileStore`, which arrives with step 3's persistence; enqueueing into
+     * nothing would be a readback whose results are dropped on the GL thread.
+     * Said here because a doc claiming the readback runs would send anyone
+     * tracing §10.1 straight past the gap.
+     */
     fun endStroke() {
         frontBuffered.execute { renderer.endStroke(readback = null, revision = 0) }
         redraw()

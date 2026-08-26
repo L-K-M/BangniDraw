@@ -21,12 +21,18 @@ class StrokeDriverTest {
         spacing: Float = 0.3f,
         stabilizer: Float = 0f,
         size: Float = 20f,
+        pressureOpacity: Curve = Curve.Linear,
     ) = BrushPreset(
         id = "t",
         name = "test",
         size = size,
         spacing = spacing,
         stabilizer = stabilizer,
+        // Linear, not BrushPreset's default Curve.One. With the default,
+        // pressureOpacityMax is 1 whatever the pressure, so the opacity-ceiling
+        // test below could not distinguish a light stroke from a heavy one and
+        // a driver that ignored pressure entirely would have passed it.
+        pressureOpacity = pressureOpacity,
     )
 
     private fun driver(
@@ -153,8 +159,9 @@ class StrokeDriverTest {
         light.line(batch(), 100f, 300f, pressure = 0.2f)
         heavy.line(batch(), 100f, 300f, pressure = 1f)
         assertTrue(
-            light.opacityCeiling <= heavy.opacityCeiling,
-            "light ${light.opacityCeiling} must not exceed heavy ${heavy.opacityCeiling}",
+            light.opacityCeiling < heavy.opacityCeiling,
+            "a light stroke must cap STRICTLY lower: " +
+                "light ${light.opacityCeiling} vs heavy ${heavy.opacityCeiling}",
         )
         assertTrue(heavy.opacityCeiling in 0f..1f, "the ceiling is a fraction: ${heavy.opacityCeiling}")
     }

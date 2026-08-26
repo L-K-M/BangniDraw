@@ -107,6 +107,16 @@ fun CanvasScreen(onBack: () -> Unit) {
                 // §7.4), so the mark appears when the pen lifts. The live
                 // front-buffered preview of §7.5 is 2.5's.
                 override fun onStrokeBegin(pointerId: Int, source: StrokeSource) {
+                    // A begin while one is already open means the previous
+                    // stroke's end was lost — a gesture transition, a torn-down
+                    // session. Cancel it rather than orphaning the driver and
+                    // opening a second stroke on the engine while the first is
+                    // still live (§4: a cancelled stroke leaves no trace).
+                    strokeState.driver?.let { stale ->
+                        strokeState.driver = null
+                        stale.cancel()
+                        session?.cancelStroke()
+                    }
                     val engine = session ?: return
                     val active = stack.layers.getOrNull(stack.activeIndex) ?: return
                     val preset = BrushPresets.DEFAULT
@@ -116,6 +126,11 @@ fun CanvasScreen(onBack: () -> Unit) {
                     // make every stroke of a jittering brush identical.
                     val driver = StrokeDriver(preset, seed = strokeState.nextSeed(), zoom = view.scale)
                     strokeState.driver = driver
+                    // Carried for every later sample. onStrokeBegin inspects
+                    // `source` to pick erase mode, so passing a hardcoded
+                    // STYLUS to the driver afterwards would report an eraser or
+                    // a finger as a pen for the whole rest of the stroke.
+                    strokeState.source = source
                     val spec = StrokeSpec(
                         layerId = active.id,
                         mode = if (erasing) StrokeMode.ERASE else StrokeMode.PAINT,
@@ -144,16 +159,24 @@ fun CanvasScreen(onBack: () -> Unit) {
                     val engine = session ?: return
                     val batch = engine.acquireDabBatch() ?: return
                     val emitted = if (driver.isActive) {
-                        driver.sample(x, y, pressure, tilt, orientation, timeNs, StrokeSource.STYLUS, batch)
+                        driver.sample(x, y, pressure, tilt, orientation, timeNs, strokeState.source, batch)
                     } else {
-                        driver.begin(x, y, pressure, tilt, orientation, timeNs, StrokeSource.STYLUS, batch)
+                        driver.begin(x, y, pressure, tilt, orientation, timeNs, strokeState.source, batch)
                     }
                     if (emitted == 0) engine.releaseDabBatch(batch) else engine.stampDabs(batch)
                 }
 
                 override fun onStrokeEnd(pointerId: Int) {
                     val driver = strokeState.driver ?: return
-                    val engine = session ?: return
+                    // Cleared before the session check, so no early return can
+                    // leave a dead stroke's driver installed for the next
+                    // sample to feed.
+                    strokeState.driver = null
+                    val engine = session
+                    if (engine == null) {
+                        driver.cancel()
+                        return
+                    }
                     val batch = engine.acquireDabBatch()
                     if (batch != null) {
                         if (driver.end(batch) == 0) engine.releaseDabBatch(batch)
@@ -161,7 +184,6 @@ fun CanvasScreen(onBack: () -> Unit) {
                     } else {
                         driver.cancel()
                     }
-                    strokeState.driver = null
                     engine.endStroke()
                 }
 
@@ -264,12 +286,20 @@ private const val DEFAULT_EDGE = 2048
 internal class StrokeUiState {
     var driver: StrokeDriver? = null
 
+    /** The stroke's source, fixed at pen-down and carried to every sample. */
+    var source: StrokeSource = StrokeSource.STYLUS
+
     /** Straight sRGB, 0..1 — `dab.vert`'s `u_color`. */
     var colorR = 0f
     var colorG = 0f
     var colorB = 0f
 
-    private var seed = 1L
+    // Seeded from the clock rather than from 1: a fixed start makes the first
+    // stroke of every session wobble identically to the first stroke of the
+    // last one. Nothing in the suite depends on the sequence — StrokeDriverTest
+    // passes its own seeds — so determinism here buys nothing and costs the
+    // grain its independence across launches.
+    private var seed = System.nanoTime()
 
     /**
      * A fresh seed per stroke. `DabGenerator` derives every dab's jitter and

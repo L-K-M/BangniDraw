@@ -677,6 +677,18 @@ class CanvasRenderer(
         strokeBuffer = null
         dabPass = null
         mergePass = null
+        // Every program reference, not just this PR's two. The ids died with
+        // the context, and `release()` calls `release()` on each of them; if a
+        // recreated context has reused one of those names, that glDeleteProgram
+        // deletes a live program belonging to the new context. Nulling only
+        // `dab` and `merge` would fix two fifths of one bug.
+        composite = null
+        present = null
+        checker = null
+        dab = null
+        merge = null
+        compositePass = null
+        sandwich = null
         pool = null
         isReady = false
         // Per context, like GlFbo.loggedIncomplete and

@@ -35,7 +35,6 @@ data class ViewTransform(
     fun apply(x: Float, y: Float): Pair<Float, Float> =
         Pair(a * x - b * y + tx, b * x + a * y + ty)
 
-    /** Inverse of [apply]: a touch in view pixels → canvas pixels. */
     /**
      * [invert]'s x, without the [Pair].
      *
@@ -58,14 +57,15 @@ data class ViewTransform(
         return (-sin(rotation) * dx + cos(rotation) * dy) / scale
     }
 
-    fun invert(x: Float, y: Float): Pair<Float, Float> {
-        val dx = x - tx
-        val dy = y - ty
-        val c = cos(rotation)
-        val s = sin(rotation)
-        // R(-θ)·d / scale
-        return Pair((c * dx + s * dy) / scale, (-s * dx + c * dy) / scale)
-    }
+    /**
+     * Inverse of [apply]: a touch in view pixels → canvas pixels.
+     *
+     * Delegates rather than repeating the arithmetic. The same inverse in three
+     * places is the drift this codebase keeps getting bitten by, and the copy
+     * that would silently diverge is the allocation-free one on the pen path,
+     * where a wrong canvas coordinate is hardest to notice.
+     */
+    fun invert(x: Float, y: Float): Pair<Float, Float> = Pair(invertX(x, y), invertY(x, y))
 
     /**
      * [invert] for a VECTOR rather than a point — a velocity, a delta.

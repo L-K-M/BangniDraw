@@ -34,8 +34,15 @@ import java.nio.ByteBuffer
 class Readback(
     /**
      * Receives one finished tile. Called on the GL thread, so it must not
-     * block — copying into a pooled buffer and handing that on is the
-     * intended shape (§10.1's `TileBufferPool`).
+     * block.
+     *
+     * **The buffer dies when this returns.** It is a view of the mapped PBO,
+     * which is unmapped immediately after the callback and refilled by the next
+     * readback, so the bytes must be copied *here* — into a pooled buffer, per
+     * §10.1's `TileBufferPool` — before being handed on. Handing the
+     * `ByteBuffer` itself to the `Channel` the class KDoc describes would read
+     * torn or unrelated pixels, and would do so only under timings a healthy
+     * GPU almost never produces in a test.
      */
     private val onTile: (LayerId, TileKey, Int, ByteBuffer) -> Unit,
 ) {
@@ -92,7 +99,22 @@ class Readback(
         // Both PBOs busy: wait out the oldest rather than allocating a third.
         // See the class KDoc — this is the ordering rule of §10.1, and it is
         // what keeps every journal "before" current.
-        if (chunk.inFlight) drain(chunk, block = true)
+        if (chunk.inFlight) {
+            drain(chunk, block = true)
+            if (chunk.inFlight) {
+                // `drain` deliberately leaves a timed-out chunk in flight so a
+                // later poll can retry it — but this path is about to reuse the
+                // chunk, and reusing it would overwrite `fence` without
+                // deleting the old sync object and clear `keys` without ever
+                // delivering them. Drop it explicitly instead: the same "stale
+                // mirror" outcome as `drain`'s failure branch, arrived at
+                // deliberately rather than by leaking.
+                GLES30.glDeleteSync(chunk.fence)
+                chunk.fence = 0L
+                chunk.keys.clear()
+                chunk.layer = null
+            }
+        }
         next = (next + 1) % chunks.size
 
         GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, chunk.pbo[0])

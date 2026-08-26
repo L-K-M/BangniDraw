@@ -22,9 +22,25 @@ class StrokeShaderContractTest {
     private val dabVert = Shaders.DAB_VERT
     private val merge = Shaders.MERGE_GLSL
 
+    /**
+     * The mode-1 branch, from its comparison to the next one.
+     *
+     * A window rather than a single line: a correct branch written across lines
+     * — or run through a formatter — must not fail, and the region up to the
+     * next mode comparison is a strict superset of that line.
+     */
+    private fun eraseBranch(body: String): String =
+        body.substringAfter("u_strokeMode == 1", "").substringBefore("u_strokeMode ==")
+
     /** GLSL with comments removed, so a term named only in prose cannot satisfy a check. */
     private fun stripped(source: String): String =
-        source.replace(Regex("""//[^\n]*|/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+        source
+            .replace(Regex("""//[^\n]*|/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+            // Whitespace runs collapse to one space, so a GLSL reformat cannot
+            // fail these checks. Collapsing only ever relaxes matching, and a
+            // formatting-only failure is the thing most likely to get a
+            // permanent guard weakened or deleted rather than fixed.
+            .replace(Regex("""\s+"""), " ")
 
     // ------------------------------------------------- the mode integers
 
@@ -48,6 +64,18 @@ class StrokeShaderContractTest {
         assertTrue(
             body.contains("u_strokeMode == 0"),
             "merge.glsl must branch on mode 0 for PAINT",
+        )
+        // MIX is the fall-through, not an explicit `== 2`, so asserting one
+        // would fail against a correct shader. What can be pinned is that the
+        // fall-through really is MIX: the MIXLERP call must sit after every
+        // mode comparison, so no earlier branch can swallow mode 2.
+        assertTrue(
+            !body.contains("u_strokeMode == 2"),
+            "MIX is the fall-through; if that changes, pin the new form instead",
+        )
+        assertTrue(
+            body.lastIndexOf("u_strokeMode ==") < body.indexOf("MIXLERP("),
+            "the MIX arithmetic must follow every mode comparison",
         )
     }
 
@@ -76,8 +104,18 @@ class StrokeShaderContractTest {
             "alpha-locked PAINT must be s.rgb·d.a + d.rgb·(1 − s.a)",
         )
         assertTrue(body.contains("S + L * (1.0 - S.a)"), "plain PAINT must be premultiplied source-over")
-        assertTrue(body.contains("L * (1.0 - S.a)"), "ERASE must scale the layer by 1 − S.a")
-        assertTrue(body.contains("MIXLERP"), "MIX must go through the compile-time mixing variant")
+        // Scoped to the mode-1 branch. Unscoped it could not fail on its own:
+        // "S + L * (1.0 - S.a)" CONTAINS "L * (1.0 - S.a)", so the PAINT
+        // assertion above already guaranteed it — deleting the scaling from the
+        // ERASE branch left this green, which is exactly the drift this suite
+        // exists to catch.
+        assertTrue(
+            eraseBranch(body).contains("L * (1.0 - S.a)"),
+            "ERASE must scale the layer by 1 − S.a: ${eraseBranch(body)}",
+        )
+        // "MIXLERP(" — a call site. Bare "MIXLERP" is satisfied by the
+        // `#define MIXLERP mix` alone, so it passed even if no branch called it.
+        assertTrue(body.contains("MIXLERP("), "MIX must go through the compile-time mixing variant")
         assertTrue(body.contains("1.0 - u_dilution"), "MIX must apply dilution (09 §3.1)")
     }
 
@@ -91,7 +129,7 @@ class StrokeShaderContractTest {
         // with the commit. Pinned here because the shader is the copy that
         // deviates from the plan's literal text.
         val body = stripped(merge)
-        val erase = body.substringAfter("u_strokeMode == 1").substringBefore("\n")
+        val erase = eraseBranch(body)
         assertTrue(
             erase.contains("u_alphaLock"),
             "the ERASE branch must consult u_alphaLock, was: $erase",
@@ -119,10 +157,21 @@ class StrokeShaderContractTest {
         // `mixbox_lerp` appeared here without that loader, the program would
         // fail to link on a device and nothing on the JVM would notice.
         assertTrue(Shaders.MERGE_GLSL.contains("#define MIXLERP mix"), "the plain variant must be defined")
+        // Case-insensitive and over both constants. MERGE_FRAG does embed
+        // MERGE_GLSL verbatim (it is one element of the joined list), so one
+        // scan would in fact suffice — but that is a composition detail this
+        // test should not silently depend on, and `Mixbox`/`MIXBOX` slipped
+        // past a case-sensitive match either way.
         assertTrue(
-            !Shaders.MERGE_FRAG.contains("mixbox"),
-            "no Mixbox reference until 09 §5's LUT loader exists",
+            Shaders.MERGE_FRAG.contains(Shaders.MERGE_GLSL),
+            "MERGE_FRAG must embed MERGE_GLSL, or scanning one says nothing about the other",
         )
+        for (source in listOf(Shaders.MERGE_FRAG, Shaders.MERGE_GLSL)) {
+            assertTrue(
+                !stripped(source).contains("mixbox", ignoreCase = true),
+                "no Mixbox reference until 09 §5's LUT loader exists",
+            )
+        }
     }
 
     // ------------------------------------------------------- the dab shape
@@ -180,7 +229,12 @@ class StrokeShaderContractTest {
         // ninth field and 12 bytes per dab carrying the same value 1 024 times.
         val body = stripped(dabVert)
         assertTrue(body.contains("uniform vec3 u_color"), "colour must be a uniform")
-        assertTrue(!body.contains("in vec3 i_color"), "colour must not be a per-instance attribute")
+        // Any vecN: banning only the vec3 spelling let the ninth per-dab field
+        // return through a one-word type change.
+        assertTrue(
+            !body.contains(Regex("""in\s+vec[234]\s+i_color""")),
+            "colour must not be a per-instance attribute",
+        )
     }
 
     @Test

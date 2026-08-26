@@ -196,6 +196,11 @@ class CanvasTouchHandler(
      * drifts, and a symmetric pinch visibly slides the point it should hold.
      */
     internal fun handleMove(pointerId: Int, x: Float, y: Float, timeNs: Long) {
+        // Before the arbiter, because the arbiter can decide "draw" from a
+        // move — a finger past the slop — and the opening sample that decision
+        // emits would otherwise be stamped with the last DOWN's timestamp,
+        // hundreds of ms stale, skewing the velocity curve at stroke start.
+        lastEventNs = timeNs
         arbiter.move(pointerId, x, y, timeNs, decisions)
         track(pointerId, x, y)
         pendingMove = true
@@ -397,13 +402,21 @@ class CanvasTouchHandler(
 
             MotionEvent.ACTION_MOVE -> {
                 for (h in 0 until e.historySize) {
-                    setAxes(
-                        e.getHistoricalPressure(index, h),
-                        e.getHistoricalAxisValue(MotionEvent.AXIS_TILT, index, h),
-                        e.getHistoricalOrientation(index, h),
-                    )
                     val hNs = e.getHistoricalEventTime(h) * 1_000_000L
                     for (p in 0 until e.pointerCount) {
+                        // Per pointer, inside the loop. For ACTION_MOVE the
+                        // action's pointer-index bits are always zero, so
+                        // `index` is pointer 0 — and reading the axes there
+                        // gave every pointer the FIRST pointer's pressure and
+                        // tilt. That is wrong exactly when it matters most:
+                        // with a palm down as pointer 0 and the pen drawing as
+                        // pointer 1, every pen sample carried the palm's
+                        // pressure and a tilt of zero.
+                        setAxes(
+                            e.getHistoricalPressure(p, h),
+                            e.getHistoricalAxisValue(MotionEvent.AXIS_TILT, p, h),
+                            e.getHistoricalOrientation(p, h),
+                        )
                         handleMove(
                             e.getPointerId(p),
                             e.getHistoricalX(p, h),
@@ -415,12 +428,12 @@ class CanvasTouchHandler(
                     // pointers, so it gets its own step.
                     handleMoveEnd(hNs)
                 }
-                setAxes(
-                    e.getPressure(index),
-                    e.getAxisValue(MotionEvent.AXIS_TILT, index),
-                    e.getOrientation(index),
-                )
                 for (p in 0 until e.pointerCount) {
+                    setAxes(
+                        e.getPressure(p),
+                        e.getAxisValue(MotionEvent.AXIS_TILT, p),
+                        e.getOrientation(p),
+                    )
                     handleMove(e.getPointerId(p), e.getX(p), e.getY(p), timeNs)
                 }
                 handleMoveEnd(timeNs)

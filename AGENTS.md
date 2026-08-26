@@ -128,6 +128,27 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 Recorded per PLAN.md's rule: when the plan contradicts itself, PLAN.md wins
 and the contradiction is noted here.
 
+- **`merge.frag`'s ERASE branch consults `u_alphaLock`; the plan's skeleton
+  does not.** `docs/plan/03-canvas-engine.md` §7.4's table says of ERASE
+  "(alpha-lock: the eraser is a no-op on locked layers — 05 §1)", and
+  `05-layers.md` §1 agrees. The `merge.frag` skeleton printed directly beneath
+  that table returns `L * (1.0 - S.a)` unconditionally, with no `u_alphaLock`
+  anywhere in the branch. The table wins: transcribing the skeleton would erase
+  through a lock on the GPU while `StrokeMerge` refused to on the CPU, so the
+  live preview and the committed result would disagree on any locked layer —
+  and §7.5's whole promise is that they are the same arithmetic. Pinned by
+  `StrokeShaderContractTest`, because this is the one place the shader
+  deliberately departs from the document's literal text.
+
+- **The dab's colour is a uniform, not a per-instance attribute.** §7.3's
+  `dab.vert` snippet declares `layout(location = 7) in vec3 i_color`, but §6
+  states twice over that this is wrong: "Colour and the stroke opacity are per
+  stroke (uniforms), never per dab", and the eight per-dab fields it lists as
+  `DAB_STRIDE` do not include colour. `02-architecture.md` §3.2 pins the same
+  eight-float layout for `DabBatch`. A ninth per-instance `vec3` would
+  contradict both and send one stroke's single colour 1 024 times per batch, so
+  it is `u_color`.
+
 - **`maxCanvasEdge` is not bounded by `GL_MAX_TEXTURE_SIZE`.**
   `docs/plan/11-testing.md` §3.11 lists `maxCanvasEdge <= glMaxTextureSize`
   as a `MemoryBudgetTest` claim, but `docs/plan/10-performance.md` §4 — which

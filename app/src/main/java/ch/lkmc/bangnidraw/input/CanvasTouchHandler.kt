@@ -771,9 +771,14 @@ class CanvasTouchHandler(
         // nothing has to be plumbed through the composable that owns both.
         attachPredictor(v)
         recordForPrediction(e)
+        // Before the `when`, not inside its DOWN arm. That arm matches
+        // ACTION_POINTER_DOWN too, so the call needed a nested re-check of the
+        // value the `when` had already switched on — invisible to anyone
+        // scanning the arms, and silently inherited by whatever action is added
+        // to that arm next.
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) requestUnbuffered(v, e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                if (e.actionMasked == MotionEvent.ACTION_DOWN) requestUnbuffered(v, e)
                 handleDown(
                     id, toolOf(e.getToolType(index)), e.getX(index), e.getY(index), timeNs,
                     e.getPressure(index),
@@ -942,6 +947,14 @@ class CanvasTouchHandler(
      * is 29 (both levels read out of the SDK's own `api-versions.xml`, not
      * assumed). On 29 hover stays vsync-batched, which costs a slightly
      * coarser hover cursor and nothing else — no stroke has begun yet.
+     *
+     * A *class* is broader than the pen: `SOURCE_MOUSE` is `0x2002` and
+     * `SOURCE_TOUCHSCREEN` is `0x1002`, so both carry `SOURCE_CLASS_POINTER`'s
+     * `0x2` and both get unbuffered hover out of this call as well. That is
+     * harmless — a smoother mouse cursor on a DeX desk costs one wakeup per
+     * mouse move while the pointer is over the canvas — but it is what the code
+     * does, and saying "covers a hovering pen" implied a narrower effect than
+     * that.
      *
      * **`SOURCE_CLASS_POINTER`, not `SOURCE_STYLUS`**, which is what
      * `07-input-and-stylus.md` §2.1 writes — it flagged the call "(to verify)",

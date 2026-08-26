@@ -205,7 +205,11 @@ and the contradiction is noted here.
   carries `nextLayerName` (06 §3), and `ProjectStore.load` floors it at one
   past the highest `@string/layer_default N` actually present, so a pre-field
   or hand-edited file cannot reissue a live name
-  (`ProjectStoreTest`). The journal half — re-deriving over replay — is 3b's.
+  (`ProjectStoreTest`). **3b landed the replay half**: the loader also floors
+  the counter over every record the recovered journal embeds
+  (`highestDefaultNameIn`), including on layers replay deletes, and
+  `@string/layer_default` ships `translatable="false"` so the scan cannot
+  under-recover under a second locale.
 
 - **Two uniforms in `03-canvas-engine.md` §3.1's vertex shader are dead, and
   are not in `engine/gl/Shaders.kt`.** `u_viewport` is only ever an input to

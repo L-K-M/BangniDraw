@@ -180,6 +180,32 @@ parser's to keep — kotlinx throws on an unknown key by default. The store must
 also decide what a preset that fails `init` does on load; dropping it with a
 log, as `ProjectStore` does for a corrupt layer, is the shape to follow.
 
+**2.4b is over size on its own — recorded, not waved through.** Measured at
+its PR: ~1,900 lines of production code, ~1,100 of tests and ~30 of docs,
+**~3,030 in all**, against §1's M band of ~800–2,500 counting tests. That is a
+larger overrun than 2.3a's ~200, so it needs a better reason than "it is one
+area", and rule 1's remedy — a *named* seam — has to be shown not to apply
+rather than merely not taken.
+
+Two seams were considered. Splitting the pure `engine/core` twins
+(`StrokeMerge`, `DabStamp`, `StrokeDriver`, `StrokeSpec`) from the GL passes is
+**the cut 2.3a already rejected**, for the reason recorded there: it lands the
+twins with nothing calling them. It is worse here than it was there, because
+these twins are not merely uncalled but unfalsifiable — the whole argument that
+`merge.glsl` is right is that it matches `StrokeMerge`, and a PR containing
+only one side of that correspondence cannot be reviewed for it. Splitting the
+engine from the UI wiring fails the same test from the other end: the engine
+half would have no device check at all, since nothing would ask it to stamp
+anything, and the UI half would be pure glue whose only interesting property is
+that it drives an engine reviewed in a different PR.
+
+What is actually large here is the evidence, not the surface. The production
+code is six new classes and two shaders; ~1,100 lines of it is tests, and the
+single biggest file is the cross-check against PR 2.1's `Composite` that this
+row's own JVM gate demands. A cut that produces a PR nobody can review as a
+unit is worse than a large PR that is one — and a cut that separates a claim
+from its evidence is worse still.
+
 **Carried in from PR 2.4a's review.** Two items, both raised after steady state
 and neither affecting coverage today. `NavigationStep.applyTo` returns
 `view.gesture(...)` and the snap then re-`copy`s it, so a navigation step

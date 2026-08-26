@@ -252,10 +252,14 @@ class DabGenerator(
         other.dabCount = dabCount
         other.maxPressure = maxPressure
         other.dabIndexOfFirst = dabIndexOfFirst
-        // `maxPressure` is carried for completeness, not because a test can
-        // see it: it feeds only `end()`'s tap rewrite, and a tail never ends.
-        // Left here rather than dropped so a future tail that DOES end starts
-        // from the truth — but nobody should expect a failure if it goes.
+        // `maxPressure` and `pressureOpacityMax` are carried for completeness,
+        // not because a test can see them, and dropping either kills no test —
+        // checked, not assumed. `maxPressure` feeds only `end()`'s tap rewrite
+        // and a tail never ends; `pressureOpacityMax` is read only by
+        // `StrokeDriver.opacityCeiling`, which the *merge* applies once at
+        // pen-up, so it reaches no dab field and no dab comparison can see it.
+        // Left here rather than dropped so a future tail that DOES end, or a
+        // ceiling read mid-stroke, starts from the truth.
         //
         // firstBatch / firstIndex are RESET rather than merely left alone:
         // `other` may be a generator that ran a previous frame's tail, and one

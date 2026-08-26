@@ -605,11 +605,6 @@ class DabGeneratorTest {
         // survived. This preset gives each of them something to change —
         // 7 px samples against a 3 px step leave a rolling remainder, the
         // jitter reads `dabIndex`, and the velocity terms read the EMA.
-        val exercised = plain.copy(
-            spacing = 0.3f,
-            jitter = Jitter(position = 0.8f),
-            velocity = VelocityEffect(sizeAtFast = 0.5f, opacityAtFast = 0.5f),
-        )
         val real = DabGenerator(exercised, seed = 7L)
         val out = DabBatch()
         real.begin(sample(0f, 0f, timeMs = 0L), out)
@@ -639,13 +634,29 @@ class DabGeneratorTest {
         }
     }
 
+    /**
+     * A preset that makes each carried field observable: jitter reads the dab
+     * index, the velocity effect reads the running speed, and a spacing that
+     * does not divide the sample step leaves a non-zero remainder in `carry`.
+     *
+     * A class property rather than a local, so the *isolation* test drives the
+     * same state the equality test does. It used to run on `plain`, where
+     * nothing exercises velocity or jitter — so a field shared between copy and
+     * original that only moved flow or angle was invisible to it.
+     */
+    private val exercised = plain.copy(
+        spacing = 0.3f,
+        jitter = Jitter(position = 0.8f),
+        velocity = VelocityEffect(sizeAtFast = 0.5f, opacityAtFast = 0.5f),
+    )
+
     @Test
     fun `a copy never advances the generator it came from`() {
         // The half that matters for correctness: a predicted sample must leave
         // no trace on the real stroke, or the next REAL sample is spaced
         // against a remainder the user never drew and the committed stroke
         // depends on how many frames happened to be predicted.
-        val real = DabGenerator(plain, seed = 7L)
+        val real = DabGenerator(exercised, seed = 7L)
         val out = DabBatch()
         real.begin(sample(0f, 0f, timeMs = 0L), out)
         for (i in 1..5) real.advance(sample(i * 10f, 0f, timeMs = i * 8L), out)
@@ -664,7 +675,7 @@ class DabGeneratorTest {
         val withTail = DabBatch()
         real.advance(sample(60f, 0f, timeMs = 48L), withTail)
 
-        val control = DabGenerator(plain, seed = 7L)
+        val control = DabGenerator(exercised, seed = 7L)
         val controlOut = DabBatch()
         control.begin(sample(0f, 0f, timeMs = 0L), controlOut)
         for (i in 1..5) control.advance(sample(i * 10f, 0f, timeMs = i * 8L), controlOut)
@@ -676,6 +687,18 @@ class DabGeneratorTest {
             assertEquals(controlNext.x[i], withTail.x[i], 0f, "dab $i x diverged after a tail ran")
             assertEquals(controlNext.y[i], withTail.y[i], 0f, "dab $i y diverged after a tail ran")
             assertEquals(controlNext.radius[i], withTail.radius[i], 0f, "dab $i radius diverged after a tail ran")
+            // Flow, angle and seed as well. Defence in depth, and said as such
+            // rather than dressed up: of the fields `copyInto` carries today,
+            // none reaches flow or angle *without* also moving position or
+            // radius — `velocity` feeds both `flowFor` and `radiusFor`,
+            // `dabIndex` feeds the jitter that moves x and y. So no mutation of
+            // the current code is killed by these three alone. They cost one
+            // comparison each and they close the gap for the next field
+            // somebody carries, which is worth having in the one test that
+            // claims the copy touches nothing.
+            assertEquals(controlNext.flow[i], withTail.flow[i], 0f, "dab $i flow diverged after a tail ran")
+            assertEquals(controlNext.angle[i], withTail.angle[i], 0f, "dab $i angle diverged after a tail ran")
+            assertEquals(controlNext.seed[i], withTail.seed[i], 0f, "dab $i seed diverged after a tail ran")
         }
     }
 

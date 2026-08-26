@@ -166,6 +166,14 @@ class StrokeDriver(
      *
      * Returns 0 for a stroke that is not open — a tail with nothing to
      * continue is not a tail — and 0 for an empty batch.
+     *
+     * **[out] must carry no predicted dabs of its own.**
+     * [DabBatch.markPredictedFromHere] marks from the batch's *current* count,
+     * so a leftover tail below that mark would be counted as committed and
+     * merged into the layer at pen-up — a wrong guess turned into permanent
+     * ink. Every caller takes a freshly acquired ring slot, which
+     * `DabRing.acquire` clears, so the precondition holds; it is stated because
+     * nothing in the method's own body would enforce it.
      */
     fun predict(samples: StrokeInputBatch, out: DabBatch): Int {
         if (!isActive || samples.size == 0) return 0

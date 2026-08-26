@@ -56,6 +56,15 @@ interface CanvasInputHost {
      * Nothing here ever reaches the stroke buffer or the layer — the host runs
      * it through a copy of the stroke's state and draws it in the front layer
      * only.
+     *
+     * **A frame with nothing to draw calls nothing**, so "replaces the previous
+     * tail" cannot be the host's only way of losing one: the last tail of a
+     * stroke is never replaced by a later call. The host drops it itself at
+     * [onStrokeEnd] and [onStrokeCancel] — `CanvasRenderer.clearTail` on both
+     * paths, under a `commit()`/`cancel()` that takes the front layer with it —
+     * and any future clear or undo owes the same. A host that waited for the
+     * next `onStrokePredicted` would leave a tip drawn out past the real
+     * endpoint after every stylus lift.
      */
     fun onStrokePredicted(samples: StrokeInputBatch) {}
 }
@@ -501,6 +510,23 @@ class CanvasTouchHandler(
      */
     private var predictor: Predictor? = null
 
+    /**
+     * The view [predictor] was last *attempted* for, whether or not it worked.
+     *
+     * Without it a device where `newInstance` throws re-entered the constructor
+     * on **every** event — a `RuntimeException` built, caught and logged with a
+     * full stack trace per touch sample, several hundred a second during a
+     * drag, on exactly the devices the catch exists for. `predictor` alone
+     * cannot carry that, because a failure leaves it null and null is
+     * indistinguishable from "not tried yet".
+     *
+     * Keyed on the view rather than latched for the process: §8 ties a
+     * predictor to a surface, so a new surface deserves a fresh attempt, and a
+     * process-wide flag would make one failing surface disable prediction for
+     * every canvas afterwards.
+     */
+    private var predictorView: View? = null
+
     /** The tail handed to the host, refilled every frame. */
     private val predictedSamples = StrokeInputBatch()
 
@@ -642,10 +668,23 @@ class CanvasTouchHandler(
      * px into the parallel arrays — or does nothing if the batch is full.
      *
      * [history] is the historical index, or [CURRENT] for the event's own
-     * sample. A predicted event carries its lookahead the same way a real one
-     * carries its backlog: the further-ahead points are *historical* and the
-     * event's own is the nearest, so both have to be read (§2's rule for real
-     * events, in the mirror).
+     * sample. A predicted event lays its lookahead out in the same
+     * chronological order a real event lays out its backlog — **historical
+     * samples are the nearest predictions and the event's own is the furthest
+     * ahead** — so both have to be read, by §2's rule for real events verbatim
+     * rather than mirrored.
+     *
+     * Read off the 1.0.0 bytecode rather than assumed, because the order is
+     * what the two steps after this one depend on: `MultiPointerPredictor.predict`
+     * builds the event with `MotionEvent.obtain` for the first predicted instant
+     * and then `addBatch` for each later one, and `addBatch` pushes the current
+     * sample into history and makes the new one current. So the last-added —
+     * furthest-ahead — sample is the event's own. An earlier draft of this
+     * comment had it backwards; the *code* was right, which is exactly why the
+     * comment was worth checking. Inverting the fill order to match the wrong
+     * comment would have made `keepCount`'s prefix truncation drop the nearest
+     * samples and keep the furthest, and fed [prediction] the least demanding
+     * point instead of the tip.
      */
     private fun fill(e: MotionEvent, pointer: Int, history: Int) {
         val slot = predictedSamples.size
@@ -696,7 +735,7 @@ class CanvasTouchHandler(
         // §8: one predictor per surface, recreated with it. `v` is the
         // SurfaceView the session draws into, so building it from here means
         // nothing has to be plumbed through the composable that owns both.
-        if (v != null) predictor = Predictor.forView(v, predictor)
+        attachPredictor(v)
         recordForPrediction(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN ->
@@ -770,7 +809,7 @@ class CanvasTouchHandler(
     override fun onHover(v: View?, event: MotionEvent?): Boolean {
         val e = event ?: return false
         val timeNs = e.eventTime * 1_000_000L
-        if (v != null) predictor = Predictor.forView(v, predictor)
+        attachPredictor(v)
         // §8 records hover too: hover history improves the first predicted
         // samples after contact, which is the moment the tail is least accurate
         // and the pen is moving fastest.
@@ -787,6 +826,19 @@ class CanvasTouchHandler(
     }
 
     /**
+     * Builds the predictor for [v] the first time this view dispatches to us,
+     * and **once only** — a view whose attempt failed is not retried.
+     *
+     * See [predictorView] for why the failure has to be remembered separately
+     * from the predictor itself.
+     */
+    private fun attachPredictor(v: View?) {
+        if (v == null || v === predictorView) return
+        predictorView = v
+        predictor = Predictor.forView(v, predictor)
+    }
+
+    /**
      * Feeds one real event to the predictor — §8's "every `DOWN`/`MOVE`/`UP`
      * for a stylus pointer, including `ACTION_HOVER_MOVE`".
      *
@@ -794,15 +846,32 @@ class CanvasTouchHandler(
      * history the predictor would fit a curve to and then answer the pen's next
      * `predict()` with. §8 does not predict fingers in v1 at all.
      *
+     * **Every pointer is checked, not index 0.** A `MotionEvent` carries one
+     * tool type per pointer, so a palm that landed first is pointer 0 and the
+     * pen is pointer 1 — and reading the tool at 0 classified the whole event
+     * as finger input and recorded no pen history at all. That fails exactly on
+     * palm-heavy usage, which is the hardware a predicted tail is for, and it
+     * fails silently: the tail either never appears or keeps extrapolating from
+     * pre-palm samples. Same defect class as the `actionIndex` bug the axis
+     * parameters fixed, and as the one `trackTimeNs` fixed — a per-pointer fact
+     * read at a single fixed index.
+     *
      * Nothing predicted is ever recorded back (§8), which holds here by
      * construction: this is only ever reached from [onTouch] and [onHover], and
      * a predicted event never arrives through either.
      */
     private fun recordForPrediction(e: MotionEvent) {
         val p = predictor ?: return
-        val tool = toolOf(e.getToolType(0))
-        if (tool != PointerTool.STYLUS && tool != PointerTool.ERASER) return
-        p.record(e)
+        for (i in 0 until e.pointerCount) {
+            val tool = toolOf(e.getToolType(i))
+            if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
+                // The whole event, once: `record` takes the event, not a
+                // pointer, and the library splits it per pointer itself
+                // (`MultiPointerPredictor.onTouchEvent`).
+                p.record(e)
+                return
+            }
+        }
     }
 
     private fun toolOf(toolType: Int): PointerTool = when (toolType) {

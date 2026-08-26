@@ -63,7 +63,8 @@ class PredictionGateTest {
         // "for the rest of the stroke": a tail that flickered on and off as the
         // estimate crossed the threshold would be more distracting than either
         // state, and the estimate crosses back within a few frames — 100 px
-        // decays under 12 in twenty observations of zero.
+        // decays under 12 in twenty-one observations of zero (100 x 0.9^20 is
+        // 12.16, still above it; 0.9^21 is the first below).
         repeat(100) { gate.observe(0f) }
         assertTrue(gate.error < PredictionGate.DISABLE_PX, "the estimate did come back down")
         assertFalse(gate.enabled, "but the tail did not")
@@ -82,6 +83,27 @@ class PredictionGateTest {
         // miss against a zero, which is the bug the first test above pins.
         gate.observe(10f)
         assertEquals(10f, gate.error, 1e-4f)
+    }
+
+    @Test
+    fun `reset drops a prediction that is still waiting to be scored`() {
+        // The common case at pen-down, not an edge one: a tail is predicted
+        // ahead of the pen every frame, so a prediction is almost always still
+        // pending when the stroke ends. Carried into the next stroke it would
+        // be interpolated against that stroke's first segment — an arbitrary
+        // distance between two unrelated strokes, folded in as the seed
+        // observation, which is where a wrong disable is most visible.
+        val gate = PredictionGate()
+        gate.actual(0f, 0f, 0L)
+        gate.predicted(10f, 0f, 100 * ms)
+        assertTrue(gate.hasPending, "the pen has not reached the predicted instant yet")
+        gate.reset()
+        assertFalse(gate.hasPending)
+        // And the sample that would have scored it does not: the estimate is
+        // still unseeded, so this seeds rather than blends.
+        gate.actual(999f, 0f, 200 * ms)
+        gate.observe(4f)
+        assertEquals(4f, gate.error, 1e-4f, "a stale prediction must not have been scored")
     }
 
     @Test

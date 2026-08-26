@@ -289,11 +289,18 @@ class StrokeDriverTest {
             jitter = Jitter(position = 0.7f, size = 0.4f),
         )
 
+        // ONE set of points, used by both halves. The test's whole premise is
+        // "the same points fed as real samples", and two literal argument lists
+        // let a later edit change one and not the other — which fails as
+        // "dab count diverged", pointing nowhere near the cause. `predict` only
+        // reads the batch, so one instance serves both.
+        val points = samples(200f, 240f, 100f, 96_000_000L, 4)
+
         val tailDriver = StrokeDriver(hard, seed = 7L)
         val tailWarmup = batch()
         tailDriver.halfLine(tailWarmup, 100f, 200f, 100f, steps = 12)
         val tail = batch()
-        val emitted = tailDriver.predict(samples(200f, 240f, 100f, 96_000_000L, 4), tail)
+        val emitted = tailDriver.predict(points, tail)
         assertTrue(emitted > 0, "a 40 px continuation must produce a tail")
 
         // The twin: the same stroke, then the same points fed as REAL samples.
@@ -302,9 +309,8 @@ class StrokeDriverTest {
         realDriver.halfLine(realWarmup, 100f, 200f, 100f, steps = 12)
         assertSameDabs(tailWarmup, realWarmup, "the two twins must start identical")
         val real = batch()
-        val predictedPoints = samples(200f, 240f, 100f, 96_000_000L, 4)
-        for (i in 0 until predictedPoints.size) {
-            val s = predictedPoints[i]
+        for (i in 0 until points.size) {
+            val s = points[i]
             realDriver.sample(s.x, s.y, s.pressure, s.tilt, s.orientation, s.timeNs, s.source, real)
         }
         assertSameDabs(real, tail, "the tail must be the real stroke's own continuation")
@@ -356,6 +362,8 @@ class StrokeDriverTest {
         // `Stabilizer.copyInto` is a line no test can fail.
         val hard = preset(spacing = 0.25f, stabilizer = 0.8f)
 
+        val points = samples(200f, 260f, 100f, 96_000_000L, 4)
+
         val tailDriver = StrokeDriver(hard, seed = 7L)
         val tailWarmup = batch()
         tailDriver.halfLine(tailWarmup, 100f, 200f, 100f, steps = 12)
@@ -363,17 +371,16 @@ class StrokeDriverTest {
         // it is what builds the tail's stabilizer, at the old zoom. A first
         // prediction after the change would be copy-constructed already
         // retuned, and the re-sync would have nothing to prove.
-        tailDriver.predict(samples(200f, 260f, 100f, 96_000_000L, 4), batch())
+        tailDriver.predict(points, batch())
         tailDriver.setZoom(4f)
         val tail = batch()
-        assertTrue(tailDriver.predict(samples(200f, 260f, 100f, 96_000_000L, 4), tail) > 0)
+        assertTrue(tailDriver.predict(points, tail) > 0)
 
         val realDriver = StrokeDriver(hard, seed = 7L)
         val realWarmup = batch()
         realDriver.halfLine(realWarmup, 100f, 200f, 100f, steps = 12)
         realDriver.setZoom(4f)
         val real = batch()
-        val points = samples(200f, 260f, 100f, 96_000_000L, 4)
         for (i in 0 until points.size) {
             val s = points[i]
             realDriver.sample(s.x, s.y, s.pressure, s.tilt, s.orientation, s.timeNs, s.source, real)
@@ -391,10 +398,11 @@ class StrokeDriverTest {
         val warmup = batch()
         d.halfLine(warmup, 100f, 200f, 100f, steps = 12)
 
+        val points = samples(200f, 240f, 100f, 96_000_000L, 4)
         val first = batch()
         val second = batch()
-        d.predict(samples(200f, 240f, 100f, 96_000_000L, 4), first)
-        d.predict(samples(200f, 240f, 100f, 96_000_000L, 4), second)
+        d.predict(points, first)
+        d.predict(points, second)
         assertTrue(first.count > 0)
         assertSameDabs(first, second, "the tail must be rebuilt from the real state every frame")
     }
@@ -409,6 +417,13 @@ class StrokeDriverTest {
         assertTrue(tail.count > 0)
         assertEquals(0, tail.predictedFrom, "every dab in a tail batch is predicted")
         assertEquals(0, tail.committedCount, "and none of them may reach the layer")
+        // The contrast, so the two assertions above read as proof rather than
+        // as a coincidence of the defaults: a cleared batch starts at
+        // `predictedFrom = -1`, so a real batch commits everything it holds and
+        // a `predict()` that never marked would leave the tail at -1 too.
+        assertTrue(warmup.count > 0)
+        assertEquals(-1, warmup.predictedFrom, "real dabs are not marked predicted")
+        assertEquals(warmup.count, warmup.committedCount, "and all of them commit")
     }
 
     @Test
@@ -423,5 +438,27 @@ class StrokeDriverTest {
         d.cancel()
         assertEquals(0, d.predict(samples(200f, 260f, 100f, 96_000_000L, 4), out), "after cancel")
         assertEquals(0, out.count)
+
+        // After `end()` as well — the state a straggler predicted frame really
+        // arrives in, since the Choreographer callback is stopped from the same
+        // decision that ends the stroke and one may already be in flight. A
+        // tail appended here would be ink past the pen-up point.
+        //
+        // A STABILIZING driver, so `end()`'s leash flush actually emits into
+        // `finishedOut`. With the default strength 0 the output is already on
+        // the pen, `finish()` walks nothing and `end()` emits nothing, so the
+        // count comparison below would be 0 against 0 — it would pass whether
+        // or not `predict` appended, which is the vacuous shape this suite
+        // keeps finding. The guard is what says so.
+        val finished = driver(stabilizer = 0.7f)
+        val finishedOut = batch()
+        finished.halfLine(batch(), 100f, 200f, 100f, steps = 12)
+        finished.end(finishedOut)
+        val committed = finishedOut.count
+        assertTrue(committed > 0, "the flush must have emitted something to be worth checking")
+        assertEquals(
+            0, finished.predict(samples(200f, 260f, 100f, 96_000_000L, 4), finishedOut), "after end",
+        )
+        assertEquals(committed, finishedOut.count, "an ended stroke must not grow a tail")
     }
 }

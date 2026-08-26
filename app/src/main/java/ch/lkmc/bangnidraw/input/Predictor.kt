@@ -84,6 +84,13 @@ class Predictor private constructor(
          * no tail, which is the same outcome as a predictor that always
          * declines — and one the app is already built to handle — rather than a
          * crash on the first pen-down.
+         *
+         * **A null return must not be retried per event.** Building and
+         * throwing a `RuntimeException` is cheap once and ruinous at 240 Hz,
+         * and the `Log.w` carries a full stack trace each time. This function
+         * cannot enforce that itself — a null answer carries no view to
+         * remember — so the caller owns it:
+         * `CanvasTouchHandler.attachPredictor` attempts each view exactly once.
          */
         fun forView(view: View, existing: Predictor?): Predictor? {
             if (existing != null && existing.view === view) return existing

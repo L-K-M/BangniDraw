@@ -76,14 +76,18 @@ The security escalation below is now **load-bearing rather than a backstop**:
 PR #7 declined a path-traversal finding in round 2 and only applied it in round
 8, so under a one-round exit that PR merges at round 2 and the escalation is the
 only thing that puts the hole in front of a person. Do not treat it as
-paperwork.
+paperwork. And note what it does *not* save: PR #7's second traversal was not
+raised until round 5, so a round-2 exit merges it unfound — an unraised finding
+cannot be escalated, and no rule here pretends otherwise.
 
 **Whatever rule ends the loop**, a security-relevant finding you did not apply
 — path traversal, injection, authz, secrets, data loss — goes to the user for a
 decision before the merge. Not scoped to one rule: the same finding reaches a
 merge through the integration-failure rule, the out-of-scope rule and the cap,
 and whether a declined hole reaches a person must not depend on which exit
-happened to fire.
+happened to fire. It keys on the **finding's substance, never on the round's
+score**, so filing one as "pre-existing behavior" does not exempt it — otherwise
+the cheapest way out of a security finding is to relabel it a scope call.
 
 An unreviewed round **pauses** a streak rather than resetting it — the bullets
 above depend on that; the semantics are in the infrastructure paragraph below.

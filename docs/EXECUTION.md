@@ -210,14 +210,26 @@ plainly, because whoever reads this next should know exactly what was given up:
   introduced a defect caught in the next on three occasions — the clearest being #13's round
   6, which caught a dispose-path regression that round 5's own fix had introduced. The round
   that catches that class is the one this change skips.
+- Rule 2's cost is different in kind from the other two, and was going unstated. A nits-only
+  round is evidence about the *reviewer's* coverage, not about your grading, so neither bullet
+  above covers it: one such round now ends the loop on the strength of a single pass. A hole
+  the reviewer simply had not reached yet — PR #7's R-005, first raised in round 5 — is
+  exactly what a second, deeper pass was there to catch, and it is the one case the security
+  obligation cannot backstop, because an unraised finding cannot be escalated.
 
 Two things deliberately did **not** change, and they are what keeps the trade tolerable:
 rule 4 still needs two rounds, because one failed integration is as likely to be a fluke as a
 pattern and shortening it would not speed up the healthy path at all; and the
 rule-independent security obligation below still sends any unapplied security-relevant
-finding to the user before the merge. That second one is why the PR #7 case discussed further
-down — three re-raises before R-001 was applied — is survivable under a one-round exit: both
-of those findings were path traversal, so they reach a person whatever rule ends the loop.
+finding to the user before the merge. That second one is what makes the PR #7 case discussed
+further down — R-001 raised in round 2 and re-raised in rounds 6 and 7 before it was applied
+— *partly* survivable under a one-round exit, and the qualifier is the honest part. R-001 was
+on the table from round 2, so a round-2 exit still puts its decline in front of a person.
+R-005 was not raised until round 5, and the obligation below covers only a finding that "was
+raised and you did not apply it" — no obligation can catch what no round ever surfaced, so a
+round-2 exit merges R-005's traversal with no human touchpoint at all. What one round really
+gives up is the later rounds in which the reviewer had not yet reached the second hole, and
+nothing downstream substitutes for them.
 1. **one** round was empty, **OR**
 2. **one** round was nits only — no blocker, nothing genuinely helpful, **OR**
 3. **one** round was dismissed only, **OR**
@@ -269,9 +281,16 @@ reaching a directory name. Under the two-round rule the streak never started, be
 `useful feedback`. **Under the one-round rule this PR would have merged at round 2**, with
 both holes open — the first decline of R-001 would have ended it.
 
-What saves that case is not the stop rule but the obligation below: path traversal is
+What saves half of that case is not the stop rule but the obligation below: path traversal is
 security-relevant, so a declined R-001 reaches the user for a decision before any merge,
-whichever rule fired. That is now load-bearing rather than a backstop, and it is the reason
+whichever rule fired — and it has to survive a mislabel, because the same agent whose wrong
+decline created the risk is the one scoring the round. The obligation therefore keys on the
+**finding's substance, never on the round's score**: a security-relevant decline filed as
+"pre-existing behavior" under rule 5 escalates exactly as one filed as a decline under rule 3.
+Without that tie-breaker the cheapest way out of a security finding is to relabel it as a
+scope call, and rule 5 would end the loop in one round with a follow-up list instead of a
+decision. (R-005 is not saved by any of this, for the reason given above: it was never raised
+before the exit.) That is now load-bearing rather than a backstop, and it is the reason
 this section still spells the PR #7 history out instead of trimming it. Read a
 `dismissed only` round as "I have stopped learning from this reviewer", and check that it is
 actually true before you act on it — under one round there is no second chance to notice you

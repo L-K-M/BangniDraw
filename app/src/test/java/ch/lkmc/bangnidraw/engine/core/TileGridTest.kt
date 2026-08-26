@@ -232,7 +232,11 @@ class TileGridTest {
         assertEquals(r, r.union(IntRect.EMPTY))
         assertEquals(r, IntRect.EMPTY.union(r))
         assertTrue(IntRect.EMPTY.union(IntRect.EMPTY).isEmpty)
-        // A zero-height rect is empty too, and is not special-cased by value.
+        // A zero-height rect is empty too, and is not special-cased by value —
+        // on EITHER side. Only the argument was checked at first, which a
+        // receiver test of `this == IntRect.EMPTY` would have passed while
+        // dragging the damage rect to the origin through the other operand.
         assertEquals(r, r.union(IntRect(0, 0, 999, 0)))
+        assertEquals(r, IntRect(0, 0, 999, 0).union(r))
     }
 }

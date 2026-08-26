@@ -307,7 +307,9 @@ class CanvasRenderer(
         // Unconditionally, not only on that branch: a tail whose slices were
         // never returned would hold pool pages for the whole of the next
         // stroke. After an ordinary pen-up this is already empty and costs a
-        // null check.
+        // null check — [endStroke] and [cancelStroke] have both cleared it and
+        // both had their pixels taken away with the front layer, so there is no
+        // rect owed to anyone here either.
         clearTail()
         stroke = spec
         strokeBufferMode = mode
@@ -398,6 +400,18 @@ class CanvasRenderer(
         // only and the front layer is about to be hidden by `commit()`, so its
         // slices would otherwise stay checked out of the pool until the next
         // stroke reset them — a whole stroke's worth of leak per pen-up.
+        //
+        // **The returned rect is dropped on purpose, and only here and in
+        // [cancelStroke] is that safe.** Everywhere else it is the erase: the
+        // caller folds it into a dirty rect and redrawing those pixels is what
+        // removes the old tail. On these two paths nothing needs redrawing,
+        // because the front layer itself goes away — `EngineSession.endStroke`
+        // follows this with `commit()`, which hides the front layer and repaints
+        // the multi-buffered one from committed state across the whole viewport,
+        // and `cancelStroke` follows with `cancel()`, which drops the
+        // front-buffered content outright (§8.3, §8.4). A tail tip reaching past
+        // the last committed dab therefore cannot survive either, even though
+        // the stroke buffer's own merge rect does not cover it.
         clearTail()
         val textures = textures(spec.layerId)
         stroke = null
@@ -424,6 +438,9 @@ class CanvasRenderer(
     fun cancelStroke() {
         stroke = null
         strokeBuffer?.reset()
+        // Rect dropped, for the reason [endStroke] gives: `cancel()` drops the
+        // front-buffered content, so there is nothing left to redraw the tail
+        // out of.
         clearTail()
     }
 

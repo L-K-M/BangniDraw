@@ -1432,3 +1432,95 @@ needed.
   keeping: a claim about *platform behaviour* gets computed or looked up before
   it is written down, exactly like a claim about a test that cannot fail gets
   mutation-tested.
+
+---
+
+## PR #15 — the predicted tail (roadmap 2.5b)
+
+### Round 1 — three refusals
+
+Round 1 raised 15 findings. Twelve were real and applied (the record is the
+commit); three do not survive contact with the code, and are recorded here so a
+re-raise is answered from evidence rather than re-litigated.
+
+- **R-087 — declined (refuted).** *"`DabGenerator.copyInto`'s `require` can
+  crash the input path on a reused driver"*: the claim is that a `StrokeDriver`
+  outliving one stroke would reach `copyInto` with a tail generator built from a
+  different preset or seed, and throw `IllegalArgumentException` mid-gesture.
+
+  It cannot fire. `StrokeDriver`'s `preset` and `seed` are `val` constructor
+  parameters; `generator = DabGenerator(preset, seed)` is assigned once and
+  never reassigned; and `tailGenerator` is `generator.copy()`, which is
+  `DabGenerator(preset, seed)` on those same two values. The `require` compares
+  the tail generator's preset and seed against *the generator it was copied
+  from* — identity-equal by construction. Reuse across strokes would not change
+  that, and in fact does not arise: `CanvasScreen.onStrokeBegin` constructs a
+  fresh `StrokeDriver` per stroke (`CanvasScreen.kt:131`). Violating the
+  `require` needs a caller to pass an unrelated `DabGenerator`, which no code
+  does and which is exactly what the `require` is there to catch.
+
+  The suggested `try`/`catch` around it would convert a guard that can only fire
+  on a genuine wiring bug into a silent rebuild, which is the opposite of what
+  the guard is for.
+
+- **R-088 — declined (refuted).** *"`StrokeDriverTest`'s tail-marking
+  assertions may be vacuous against cleared-batch defaults"*: the finding is
+  conditional on `DabBatch` defaulting `predictedFrom` to 0, and says to
+  disregard it otherwise. It defaults to **−1** (`Dab.kt:143`, in `clear()`),
+  so `committedCount` on a cleared batch is `count`, not 0. A `predict()` that
+  never marked the batch leaves `predictedFrom` at −1 and `committedCount` at
+  `count > 0`, and both assertions fail. Not vacuous.
+
+  The contrast the finding asks for was added anyway — the real batch's `−1`
+  and its full `committedCount` are now asserted beside the tail's — because it
+  makes the test read as proof instead of requiring the reader to go and check
+  the default. That is presentation, not a fix.
+
+- **R-089 — declined.** *"Add a debug-mode assertion that `clearTail()` ran
+  before the first tail stamp of a frame"* (Info). The contract has exactly one
+  caller — `EngineSession.drainPending` — and the invariant is two lines of it.
+  Enforcing it needs a flag set in `clearTail`, consumed in `stampDabs`, reset
+  somewhere per frame, and compiled out of release: four moving parts across two
+  classes, on the GL thread, to guard a call pair that is visible in one screen
+  of code. If the tail ever gets a second producer this becomes worth having;
+  today the machinery would be larger than the thing it checks.
+
+### Round 1 — one finding whose own fix was vacuous
+
+The after-`end()` case (a straggler predicted frame arriving after pen-up) was a
+real gap and is now covered. The suggested snippet for it was **itself unable to
+fail**: it drove `driver()`, whose stabilizer strength is 0, so the leash is
+already on the pen, `Stabilizer.finish` walks nothing and `DabGenerator.end`
+emits nothing for a non-tap — leaving `committed == 0` and the closing
+`assertEquals(committed, finishedOut.count)` comparing 0 against 0, which passes
+whether or not `predict` appended a tail. Caught by the
+"must have emitted something to be worth checking" guard this suite puts in
+front of every count comparison; the test now uses `driver(stabilizer = 0.7f)`
+so the flush is real. Tenth vacuous assertion caught across #12–#15, and the
+first one arriving from the reviewer rather than from me.
+
+### Round 1 — the false-justification count is now five
+
+`CanvasTouchHandler.fill`'s KDoc claimed a predicted `MotionEvent` carries its
+lookahead *inverted* relative to a real event's backlog — "the further-ahead
+points are historical and the event's own is the nearest". The reviewer caught
+it; it is wrong. `MultiPointerPredictor.predict` obtains the event at the first
+predicted instant and calls `addBatch` for each later one, and `addBatch` pushes
+the current sample into history and makes the new one current — so historical
+samples are the *nearest* predictions and the event's own is the *furthest
+ahead*. Read out of the 1.0.0 bytecode.
+
+The code was right, as it has been all five times: `fill` writes history first,
+so the last index really is the tip, `keepCount`'s prefix truncation really does
+drop the furthest samples, and `PredictionGate` really is fed the most demanding
+point. Inverting the fill order to match the comment would have broken all
+three. The rule from PR #14 — a claim about platform behaviour gets computed or
+looked up before it is written — was followed for the recycling question in the
+same file and skipped for this one.
+
+A sixth was caught in the same round, by mutation testing rather than by the
+reviewer: a comment added *while applying* round 1 claimed `pressureOpacityMax`
+"reaches the dab through flow alone". It reaches no dab field at all — it is
+read only by `StrokeDriver.opacityCeiling`, which the merge applies once at
+pen-up. Dropping it from `copyInto` kills no test, and both `DabGenerator`'s
+KDoc and the test comment now say so.

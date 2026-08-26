@@ -165,11 +165,17 @@ class ProjectStore(private val root: File) {
 
     /**
      * The layer stack from the file's records, with each layer's tile keys
-     * listed from `layers/<id>/`. Null when no readable layer remains — a
-     * document with no layers at all is corrupt (a stack is never empty).
+     * listed from `layers/<id>/`, degrading per layer: an unreadable record
+     * is dropped and counted, and only a document with *no* readable layer
+     * left fails the open (a stack is never empty).
      *
-     * Roadmap 3a group 2 makes this degrade per layer (R-001, R-029); for
-     * now any bad record fails the open, which is strictly more cautious.
+     * The layer-level rule and the tile-level rule are deliberately distinct
+     * granularities and must not be collapsed (REVIEW.md R-001): a bad tile
+     * shows transparent and the layer survives, while a bad layer *id* has
+     * no degraded value at all — it is the key every tile lookup and history
+     * reference resolves through — so the whole layer is dropped and no path
+     * is ever built from the id. The two losses are counted separately for
+     * the same reason: a lost layer reported as N lost tiles misleads.
      */
     private fun buildStack(id: String, file: ProjectFile): Pair<LayerStack, Int>? {
         if (file.layers.isEmpty()) return null
@@ -179,31 +185,56 @@ class ProjectStore(private val root: File) {
             Log.w(TAG, "project $id: invalid geometry", e)
             return null
         }
-        val layers = try {
-            file.layers.map { record ->
-                val props = record.toProps()
-                val keys = TileStore(layerDir(id, props.id)).list()
-                    .filterTo(LinkedHashSet()) { grid.contains(it) }
-                Layer(props, keys)
+        var unreadable = 0
+        val seenFolded = HashSet<String>()
+        val layers = ArrayList<Layer>(file.layers.size)
+        for (record in file.layers) {
+            // R-001's policy half (the guard itself is LayerId's): a record
+            // whose id is not a safe path segment cannot be repaired — a
+            // "fixed" id would orphan the layer's tiles — so the layer is
+            // dropped whole and counted, and the open goes on.
+            val props = record.toPropsOrNull()
+            if (props == null) {
+                Log.w(TAG, "project $id: dropped a layer whose id is not a safe path segment")
+                unreadable += 1
+                continue
             }
-        } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "project $id: unreadable layer stack", e)
+            // R-029: two ids differing only by case name one directory the
+            // moment the folder is copied to Windows or macOS. LayerStack
+            // refuses the pair at construction — right for code *building* a
+            // stack — but a document that arrives this way has to open, with
+            // the second claimant counted among the unreadable. The same
+            // locale-independent fold as LayerStack's own invariant.
+            if (!seenFolded.add(props.id.value.lowercase())) {
+                Log.w(
+                    TAG,
+                    "project $id: dropped layer ${props.id.value}: case-insensitive id collision",
+                )
+                unreadable += 1
+                continue
+            }
+            val keys = TileStore(layerDir(id, props.id)).list()
+                .filterTo(LinkedHashSet()) { grid.contains(it) }
+            layers += Layer(props, keys)
+        }
+        if (layers.isEmpty()) {
+            Log.w(TAG, "project $id: no readable layer remains")
             return null
         }
+        // A missing or dropped active id degrades to the bottom layer — a
+        // wrong selection has an obvious sane fallback, unlike a wrong id.
         val activeIndex = layers.indexOfFirst { it.id.value == file.activeLayerId }
             .let { if (it >= 0) it else 0 }
         val highWater = file.layers.maxOfOrNull { defaultLayerNameNumber(it.name) ?: 0 } ?: 0
-        val stack = try {
-            LayerStack(
-                layers = layers,
-                activeIndex = activeIndex,
-                nextName = maxOf(file.nextLayerName, highWater + 1),
-            )
-        } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "project $id: unreadable layer stack", e)
-            return null
-        }
-        return stack to 0
+        // The construction cannot throw here: the fold above guarantees the
+        // uniqueness invariant, the empty case returned already, and the
+        // index is in range by construction.
+        val stack = LayerStack(
+            layers = layers,
+            activeIndex = activeIndex,
+            nextName = maxOf(file.nextLayerName, highWater + 1),
+        )
+        return stack to unreadable
     }
 
     /**
@@ -298,10 +329,19 @@ class ProjectStore(private val root: File) {
         /**
          * §3's reader/writer settings. `ignoreUnknownKeys` is what lets an
          * older reader open a newer file on the fields it knows.
+         *
+         * `allowSpecialFloatingPointValues` is R-020: kotlinx's default
+         * decoder throws on a `NaN`/`Infinity` token *before* any per-field
+         * degrading code runs, so without it §4's "one bad field must never
+         * fail an open" could not hold — `LayerRecord.toProps` degrades such
+         * an opacity, but only if the token reaches it. On the write side it
+         * is inert: nothing here ever produces a non-finite value to encode
+         * (`LayerProps` refuses one at construction).
          */
         val json: Json = Json {
             ignoreUnknownKeys = true
             encodeDefaults = true
+            allowSpecialFloatingPointValues = true
         }
     }
 }

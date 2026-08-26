@@ -212,6 +212,88 @@ class ProjectStoreTest {
         assertTrue(!File(root, "gone.deleting").exists(), "deleting leftovers are swept")
     }
 
+    // ------------------------------------------------------------------
+    // The four load obligations carried in from PR #7's reviews
+    // (docs/plan/12-roadmap.md step 3; REVIEW.md R-001, R-029, R-020).
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `a malformed layer id drops that layer, counted, and the open survives`() {
+        // R-001's policy half. The id would name layers/<id>/, so no path may
+        // ever be built from it; the layer has no degraded value (unlike a
+        // tile) and is dropped whole — but one bad record must not throw the
+        // whole painting away.
+        val dir = store.projectDir("r001").also { it.mkdirs() }
+        File(dir, "project.json").writeText(
+            """{"formatVersion":1,"id":"r001","width":512,"height":512,
+               "layers":[{"id":"../../evil","name":"escape"},
+                         {"id":"good","name":"survivor"}],
+               "activeLayerId":"../../evil"}""",
+        )
+        val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load("r001"))
+        assertEquals(1, loaded.unreadableLayers)
+        assertEquals(listOf("good"), loaded.document.stack.layers.map { it.id.value })
+        // The active id named the dropped layer; selection degrades, the open
+        // does not.
+        assertEquals(0, loaded.document.stack.activeIndex)
+    }
+
+    @Test
+    fun `a case-insensitive layer-id collision degrades on load instead of throwing`() {
+        // R-029. LayerStack refuses the pair at construction — right for code
+        // building a stack — but a document copied through a case-folding
+        // filesystem arrives this way and must open, with the colliding layer
+        // counted among the unreadable.
+        val dir = store.projectDir("r029").also { it.mkdirs() }
+        File(dir, "project.json").writeText(
+            """{"formatVersion":1,"id":"r029","width":512,"height":512,
+               "layers":[{"id":"Layer-A","name":"first"},
+                         {"id":"layer-a","name":"claimant"},
+                         {"id":"other","name":"untouched"}],
+               "activeLayerId":"other"}""",
+        )
+        val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load("r029"))
+        assertEquals(1, loaded.unreadableLayers)
+        assertEquals(
+            listOf("Layer-A", "other"),
+            loaded.document.stack.layers.map { it.id.value },
+            "the first claimant keeps the folded id",
+        )
+        assertEquals(1, loaded.document.stack.activeIndex)
+    }
+
+    @Test
+    fun `a NaN opacity token decodes and degrades instead of failing the open`() {
+        // R-020. kotlinx's default decoder throws on the token itself, before
+        // LayerRecord's degrading toProps is ever reached — the loader's Json
+        // must let it through so §4's one-bad-field rule can hold. A NaN
+        // opacity degrades to fully visible (LayerProps.sanitizeOpacity):
+        // a layer that vanished would read as lost work.
+        val dir = store.projectDir("r020").also { it.mkdirs() }
+        File(dir, "project.json").writeText(
+            """{"formatVersion":1,"id":"r020","width":512,"height":512,
+               "layers":[{"id":"a","name":"n","opacity":NaN},
+                         {"id":"b","name":"m","opacity":-Infinity}],
+               "activeLayerId":"a"}""",
+        )
+        val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load("r020"))
+        assertEquals(0, loaded.unreadableLayers)
+        assertEquals(1f, loaded.document.stack.layers[0].props.opacity)
+        assertEquals(1f, loaded.document.stack.layers[1].props.opacity)
+    }
+
+    @Test
+    fun `a document with no readable layer left is corrupt, not partially readable`() {
+        val dir = store.projectDir("all-bad").also { it.mkdirs() }
+        File(dir, "project.json").writeText(
+            """{"formatVersion":1,"id":"all-bad","width":512,"height":512,
+               "layers":[{"id":"..","name":"a"},{"id":"x/y","name":"b"}],
+               "activeLayerId":".."}""",
+        )
+        val result = assertIs<ProjectStore.LoadResult.Failed>(store.load("all-bad"))
+        assertEquals(ProjectStore.FailureReason.UNREADABLE, result.reason)
+    }
+
     @Test
     fun `delete removes the folder and nothing else`() {
         store.checkpoint(document(id = "keep"))

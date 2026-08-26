@@ -9,16 +9,33 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
 
 ## Open
 
-_Nothing open._ Two items are **deferred** rather than declined, both needing
-the `data/` loader that arrives with roadmap step 3, and both now in that step's
-carry-in list in `docs/plan/12-roadmap.md`: R-020, the NaN-token decode test,
-and R-029 — `ProjectStore.load` must degrade on a case-insensitive layer-id
-collision rather than throwing. `LayerStack` refuses one at construction as of
-round 15, which is the right answer for code building a stack; a document that
-*arrives* with one has to open anyway, with the layer counted among the
-unreadable.
+_Nothing open, and nothing deferred._ The two items that were deferred here —
+R-020 and the collision half of R-029 — landed with roadmap 3a; see their 🟢
+entries below.
 
 ## Resolved
+
+- **R-020 🟢 The NaN/Infinity-token decode case.** Deferred from PR #7 until
+  the `data/` loader existed; landed with 3a. `ProjectStore`'s `Json` sets
+  `allowSpecialFloatingPointValues`, because kotlinx's default decoder throws
+  on the token itself, *before* `LayerRecord.toProps`'s degrading code is
+  ever reached — without the flag, 06 §4's "one bad field must never fail an
+  open" could not hold. `LayerProps.sanitizeOpacity` then degrades the value
+  (NaN and −∞ to fully visible, +∞ clamps to 1). On the write side the flag
+  is inert: `LayerProps` refuses a non-finite opacity at construction, so
+  nothing here ever encodes one. `ProjectStoreTest`'s NaN/−Infinity case
+  pins the decode path.
+
+- **R-029 🟢 (the collision half — the velocity findings recorded under this
+  id below stay refuted) `ProjectStore.load` degrades on a case-insensitive
+  layer-id collision rather than throwing.** Landed with 3a. `LayerStack`
+  still refuses the pair at construction — the right answer for code
+  *building* a stack — while the loader folds ids locale-independently,
+  keeps the first claimant, drops later ones into the unreadable-layers
+  count, and opens the document. That count travels beside 06 §4's
+  unreadable-tiles count, never folded into it (a lost layer shown as N lost
+  tiles misleads); R-001's layer-id→path policy shares the count and the
+  same never-fail-the-open shape, and `ProjectStoreTest` pins all of it.
 
 - **R-046 ⏸️ `presentToWindow` should bind its texture through `GlState`.**
   (PR #11, GLM round 1, info: "`onContextLost()` calling
@@ -133,6 +150,10 @@ unreadable.
   decline still stands and stays in the roadmap: step 3 must not build a path
   by concatenating untrusted text, and `ProjectStore.load` must catch this per
   layer and drop it into §4's unreadable tally rather than failing the open.
+  **That policy half landed with 3a**: `toPropsOrNull` is the per-layer catch,
+  the dropped layer goes into the unreadable-layers count (kept beside, never
+  inside, the tile count), and `ProjectStoreTest` pins that a traversal-shaped
+  id never reaches a path join and never fails the open on its own.
 
 - **R-004 🟢 Gate PR 2.5 on `PredictorTest` and `TailBufferTest`.** (PR #7, GLM
   round 4.) The *observation* was right and was acted on: 2.5 was the only row

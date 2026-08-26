@@ -161,7 +161,13 @@ never converts. Width/height are in the header although v1 only writes 256: the 
   tile must never fail an open. The count of unreadable tiles is returned with the load
   result; when it is non-zero the Canvas shows one toast on open ("Some parts of this
   painting could not be read", `err_tiles_unreadable` in `02-architecture.md` §9) — honest
-  (principle 4), never silent. The bad file is left on disk until the tile is next painted
+  (principle 4), never silent. An **unreadable-layers count** travels beside it, never folded
+  into it (`ProjectStore.LoadResult`, roadmap step 3): a layer whose *record* cannot be
+  loaded — an id that is no safe path segment (REVIEW.md R-001), a case-insensitive id
+  collision (R-029) — is dropped whole and counted there, with its own toast
+  (`err_layers_unreadable`), because a lost layer reported as N lost tiles is a misleading
+  readout. The two rules are different granularities on purpose: a bad tile degrades to
+  transparent inside a surviving layer; a bad layer id has no degraded value at all. The bad file is left on disk until the tile is next painted
   and flushed (an all-transparent flush deletes it); it is never rewritten with an empty
   tile by the loader, so a future reader with a fix could still recover it.
 

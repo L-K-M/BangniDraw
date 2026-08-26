@@ -220,7 +220,34 @@ fun CanvasScreen(onBack: () -> Unit) {
             view = view,
             modifier = Modifier.fillMaxSize(),
             debugBuild = BuildConfig.DEBUG,
-            onSession = { attached -> session = attached },
+            onSession = { attached ->
+                // A session arriving or departing takes any live stroke with
+                // it, and the pin has to go with it — this is the seam that
+                // makes `strokeState.engine` safe to read everywhere else.
+                //
+                // Pinning the stroke to its own engine removed the accidental
+                // protection the old `session ?: return` reads had: `session`
+                // goes null on dispose, so those returned early, while a pin
+                // held on a *released* EngineSession would not. That is the
+                // reachable half of the problem — a surface torn down mid-
+                // gesture (back navigation, system teardown) still delivers
+                // trailing move and cancel events — where the replacement half
+                // waits on step 3.
+                //
+                // The driver is cancelled but `cancelStroke` is deliberately
+                // NOT called on the old engine: it has been released, and
+                // `stampDabs`/`endStroke`/`cancelStroke` queue through
+                // `frontBuffered.execute` with no validity guard. A block that
+                // never runs also never returns its `DabRing` slot, so a
+                // handful of those would strand the ring and every later
+                // `acquireDabBatch` would fail. §4 makes dropping it correct:
+                // a cancelled stroke leaves no trace, so there is nothing the
+                // dead engine still owes.
+                strokeState.driver?.cancel()
+                strokeState.driver = null
+                strokeState.engine = null
+                session = attached
+            },
             touchHandler = touch,
         )
 

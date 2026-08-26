@@ -1040,10 +1040,12 @@ unreadable.
   `EngineSession` and releases the old one. `StrokeUiState.engine` now pins the
   stroke to its own session, and every later call goes through it.
 
-  Applied even though **it cannot diverge in this PR**: only step 3's New
-  Canvas dialog changes the canvas size, and nothing else re-runs the factory.
-  The null case (dispose → `onSession(null)`) was already handled on every
-  path. It is worth pairing now precisely because the failure would be silent
+  Applied even though the *replacement* case **cannot diverge in this PR**:
+  only step 3's New Canvas dialog changes the canvas size, and nothing else
+  re-runs the factory. ~~The null case (dispose → `onSession(null)`) was already
+  handled on every path.~~ **That sentence was wrong, and round 5's own delta is
+  what made it wrong — see R-063.** It was true of the reads the delta replaced,
+  not of the ones it introduced. It is worth pairing now precisely because the failure would be silent
   when it does become reachable — `stampDabs` and `endStroke` both no-op when
   no stroke is open, so a mismatch shows up as dabs quietly going nowhere
   rather than as an error. Same reasoning as R-060.
@@ -1060,3 +1062,42 @@ unreadable.
   a comment saying "installed only once the engine has accepted" would be a
   false claim of exactly the kind round 4's R-059 was about. Declined, and the
   assignment stays where it is, next to the driver it pairs with.
+
+## PR #13 (roadmap 2.4b) — GLM round 6
+
+- **R-063 ✅ pinning the stroke to its engine removed the dispose path's safety
+  net** (PR #13, GLM round 6, Major). **Applied. A regression introduced by
+  round 5's own fix, and the finding is exactly right — including its reading
+  of what my REVIEW.md entry got wrong.**
+
+  R-062 replaced every `session` read in the stroke handlers with
+  `strokeState.engine`. `session` is nulled by `CanvasSurface`'s
+  `DisposableEffect` → `onSession(null)`, which is what made `onStrokeSample`'s
+  `?: return`, `onStrokeEnd`'s `driver.cancel()` branch and `onStrokeCancel`'s
+  `?.` safe on teardown. Nothing cleared the new pin, so after disposal it held
+  a **released** `EngineSession` and all three handlers went straight through to
+  it. My entry claimed "the null case was already handled on every path": true
+  of the reads I removed, false of the reads I added. Struck through above
+  rather than quietly edited, because the mistake is the point — a fix that
+  narrows one hole by widening another is the failure mode this loop exists to
+  catch, and it took the reviewer to see it.
+
+  Reachable, unlike R-062's replacement case: a surface torn down mid-gesture —
+  back navigation, system teardown — still delivers trailing move and cancel
+  events. The consequences are worse than the finding says, too.
+  `stampDabs`, `endStroke` and `cancelStroke` all queue through
+  `frontBuffered.execute` with **no** `isValid()` guard (only `redraw()` has
+  one), and `stampDabs` returns its `DabRing` slot *inside* the queued block —
+  so a block that never runs never releases, and a few of those strand the ring
+  until every later `acquireDabBatch` returns null.
+
+  Fixed at the seam the reviewer names: `onSession` now cancels the driver and
+  drops the pin before assigning `session`, which covers arrival and departure
+  alike. `cancelStroke` is deliberately *not* called on the outgoing engine —
+  it is exactly the released one, and §4 says a cancelled stroke leaves no
+  trace, so there is nothing it still owes. Not unit-testable: `onSession` is a
+  lambda inside a composable and this project has no Compose test
+  infrastructure. Considered and rejected: guarding `EngineSession`'s methods
+  with `isValid()` instead — it returns false before the surface is ready too,
+  so it would silently drop legitimate early calls, and the `stampDabs` guard
+  would leak the very batch it declined to stamp.

@@ -115,6 +115,15 @@ class MergePass(
             layer.swap(key, scratch)
             merged++
         }
+
+        // Back to unit 0. The active texture unit is sticky context state, and
+        // `LayerTextures.upload` and `TilePool.addPage` both call
+        // glBindTexture WITHOUT first selecting a unit — they bind only to
+        // configure the texture, so the unit does not matter to them, but
+        // leaving unit 1 selected means they clobber whatever this pass left
+        // there. That is a trap rather than a bug today, and it costs one call
+        // per stroke to close.
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         return merged
     }
 

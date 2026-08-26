@@ -27,9 +27,12 @@ import java.nio.FloatBuffer
  * `DabStamp.blendIntoBuffer` performs on the CPU — the property §7.2 states
  * and `DabStampTest` pins on the JVM side.
  *
- * **No allocation once warm** (`10-performance.md` §2.4): every scratch array
- * and the instance buffer are fields that grow and are reused, because this
- * runs on the touch path several times a frame.
+ * **One allocation per dab, and no more** (`10-performance.md` §2.4). Every
+ * scratch array and the instance buffer are fields that grow and are reused.
+ * The exception is `IntRect.forDab`, whose own KDoc calls it out as the
+ * allocation the dab path makes; it runs once per dab here, with the bounds
+ * cached for the per-key pass so the cost does not multiply by the number of
+ * tiles a batch touches.
  *
  * GL-thread-only.
  */
@@ -64,6 +67,18 @@ class DabPass(
 
     /** Scratch for the keys a single dab touches. */
     private val dabKeys = IntArray(MAX_KEYS_PER_DAB)
+
+    /**
+     * Each dab's canvas rect, four ints per dab, computed once per batch by
+     * [collectKeys] and read by [gatherDabsFor].
+     *
+     * `IntRect.forDab` allocates — its own KDoc calls that out as the one
+     * allocation the dab path makes — and `gatherDabsFor` runs once per
+     * *touched key*, so recomputing there cost `dabs x keys` short-lived
+     * objects per batch: four thousand of them for a full batch across four
+     * tiles, on the path `10-performance.md` §2.4 is about.
+     */
+    private var dabBounds = IntArray(0)
 
     /**
      * Stamps [batch] into [buffer], returning the canvas rect it dirtied and
@@ -144,15 +159,27 @@ class DabPass(
      * number of touched tiles rather than the canvas size.
      */
     private fun collectKeys(batch: DabBatch, grid: TileGrid): Int {
-        if (seen.size < grid.tileCount) seen = BooleanArray(grid.tileCount)
-        if (distinctKeys.size < grid.tileCount) distinctKeys = IntArray(grid.tileCount)
+        val tiles = grid.tileCount
+        if (seen.size < tiles) seen = BooleanArray(tiles)
+        if (distinctKeys.size < tiles) distinctKeys = IntArray(tiles)
+        if (dabBounds.size < batch.count * 4) dabBounds = IntArray(batch.count * 4)
         var distinct = 0
         for (i in 0 until batch.count) {
-            val n = grid.keysFor(IntRect.forDab(batch.x[i], batch.y[i], batch.radius[i]), dabKeys)
+            val rect = IntRect.forDab(batch.x[i], batch.y[i], batch.radius[i])
+            val o = i * 4
+            dabBounds[o] = rect.left
+            dabBounds[o + 1] = rect.top
+            dabBounds[o + 2] = rect.right
+            dabBounds[o + 3] = rect.bottom
+            val n = grid.keysFor(rect, dabKeys)
             for (j in 0 until n) {
                 val key = TileKey(dabKeys[j])
                 val index = key.ty * grid.tilesX + key.tx
-                if (index < 0 || index >= seen.size || seen[index]) continue
+                // Bounded by the grid's own tile count, not by `seen.size`:
+                // the arrays are grown and never shrunk, so a smaller grid
+                // would otherwise let an index past its end mark a flag that
+                // the clearing loop below never visits.
+                if (index < 0 || index >= tiles || seen[index]) continue
                 seen[index] = true
                 distinctKeys[distinct++] = dabKeys[j]
             }
@@ -175,9 +202,9 @@ class DabPass(
         val tile = grid.tileRect(key)
         var n = 0
         for (i in 0 until batch.count) {
-            val rect = IntRect.forDab(batch.x[i], batch.y[i], batch.radius[i])
-            if (rect.right <= tile.left || rect.left >= tile.right) continue
-            if (rect.bottom <= tile.top || rect.top >= tile.bottom) continue
+            val b = i * 4
+            if (dabBounds[b + 2] <= tile.left || dabBounds[b] >= tile.right) continue
+            if (dabBounds[b + 3] <= tile.top || dabBounds[b + 1] >= tile.bottom) continue
             var o = n * DAB_FLOATS
             instanceData[o++] = batch.x[i]
             instanceData[o++] = batch.y[i]

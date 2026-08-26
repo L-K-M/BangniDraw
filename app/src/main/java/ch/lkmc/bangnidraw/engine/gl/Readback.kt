@@ -19,14 +19,27 @@ import java.nio.ByteBuffer
  * synchronous `glReadPixels` would stall the render thread for the whole GPU
  * pipeline depth on every pen-up.
  *
- * **`enqueue` waits on the oldest fence when both PBOs are busy, and that wait
- * is the correctness rule, not back-pressure.** §10.1: a merge for stroke
- * *n+1* on a layer must not be issued until stroke *n*'s readback has been
- * mapped, because the journal's "before" tiles are whatever `TileStore` holds
- * at merge time. Capturing a "before" while the previous stroke's readback is
- * still in flight would record the pre-*n* contents, and undoing *n+1* would
- * then also revert *n* — which is exactly the exactness decision 3 promises.
- * In practice it never blocks: strokes are longer than a frame.
+ * **`enqueue`'s wait when both PBOs are busy is back-pressure, and only that.**
+ * It exists so a third PBO never has to be allocated. It is emphatically *not*
+ * §10.1's ordering rule, and an earlier revision of this comment claimed it
+ * was: the wait fires only when the round-robin lands on a slot still in
+ * flight, so a readback of at most [READBACK_CHUNK] tiles — a normal stroke —
+ * leaves the other slot free and the next `enqueue` never waits at all.
+ *
+ * §10.1's actual rule is a rule about the **journal capture**, and it cannot
+ * live here: a merge for stroke *n+1* must not capture its "before" tiles
+ * until stroke *n*'s readback has been mapped into `TileStore`, or the capture
+ * records pre-*n* contents and undoing *n+1* silently reverts *n* too. That
+ * capture happens at the merge call site *before* `enqueue` is reached, so no
+ * amount of waiting inside `enqueue` can protect it — draining every slot here
+ * would buy a blocking stall on the GL thread and still leave the hole open.
+ * [finish] is the call the capture site needs, before it reads `TileStore`.
+ *
+ * Nothing calls it yet, because nothing captures yet: `TileStore`, the journal
+ * and the undo stack are step 3's, and `CanvasRenderer.endStroke` is passed a
+ * null `Readback` today. Stated at this length because the rule is invisible
+ * from the capture site, and because a comment that says the guarantee is
+ * already handled here is worse than no comment at all.
  *
  * GL-thread-only. The mapped bytes leave through [onTile], which the caller
  * hands to a `Channel` consumed on `Dispatchers.IO`.
@@ -97,8 +110,8 @@ class Readback(
     ) {
         val chunk = chunks[next]
         // Both PBOs busy: wait out the oldest rather than allocating a third.
-        // See the class KDoc — this is the ordering rule of §10.1, and it is
-        // what keeps every journal "before" current.
+        // Back-pressure only — see the class KDoc for why this is not, and
+        // cannot be, §10.1's journal-ordering rule.
         if (chunk.inFlight) {
             drain(chunk, block = true)
             if (chunk.inFlight) {

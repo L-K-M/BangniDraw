@@ -62,8 +62,16 @@ class MergePass(
         spec: StrokeSpec,
         keys: MutableList<TileKey>,
     ): Int {
-        if (buffer.isEmpty) return 0
+        // Before the empty-buffer guard, not after. [keys] is the caller's
+        // list, reused across strokes, and this exit path used to leave the
+        // PREVIOUS stroke's keys in it — a stroke that merged nothing handing
+        // back a full key set that the KDoc above promises describes *this*
+        // merge. Today's caller gates its readback on the return value and so
+        // never reads them, which is precisely what makes it worth fixing now:
+        // the invariant holds by the call site's discipline rather than by
+        // this method's, and the next caller has no reason to suspect it.
         keys.clear()
+        if (buffer.isEmpty) return 0
         buffer.keys(keys)
         if (keys.isEmpty()) return 0
 

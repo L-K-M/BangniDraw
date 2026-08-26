@@ -951,3 +951,48 @@ unreadable.
   and they are on-heap. They are reuse; the other two were waste. Not
   unit-testable — `release()` is pure GL — so the reasoning is recorded here
   rather than pinned.
+
+## PR #13 (roadmap 2.4b) — GLM round 4
+
+- **R-059 ⚠️ `Readback`'s both-busy wait is not the §10.1 ordering rule its KDoc
+  claims** (PR #13, GLM round 4, Major). **Diagnosis accepted and the KDoc
+  rewritten; the suggested code change declined.**
+
+  The mechanism is exactly right and the claim it demolishes was mine. The class
+  KDoc said the both-PBOs-busy wait in `enqueue` "is the correctness rule, not
+  back-pressure", and that a merge for stroke *n+1* cannot be issued until
+  stroke *n*'s readback has been mapped. Neither half survives reading
+  `enqueueChunk`: the wait fires only when the round-robin lands on a slot still
+  in flight, so a readback of ≤ `READBACK_CHUNK` (64) tiles — any normal stroke
+  — leaves the other slot free and the next `enqueue` skips the wait entirely.
+  A comment asserting a guarantee the code does not provide, on the class whose
+  whole job is ordering, is worse than no comment: it is the thing step 3 would
+  have read and believed. Corrected, at length, including where the rule really
+  has to live.
+
+  The suggested fix — `for (chunk in chunks) if (chunk.inFlight) drain(chunk,
+  block = true)` at the top of `enqueue` — is declined, on the finding's own
+  reasoning. It says, correctly, that "the in-file drain alone cannot protect a
+  capture that happens before `enqueue` runs". The journal's "before" is
+  captured at the merge call site, upstream of `enqueue`; draining every slot
+  here would therefore add a blocking GL-thread stall — the stall the two-PBO
+  design exists to avoid — while leaving the hole exactly as open as it was.
+  The call the capture site needs is `finish()`, which already exists and
+  already drains every slot blockingly. What is missing is the *caller*, and
+  the caller is step 3's: `TileStore`, the journal and the undo stack do not
+  exist yet, and `CanvasRenderer.endStroke` is passed `readback = null` today.
+  Recorded in the KDoc so step 3 cannot miss it.
+
+- **R-060 ✅ `MergePass.merge` leaves the previous stroke's keys on the
+  empty-buffer path** (PR #13, GLM round 4, Minor). **Applied.** `keys.clear()`
+  sat below `if (buffer.isEmpty) return 0`, so that exit handed the caller a key
+  list belonging to a different stroke, while the KDoc two lines above promises
+  `keys` holds every key *this* merge touched and "must be read back in full".
+
+  Latent, not live: `CanvasRenderer.endStroke` gates its readback on
+  `merged > 0`, so the stale list is never read today. That is the reason to fix
+  it rather than a reason not to — the invariant currently holds by the call
+  site's discipline instead of the method's, and the next caller has no way to
+  know that. One line, no cost. Not unit-testable: `merge` needs a `StrokeBuffer`,
+  which needs a `TilePool`, which needs a GL context; `engine/gl` has only
+  shader-contract tests for this reason.

@@ -8,6 +8,7 @@ import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.DabRing
+import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
@@ -24,13 +25,12 @@ import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
  * `CanvasSurface`'s `AndroidView` factory and handed to the ViewModel through
  * `attachSession()`; the ViewModel outlives it, never the other way round.
  *
- * **Roadmap 2.3b: the multi-buffered path only.** `beginStroke`, `renderBatch`,
- * `commitStroke`, `cancelStroke`, `readTiles` and `flushReadbacks` are the
- * stroke and readback surface of 2.4 and 2.5 and are deliberately absent
- * rather than stubbed — a method that exists and does nothing is worse than
- * one that is not there yet, because a caller cannot tell.
- * [onDrawFrontBufferedLayer] must still be implemented for the interface, and
- * says so.
+ * **Roadmap 2.5a: both paths.** The front-buffered path of §8 is live — dabs
+ * are published with `renderFrontBufferedLayer`, [onDrawFrontBufferedLayer]
+ * stamps and recomposites the dirty rect with §7.5's preview, and pen-up goes
+ * through §8.3's `commit()`. What is still absent rather than stubbed:
+ * `readTiles` and `flushReadbacks`, whose consumer is step 3's `TileStore`,
+ * and the predicted tail of §9, which is 2.5b.
  */
 class EngineSession(
     surface: SurfaceView,
@@ -72,15 +72,17 @@ class EngineSession(
     // ------------------------------------------------------------- callbacks
 
     /**
-     * Not this PR's path, and it must not silently draw the wrong thing.
+     * §8.1: stamp this batch's dabs, then recomposite the rect they dirtied
+     * with the stroke previewed on top of the active layer.
      *
-     * The front-buffered path needs `StrokeBuffer`, `DabPass` and `MergePass`
-     * (roadmap 2.4) and the predicted tail (2.5). Until they exist nothing
-     * calls `renderFrontBufferedLayer`, so this cannot fire — and if something
-     * ever does call it, drawing a full committed frame into the *front*
-     * buffer would be a visible correctness bug, not a graceful degradation.
-     * Doing nothing leaves the multi-buffered layer beneath showing the
-     * correct composite.
+     * **One frame, all dabs** (§11). graphics-core coalesces render requests,
+     * so several batches may be outstanding when this runs; [pendingBatches]
+     * holds the ones behind [param] and they are all stamped here, which is
+     * what makes the callback count irrelevant to what gets drawn.
+     *
+     * Every batch consumed is released back to the ring *here*, on the GL
+     * thread, after the renderer has read it — the same rule [stampDabs] used
+     * to state, moved to the callback that now owns the read.
      */
     override fun onDrawFrontBufferedLayer(
         eglManager: EGLManager,
@@ -89,7 +91,45 @@ class EngineSession(
         bufferInfo: BufferInfo,
         transform: FloatArray,
         param: DabBatch,
-    ) = Unit
+    ) {
+        ensureContext()
+        if (!isSupported) return
+        renderer.onSurfaceChanged(width, height)
+        // [param] is deliberately NOT consumed here: it is also in
+        // [pendingBatches], which is the authoritative list, and stamping it
+        // both ways would lay its dabs down twice and release its ring slot
+        // twice. Draining the queue alone consumes each batch exactly once.
+        //
+        // An empty queue is normal rather than a bug: graphics-core coalesces
+        // requests, so an earlier callback may already have drained everything
+        // this one was scheduled for — and it recomposited when it did, so
+        // there is nothing left to draw.
+        var dirty = IntRect.EMPTY
+        while (true) {
+            val next = pendingBatches.poll() ?: break
+            dirty = union(dirty, renderer.stampDabs(next))
+            dabRing.release(next)
+        }
+        if (dirty.isEmpty) return
+        renderer.drawStrokeFrame(
+            frameBufferId = bufferInfo.frameBufferId,
+            bufferWidth = bufferInfo.width,
+            bufferHeight = bufferInfo.height,
+            bufferTransform = transform,
+            dirtyCanvas = dirty,
+        )
+    }
+
+    private fun union(a: IntRect, b: IntRect): IntRect = when {
+        a.isEmpty -> b
+        b.isEmpty -> a
+        else -> IntRect(
+            minOf(a.left, b.left),
+            minOf(a.top, b.top),
+            maxOf(a.right, b.right),
+            maxOf(a.bottom, b.bottom),
+        )
+    }
 
     /**
      * The full viewport from committed state (§8.2) — and, per §5, every
@@ -117,15 +157,16 @@ class EngineSession(
             bufferHeight = bufferInfo.height,
             bufferTransform = transform,
         )
-        // §8.2 iterates `params` only to release the ring slots back to
-        // `DabRing`. There is no ring in this PR — it arrives with the stroke
-        // path in 2.4 — and `params` is empty on every non-stroke redraw,
-        // which is all of them here. Releasing arrives with the ring that owns
-        // the slots; a release written now would have nothing to release to.
-        check(params.isEmpty()) {
-            "the multi-buffered callback received ${params.size} batches, but nothing " +
-                "publishes them until roadmap 2.4 — their ring slots would leak"
-        }
+        // §8.2: `params` is iterated only to release the ring slots. A
+        // committed stroke's batches arrive here when graphics-core replays the
+        // segment into the multi-buffered layer, and a slot not returned is a
+        // slot gone for the life of the session — eight of those and
+        // `acquireDabBatch` returns null forever.
+        //
+        // The dabs themselves are NOT stamped again: `commitStroke` merged the
+        // stroke buffer into the layer before this ran, so restamping would lay
+        // the whole stroke down a second time.
+        for (batch in params) dabRing.release(batch)
     }
 
     private fun ensureContext() {
@@ -198,6 +239,19 @@ class EngineSession(
      */
     private val dabRing = DabRing()
 
+    /**
+     * Batches published to the front layer but not yet consumed by the
+     * callback.
+     *
+     * graphics-core takes one `param` per `renderFrontBufferedLayer` call and
+     * coalesces the requests, so with unbuffered dispatch the input thread can
+     * publish several between two callbacks. §8.1 step 1 says the callback
+     * consumes `param` "and any batch already published behind it"; this is
+     * that queue. Concurrent because the input thread adds and the GL thread
+     * drains.
+     */
+    private val pendingBatches = java.util.concurrent.ConcurrentLinkedQueue<DabBatch>()
+
     // Slots are released from BOTH threads: the input thread through
     // [releaseDabBatch] and the empty-batch path, the GL thread from inside
     // [stampDabs]'s execute block. That is safe because DabRing's `acquire` and
@@ -245,11 +299,23 @@ class EngineSession(
             dabRing.release(batch)
             return
         }
-        frontBuffered.execute {
-            renderer.stampDabs(batch)
+        if (!frontBuffered.isValid()) {
+            // The renderer is gone; the block would be dropped with the slot
+            // still checked out. `execute` after release logs and returns
+            // rather than throwing (AGENTS.md), so nothing else would say so.
             dabRing.release(batch)
+            return
         }
-        redraw()
+        // §8.1's path, not `execute` + a full redraw: this is what puts the
+        // mark under the pen instead of at pen-up.
+        //
+        // The batch is queued FIRST and then published. The reverse order
+        // races: the callback can run and drain before the add lands, leaving a
+        // batch in the queue with no request outstanding — drawn a batch late
+        // at best, and its slot held until the next sample at worst. Queue then
+        // publish means every request finds its own batch already there.
+        pendingBatches.add(batch)
+        frontBuffered.renderFrontBufferedLayer(batch)
     }
 
     /**
@@ -263,14 +329,26 @@ class EngineSession(
      * tracing §10.1 straight past the gap.
      */
     fun endStroke() {
+        // §8.3's order, and it holds because the FIFO assumption §8.3 flags was
+        // verified against graphics-core 1.0.4 (AGENTS.md): this block runs
+        // before the multi-buffered draw `commit()` schedules, so the layer
+        // already owns the stroke by the time the committed frame is composed.
         frontBuffered.execute { renderer.endStroke(readback = null, revision = 0) }
-        redraw()
+        if (!frontBuffered.isValid()) return
+        // commit(), not redraw(): the multi-buffered layer is redrawn AND the
+        // front layer is hidden. A plain redraw would leave the front buffer's
+        // last stroke frame on screen, doubling the stroke over the merged one.
+        frontBuffered.commit()
     }
 
-    /** §4: a cancelled stroke leaves no trace. */
+    /** §4/§8.4: a cancelled stroke leaves no trace. */
     fun cancelStroke() {
         frontBuffered.execute { renderer.cancelStroke() }
-        redraw()
+        if (!frontBuffered.isValid()) return
+        // §8.4: cancel() drops the front-buffered content, and the
+        // multi-buffered layer beneath is still showing the pre-stroke state,
+        // so nothing else needs drawing.
+        frontBuffered.cancel()
     }
 
     fun invalidate(op: SandwichPolicy.Op) {

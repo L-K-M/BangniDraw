@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.engine.gl
 import android.opengl.GLES30
 import android.util.Log
 import ch.lkmc.bangnidraw.engine.core.BlendMode
+import ch.lkmc.bangnidraw.engine.core.BufferScissor
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
@@ -68,6 +69,9 @@ class CanvasRenderer(
 
     /** The backdrop-copy warning fires once, like the others: it recurs per frame. */
     private var loggedBackdropFailure = false
+
+    /** `(x, y, width, height)` for `glScissor`, reused — §2.4 allows no per-frame allocation. */
+    private val scissorScratch = IntArray(4)
 
     private val projection = FloatArray(Mat4.SIZE)
     private val identity = Mat4.identity()
@@ -410,11 +414,103 @@ class CanvasRenderer(
         // mattered, which is worse than the redundancy it saves.
         state.invalidate()
 
+        val fullCanvas = IntRect(0, 0, canvas.width, canvas.height)
+        if (!compositeIntoAccum(current, screenTransform, pass, fullCanvas, null, null)) return
+
+        presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform, null)
+        GlErrors.checkGlDebug("drawFrame")
+    }
+
+    /**
+     * §8.1's front-buffered frame: the same composite as [drawFrame], over the
+     * stroke's dirty rect, with the active layer previewed through
+     * `preview.frag`.
+     *
+     * **It goes through the same [compositeIntoAccum] as the committed frame,
+     * and that is the point rather than a convenience.** §7.5 promises that
+     * what the pen shows mid-stroke is what pen-up lands. Two composition paths
+     * — one for the front layer, one for the multi-buffered one — would make
+     * that promise a coincidence maintained by hand: the sandwich decision, the
+     * per-layer fallback, the backdrop copy and the paper all have to agree,
+     * and nothing on the JVM could check that they do. One path cannot
+     * disagree with itself.
+     *
+     * The scissor is built in two steps because the buffer may be pre-rotated:
+     * `screenBoundsOf` gives window px (inflated and viewport-clipped), and
+     * [BufferScissor] carries that into buffer px. `Accum` is
+     * viewport-oriented, so it takes the *window* rect; only the present quad,
+     * which writes the real buffer, takes the transformed one.
+     */
+    fun drawStrokeFrame(
+        frameBufferId: Int,
+        bufferWidth: Int,
+        bufferHeight: Int,
+        bufferTransform: FloatArray,
+        dirtyCanvas: IntRect,
+    ) {
+        val current = stack
+        val screenTransform = screen
+        val pass = compositePass
+        val spec = stroke
+        if (current == null || screenTransform == null || pass == null || spec == null ||
+            !isReady || !accum.isAllocated || dirtyCanvas.isEmpty
+        ) {
+            // Nothing is drawn and nothing is cleared: the front layer keeps
+            // whatever it held, and the multi-buffered layer beneath is still
+            // showing a correct pre-stroke composite. Clearing here would flash
+            // the stroke away instead.
+            return
+        }
+        val windowRect = screenTransform.screenBoundsOf(dirtyCanvas, viewportWidth, viewportHeight)
+        if (windowRect.isEmpty) return
+        val bufferRect = BufferScissor.bounds(windowRect, bufferTransform, bufferWidth, bufferHeight)
+        if (bufferRect.isEmpty) return
+
+        state.invalidate()
+        if (!compositeIntoAccum(current, screenTransform, pass, dirtyCanvas, windowRect, spec)) return
+        presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform, bufferRect)
+        GlErrors.checkGlDebug("drawStrokeFrame")
+    }
+
+    /**
+     * Builds the frame in `Accum`: paper, then the stack, over [rect] only.
+     *
+     * [accumScissor] restricts the work to the front frame's dirty region.
+     * `Accum` is viewport-oriented, so this is the **window-px** rect, not the
+     * buffer-px one. Null composites the whole target.
+     *
+     * [previewSpec] non-null draws the active layer through §7.5's preview
+     * instead of plainly — the one and only difference between the front frame
+     * and the committed one.
+     *
+     * Returns false when `Accum` could not be bound, which is the caller's cue
+     * to leave the target alone rather than present a half-built frame.
+     */
+    private fun compositeIntoAccum(
+        current: LayerStack,
+        screenTransform: ScreenTransform,
+        pass: CompositePass,
+        rect: IntRect,
+        accumScissor: IntRect?,
+        previewSpec: StrokeSpec?,
+    ): Boolean {
         rebuildSandwichIfNeeded(current, screenTransform)
 
-        if (!fbo.bindTexture2d(accum.texture)) return
+        if (!fbo.bindTexture2d(accum.texture)) return false
         state.viewport(0, 0, accum.width, accum.height)
-        state.scissorOff()
+        if (accumScissor == null) {
+            state.scissorOff()
+        } else {
+            // Accum is viewport-oriented and y-down like every rect here; the
+            // flip to GL's bottom-left origin is the same one BufferScissor
+            // documents, done against Accum's own height.
+            state.scissor(
+                accumScissor.left,
+                accum.height - accumScissor.bottom,
+                accumScissor.right - accumScissor.left,
+                accumScissor.bottom - accumScissor.top,
+            )
+        }
 
         val cache = sandwich
         // Both halves: they become unavailable independently — `above` on
@@ -422,19 +518,18 @@ class CanvasRenderer(
         // sandwich with one of them unusable composites a half that was never
         // built.
         val useSandwich = cache != null && cache.aboveAvailable && cache.belowAvailable
-        val fullCanvas = IntRect(0, 0, canvas.width, canvas.height)
 
         drawPaper(bakedIntoBelow = useSandwich)
 
         if (useSandwich && cache != null) {
             pass.draw(
                 cache.below, BlendMode.NORMAL, 1f, screenTransform, projection, identity,
-                fullCanvas, scratch.texture,
+                rect, scratch.texture,
             )
-            drawLayer(pass, current.activeIndex, current, screenTransform, fullCanvas)
+            drawLayer(pass, current.activeIndex, current, screenTransform, rect, previewSpec)
             pass.draw(
                 cache.above, BlendMode.NORMAL, 1f, screenTransform, projection, identity,
-                fullCanvas, scratch.texture,
+                rect, scratch.texture,
             )
         } else {
             // The always-correct path §12 step 3 falls back to: every visible
@@ -443,12 +538,10 @@ class CanvasRenderer(
             // and exactly what makes the sandwich an optimization rather than
             // a correctness requirement.
             for (i in current.layers.indices) {
-                drawLayer(pass, i, current, screenTransform, fullCanvas)
+                drawLayer(pass, i, current, screenTransform, rect, previewSpec)
             }
         }
-
-        presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform)
-        GlErrors.checkGlDebug("drawFrame")
+        return true
     }
 
     private fun drawLayer(
@@ -457,6 +550,7 @@ class CanvasRenderer(
         current: LayerStack,
         screenTransform: ScreenTransform,
         rect: IntRect,
+        previewSpec: StrokeSpec? = null,
     ) {
         val layer = current.layers.getOrNull(index) ?: return
         val props = layer.props
@@ -492,6 +586,30 @@ class CanvasRenderer(
             // texture. Accum would simply never receive the layer.
             if (!fbo.bindTexture2d(accum.texture)) return
         }
+        // §7.5: only the ACTIVE layer is previewed, and only while a stroke is
+        // open on it. `spec.layerId` is checked rather than assumed equal to
+        // the active layer's — a stroke that began before a layer switch would
+        // otherwise be previewed onto whichever layer is active now, showing
+        // the mark somewhere it will never land.
+        val buffer = strokeBuffer
+        if (previewSpec != null && buffer != null &&
+            index == current.activeIndex && previewSpec.layerId == layer.id
+        ) {
+            pass.drawPreview(
+                layer = textures,
+                stroke = buffer,
+                tail = null, // roadmap 2.5b
+                spec = previewSpec,
+                mode = props.blendMode,
+                opacity = props.opacity,
+                screen = screenTransform,
+                projection = projection,
+                bufferTransform = identity,
+                dirtyRect = rect,
+                backdrop = scratch.texture,
+            )
+            return
+        }
         pass.draw(
             textures, props.blendMode, props.opacity, screenTransform, projection, identity,
             rect, scratch.texture,
@@ -505,6 +623,13 @@ class CanvasRenderer(
      * viewport-oriented and the same size, so there is nothing to rotate. (The
      * present step cannot use one for exactly that reason — a blit cannot
      * rotate, and the window buffer may be pre-rotated.)
+     *
+     * **A blit obeys the scissor**, so on the front-buffered path this copies
+     * only the dirty rect and leaves the rest of `Scratch` stale. That is
+     * correct rather than tolerated: the same scissor stops any fragment
+     * outside the rect from being written, and the backdrop is read with
+     * `texelFetch` at `gl_FragCoord`, so no fragment that survives ever samples
+     * the stale part.
      */
     private fun copyAccumToScratch(): Boolean {
         if (!scratch.isAllocated) return false
@@ -593,12 +718,24 @@ class CanvasRenderer(
         bufferWidth: Int,
         bufferHeight: Int,
         bufferTransform: FloatArray,
+        scissor: IntRect?,
     ) {
         val program = present ?: return
         if (bufferWidth <= 0 || bufferHeight <= 0) return
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, frameBufferId)
         state.viewport(0, 0, bufferWidth, bufferHeight)
-        state.scissorOff()
+        if (scissor == null) {
+            state.scissorOff()
+        } else {
+            // §8.1 step 4: the front buffer receives COMPLETE pixels inside the
+            // rect and is untouched outside it. That is what makes the stale
+            // content of a front buffer irrelevant — nothing here is drawn
+            // incrementally onto what was there before.
+            BufferScissor.toGlScissor(scissor, bufferHeight, scissorScratch)
+            state.scissor(
+                scissorScratch[0], scissorScratch[1], scissorScratch[2], scissorScratch[3],
+            )
+        }
         state.blendOff()
         state.useProgram(program)
         // Bound directly rather than through `state`: GlState caches sampler
@@ -618,6 +755,10 @@ class CanvasRenderer(
         // pre-rotated buffer its width and height are swapped relative to the
         // viewport, and u_bufferTransform is what maps one onto the other.
         presentQuad.draw(bufferWidth.toFloat(), bufferHeight.toFloat())
+        // The scissor is per-frame state on a target the next callback reuses;
+        // leaving it set would clip whatever graphics-core draws next to this
+        // stroke's dirty rect.
+        state.scissorOff()
     }
 
     private fun rebuildSandwichIfNeeded(current: LayerStack, screenTransform: ScreenTransform) {

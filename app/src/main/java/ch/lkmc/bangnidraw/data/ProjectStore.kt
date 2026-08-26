@@ -114,6 +114,61 @@ class ProjectStore(private val root: File) {
     }
 
     /**
+     * Creates a new painting's folder — a checkpoint of [document] with the
+     * guard [checkpoint] deliberately lacks: an id that already names a
+     * painting is refused rather than silently overwritten. The New Canvas
+     * dialog runs this *before* navigating (08 §2.1), so the Canvas always
+     * opens an existing folder.
+     */
+    @Throws(IOException::class)
+    fun create(document: Document) {
+        require(!exists(document.id)) { "project ${document.id} already exists" }
+        checkpoint(document)
+    }
+
+    /**
+     * Retitles one painting in place (06 §8): `title` and `updatedAt` move,
+     * nothing else — the rest of the file is rewritten byte-for-what-it-was.
+     * Runs only from the Studio, so no Canvas holds the document open
+     * (single task, single activity). Returns false when the painting could
+     * not be read or written; the shelf simply keeps the old name.
+     */
+    fun rename(id: String, title: String, now: Long = System.currentTimeMillis()): Boolean {
+        if (!isValidId(id)) return false
+        val jsonFile = File(projectDir(id), ProjectFile.FILE_NAME)
+        if (!jsonFile.isFile) return false
+        return try {
+            val file = json.decodeFromString(
+                ProjectFile.serializer(),
+                jsonFile.readText(Charsets.UTF_8),
+            )
+            val bytes = json
+                .encodeToString(ProjectFile.serializer(), file.copy(title = title, updatedAt = now))
+                .toByteArray(Charsets.UTF_8)
+            AtomicFiles.write(jsonFile, bytes)
+            true
+        } catch (e: SerializationException) {
+            Log.w(TAG, "project $id: rename skipped, unreadable project.json", e)
+            false
+        } catch (e: IOException) {
+            Log.w(TAG, "project $id: rename failed", e)
+            false
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "project $id: rename skipped, invalid project.json", e)
+            false
+        }
+    }
+
+    /**
+     * Free space beside the shelf's total — the Studio's storage readout
+     * (06 §7). `usableSpace` of a path that does not exist yet is 0, and the
+     * root is only created by the first checkpoint, so an empty shelf reads
+     * the parent (`filesDir`) — same filesystem, honest number.
+     */
+    fun freeBytes(): Long =
+        (if (root.exists()) root else root.parentFile ?: root).usableSpace
+
+    /**
      * Opens one painting: `project.json` → [Document], with the layer tile
      * sets rebuilt from the directory listing (an absent file is an empty
      * tile, so the listing *is* the tile set). Tile pixels are not read here

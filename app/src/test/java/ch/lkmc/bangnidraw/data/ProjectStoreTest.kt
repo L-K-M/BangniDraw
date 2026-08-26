@@ -13,6 +13,7 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -323,6 +324,33 @@ class ProjectStoreTest {
         )
         val result = assertIs<ProjectStore.LoadResult.Failed>(store.load("all-bad"))
         assertEquals(ProjectStore.FailureReason.UNREADABLE, result.reason)
+    }
+
+    @Test
+    fun `create refuses an id that already names a painting`() {
+        store.create(document(id = "fresh"))
+        assertIs<ProjectStore.LoadResult.Loaded>(store.load("fresh"))
+        assertFailsWith<IllegalArgumentException> { store.create(document(id = "fresh")) }
+    }
+
+    @Test
+    fun `rename moves title and updatedAt and nothing else`() {
+        val doc = document(id = "r-1", updatedAt = 100)
+        store.checkpoint(doc)
+        assertTrue(store.rename("r-1", "Harbour", now = 5_000))
+        val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load("r-1"))
+        assertEquals("Harbour", loaded.document.title)
+        assertEquals(5_000, loaded.document.updatedAt)
+        assertEquals(doc.copy(title = "Harbour", updatedAt = 5_000), loaded.document)
+    }
+
+    @Test
+    fun `rename of an unreadable painting is refused, not a rewrite`() {
+        val dir = store.projectDir("r-2").also { it.mkdirs() }
+        val file = File(dir, "project.json")
+        file.writeText("{ nope")
+        assertTrue(!store.rename("r-2", "x"))
+        assertEquals("{ nope", file.readText(), "never silently replaced")
     }
 
     @Test

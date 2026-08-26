@@ -146,7 +146,8 @@ Status: ⬜ not started · 🔁 open, in review · ✅ landed on `main` (with th
 | 2.3b | `fable/engine-gl-canvas` | Everything that draws: `ScreenTransform`, `CompositePass`, `SandwichCache`, `CanvasRenderer` (multi-buffered path only), `EngineSession`, `ui/canvas/CanvasSurface`, reset-view pill | Device: open a new canvas — the paper colour fills the fitted canvas rect at the right size and orientation, and the reset-view pill returns to fit after a programmatic nudge of the transform (the debug overlay is 2.5's). No touch navigation yet: `input/` is 2.4, so the view is driven programmatically here. JVM: `ScreenTransformTest` | ✅ #11, merged 2026-08-25 |
 | 2.4a | `fable/stroke-path-touch` | The input stack, driving navigation: `engine/core/GestureArbiter` plus `input/` (`StylusState`, `PalmRejection`, `CanvasTouchHandler`), wired to `ViewTransform` in `CanvasScreen`. The stroke callbacks are declared here and consumed in 2.4b | Device: two-finger pinch/zoom/rotate is smooth and rotation snaps near 0°; a resting palm does not pan, zoom or rotate the view while the pen hovers; two- and three-finger taps fire undo/redo. No strokes yet, so the stroke clauses of the old 2.4 check move to 2.4b. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` — including the no-allocation assertion of `docs/plan/10-performance.md` §2.4, which the step-2 risk table names as the mitigation for touch-path GC jank, so it is a gate | ✅ #12, merged 2026-08-25 (`dd096b0`) |
 | 2.4b | `fable/stroke-on-pixels` | The stroke reaches pixels: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, and the dab and merge shaders | Device: one finger draws a stroke that survives pen-up; a two-finger tap does not leave a dot; navigation stays smooth during a stroke as well as between strokes. JVM: the merge blend math cross-checked against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ✅ #13, merged 2026-08-26 (`9b9606d`) — **step 2a complete** |
-| 2.5 | `fable/front-buffered-stylus` | 2b: the front-buffered path (`onDrawFrontBufferedLayer`, `commit`, `cancel`), `TailBuffer`, `Predictor`, stylus axes (pressure/tilt/orientation/eraser end), palm rejection on device, unbuffered dispatch, debug overlay | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). JVM: `StabilizerTest` gains the predicted-tail cases — rationale in the note below. **This completes step 2** | ⬜ |
+| 2.5a | `fable/front-buffered-stroke` | 2b's first half — the front-buffered path itself: `onDrawFrontBufferedLayer` (§8.1's drain, stamp, dirty rect, scissored recomposite), §7.5's truthful preview (`composite.frag` under `#define PREVIEW`, sharing `merge.glsl`'s `mergeStroke` — already split out for exactly this in 2.4b), `renderFrontBufferedLayer` wiring in `EngineSession`/`CanvasScreen`, `commit()` and `cancel()` (§8.3, §8.4), ring-slot release in `onDrawMultiBufferedLayer` (2.3b's `check(params.isEmpty())` comes out), and the buffer transform on the scissor (§8.5) | Device: the stroke appears **under the pen while it draws** rather than at pen-up, and pen-up leaves the same pixels the preview showed — §7.5's whole claim; `ACTION_CANCEL` mid-stroke leaves no trace. JVM: `StrokeShaderContractTest` gains the PREVIEW variant, pinning that the preview and the merge go through the *same* `mergeStroke` — which is what makes "the preview does not lie" checkable at all without a GL context | ⬜ |
+| 2.5b | `fable/predicted-tail-stylus` | 2b's second half — the latency work and the instruments: `Predictor`, `TailBuffer`, the stabilizer/generator state **copy** §9 requires, adaptive disable (`PREDICT_ERR_DISABLE_PX`, `PREDICT_MAX_NS` — `07-input-and-stylus.md` §8), the last stylus axis (`StrokeInput.orientation` is specified canvas-relative — azimuth *minus* the view rotation — and `CanvasTouchHandler` currently forwards it raw; unobservable today because the only shipped preset is a `Round` tip with `TipOrientation.Fixed`, so it is fixed here rather than claimed as a 2.4b defect), unbuffered dispatch, palm rejection on device, and the debug overlay (§11's budgets) | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). JVM: `StabilizerTest` gains the predicted-tail cases — rationale in the note below. **This completes step 2** | ⬜ |
 
 **`GestureArbiter` is `engine/core`, not `input/`.** The old 2.4 row listed it
 among the `input/` classes; PLAN.md §3's tree puts it beside `ViewTransform` and
@@ -179,6 +180,33 @@ KDoc promises an older build can open a newer preset, and that promise is the
 parser's to keep — kotlinx throws on an unknown key by default. The store must
 also decide what a preset that fails `init` does on load; dropping it with a
 log, as `ProjectStore` does for a corrupt layer, is the shape to follow.
+
+**2.5 is split, and the seam is named before the work starts.** Rule 1 allows a
+step to become two PRs only at a seam noted here, so this is written before any
+2.5 code exists rather than where the work happens to stop. The step carries two
+things that are only incidentally in the same row: making the stroke *visible
+while it is drawn* (the front-buffered path and §7.5's preview), and making it
+*feel attached to the pen* (the predicted tail, unbuffered dispatch, and the
+overlay that measures whether it does). 2.4b came in at ~3,030 lines with less
+in it than that, so one PR is not plausible.
+
+The seam is that boundary, and it holds because **each half is independently
+demoable and independently falsifiable**:
+
+- **2.5a** ends with a stroke that appears under the pen instead of at pen-up —
+  a device check anyone can run in one gesture — and its correctness claim is
+  §7.5's: the preview and the commit must agree. That is checkable on the JVM
+  because both go through `merge.glsl`'s `mergeStroke`, which 2.4b split out
+  for exactly this. 2.5a is the half that can be *wrong* in a way tests catch.
+- **2.5b** adds only things that hide latency or report it, on top of a path
+  that already draws correctly. Its central claim — the tail runs from a *copy*
+  of the stabilizer and generator state and never advances the real one — is
+  pure, so `StabilizerTest` can pin it without a device.
+
+The cut nobody should take is "GL in one PR, input in the other": the tail is
+half `engine/core` state-copying and half a GL buffer, and separating them lands
+each side with nothing to check it against — the mistake 2.3a and 2.4b both
+recorded rejecting.
 
 **2.4b is over size on its own — recorded, not waved through.** Measured at
 its PR: ~1,900 lines of production code, ~1,100 of tests and ~30 of docs,

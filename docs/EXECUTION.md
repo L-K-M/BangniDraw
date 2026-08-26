@@ -124,7 +124,16 @@ For each round:
 
    c. **What you did NOT apply does not score the round.** A finding you declined, refuted or
       deferred is recorded — never silently dropped — but only findings you *accepted* decide
-      the score, which (b) and (d) settle by what you applied. **Changed 2026-08-26 at the
+      the score, which (b) and (d) settle by what you applied.
+
+      **Recorded where**, since this step no longer encodes it in the score and "recorded" is
+      worth nothing without a destination: in `REVIEW.md`, under its own `R-NNN` id, with the
+      reason and — for a refutation — the evidence that settles it; in the commit message of
+      the round that declined it; and in the chat scorecard when the loop ends. `REVIEW.md` is
+      the durable one of the three, and it is what a later round consults before re-applying
+      something a previous round declined. Losing the `dismissed only` label removed the only
+      *automatic* signal that a round refused something, so the record has to be written
+      rather than inferred. **Changed 2026-08-26 at the
       user's direction**; this step used to route any unapplied substantive finding to
       `dismissed only` "however many cosmetic fixes you applied alongside it".
 
@@ -193,6 +202,7 @@ For each round:
    | applied a real fix, push green | `useful feedback` |
    | applied a real fix, push red, one follow-up fix rescued it | `useful feedback` |
    | applied a real fix, push red, one follow-up fix could not save it | `integration failed` |
+   | applied a real fix, **declined a blocker**, green | `useful feedback` (was `dismissed only` before 2026-08-26) |
    | applied a typo, **declined a blocker**, green | `nits only` (was `dismissed only` before 2026-08-26) |
    | declined a blocker, applied nothing | `dismissed only` |
    | declined a blocker, applied a cosmetic fix, head left red | `integration failed` |

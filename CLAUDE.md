@@ -47,7 +47,8 @@ reasoning all live in EXECUTION.md.
 - **one** round is **nits only**: you applied something and every applied
   finding was cosmetic (wording, a comment, a rename, a test message). **Only
   what you accepted scores the round** — a finding you declined, refuted or
-  deferred is recorded but does not change the score,
+  deferred goes in `REVIEW.md` under its own `R-NNN` id, and does not change the
+  score,
 - **one** round is **dismissed only** (you applied nothing the review raised),
 - feedback integration failed in two consecutive rounds (you applied something
   — of any weight, cosmetic included — and could not get CI green with one
@@ -79,12 +80,15 @@ paperwork. And note what it does *not* save: PR #7's second traversal was not
 raised until round 5, so a round-2 exit merges it unfound — an unraised finding
 cannot be escalated, and no rule here pretends otherwise.
 
-**Declining is recorded, not scored — but two things still follow from it.**
-Re-read the decline against the code *before* you make it, since under one round
-there may be no second round in which to reconsider; and an out-of-scope
-deferral still owes the follow-up list even when the round scores nits only.
-Both key on the finding, never on the round's score — the same correction the
-escalation below needed.
+**Declining is recorded, not scored — but three things still follow from it.**
+It goes in `REVIEW.md` under an `R-NNN` id with its reason (and its evidence, if
+you refuted it), which is what a later round reads before re-applying something
+an earlier one declined — the score no longer carries that signal, so the record
+has to be written rather than inferred. Re-read the decline against the code
+*before* you make it, since under one round there may be no second round in
+which to reconsider. And an out-of-scope deferral still owes the follow-up list
+even when the round scores nits only. All three key on the finding, never on the
+round's score — the same correction the escalation below needed.
 
 **Whatever rule ends the loop**, a security-relevant finding you did not apply
 — path traversal, injection, authz, secrets, data loss — goes to the user for a

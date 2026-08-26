@@ -202,6 +202,73 @@ class DabGenerator(
         return 1
     }
 
+    /**
+     * An independent generator at this one's exact state, for §9's predicted
+     * tail.
+     *
+     * The tail runs the predicted samples through a copy so it continues the
+     * real stroke — same spacing remainder, same velocity, same jitter
+     * sequence — while the real generator's state is never advanced by a
+     * sample that was only a guess. Same `preset` and `seed`, so the copy's
+     * dabs are exactly the dabs the real samples would produce if the
+     * prediction is right, which is the whole claim §9 makes for it.
+     *
+     * **[firstBatch] is deliberately NOT carried over.** It points at the
+     * caller's batch — the real stroke's — and [end] uses it to rewrite the
+     * first dab of a tap in place. A copy holding that reference could reach
+     * back into the committed stroke's batch and rewrite a dab that is already
+     * on the layer. The tail never calls [end], so nulling it costs nothing
+     * and closes the one way a copy could touch anything but itself.
+     */
+    fun copy(): DabGenerator = DabGenerator(preset, seed).also { copyInto(it) }
+
+    /**
+     * [copy] into a generator that already exists, so the tail costs no
+     * allocation.
+     *
+     * The predicted tail is rebuilt from scratch **every frame** — 120 times a
+     * second on a 120 Hz panel — and `10-performance.md` §2.4's rule runs from
+     * `onTouchEvent` to `renderFrontBufferedLayer`, which is exactly the span
+     * this sits in. A fresh [copy] per frame is a `DabGenerator` and its
+     * [StrokeInput] each time; re-syncing one long-lived generator is none.
+     *
+     * [other] must have been built from the same `preset` and `seed`, or its
+     * dabs would not be the ones the real samples would produce — the claim
+     * §9 rests on. Checked rather than documented: getting it wrong yields a
+     * tail that is subtly the wrong size or jitter and nothing that says so.
+     */
+    fun copyInto(other: DabGenerator) {
+        require(other.preset === preset && other.seed == seed) {
+            "a tail generator must share the stroke's preset and seed"
+        }
+        other.last.set(last)
+        other.started = started
+        other.carry = carry
+        other.pathLength = pathLength
+        other.dabIndex = dabIndex
+        other.velocity = velocity
+        other.pendingDistance = pendingDistance
+        other.pressureOpacityMax = pressureOpacityMax
+        other.dabCount = dabCount
+        other.maxPressure = maxPressure
+        other.dabIndexOfFirst = dabIndexOfFirst
+        // `maxPressure` and `pressureOpacityMax` are carried for completeness,
+        // not because a test can see them, and dropping either kills no test —
+        // checked, not assumed. `maxPressure` feeds only `end()`'s tap rewrite
+        // and a tail never ends; `pressureOpacityMax` is read only by
+        // `StrokeDriver.opacityCeiling`, which the *merge* applies once at
+        // pen-up, so it reaches no dab field and no dab comparison can see it.
+        // Left here rather than dropped so a future tail that DOES end, or a
+        // ceiling read mid-stroke, starts from the truth.
+        //
+        // firstBatch / firstIndex are RESET rather than merely left alone:
+        // `other` may be a generator that ran a previous frame's tail, and one
+        // of that frame's dabs could still be sitting in `firstBatch`. See the
+        // KDoc above for why a tail must never hold that reference at all.
+        other.firstBatch = null
+        other.firstIndex = -1
+    }
+
     // ------------------------------------------------------------------ internals
 
     private val interpolated = InterpolatedSample()

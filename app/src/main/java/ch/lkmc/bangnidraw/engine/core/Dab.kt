@@ -69,8 +69,20 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
 
     var strokeId = 0L
 
-    /** Index of the first predicted dab, or -1 when the batch has none. */
+    /**
+     * Index of the first predicted dab, or -1 when the batch has none.
+     *
+     * `private set` because `CanvasRenderer.stampDabs` splits a batch on
+     * [committedCount] and hands the halves to `DabPass.stamp`, whose range
+     * `require` turns an out-of-range header into an `IllegalArgumentException`
+     * on the GL thread. [markPredictedFromHere] and [clear] are the only
+     * writers and both keep it in `-1..count`, so the invariant the renderer
+     * relies on holds by construction rather than by convention — which is what
+     * makes clamping at the read site the wrong fix: a clamp would draw a
+     * plausible frame from a header that was already wrong.
+     */
     var predictedFrom = -1
+        private set
 
     /** The union of the dabs' dirty rects, in canvas px. [IntRect.EMPTY] when empty. */
     var dirty: IntRect = IntRect.EMPTY
@@ -114,7 +126,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         this.aspect[i] = aspect
         this.seed[i] = seed
         count = i + 1
-        dirty = union(dirty, IntRect.forDab(x, y, radius))
+        dirty = dirty.union(IntRect.forDab(x, y, radius))
         return true
     }
 
@@ -153,18 +165,6 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
     /** How many dabs the multi-buffered pass will commit, i.e. excluding the tail. */
     val committedCount: Int get() = if (predictedFrom < 0) count else predictedFrom
 
-    private companion object {
-        fun union(a: IntRect, b: IntRect): IntRect = when {
-            a.isEmpty -> b
-            b.isEmpty -> a
-            else -> IntRect(
-                minOf(a.left, b.left),
-                minOf(a.top, b.top),
-                maxOf(a.right, b.right),
-                maxOf(a.bottom, b.bottom),
-            )
-        }
-    }
 }
 
 /**

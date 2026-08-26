@@ -104,6 +104,40 @@ class CanvasRenderer(
     private var strokeBuffer: StrokeBuffer? = null
 
     /**
+     * §9's `TailBuffer`: the predicted tail's tiles, cleared every frame.
+     *
+     * A second [StrokeBuffer] rather than a class of its own, because that is
+     * literally what §9 specifies — "allocated like a stroke buffer, ≤ 4 keys,
+     * cleared every frame" — and the two differ only in lifetime. A `TailBuffer`
+     * type would be the same tile index, the same lazy cleared allocation and
+     * the same dirty rect under a second name, with the pool-ordering rules of
+     * §2.1 duplicated into it.
+     *
+     * **It is not in `MemoryBudget`'s reservation, and does not need to be.**
+     * §7.1 reserves a full layer's worth for the stroke buffer because a wild
+     * stroke can touch every key; a tail covers one frame of pen travel, which
+     * is the ≤ 4 keys §9 names. If the pool is full anyway, `DabPass` skips the
+     * key it could not allocate — and a gap in a *predicted* tail is the
+     * cheapest pixel in the engine to lose, replaced wholesale on the next
+     * frame.
+     */
+    private var tailBuffer: StrokeBuffer? = null
+
+    /**
+     * The canvas rect the tail drawn last frame occupies, or empty.
+     *
+     * §8.1 step 3's "previous predicted tail's rect": the composite redraws
+     * complete pixels from committed content plus the *real* stroke buffer, so
+     * including this rect in the next frame's dirty region is the entire
+     * mechanism that erases the old tail. There is no undo-the-tail pass, and
+     * this one field is the whole of the bookkeeping (§9).
+     *
+     * Kept here rather than read back from [tailBuffer] because the buffer is
+     * reset before the new tail is stamped, and the rect has to outlive that.
+     */
+    private var previousTailRect: IntRect = IntRect.EMPTY
+
+    /**
      * The stroke in progress, or null between strokes. Set at pen-down and
      * cleared at merge or cancel — the one place that says whether a stroke
      * exists, so [strokeBuffer] never has to be interrogated for it.
@@ -246,6 +280,7 @@ class CanvasRenderer(
         dabPass = DabPass(dabProgram, state)
         mergePass = MergePass(mergeProgram, state, tiles, mergeQuad)
         strokeBuffer = StrokeBuffer(grid, tiles)
+        tailBuffer = StrokeBuffer(grid, tiles)
         isReady = true
         return true
     }
@@ -269,6 +304,13 @@ class CanvasRenderer(
         // lost to a cancelled gesture. Drop its buffer rather than merging it:
         // §4 says a cancelled stroke leaves no trace.
         if (stroke != null) buffer.reset()
+        // Unconditionally, not only on that branch: a tail whose slices were
+        // never returned would hold pool pages for the whole of the next
+        // stroke. After an ordinary pen-up this is already empty and costs a
+        // null check — [endStroke] and [cancelStroke] have both cleared it and
+        // both had their pixels taken away with the front layer, so there is no
+        // rect owed to anyone here either.
+        clearTail()
         stroke = spec
         strokeBufferMode = mode
         strokeR = colorR
@@ -278,14 +320,68 @@ class CanvasRenderer(
     }
 
     /**
-     * Stamps a batch into the open stroke's buffer and returns the canvas rect
+     * Stamps a batch into the open stroke's buffers and returns the canvas rect
      * it dirtied, for the caller to redraw. Empty when no stroke is open.
+     *
+     * **Two destinations, one batch.** `batch.predictedFrom` splits it: the
+     * committed dabs go to the stroke buffer, which merges into the layer at
+     * pen-up, and the predicted ones go to [tailBuffer], which never does (§9:
+     * "nothing predicted ever reaches the stroke buffer or the layer"). The
+     * split is done here, from the header the generator wrote, rather than by
+     * asking the caller to make two calls — the header is the single place that
+     * says which dabs were a guess, and a caller that routed them by hand could
+     * disagree with it.
+     *
+     * **No producer mixes the two in one batch today**, and this does not rely
+     * on that: `CanvasScreen` takes a fresh ring slot for the tail, so a real
+     * batch has `predictedFrom == -1` and a tail has 0. The general split is
+     * what `DabBatch`'s header has always described (`02-architecture.md`
+     * §3.2's `predictedFrom` is an *index*, and `DabRingTest` pins the mixed
+     * case), and it is two comparisons — cheaper than a `require` that would
+     * make the routing depend on a producer's habit.
      */
     fun stampDabs(batch: DabBatch): IntRect {
         if (stroke == null) return IntRect.EMPTY
         val pass = dabPass ?: return IntRect.EMPTY
         val buffer = strokeBuffer ?: return IntRect.EMPTY
-        return pass.stamp(batch, buffer, strokeBufferMode, strokeR, strokeG, strokeB)
+        val committed = batch.committedCount
+        var dirty = IntRect.EMPTY
+        if (committed > 0) {
+            dirty = pass.stamp(
+                batch, buffer, strokeBufferMode, strokeR, strokeG, strokeB,
+                from = 0, until = committed,
+            )
+        }
+        if (committed < batch.count) {
+            val tail = tailBuffer
+            if (tail != null) {
+                val tailRect = pass.stamp(
+                    batch, tail, strokeBufferMode, strokeR, strokeG, strokeB,
+                    from = committed, until = batch.count,
+                )
+                previousTailRect = previousTailRect.union(tailRect)
+                dirty = dirty.union(tailRect)
+            }
+        }
+        return dirty
+    }
+
+    /**
+     * Drops the tail and returns the canvas rect it occupied — §8.1 step 3's
+     * "previous predicted tail's rect", which the caller folds into the frame's
+     * dirty region so that redrawing it erases the tail (§9).
+     *
+     * Called once per front-buffered frame that stamps anything, before the
+     * stamping: a real batch supersedes the tail it was predicting, and a
+     * predicted batch replaces it outright. A frame that stamps nothing must
+     * *not* call this, or a callback graphics-core coalesced into an earlier
+     * one would wipe a tail that is still the best guess available.
+     */
+    fun clearTail(): IntRect {
+        val previous = previousTailRect
+        previousTailRect = IntRect.EMPTY
+        tailBuffer?.reset()
+        return previous
     }
 
     /**
@@ -300,6 +396,23 @@ class CanvasRenderer(
         val spec = stroke ?: return 0
         val buffer = strokeBuffer ?: return 0
         val pass = mergePass ?: return 0
+        // Before the merge and before any early return: the tail is front-layer
+        // only and the front layer is about to be hidden by `commit()`, so its
+        // slices would otherwise stay checked out of the pool until the next
+        // stroke reset them — a whole stroke's worth of leak per pen-up.
+        //
+        // **The returned rect is dropped on purpose, and only here and in
+        // [cancelStroke] is that safe.** Everywhere else it is the erase: the
+        // caller folds it into a dirty rect and redrawing those pixels is what
+        // removes the old tail. On these two paths nothing needs redrawing,
+        // because the front layer itself goes away — `EngineSession.endStroke`
+        // follows this with `commit()`, which hides the front layer and repaints
+        // the multi-buffered one from committed state across the whole viewport,
+        // and `cancelStroke` follows with `cancel()`, which drops the
+        // front-buffered content outright (§8.3, §8.4). A tail tip reaching past
+        // the last committed dab therefore cannot survive either, even though
+        // the stroke buffer's own merge rect does not cover it.
+        clearTail()
         val textures = textures(spec.layerId)
         stroke = null
         if (textures == null) {
@@ -325,6 +438,10 @@ class CanvasRenderer(
     fun cancelStroke() {
         stroke = null
         strokeBuffer?.reset()
+        // Rect dropped, for the reason [endStroke] gives: `cancel()` drops the
+        // front-buffered content, so there is nothing left to redraw the tail
+        // out of.
+        clearTail()
     }
 
     /** The rect the open stroke has dirtied so far, for the caller's redraw. */
@@ -626,7 +743,11 @@ class CanvasRenderer(
             pass.drawPreview(
                 layer = textures,
                 stroke = buffer,
-                tail = null, // roadmap 2.5b
+                // Null when the tail is empty, not merely when it is absent:
+                // `drawPreview` binds a page per texture, and handing it a
+                // buffer with no tiles would cost a bind and three page lookups
+                // per draw for a texture every fetch returns transparent from.
+                tail = tailBuffer?.takeIf { !it.isEmpty },
                 spec = previewSpec,
                 mode = props.blendMode,
                 opacity = props.opacity,
@@ -855,6 +976,8 @@ class CanvasRenderer(
         // that nothing is freed on context loss.
         stroke = null
         strokeBuffer = null
+        tailBuffer = null
+        previousTailRect = IntRect.EMPTY
         dabPass = null
         mergePass = null
         // EVERY program reference — six now that preview.frag exists. The ids
@@ -893,6 +1016,7 @@ class CanvasRenderer(
         dabPass?.release()
         mergePass?.release()
         strokeBuffer?.reset()
+        tailBuffer?.reset()
         presentQuad.release()
         checkerQuad.release()
         mergeQuad.release()
@@ -910,6 +1034,8 @@ class CanvasRenderer(
         pool = null
         stroke = null
         strokeBuffer = null
+        tailBuffer = null
+        previousTailRect = IntRect.EMPTY
         dabPass = null
         mergePass = null
         isReady = false

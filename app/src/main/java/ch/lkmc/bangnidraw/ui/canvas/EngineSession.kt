@@ -28,9 +28,11 @@ import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
  * **Roadmap 2.5a: both paths.** The front-buffered path of §8 is live — dabs
  * are published with `renderFrontBufferedLayer`, [onDrawFrontBufferedLayer]
  * stamps and recomposites the dirty rect with §7.5's preview, and pen-up goes
- * through §8.3's `commit()`. What is still absent rather than stubbed:
- * `readTiles` and `flushReadbacks`, whose consumer is step 3's `TileStore`,
- * and the predicted tail of §9, which is 2.5b.
+ * through §8.3's `commit()`. Roadmap 2.5b adds §9's predicted tail on the same
+ * path: a predicted batch is published exactly like a real one and the renderer
+ * routes it by `DabBatch.predictedFrom`. What is still absent rather than
+ * stubbed: `readTiles` and `flushReadbacks`, whose consumer is step 3's
+ * `TileStore`.
  */
 class EngineSession(
     surface: SurfaceView,
@@ -134,23 +136,30 @@ class EngineSession(
      */
     private fun drainPending(stamp: Boolean): IntRect {
         var dirty = IntRect.EMPTY
+        var stampedAny = false
         while (true) {
             val next = pendingBatches.poll() ?: break
-            if (stamp) dirty = union(dirty, renderer.stampDabs(next))
+            if (stamp) {
+                if (!stampedAny) {
+                    stampedAny = true
+                    // §8.1 step 3's "previous predicted tail's rect", folded in
+                    // once per frame before anything is stamped. Whatever this
+                    // frame draws supersedes the last frame's guess: a real
+                    // batch because the pen has actually arrived, a predicted
+                    // one because it is the newer guess. Redrawing the rect is
+                    // what erases the old tail — there is no undo pass (§9).
+                    //
+                    // Inside the loop rather than above it, so a callback that
+                    // finds the queue already drained — routine, since
+                    // graphics-core coalesces requests — leaves the tail alone
+                    // instead of wiping a guess that is still the best there is.
+                    dirty = renderer.clearTail()
+                }
+                dirty = dirty.union(renderer.stampDabs(next))
+            }
             dabRing.release(next)
         }
         return dirty
-    }
-
-    private fun union(a: IntRect, b: IntRect): IntRect = when {
-        a.isEmpty -> b
-        b.isEmpty -> a
-        else -> IntRect(
-            minOf(a.left, b.left),
-            minOf(a.top, b.top),
-            maxOf(a.right, b.right),
-            maxOf(a.bottom, b.bottom),
-        )
     }
 
     /**

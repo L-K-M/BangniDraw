@@ -273,6 +273,29 @@ and the contradiction is noted here.
   destination its own source and copies the texture onto itself, with no GL
   error and a plausible-looking result at every zoom where the backdrop
   happens not to matter.
+- **§8.1's step 5 is not a separate pass — the tail is drawn *by* §7.5's
+  preview.** The plan lists "draw the predicted tail on top, restricted to the
+  same rect" as a fifth step after the composite, which reads as a second draw.
+  It is not implemented as one, and §9 is why: the tail is "composited as if it
+  were part of the stroke buffer — the same `mergeStroke` preview", so
+  `preview.frag` samples all three textures and evaluates
+  `mergeStroke(mergeStroke(layer, stroke), tail)` in one pass. A separate pass
+  would have to re-derive the stroke's own merge to blend against, which is the
+  duplicate composition path §7.5's whole promise rules out. Anyone tracing
+  §8.1 will look for step 5 and find `CompositePass.drawPreview`'s `tail`
+  parameter instead.
+- **Nobody documents who owns the `MotionEvent` `MotionEventPredictor.predict()`
+  returns, so we do not recycle it.** The class's own javadoc says nothing, and
+  the two implementations the library switches between differ: on Android 14+
+  `SystemMotionEventPredictor.predict` forwards the platform
+  `MotionPredictor`'s event straight through, while below it
+  `MultiPointerPredictor.predict` builds one with `MotionEvent.obtain` (both
+  read out of the 1.0.0 bytecode). Android's own stylus guide shows the sample
+  simply dropping the result. Recycling an event the platform still owns
+  corrupts a pool the app does not control, and the failure lands somewhere
+  else entirely; not recycling one we do own is a small object per frame. The
+  asymmetry decides it — do not "fix" this into a `recycle()` without a source
+  that actually settles ownership.
 - **The scaffold's `detectTransformGestures` was deleted, not rewired.** It
   drove a Compose drawing of the paper; pointing it at the engine would make it
   a second owner of touch input, and `07-input-and-stylus.md` §2 makes

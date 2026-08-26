@@ -89,17 +89,7 @@ class StrokeBuffer(
 
     /** Grows [dirty] to cover [rect]; call once per stamped dab batch. */
     fun growDirty(rect: IntRect) {
-        if (rect.isEmpty) return
-        dirty = if (dirty.isEmpty) {
-            rect
-        } else {
-            IntRect(
-                left = minOf(dirty.left, rect.left),
-                top = minOf(dirty.top, rect.top),
-                right = maxOf(dirty.right, rect.right),
-                bottom = maxOf(dirty.bottom, rect.bottom),
-            )
-        }
+        dirty = dirty.union(rect)
     }
 
     /**

@@ -197,18 +197,49 @@ For each round:
 **The review loop ends when ANY of these hold.** Rules 1-5 are steady state; rules 6 and 7
 are last-resort exits and are not — the scorecard must say which it was. (`CLAUDE.md` carries
 the same list; change both or neither.)
+
+**Rules 2, 3 and 5 fire on ONE round, changed from two on 2026-08-26 at the user's
+direction to shorten the cycle.** This is a deliberate speed-for-thoroughness trade, not a
+discovery that the old reasoning was wrong — that reasoning still stands and is worth stating
+plainly, because whoever reads this next should know exactly what was given up:
+
+- You grade your own dismissals. Two rounds meant a decline had to survive being re-raised
+  once before it could end the loop; one round means a refusal you got wrong ends it
+  immediately.
+- Rounds N and N+1 are not independent. Across PRs #12-#14 a fix pushed in one round
+  introduced a defect caught in the next on three occasions — the clearest being #13's round
+  6, which caught a dispose-path regression that round 5's own fix had introduced. The round
+  that catches that class is the one this change skips.
+- Rule 2's cost is different in kind from the other two, and was going unstated. A nits-only
+  round is evidence about the *reviewer's* coverage, not about your grading, so neither bullet
+  above covers it: one such round now ends the loop on the strength of a single pass. A hole
+  the reviewer simply had not reached yet — PR #7's R-005, first raised in round 5 — is
+  exactly what a second, deeper pass was there to catch, and it is the one case the security
+  obligation cannot backstop, because an unraised finding cannot be escalated.
+
+Two things deliberately did **not** change, and they are what keeps the trade tolerable:
+rule 4 still needs two rounds, because one failed integration is as likely to be a fluke as a
+pattern and shortening it would not speed up the healthy path at all; and the
+rule-independent security obligation below still sends any unapplied security-relevant
+finding to the user before the merge. That second one is what makes the PR #7 case discussed
+further down — R-001 raised in round 2 and re-raised in rounds 6 and 7 before it was applied
+— *partly* survivable under a one-round exit, and the qualifier is the honest part. R-001 was
+on the table from round 2, so a round-2 exit still puts its decline in front of a person.
+R-005 was not raised until round 5, and the obligation below covers only a finding that "was
+raised and you did not apply it" — no obligation can catch what no round ever surfaced, so a
+round-2 exit merges R-005's traversal with no human touchpoint at all. What one round really
+gives up is the later rounds in which the reviewer had not yet reached the second hole, and
+nothing downstream substitutes for them.
 1. **one** round was empty, **OR**
-2. **two consecutive** rounds were nits only — no blocker, nothing genuinely helpful, **OR**
-3. **two consecutive** rounds were dismissed only, **OR**
+2. **one** round was nits only — no blocker, nothing genuinely helpful, **OR**
+3. **one** round was dismissed only, **OR**
 4. feedback integration failed in two consecutive rounds, **OR**
-5. **two consecutive** rounds scored `dismissed only` in which every declined or deferred
+5. **one** round scored `dismissed only` in which every declined or deferred
    finding was out of scope for this PR (pre-existing behavior, product decisions) — collect
    those as follow-up suggestions instead. Strictly a special case of rule 3, since (c) scores
    an out-of-scope deferral `dismissed only` and nothing else: it is kept because what you owe
    the next PR differs (a follow-up list, not a decline record), not because it fires where
-   rule 3 would not. Two rounds, for rule 3's reason — "out of scope" is your judgment about the
-   reviewer's finding, so one round of it is not evidence, and otherwise the cheapest way to
-   end a review early is to relabel refusals as scope calls, **OR**
+   rule 3 would not, **OR**
 6. a round scored `no review` and its re-run failed too — merge under *Unreviewed merges*
    below. A successful re-run is not a new round: step (a) scores the same round on the
    re-run's review. A round that stays `no review` still consumes a round number, including
@@ -239,21 +270,31 @@ the code and re-check the decline before answering; never treat the repetition i
 evidence you were right the first time.
 
 A genuinely stuck reviewer still terminates, through rule 3 rather than a rule of its own: if
-it only re-raises declined items and you decline them again, those rounds score `dismissed
-only`, and two running end the loop.
+it only re-raises declined items and you decline them again, that round scores `dismissed
+only` and ends the loop.
 
-That is a bound, not a guarantee, and PR #7 shows the difference. It declined R-001 in rounds
-2, 6 and 7 and applied it in round 8; it declined R-005 in rounds 5, 7 and 9 and applied it in
-round 10. Both were path traversal through an unvalidated layer id reaching a directory name.
-A stop rule firing on the first re-raise would have merged at round 6 with both holes open —
-but rule 3 would also have fired at round 7 if rounds 6 and 7 had been decline-only. They were
-not: round 6 *applied* a fix making `flatten()` refuse a destructive no-op, and round 7
-applied one resizing the layer cap, so both scored `useful feedback` and the streak never
-started. (Read "refuse" there as what the code now does, not as declining a finding — a round
-that only declined would be `dismissed only`, which is the whole point.) **The fix survived
-because the reviewer was still finding other real things, not because two rounds is a safe
-budget.** Read a dismissed-only streak as "I have stopped learning from this reviewer", and
-check that it is true before you act on it.
+That is a bound, not a guarantee, and PR #7 shows what the one-round threshold costs. It
+declined R-001 in rounds 2, 6 and 7 and applied it in round 8; it declined R-005 in rounds 5,
+7 and 9 and applied it in round 10. Both were path traversal through an unvalidated layer id
+reaching a directory name. Under the two-round rule the streak never started, because rounds
+6 and 7 each *applied* something real (a `flatten()` guard, a layer-cap resize) and so scored
+`useful feedback`. **Under the one-round rule this PR would have merged at round 2**, with
+both holes open — the first decline of R-001 would have ended it.
+
+What saves half of that case is not the stop rule but the obligation below: path traversal is
+security-relevant, so a declined R-001 reaches the user for a decision before any merge,
+whichever rule fired — and it has to survive a mislabel, because the same agent whose wrong
+decline created the risk is the one scoring the round. The obligation therefore keys on the
+**finding's substance, never on the round's score**: a security-relevant decline filed as
+"pre-existing behavior" under rule 5 escalates exactly as one filed as a decline under rule 3.
+Without that tie-breaker the cheapest way out of a security finding is to relabel it as a
+scope call, and rule 5 would end the loop in one round with a follow-up list instead of a
+decision. (R-005 is not saved by any of this, for the reason given above: it was never raised
+before the exit.) The obligation is now load-bearing rather than a backstop, and it is the reason
+this section still spells the PR #7 history out instead of trimming it. Read a
+`dismissed only` round as "I have stopped learning from this reviewer", and check that it is
+actually true before you act on it — under one round there is no second chance to notice you
+were wrong.
 
 **One obligation is rule-independent.** If a security-relevant finding — path traversal,
 injection, authorization, secret handling, data loss — was raised and you did not apply it,
@@ -266,12 +307,16 @@ outstanding. Whether a declined hole reached a person should not depend on which
 to fire. R-001 and R-005 were both path traversal through an unvalidated layer id, both
 declined three times by the same agent that scored the rounds, and both were right.
 
-Only rounds where a review actually ran count toward the **streak** rules (2, 3, 4, 5) — never
-toward rule 6, which fires precisely because no review ran. A *no review* round earns nothing
-and **pauses** any streak it interrupts rather than resetting it: a round that carries no
-information should not erase the information in the round before it, and resetting would hand
-a flaky reviewer an indefinite pardon from rule 3 — the rule that exists precisely because you
-grade your own dismissals. Otherwise "consecutive" is strict: any *scored* round of a
+Only rounds where a review actually ran count toward a **streak** — never toward rule 6, which
+fires precisely because no review ran. Since the one-round change, rule 4 is the only rule
+that counts consecutive rounds at all: rules 2, 3 and 5 fire on a single round and have no
+streak to interrupt. This paragraph used to name rules 2, 3, 4 and 5 and was left behind by
+that change; the *semantics* below are unaltered, and they now govern rule 4 alone.
+
+A *no review* round earns nothing and **pauses** any streak it interrupts rather than
+resetting it: a round that carries no information should not erase the information in the
+round before it, and resetting would hand a flaky reviewer an indefinite pardon from the one
+rule that still accumulates. Otherwise "consecutive" is strict: any *scored* round of a
 different kind resets the streak.
 
 That pause only ever matters when the loop continues past the `no review` round, and rule 6

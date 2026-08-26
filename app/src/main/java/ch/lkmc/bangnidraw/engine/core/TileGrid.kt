@@ -58,6 +58,31 @@ data class IntRect(val left: Int, val top: Int, val right: Int, val bottom: Int)
     val height: Int get() = bottom - top
     val isEmpty: Boolean get() = left >= right || top >= bottom
 
+    /**
+     * The smallest rect covering this one and [other] — a dirty rect growing
+     * by one more dab, one more batch, one more tail.
+     *
+     * **An empty rect contributes nothing rather than being treated as a rect
+     * at (0,0).** [EMPTY] is `(0,0,0,0)`, so folding it in as an ordinary rect
+     * would drag every union out to the canvas origin: one empty batch and the
+     * front-buffered frame redraws from the top-left corner to the pen.
+     *
+     * Here rather than in each caller. Four private copies of this had
+     * accumulated — in `DabBatch`, `DabPass`, `EngineSession` and
+     * `StrokeBuffer.growDirty` — which is four places for the empty case to be
+     * got wrong independently.
+     */
+    fun union(other: IntRect): IntRect = when {
+        isEmpty -> other
+        other.isEmpty -> this
+        else -> IntRect(
+            left = minOf(left, other.left),
+            top = minOf(top, other.top),
+            right = maxOf(right, other.right),
+            bottom = maxOf(bottom, other.bottom),
+        )
+    }
+
     companion object {
         val EMPTY = IntRect(0, 0, 0, 0)
 

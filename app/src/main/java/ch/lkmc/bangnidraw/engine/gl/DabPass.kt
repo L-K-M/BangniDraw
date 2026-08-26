@@ -89,6 +89,11 @@ class DabPass(
      * gap in one stroke; a crash loses the painting. §7.1's reservation of a
      * full layer's worth for the buffer is what makes this the pathological
      * stroke rather than the ordinary one.
+     *
+     * `[from, until)` selects part of the batch, which is how one batch reaches
+     * two different buffers: §8.1's header marks the predicted dabs
+     * ([DabBatch.predictedFrom]) and they go to the tail rather than the stroke
+     * buffer (§9). The default is the whole batch.
      */
     fun stamp(
         batch: DabBatch,
@@ -97,12 +102,18 @@ class DabPass(
         colorR: Float,
         colorG: Float,
         colorB: Float,
+        from: Int = 0,
+        until: Int = batch.count,
     ): IntRect {
-        if (batch.count == 0) return IntRect.EMPTY
+        require(from >= 0 && until <= batch.count && from <= until) {
+            "dab range $from..$until is outside 0..${batch.count}"
+        }
+        val dabs = until - from
+        if (dabs == 0) return IntRect.EMPTY
         val grid = buffer.grid
         ensureBuilt()
-        ensureInstanceCapacity(batch.count)
-        if (instanceCapacityDabs < batch.count) return IntRect.EMPTY
+        ensureInstanceCapacity(dabs)
+        if (instanceCapacityDabs < dabs) return IntRect.EMPTY
 
         state.useProgram(program)
         program.uniform3f("u_color", colorR, colorG, colorB)
@@ -117,11 +128,11 @@ class DabPass(
         state.scissorOff()
         GLES30.glBindVertexArray(vao[0])
 
-        val keyCount = collectKeys(batch, grid)
+        val keyCount = collectKeys(batch, grid, from, until)
         var dirty = IntRect.EMPTY
         for (i in 0 until keyCount) {
             val key = TileKey(distinctKeys[i])
-            val n = gatherDabsFor(batch, grid, key)
+            val n = gatherDabsFor(batch, grid, key, from, until)
             if (n == 0) continue
             val handle = try {
                 buffer.sliceForWrite(key)
@@ -134,7 +145,7 @@ class DabPass(
             program.uniform2f("u_tileOrigin", origin.x.toFloat(), origin.y.toFloat())
             uploadInstances(n)
             GLES30.glDrawArraysInstanced(GLES30.GL_TRIANGLE_STRIP, 0, CORNERS, n)
-            dirty = union(dirty, grid.tileRect(key))
+            dirty = dirty.union(grid.tileRect(key))
         }
 
         GLES30.glBindVertexArray(0)
@@ -158,13 +169,17 @@ class DabPass(
      * just collected, not by refilling the whole array, so the cost is the
      * number of touched tiles rather than the canvas size.
      */
-    private fun collectKeys(batch: DabBatch, grid: TileGrid): Int {
+    private fun collectKeys(batch: DabBatch, grid: TileGrid, from: Int, until: Int): Int {
         val tiles = grid.tileCount
         if (seen.size < tiles) seen = BooleanArray(tiles)
         if (distinctKeys.size < tiles) distinctKeys = IntArray(tiles)
+        // Indexed by the dab's own batch index, not by its offset within the
+        // range, so [gatherDabsFor] can read it with the same `i`. Sized for
+        // the whole batch for that reason: a range starting late in a batch
+        // still writes at `i * 4`.
         if (dabBounds.size < batch.count * 4) dabBounds = IntArray(batch.count * 4)
         var distinct = 0
-        for (i in 0 until batch.count) {
+        for (i in from until until) {
             val rect = IntRect.forDab(batch.x[i], batch.y[i], batch.radius[i])
             val o = i * 4
             dabBounds[o] = rect.left
@@ -198,10 +213,10 @@ class DabPass(
      * Batch order is the contract: GL blends instances in order, so this is
      * what makes GPU overlap equal `DabStamp`'s CPU fold.
      */
-    private fun gatherDabsFor(batch: DabBatch, grid: TileGrid, key: TileKey): Int {
+    private fun gatherDabsFor(batch: DabBatch, grid: TileGrid, key: TileKey, from: Int, until: Int): Int {
         val tile = grid.tileRect(key)
         var n = 0
-        for (i in 0 until batch.count) {
+        for (i in from until until) {
             val b = i * 4
             if (dabBounds[b + 2] <= tile.left || dabBounds[b] >= tile.right) continue
             if (dabBounds[b + 3] <= tile.top || dabBounds[b + 1] >= tile.bottom) continue
@@ -307,15 +322,6 @@ class DabPass(
                 .order(ByteOrder.nativeOrder()).asFloatBuffer()
         }
         fbo.release()
-    }
-
-    private fun union(a: IntRect, b: IntRect): IntRect = when {
-        a.isEmpty -> b
-        b.isEmpty -> a
-        else -> IntRect(
-            minOf(a.left, b.left), minOf(a.top, b.top),
-            maxOf(a.right, b.right), maxOf(a.bottom, b.bottom),
-        )
     }
 
     private companion object {

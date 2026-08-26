@@ -287,12 +287,13 @@ class EngineSession(
     fun releaseDabBatch(batch: DabBatch) = dabRing.release(batch)
 
     /**
-     * Stamps a batch borrowed from [acquireDabBatch] and returns it to the ring
-     * once the GL thread is done with it.
+     * Publishes a batch borrowed from [acquireDabBatch] to the front layer
+     * (§8.1); [onDrawFrontBufferedLayer] stamps it and returns its slot.
      *
-     * The release happens **inside** the GL block, not after `execute`
-     * returns: `execute` only queues, so releasing here would hand the slot
-     * back while the GL thread was still reading it.
+     * The release happens on the **GL thread**, after the renderer has read
+     * the batch — never here, because publishing only queues, and returning
+     * the slot now would hand it back while the GL thread was still reading
+     * it.
      */
     fun stampDabs(batch: DabBatch) {
         if (batch.count == 0) {
@@ -380,6 +381,16 @@ class EngineSession(
      * which is the last moment there is a context to delete them with.
      */
     fun release() {
+        // Anything published but never drawn: `cancelPending = true` below
+        // means those callbacks will not run, so their slots would stay checked
+        // out. Harmless for a session that is going away — except that the ring
+        // is the session's, and a leak here reads in a profile exactly like the
+        // one R-063 was about, so it is closed rather than left to be
+        // rediscovered.
+        while (true) {
+            val pending = pendingBatches.poll() ?: break
+            dabRing.release(pending)
+        }
         frontBuffered.release(true) {
             renderer.release()
         }

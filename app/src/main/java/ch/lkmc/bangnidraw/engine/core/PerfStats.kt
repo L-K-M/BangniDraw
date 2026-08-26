@@ -96,7 +96,22 @@ class PerfStats {
     }
 
     /**
-     * Clears the peaks and the frame count — called at pen-down.
+     * Clears the peaks and the frame count.
+     *
+     * **Called on the GL thread**, from `CanvasRenderer.beginStroke` — which
+     * `EngineSession.beginStroke` queues through `frontBuffered.execute`, like
+     * every other command it sends the renderer. So this is the same thread
+     * that runs [frame] and writes `commitMs`, and the read-modify-write on the
+     * peaks needs nothing beyond the `@Volatile` that publishes it to the
+     * reader.
+     *
+     * Spelled out because "at pen-down" — which is when it happens — reads as
+     * "on the input thread", and a reviewer drew exactly that inference. If a
+     * caller ever *does* reset from the main thread, the peaks need a pending
+     * flag applied inside [frame] rather than a direct write: `@Volatile` does
+     * not make `if (x > max) max = x` atomic against a concurrent zeroing, and
+     * a pre-reset peak surviving into the new stroke would answer "did this
+     * stroke stay in budget" with the previous stroke's worst frame.
      *
      * Per stroke rather than per session, because that is the question the
      * overlay answers: "did *this* stroke stay inside the budget". A maximum

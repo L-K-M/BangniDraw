@@ -1610,3 +1610,38 @@ touchscreen hover too, not only a pen.
   is correct about *where* the seam sits and would be a real bug in a codebase
   that lerped orientation raw; what makes it a non-issue here is a helper that
   predates this PR.
+
+---
+
+## PR #18 — the debug overlay (roadmap 2.5d)
+
+### Round 2 — one refusal
+
+- **R-092 — declined (refuted).** *"`resetPeaks` races with the GL thread's peak
+  updates"*: the finding reasons that `resetPeaks` is documented as "called at
+  pen-down", that pen events are handled on the main thread, and that `frame()`
+  runs on the GL thread — so the read-modify-write on `stampMsMax` could lose a
+  reset, and `@Volatile` does not fix that.
+
+  The reasoning about `@Volatile` is correct and the conclusion does not follow,
+  because the premise is wrong: `resetPeaks` is **not** called from the main
+  thread. It runs inside `CanvasRenderer.beginStroke`, and
+  `EngineSession.beginStroke` (`EngineSession.kt:296`) is
+  `frontBuffered.execute { renderer.beginStroke(...) }` — the GL thread, like
+  every other command the session sends the renderer. `frame()` reaches
+  `PerfStats` through `drawStrokeFrame` → `publishFrame`, also the GL thread,
+  and `commitMs` through `endStroke`, likewise inside an `execute` block. Every
+  write to this object is on one thread; the class doc's "written on the GL
+  thread, read on the main thread" is accurate as written.
+
+  The finding names this branch itself — "If they are the same thread, close
+  this as no-op and note the class doc is accurate" — and that is the branch the
+  code is on. The suggested `resetPending` flag would add a second state machine
+  to guard a race that cannot occur, and would break the tests that reset and
+  assert immediately, which the finding also anticipates.
+
+  **What the finding did surface is a doc defect**, and that is applied: the
+  KDoc said "called at pen-down", which is *when* it happens and reads as *where
+  from*. It now names the thread and the call path, and records what would have
+  to change if a caller ever did reset from the main thread — so the next reader
+  who follows this reasoning finds the answer instead of re-deriving it.

@@ -44,20 +44,18 @@ reasoning all live in EXECUTION.md.
   decline it *again* — useful feedback if you apply it, as PR #7 eventually did
   with both. Otherwise "that's just a restatement" becomes a one-round exit
   from any finding you don't like,
-- **two consecutive** rounds are **nits only**: you applied something, every
-  applied finding was cosmetic (wording, a comment, a rename, a test message),
-  and the review raised no substantive claim you declined or deferred — a round
-  that applies a typo while refusing a blocker is dismissed only, not this,
-- **two consecutive** rounds are **dismissed only** (no substantive finding
-  applied — all declined, refuted or deferred — or nothing applied at all).
-  Two, not one: you grade your own dismissals,
+- **one** round is **nits only**: you applied something, every applied finding
+  was cosmetic (wording, a comment, a rename, a test message), and the review
+  raised no substantive claim you declined or deferred — a round that applies a
+  typo while refusing a blocker is dismissed only, not this,
+- **one** round is **dismissed only** (no substantive finding applied — all
+  declined, refuted or deferred — or nothing applied at all),
 - feedback integration failed in two consecutive rounds (you applied something
   — of any weight, cosmetic included — and could not get CI green with one
   follow-up fix, or had to revert it),
-- **two consecutive** rounds where everything remaining is out of scope for the
-  PR (pre-existing behavior, product decisions) — collect those as follow-up
-  suggestions instead. Two, like dismissals: "out of scope" is your judgment
-  about the reviewer's finding, so one round of it is not evidence,
+- **one** round where everything remaining is out of scope for the PR
+  (pre-existing behavior, product decisions) — collect those as follow-up
+  suggestions instead,
 - a round found no usable review and its re-run failed too — merge unreviewed,
   per the paragraph below. Listed here because merging is otherwise gated on
   steady state, and a broken reviewer must not stall the pipeline,
@@ -67,6 +65,18 @@ reasoning all live in EXECUTION.md.
   so without a cap that case has no exit at all. Counts scored rounds: a round
   and its re-run are one. The scorecard and merge commit say the cap fired and
   what was still open.
+
+**These thresholds were two consecutive rounds until 2026-08-26**, when the user
+asked for a shorter cycle: merge after one round without blocking feedback.
+EXECUTION.md records what that trades away — you grade your own dismissals, and
+across #12-#14 a fix pushed in one round introduced a defect caught in the next
+three times over. Rule 4 (integration failure) deliberately still needs two.
+
+The security escalation below is now **load-bearing rather than a backstop**:
+PR #7 declined a path-traversal finding in round 2 and only applied it in round
+8, so under a one-round exit that PR merges at round 2 and the escalation is the
+only thing that puts the hole in front of a person. Do not treat it as
+paperwork.
 
 **Whatever rule ends the loop**, a security-relevant finding you did not apply
 — path traversal, injection, authz, secrets, data loss — goes to the user for a
@@ -87,11 +97,12 @@ changed its mind on new evidence looks the same from outside.
 **A re-raise is a prompt to re-read, not a reason to stop.** There is
 deliberately no rule here for "the reviewer repeated something you declined".
 Re-check the decline against the code instead; the repetition is never evidence
-you were right. A stuck reviewer still terminates via the dismissed-only rule
-above — a bound, not a guarantee. PR #7 declined R-001 three times before
-applying it, and R-005 three times; both were path traversal through an
-unvalidated layer id. The round-by-round account, and why a stop rule firing on
-the first re-raise would have merged with both holes open, is in EXECUTION.md.
+you were right. This matters more under the one-round threshold, not less: a
+decline now ends the loop the first time you make it, so the re-read has to
+happen *before* you decline, because there may be no second round in which to
+reconsider. PR #7 declined R-001 three times before applying it, and R-005
+three times; both were path traversal through an unvalidated layer id, and both
+would have merged open. The round-by-round account is in EXECUTION.md.
 
 A round where **no usable review arrived** — the action errored, timed out, was
 cancelled, finished without posting its report, or posted a blank, truncated or

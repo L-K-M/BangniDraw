@@ -147,7 +147,9 @@ Status: ⬜ not started · 🔁 open, in review · ✅ landed on `main` (with th
 | 2.4a | `fable/stroke-path-touch` | The input stack, driving navigation: `engine/core/GestureArbiter` plus `input/` (`StylusState`, `PalmRejection`, `CanvasTouchHandler`), wired to `ViewTransform` in `CanvasScreen`. The stroke callbacks are declared here and consumed in 2.4b | Device: two-finger pinch/zoom/rotate is smooth and rotation snaps near 0°; a resting palm does not pan, zoom or rotate the view while the pen hovers; two- and three-finger taps fire undo/redo. No strokes yet, so the stroke clauses of the old 2.4 check move to 2.4b. JVM: `GestureArbiterTest`, `PalmRejectionTest`, `StylusStateTest`, `CanvasTouchHandlerTest` — including the no-allocation assertion of `docs/plan/10-performance.md` §2.4, which the step-2 risk table names as the mitigation for touch-path GC jank, so it is a gate | ✅ #12, merged 2026-08-25 (`dd096b0`) |
 | 2.4b | `fable/stroke-on-pixels` | The stroke reaches pixels: `StrokeBuffer`, `DabPass`, `MergePass`, `Readback`, and the dab and merge shaders | Device: one finger draws a stroke that survives pen-up; a two-finger tap does not leave a dot; navigation stays smooth during a stroke as well as between strokes. JVM: the merge blend math cross-checked against PR 2.1's CPU `Composite` reference wherever no GL context is needed (PLAN.md §7: the CPU reference is what pins the shader semantics). **This completes 2a** | ✅ #13, merged 2026-08-26 (`9b9606d`) — **step 2a complete** |
 | 2.5a | `fable/front-buffered-stroke` | 2b's first half — the front-buffered path itself: `onDrawFrontBufferedLayer` (§8.1's drain, stamp, dirty rect, scissored recomposite), §7.5's truthful preview (`composite.frag` under `#define PREVIEW`, sharing `merge.glsl`'s `mergeStroke` — already split out for exactly this in 2.4b), `renderFrontBufferedLayer` wiring in `EngineSession`/`CanvasScreen`, `commit()` and `cancel()` (§8.3, §8.4), ring-slot release in `onDrawMultiBufferedLayer` (2.3b's `check(params.isEmpty())` comes out), and the buffer transform on the scissor (§8.5) | Device: the stroke appears **under the pen while it draws** rather than at pen-up, and pen-up leaves the same pixels the preview showed — §7.5's whole claim; `ACTION_CANCEL` mid-stroke leaves no trace. JVM: `StrokeShaderContractTest` gains the PREVIEW variant, pinning that the preview and the merge go through the *same* `mergeStroke` — which is what makes "the preview does not lie" checkable at all without a GL context | ✅ #14, merged 2026-08-26 (`9a4bb6a`) |
-| 2.5b | `fable/predicted-tail-stylus` | 2b's second half — the latency work and the instruments: `Predictor`, `TailBuffer`, the stabilizer/generator state **copy** §9 requires, adaptive disable (`PREDICT_ERR_DISABLE_PX`, `PREDICT_MAX_NS` — `07-input-and-stylus.md` §8), the last stylus axis (`StrokeInput.orientation` is specified canvas-relative — azimuth *minus* the view rotation — and `CanvasTouchHandler` currently forwards it raw; unobservable today because the only shipped preset is a `Round` tip with `TipOrientation.Fixed`, so it is fixed here rather than claimed as a 2.4b defect), unbuffered dispatch, palm rejection on device, and the debug overlay (§11's budgets) | Device: the full step-2 acceptance list above (S Pen scribble with no visible gap, no hook on pen-up, resting palm leaves no mark, overlay budgets inside target). JVM: `StabilizerTest` gains the predicted-tail cases — rationale in the note below. **This completes step 2** | ⬜ |
+| 2.5b | `fable/predicted-tail` | The predicted tail, end to end: `Predictor` (the wrapper that keeps `MotionEventPredictor` out of `engine/core`), `TailBuffer`, `DabGenerator.copy()` — `Stabilizer.copy()` already exists from 2.2 — the `Choreographer`-driven `predict()` of 07 §8, the tail's terms in §8.1's dirty rect, and adaptive disable (`PREDICT_ERR_DISABLE_PX` 12 px EMA, `PREDICT_MAX_NS` 16 ms) | Device: an S Pen scribble shows no visible gap between pen and ink, and no hook at pen-up. JVM: `StabilizerTest` gains the predicted-tail cases — "continues the stabilized line" and "never advances the real state". No `PredictorTest`/`TailBufferTest`: rationale in the note below | ⬜ |
+| 2.5c | `fable/stylus-axes-dispatch` | Stylus polish, all in `input/`: the canvas-relative orientation fix (`StrokeInput.orientation` is the azimuth **minus** the view rotation and `CanvasTouchHandler` forwards it raw), unbuffered dispatch (`requestUnbufferedDispatch` on `ACTION_DOWN`), and R-052's carry-in | Device: palm rejection holds during a real stylus stroke, and the stroke keeps up with a fast scribble. JVM: `CanvasTouchHandlerTest` gains an orientation case and R-052's cancel test is fixed to assert invariance rather than the fixture's starting value | ⬜ |
+| 2.5d | `fable/debug-overlay` | §11's debug overlay behind `Prefs.debugLatency`: frame budgets, the last N real vs predicted points, and the pool/memory line `CanvasRenderer.describe()` already produces | Device: the overlay reports dab stamping ≤ 1 ms and the dirty-rect recomposite ≤ 2 ms on a real stroke, which is how 10-performance.md's targets stop being aspirational. **This completes step 2** | ⬜ |
 
 **`GestureArbiter` is `engine/core`, not `input/`.** The old 2.4 row listed it
 among the `input/` classes; PLAN.md §3's tree puts it beside `ViewTransform` and
@@ -181,6 +183,28 @@ parser's to keep — kotlinx throws on an unknown key by default. The store must
 also decide what a preset that fails `init` does on load; dropping it with a
 log, as `ProjectStore` does for a corrupt layer, is the shape to follow.
 
+**2.5b is split three ways, and the seams are named before the work starts.** The
+2.5b row originally bundled the predicted tail with the stylus-axis fixes and the
+debug overlay, which is three unrelated things sharing a row because they all
+land in step 2b. Splitting them shortens each review — the reason the user asked
+for on 2026-08-26 — and the seams are clean because the three barely touch each
+other: the tail is `engine/core` plus one GL buffer, the axis work is entirely
+`input/`, and the overlay is UI over numbers the renderer already exposes.
+
+Each is independently demoable, which is rule 1's real test. 2.5b is the one
+that must stay whole: `DabGenerator.copy()` with nothing calling it is the cut
+2.3a and 2.4b both recorded rejecting, since the copy's only claim — that
+predicted samples never advance the real state — is unfalsifiable until
+something predicts. 2.5c and 2.5d have no such coupling.
+
+2.5a left the tail's seam wired and empty, so 2.5b fills it rather than cutting
+a new one: `u_tailPage` and the third slice attribute exist in `preview.frag`,
+`previewAt` already computes `mergeStroke(mergeStroke(L, S), T)`,
+`CompositePass.drawPreview` already takes a `tail: StrokeBuffer?`, and
+`PreviewPlan` already batches on the three-page triple with tests covering an
+all-absent tail. `androidx.input:input-motionprediction` is already pinned and
+already an `:app` dependency, so 2.5b adds no build change either.
+
 **2.5 is split, and the seam was named before the work started.** Rule 1 allows
 a step to become two PRs only at a seam noted here, so the seam was fixed in its
 own commit ahead of the first line of 2.5 code, rather than drawn afterwards
@@ -200,10 +224,10 @@ demoable and independently falsifiable**:
   §7.5's: the preview and the commit must agree. That is checkable on the JVM
   because both go through `merge.glsl`'s `mergeStroke`, which 2.4b split out
   for exactly this. 2.5a is the half that can be *wrong* in a way tests catch.
-- **2.5b** adds only things that hide latency or report it, on top of a path
-  that already draws correctly. Its central claim — the tail runs from a *copy*
-  of the stabilizer and generator state and never advances the real one — is
-  pure, so `StabilizerTest` can pin it without a device.
+- **2.5b-d** add only things that hide latency or report it, on top of a path
+  that already draws correctly. The central claim among them — the tail runs
+  from a *copy* of the stabilizer and generator state and never advances the
+  real one — is pure, so `StabilizerTest` can pin it without a device.
 
 The cut nobody should take is "GL in one PR, input in the other": the tail is
 half `engine/core` state-copying and half a GL buffer, and separating them lands

@@ -328,6 +328,20 @@ and the contradiction is noted here.
   mid-gesture at all — the risk 06's timeout exists to hedge. Revisit when
   the flatten lands.
 
+- **Step 4's flattens are `CpuFlatten` over `Composite`, not the GL band
+  flatten.** Same trade as the thumbnail note above, extended: gallery syncs
+  and shares always run after a checkpoint (or from the Studio with no canvas
+  open), so the tiles are flushed, the pixels are identical by PLAN §7's
+  pinning, and nothing borrows the GL thread. 03 §10.4's `CanvasRenderer
+  .flatten` is still owed; when it lands it supersedes both call sites.
+
+- **The gallery-sync debounce is pinned as a pure rule, not a ViewModel
+  clock test.** `11-testing.md` §7 puts the 30 s floor case in a
+  `CanvasViewModelTest` on `kotlinx-coroutines-test`; the decision instead
+  lives in `GallerySyncDecision.isDue` (engine/core) with its own test, and
+  the ViewModel only consults it. No `kotlinx-coroutines-test` dependency
+  exists yet; add it when a real coroutine-clock test earns it, not before.
+
 - **The scaffold's `detectTransformGestures` was deleted, not rewired.** It
   drove a Compose drawing of the paper; pointing it at the engine would make it
   a second owner of touch input, and `07-input-and-stylus.md` §2 makes

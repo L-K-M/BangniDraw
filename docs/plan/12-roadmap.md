@@ -552,7 +552,18 @@ fast painter, tiles queue per layer and coalesce (last write wins) — the
 readback handover already carries a sequence number so a stale tile never
 overwrites a newer one.
 
-### Step 4 — Gallery sync and share (S)
+### Step 4 — Gallery sync and share (S, **landed on main** — commits `126b343..4563317`, 2026-08-26, direct push)
+
+**Landed with three recorded notes.** Every flatten in this step runs on the
+CPU (`CpuFlatten` over `Composite`, the pinned reference) rather than through
+`CanvasRenderer.flatten` — the same deviation and reasoning as the thumbnail's
+(AGENTS.md); §10.4's GL band flatten is still owed and will supersede both
+call sites. The §9.3 debounce is pinned in `GallerySyncDecisionTest` as a pure
+rule rather than in a coroutine-clock `CanvasViewModelTest` (AGENTS.md,
+deviations). And the hold menu's Duplicate went live here with
+`ProjectStore.duplicate` (06 §8), closing 3c's stub. **The device checks —
+G1–G3, the reinstall/ownership drill, share to another app — have not been
+run: no device has ever been available.**
 
 **Goal.** One gallery image per painting, always the latest version;
 share and export from the Studio hold menu.

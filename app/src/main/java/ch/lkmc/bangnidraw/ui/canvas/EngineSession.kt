@@ -1,5 +1,7 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import android.os.Handler
+import android.os.Looper
 import android.view.SurfaceView
 import androidx.graphics.lowlatency.BufferInfo
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
@@ -9,12 +11,15 @@ import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.DabRing
 import ch.lkmc.bangnidraw.engine.core.IntRect
+import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
+import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
+import java.nio.ByteBuffer
 
 /**
  * The per-canvas façade the ViewModel and tools talk to
@@ -28,20 +33,24 @@ import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
  * **Roadmap 2.5a: both paths.** The front-buffered path of §8 is live — dabs
  * are published with `renderFrontBufferedLayer`, [onDrawFrontBufferedLayer]
  * stamps and recomposites the dirty rect with §7.5's preview, and pen-up goes
- * through §8.3's `commit()`. Roadmap 2.5b adds §9's predicted tail on the same
- * path: a predicted batch is published exactly like a real one and the renderer
- * routes it by `DabBatch.predictedFrom`. What is still absent rather than
- * stubbed: `readTiles` and `flushReadbacks`, whose consumer is step 3's
- * `TileStore`.
+ * through §8.3's `commit()`. Roadmap 3a wires §10.1's readback: [endStroke]
+ * enqueues the merged tiles and [onTile] — `CanvasViewModel`'s hook into
+ * `TileFlusher` — receives them as the fences signal.
  */
 class EngineSession(
     surface: SurfaceView,
     canvas: CanvasSize,
     budget: MemoryBudget.Result,
     private val debugBuild: Boolean,
+    /**
+     * §10.1's consumer, called on the GL thread once per merged tile; the
+     * buffer is only valid for the duration of the call. Null leaves the
+     * readback machinery entirely unbuilt — the placeholder-canvas case.
+     */
+    onTile: ((LayerId, TileKey, Int, ByteBuffer) -> Unit)? = null,
 ) : GLFrontBufferedRenderer.Callback<DabBatch> {
 
-    val renderer = CanvasRenderer(canvas, budget)
+    val renderer = CanvasRenderer(canvas, budget, onTile = onTile)
 
     /**
      * §11's budgets as measured, for the debug overlay (`10-performance.md`
@@ -97,6 +106,14 @@ class EngineSession(
     @Volatile
     var isSupported: Boolean = true
         private set
+
+    /**
+     * True once the GL context exists and the renderer can accept uploads —
+     * what the reopen path's tile streaming waits for. Reads the renderer's
+     * own `@Volatile` flag, so an IO coroutine polling this observes the GL
+     * thread's write.
+     */
+    fun isEngineReady(): Boolean = renderer.isReady
 
     private var contextReady = false
 
@@ -405,16 +422,21 @@ class EngineSession(
     }
 
     /**
-     * Merges the stroke into its layer (§7.4).
-     *
-     * **§10.1's readback is not wired yet** — `readback = null` below, and
-     * `revision = 0` with it. `Readback` exists and is tested, but its consumer
-     * is `TileStore`, which arrives with step 3's persistence; enqueueing into
-     * nothing would be a readback whose results are dropped on the GL thread.
-     * Said here because a doc claiming the readback runs would send anyone
-     * tracing §10.1 straight past the gap.
+     * Monotonic per-session commit sequence, stamped onto every readback tile
+     * so the flusher can refuse a stale chunk that completes out of order
+     * (§10.1). Main-thread only, like every façade call here.
+     */
+    private var revision = 0
+
+    /**
+     * Merges the stroke into its layer (§7.4) and enqueues §10.1's readback of
+     * the merged tiles. The fences usually signal a frame or two later, so
+     * [pumpReadback] keeps polling after the commit until everything in flight
+     * has been mapped and handed to the tile sink.
      */
     fun endStroke() {
+        revision += 1
+        val thisRevision = revision
         // §8.3's order, and it holds because the FIFO assumption §8.3 flags was
         // verified against graphics-core 1.0.4 (AGENTS.md): this block runs
         // before the multi-buffered draw `commit()` schedules, so the layer
@@ -425,13 +447,95 @@ class EngineSession(
             // be lost — and its slot would still be checked out when the replay
             // arrives, where nothing releases it any more.
             drainPending(stamp = true)
-            renderer.endStroke(readback = null, revision = 0)
+            renderer.endStroke(revision = thisRevision)
         }
         if (!frontBuffered.isValid()) return
         // commit(), not redraw(): the multi-buffered layer is redrawn AND the
         // front layer is hidden. A plain redraw would leave the front buffer's
         // last stroke frame on screen, doubling the stroke over the merged one.
         frontBuffered.commit()
+        pumpReadback()
+    }
+
+    /**
+     * §10.1's between-frame poll: while PBOs are in flight the main thread
+     * keeps posting `execute { poll() }`, because after pen-up no further
+     * frame may arrive to do it — a painter who lifts the pen and waits would
+     * otherwise leave the last stroke's tiles unmapped until the next stroke.
+     *
+     * [pendingMirror] carries the count from the GL thread to the main-thread
+     * scheduling decision; the handler reposts while it is non-zero. The chain
+     * dies on its own when the count reaches zero, and [release] removes any
+     * scheduled tick.
+     */
+    @Volatile
+    private var pendingMirror = 0
+
+    private val pollHandler = Handler(Looper.getMainLooper())
+
+    private val pollTick = Runnable {
+        if (!frontBuffered.isValid()) return@Runnable
+        frontBuffered.execute {
+            renderer.pollReadback()
+            pendingMirror = renderer.readbackPending
+            if (renderer.readbackPending > 0) pumpReadback()
+        }
+    }
+
+    private fun pumpReadback() {
+        // Posted unconditionally on pen-up (the enqueue itself happens on the
+        // GL thread, so the main thread cannot see its pending count yet) and
+        // re-posted from the GL thread while chunks remain. postDelayed on a
+        // Handler is thread-safe from both.
+        pollHandler.removeCallbacks(pollTick)
+        pollHandler.postDelayed(pollTick, READBACK_POLL_MS)
+    }
+
+    /**
+     * Uploads decoded tiles into a layer's textures — §5.7's reopen path. One
+     * `execute {}` per call, so the caller chunks: a whole 4096² painting in
+     * one block would hold the GL thread for the entire upload.
+     *
+     * Each buffer must stay untouched until the block has run; the ViewModel
+     * hands over freshly decoded arrays and never reuses them.
+     */
+    fun uploadTiles(layerId: LayerId, tiles: List<Pair<TileKey, ByteArray>>, last: Boolean) {
+        if (tiles.isEmpty() && !last) return
+        frontBuffered.execute {
+            if (renderer.isReady) {
+                val textures = renderer.textures(layerId)
+                if (textures != null) {
+                    for ((key, pixels) in tiles) {
+                        textures.upload(key, ByteBuffer.wrap(pixels))
+                    }
+                }
+                // Restored pixels stale the caches exactly as undo's uploads
+                // do (§10.3) — per batch, not once at the end, or the interim
+                // redraws would composite from a stale sandwich.
+                renderer.invalidate(SandwichPolicy.Op.UndoRedo)
+            }
+        }
+        redraw()
+    }
+
+    /**
+     * Runs [onDone] once every in-flight readback has been mapped and handed
+     * to the tile sink — the leave/`ON_STOP` checkpoint's first step, which
+     * must not write `project.json` while the last stroke's pixels are still
+     * on the GPU. Called on the main thread; [onDone] runs on the GL thread,
+     * or synchronously here when the renderer is already gone (then whatever
+     * was in flight has been delivered or dropped by [release] already).
+     */
+    fun finishReadback(onDone: () -> Unit) {
+        if (!frontBuffered.isValid()) {
+            onDone()
+            return
+        }
+        frontBuffered.execute {
+            renderer.finishReadback()
+            pendingMirror = 0
+            onDone()
+        }
     }
 
     /** §4/§8.4: a cancelled stroke leaves no trace. */
@@ -478,6 +582,9 @@ class EngineSession(
      * which is the last moment there is a context to delete them with.
      */
     fun release() {
+        // The pump has nothing left to poll — the renderer's own release path
+        // maps what is still in flight, on the GL thread, with a live context.
+        pollHandler.removeCallbacks(pollTick)
         // Anything published but never drawn: `cancelPending = true` below
         // means those callbacks will not run, so their slots would stay checked
         // out. Harmless for a session that is going away — except that the ring
@@ -491,5 +598,14 @@ class EngineSession(
         frontBuffered.release(true) {
             renderer.release()
         }
+    }
+
+    private companion object {
+        /**
+         * Two 120 Hz frames. The fence for a normal stroke signals within a
+         * frame or two of pen-up (§10.1), so the first poll usually lands it;
+         * anything slower is a wedged GPU, where polling faster buys nothing.
+         */
+        const val READBACK_POLL_MS = 17L
     }
 }

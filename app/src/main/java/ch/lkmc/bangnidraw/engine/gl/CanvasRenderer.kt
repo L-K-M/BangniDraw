@@ -59,7 +59,39 @@ class CanvasRenderer(
     val perf: PerfStats = PerfStats(),
     /** Injected so a test can hand it values; `System.nanoTime` in production. */
     private val clock: Clock = Clock.SYSTEM,
+    /**
+     * §10.1's consumer: receives each merged tile's pixels on the GL thread,
+     * copies them out (the buffer dies when the call returns — [Readback]'s
+     * contract) and hands them to `TileFlusher`. Null in tests and in any
+     * context without persistence; then no [Readback] exists and a merge
+     * leaves the CPU mirror alone.
+     */
+    onTile: ((LayerId, TileKey, Int, java.nio.ByteBuffer) -> Unit)? = null,
 ) {
+
+    /**
+     * Owned here rather than by the session so it lives and dies with the GL
+     * objects: [release] must map what is still in flight before the PBOs go,
+     * and [onContextLost] must forget them without touching dead fences.
+     */
+    private val readback: Readback? = onTile?.let { Readback(it) }
+
+    /** In-flight readback chunks, mirrored for the session's poll pump. */
+    val readbackPending: Int get() = readback?.pending ?: 0
+
+    /** §10.1's poll, for the `Choreographer`-driven pump between frames. */
+    fun pollReadback() {
+        readback?.poll()
+    }
+
+    /**
+     * Blocks the GL thread until everything in flight has been handed over —
+     * the checkpoint's "the last stroke's pixels are on the CPU" barrier.
+     * Bounded by [Readback]'s fence timeout, never forever.
+     */
+    fun finishReadback() {
+        readback?.finish()
+    }
 
     private val grid = TileGrid(canvas.width, canvas.height)
     private val state = GlState()
@@ -199,7 +231,14 @@ class CanvasRenderer(
     var checkerA: Int = 0xFFFFFFFF.toInt()
     var checkerB: Int = 0xFFE0E0E0.toInt()
 
-    /** True once [onContextCreated] has run and the device can render at all. */
+    /**
+     * True once [onContextCreated] has run and the device can render at all.
+     *
+     * `@Volatile` because the reopen path polls it from an IO coroutine to
+     * know when tile uploads may begin (roadmap 3a); it is written on the GL
+     * thread, and without the fence the poller could read `false` forever.
+     */
+    @Volatile
     var isReady: Boolean = false
         private set
 
@@ -429,13 +468,15 @@ class CanvasRenderer(
 
     /**
      * Merges the open stroke into its layer and hands the touched keys to
-     * [readback] (§7.4, §10.1). Returns the tiles merged.
+     * [readback] (§7.4, §10.1). Returns the tiles merged. [revision] is the
+     * commit sequence the readback stamps on each tile, so the flusher can
+     * refuse a stale one (chunks can complete out of order across two PBOs).
      *
      * The buffer is reset **after** the readback is enqueued, not before: the
      * merge has already consumed it by then, but resetting first would free
      * slices the enqueued reads have not been issued against yet.
      */
-    fun endStroke(readback: Readback?, revision: Int): Int {
+    fun endStroke(revision: Int): Int {
         val startNs = clock.nowNanos()
         val spec = stroke ?: return 0
         val buffer = strokeBuffer ?: return 0
@@ -579,6 +620,8 @@ class CanvasRenderer(
         bufferHeight: Int,
         bufferTransform: FloatArray,
     ) {
+        // §10.1: every GL-thread entry maps whatever readback has finished.
+        readback?.poll()
         val current = stack
         val screenTransform = screen
         val pass = compositePass
@@ -638,6 +681,7 @@ class CanvasRenderer(
         bufferTransform: FloatArray,
         dirtyCanvas: IntRect,
     ) {
+        readback?.poll()
         val current = stack
         val screenTransform = screen
         val pass = compositePass
@@ -1059,6 +1103,10 @@ class CanvasRenderer(
 
     /** The context is gone; the textures went with it (§12). Nothing is freed. */
     fun onContextLost() {
+        // The fences and PBOs died with the context; waiting on them would
+        // hang, so whatever was in flight is dropped and the CPU mirror
+        // simply stays stale for those keys (§12).
+        readback?.forgetAll()
         for (textures in layers.values) textures.forgetAll()
         sandwich?.forgetAll()
         // A stroke in progress cannot survive: its buffer's slices went with
@@ -1100,6 +1148,12 @@ class CanvasRenderer(
 
     /** Ordinary teardown, with a live context: everything is deleted. */
     fun release() {
+        // First, before anything is torn down: map what is still in flight and
+        // hand it over — these are the last stroke's tiles, and dropping them
+        // here would lose exactly the pixels a leave-checkpoint is about to
+        // save. Then delete the PBOs with the rest of the GL objects.
+        readback?.finish()
+        readback?.release()
         for (textures in layers.values) textures.release()
         layers.clear()
         sandwich?.release()

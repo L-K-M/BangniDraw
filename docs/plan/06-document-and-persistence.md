@@ -67,6 +67,11 @@ data class ProjectFile(
     val paperColor: Int,                              // ARGB; alpha 0 = transparent paper
     val layers: List<LayerRecord>,                    // bottom → top
     val activeLayerId: String,
+    val nextLayerName: Int = 0,                       // LayerStack.nextName (05 §1: a default name is never reused).
+                                                      // 0 = written before the field existed; the loader floors the
+                                                      // counter at one past the highest "@string/layer_default N"
+                                                      // present either way, so a hand-edited or pre-field file cannot
+                                                      // reissue a name already on a layer (12-roadmap.md step 3)
     val history: HistoryRecord = HistoryRecord(),
     val galleryUri: String? = null,                   // MediaStore content:// of our mirror item
     val lastGallerySyncAt: Long = 0L,                 // epoch ms; 0 = never

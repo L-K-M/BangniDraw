@@ -201,7 +201,11 @@ and the contradiction is noted here.
   describes two distinct failures: `add → undo → add` yields a fresh name
   (the journal half), and **save → reopen → add** yields a fresh name (the
   persistence half). A design that fixes only the first still reissues "Layer
-  3" the next morning.
+  3" the next morning. **3a landed the persistence half**: `project.json`
+  carries `nextLayerName` (06 §3), and `ProjectStore.load` floors it at one
+  past the highest `@string/layer_default N` actually present, so a pre-field
+  or hand-edited file cannot reissue a live name
+  (`ProjectStoreTest`). The journal half — re-deriving over replay — is 3b's.
 
 - **Two uniforms in `03-canvas-engine.md` §3.1's vertex shader are dead, and
   are not in `engine/gl/Shaders.kt`.** `u_viewport` is only ever an input to

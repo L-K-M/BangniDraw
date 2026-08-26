@@ -47,6 +47,8 @@ fun CanvasSurface(
      * the `Readback` machinery, so it cannot arrive later (roadmap 3a).
      */
     onTile: ((ch.lkmc.bangnidraw.engine.core.LayerId, ch.lkmc.bangnidraw.engine.core.TileKey, Int, java.nio.ByteBuffer) -> Unit)? = null,
+    /** See EngineSession: shared so a recreated session cannot reset it. */
+    revisions: java.util.concurrent.atomic.AtomicInteger = java.util.concurrent.atomic.AtomicInteger(0),
 ) {
     val context = LocalContext.current
     val budget = remember(canvas) { MemoryBudget.compute(readDeviceMemory(context), canvas) }
@@ -63,7 +65,7 @@ fun CanvasSurface(
         modifier = modifier,
         factory = { ctx ->
             SurfaceView(ctx).also { surface ->
-                val session = EngineSession(surface, canvas, budget, debugBuild, onTile)
+                val session = EngineSession(surface, canvas, budget, debugBuild, onTile, revisions)
                 sessionHolder[0] = session
                 session.setStack(stack)
                 session.setPaperColor(paperColor)
@@ -113,7 +115,7 @@ fun CanvasSurface(
  * size. The budget is therefore the conservative one — which is the right way
  * round, since it is used to size a pool that is about to be created.
  */
-private fun readDeviceMemory(context: Context): DeviceMemory {
+internal fun readDeviceMemory(context: Context): DeviceMemory {
     val am = context.getSystemService<ActivityManager>()
     val info = ActivityManager.MemoryInfo().also { am?.getMemoryInfo(it) }
     return DeviceMemory(

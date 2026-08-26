@@ -476,7 +476,7 @@ class CanvasRenderer(
      * merge has already consumed it by then, but resetting first would free
      * slices the enqueued reads have not been issued against yet.
      */
-    fun endStroke(revision: Int): Int {
+    fun endStroke(revision: Int, onMerged: ((StrokeSpec, List<TileKey>) -> Unit)? = null): Int {
         val startNs = clock.nowNanos()
         val spec = stroke ?: return 0
         val buffer = strokeBuffer ?: return 0
@@ -506,6 +506,11 @@ class CanvasRenderer(
         }
         val merged = pass.merge(textures, buffer, spec, mergedKeys)
         if (merged > 0) {
+            // Before the enqueue's own results can land anywhere: the journal
+            // capture reads the CPU mirror, and §10.2's whole point is that it
+            // sees the state as of the *previous* commit. Inside this block
+            // nothing polls, so the callback runs against exactly that state.
+            onMerged?.invoke(spec, ArrayList(mergedKeys))
             readback?.enqueue(spec.layerId, textures, mergedKeys, revision)
             // SandwichPolicy's own name for this case: a stroke merged into
             // the active layer. The active layer is in neither cached half, so

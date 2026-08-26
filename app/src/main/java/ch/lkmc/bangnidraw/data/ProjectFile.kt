@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.data
 
 import ch.lkmc.bangnidraw.engine.core.Document
+import ch.lkmc.bangnidraw.engine.core.HistoryEntry
 import ch.lkmc.bangnidraw.engine.core.LayerRecord
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import kotlinx.serialization.Serializable
@@ -108,6 +109,44 @@ internal fun Document.toProjectFile(
     history = history,
     galleryUri = galleryUri,
 )
+
+/**
+ * The highest default-name number any record embedded in [entries] carries —
+ * the *replay* half of the `nextName` obligation (`docs/plan/12-roadmap.md`
+ * step 3b): a crash-recovered journal can hold names the stale checkpoint
+ * never saw (a layer added after it, even one the journal then deletes), and
+ * the counter must clear every one of them or a reopened painting reissues a
+ * name `05-layers.md` §1 says is never reused. The caller floors
+ * `LayerStack.nextName` at one past this, alongside the loader's own scan of
+ * the checkpointed stack.
+ */
+internal fun highestDefaultNameIn(entries: List<HistoryEntry>): Int {
+    var highest = 0
+    fun note(record: LayerRecord) {
+        highest = maxOf(highest, defaultLayerNameNumber(record.name) ?: 0)
+    }
+    for (entry in entries) {
+        when (entry) {
+            is HistoryEntry.LayerAdd -> note(entry.layer)
+            is HistoryEntry.LayerDelete -> note(entry.layer)
+            is HistoryEntry.LayerDuplicate -> note(entry.copy)
+            is HistoryEntry.LayerProps -> {
+                note(entry.before)
+                note(entry.after)
+            }
+            is HistoryEntry.LayerMerge -> {
+                note(entry.upper)
+                note(entry.lower)
+            }
+            is HistoryEntry.Flatten -> {
+                entry.layers.forEach(::note)
+                note(entry.result)
+            }
+            else -> Unit
+        }
+    }
+    return highest
+}
 
 /**
  * The number of a generated default layer name, or null for anything else.

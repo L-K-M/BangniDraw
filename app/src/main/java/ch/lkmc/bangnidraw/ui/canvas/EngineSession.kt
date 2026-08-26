@@ -48,6 +48,17 @@ class EngineSession(
      * readback machinery entirely unbuilt — the placeholder-canvas case.
      */
     onTile: ((LayerId, TileKey, Int, ByteBuffer) -> Unit)? = null,
+    /**
+     * The commit-revision counter (§10.1's stale-chunk guard). Owned by the
+     * caller and shared across sessions of one screen, because a session is
+     * recreated on configuration change while the flusher's per-key
+     * `latestRevision` map lives on: a counter restarting at zero would make
+     * the flusher refuse every stroke of the new session as stale — silent
+     * data loss on a rotation. The default exists for callers with no
+     * persistence at all.
+     */
+    private val revisions: java.util.concurrent.atomic.AtomicInteger =
+        java.util.concurrent.atomic.AtomicInteger(0),
 ) : GLFrontBufferedRenderer.Callback<DabBatch> {
 
     val renderer = CanvasRenderer(canvas, budget, onTile = onTile)
@@ -421,12 +432,18 @@ class EngineSession(
         frontBuffered.renderFrontBufferedLayer(batch)
     }
 
+    /** The next commit revision — the restore path's share of the counter. */
+    fun bumpRevision(): Int = revisions.incrementAndGet()
+
     /**
-     * Monotonic per-session commit sequence, stamped onto every readback tile
-     * so the flusher can refuse a stale chunk that completes out of order
-     * (§10.1). Main-thread only, like every façade call here.
+     * §10.2's capture hook: runs on the GL thread inside the commit, after
+     * the merge and after every *previous* stroke's readback has been mapped,
+     * but before this stroke's own results can land — the one moment "the
+     * mirror plus disk" is exactly the pre-stroke state. The receiver
+     * captures (`TileFlusher.captureMirror` copies under its lock) and
+     * enqueues the entry job; it must not block.
      */
-    private var revision = 0
+    var onStrokeMerged: ((StrokeSpec, List<TileKey>, revision: Int) -> Unit)? = null
 
     /**
      * Merges the stroke into its layer (§7.4) and enqueues §10.1's readback of
@@ -435,19 +452,28 @@ class EngineSession(
      * has been mapped and handed to the tile sink.
      */
     fun endStroke() {
-        revision += 1
-        val thisRevision = revision
+        val thisRevision = revisions.incrementAndGet()
         // §8.3's order, and it holds because the FIFO assumption §8.3 flags was
         // verified against graphics-core 1.0.4 (AGENTS.md): this block runs
         // before the multi-buffered draw `commit()` schedules, so the layer
         // already owns the stroke by the time the committed frame is composed.
         frontBuffered.execute {
+            // §10.1's ordering rule, enforced where §10.2 says it must be:
+            // stroke N+1's capture must not run until stroke N's readback has
+            // been mapped into the mirror, or undoing N+1 would also revert N.
+            // Normally a no-op — N's fences signal a frame or two after N's
+            // pen-up — and bounded by the fence timeout when the GPU is
+            // wedged. This stroke's own readback is not enqueued yet, so it
+            // cannot be swept in.
+            renderer.finishReadback()
             // §8.3's `dabPass.drain(untilStrokeEnd)`: any batch published but
             // not yet drawn is stamped now, before the merge, or its dabs would
             // be lost — and its slot would still be checked out when the replay
             // arrives, where nothing releases it any more.
             drainPending(stamp = true)
-            renderer.endStroke(revision = thisRevision)
+            renderer.endStroke(revision = thisRevision) { spec, keys ->
+                onStrokeMerged?.invoke(spec, keys, thisRevision)
+            }
         }
         if (!frontBuffered.isValid()) return
         // commit(), not redraw(): the multi-buffered layer is redrawn AND the

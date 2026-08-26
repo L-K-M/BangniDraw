@@ -4,11 +4,14 @@ import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -148,11 +151,10 @@ private fun CanvasContent(
                     // A single tick as the canvas clicks to straight (§7).
                     view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
-                // Undo and redo arrive with the history journal in step 3b; the
-                // gestures are recognised now so the arbiter's behaviour is not
-                // written twice, and doing nothing is honest until then.
-                override fun onUndoRequested() = Unit
-                override fun onRedoRequested() = Unit
+                // Two- and three-finger taps (roadmap 3b): straight into the
+                // journal; the ViewModel drops a request that lands mid-apply.
+                override fun onUndoRequested() = viewModel.undo()
+                override fun onRedoRequested() = viewModel.redo()
                 override fun onColorPick(x: Float, y: Float) = Unit
 
                 override fun onStrokeBegin(pointerId: Int, source: StrokeSource) {
@@ -336,6 +338,7 @@ private fun CanvasContent(
             },
             touchHandler = touch,
             onTile = viewModel::onTileReadback,
+            revisions = viewModel.revisions,
         )
 
         // Not in `onSession`: that fires once, from the AndroidView factory, so
@@ -380,6 +383,41 @@ private fun CanvasContent(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = stringResource(R.string.canvas_back),
                     tint = MaterialTheme.colorScheme.onBackground,
+                )
+            }
+
+            // Roadmap 3b: undo and redo in the top strip, with the honest
+            // "capped at N steps / M MB" readout beside them (06 §1's
+            // principle 5: limits are shown, not silent).
+            Row(
+                modifier = Modifier.align(Alignment.TopCenter),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = viewModel::undo, enabled = state.canUndo) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Undo,
+                        contentDescription = stringResource(R.string.canvas_undo),
+                        tint = if (state.canUndo) MaterialTheme.colorScheme.onBackground
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = viewModel::redo, enabled = state.canRedo) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Redo,
+                        contentDescription = stringResource(R.string.canvas_redo),
+                        tint = if (state.canRedo) MaterialTheme.colorScheme.onBackground
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    text = stringResource(
+                        R.string.canvas_history_cap,
+                        state.historySteps,
+                        state.historyMaxSteps,
+                        state.historyMaxBytes / (1L shl 20),
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 

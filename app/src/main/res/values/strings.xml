@@ -16,6 +16,21 @@
     <!-- Canvas -->
     <string name="canvas_back">Back to the Studio</string>
     <string name="canvas_reset_view">Reset view</string>
+    <string name="canvas_undo">Undo</string>
+    <string name="canvas_redo">Redo</string>
+    <!-- The honest journal readout (06 §1, principle 5): steps used, the step
+         cap, and the byte cap in MB. -->
+    <string name="canvas_history_cap">%1$d / %2$d steps · %3$d MB cap</string>
+
+    <!-- Stored layer names are resource keys resolved at display time
+         (AGENTS.md, "Generated layer names are a closed grammar"). The
+         crash-recovery scan that reopens a painting matches the stored form
+         "@string/layer_default N" — deliberately untranslatable, per
+         12-roadmap.md step 3b: a translated default would let names written
+         under one locale escape the scan under another, and the counter
+         would reissue a live name. The display resolver (step 6) appends the
+         number. -->
+    <string name="layer_default" translatable="false">Layer</string>
     <string name="canvas_open_failed">This painting could not be opened. Its files are left untouched.</string>
     <string name="canvas_newer_version">This painting was made by a newer version of 帮你Draw.</string>
 

@@ -135,6 +135,37 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun `the recovered journal's names feed the nextName floor`() {
+        // The replay half of the nextName obligation (roadmap 3b): a
+        // crash-recovered journal can carry default names the checkpoint
+        // never saw — even on layers a later entry deletes — and the scan
+        // must see every record an entry embeds.
+        val a = ch.lkmc.bangnidraw.engine.core.HistoryEntry.LayerAdd(
+            activeBefore = LayerId("x"), activeAfter = LayerId("y"),
+            layer = ch.lkmc.bangnidraw.engine.core.LayerRecord(
+                id = "y", name = "@string/layer_default 9",
+            ),
+            index = 1,
+        )
+        val d = ch.lkmc.bangnidraw.engine.core.HistoryEntry.LayerDelete(
+            activeBefore = LayerId("y"), activeAfter = LayerId("x"),
+            layer = ch.lkmc.bangnidraw.engine.core.LayerRecord(
+                id = "y", name = "@string/layer_default 12",
+            ),
+            index = 1, tiles = emptyList(),
+        )
+        assertEquals(12, highestDefaultNameIn(listOf(a, d)))
+        assertEquals(0, highestDefaultNameIn(emptyList()))
+        // User-typed names carry no number to honour.
+        assertEquals(
+            0,
+            highestDefaultNameIn(
+                listOf(a.copy(layer = a.layer.copy(name = "my layer 7"))),
+            ),
+        )
+    }
+
+    @Test
     fun `project ids are the only thing that names a folder`() {
         val doc = document(id = "p-5")
         store.checkpoint(doc)

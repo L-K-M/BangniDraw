@@ -22,14 +22,20 @@ import kotlinx.serialization.json.Json
  */
 class ProjectStore(private val root: File) {
 
-    sealed interface LoadResult {
+    internal sealed interface LoadResult {
         /**
          * The document opened. [unreadableLayers] counts layer records the
          * loader had to drop — reported *beside* the tile count, never folded
          * into it, because a lost layer shown as N lost tiles is a misleading
-         * readout (`docs/plan/12-roadmap.md` step 3).
+         * readout (`docs/plan/12-roadmap.md` step 3). [history] is the
+         * checkpointed journal state `HistoryStore.load` reconciles against
+         * what `history/` actually holds (06 §5.6).
          */
-        data class Loaded(val document: Document, val unreadableLayers: Int) : LoadResult
+        data class Loaded(
+            val document: Document,
+            val unreadableLayers: Int,
+            val history: HistoryRecord,
+        ) : LoadResult
 
         data class Failed(val reason: FailureReason) : LoadResult
     }
@@ -89,10 +95,20 @@ class ProjectStore(private val root: File) {
      */
     @Throws(IOException::class)
     fun checkpoint(document: Document) {
+        checkpoint(document, HistoryRecord(cursor = document.historyCursor))
+    }
+
+    /**
+     * The full checkpoint: [history] carries `cursor`, `nextSeq`, `oldestSeq`
+     * and the counts as they are on disk at this moment (§6.2) — the plain
+     * overload above is for callers with no journal yet.
+     */
+    @Throws(IOException::class)
+    internal fun checkpoint(document: Document, history: HistoryRecord) {
         val dir = projectDir(document.id)
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("could not create $dir")
         sweepTmp(dir)
-        val bytes = json.encodeToString(ProjectFile.serializer(), document.toProjectFile())
+        val bytes = json.encodeToString(ProjectFile.serializer(), document.toProjectFile(history))
             .toByteArray(Charsets.UTF_8)
         AtomicFiles.write(File(dir, ProjectFile.FILE_NAME), bytes)
     }
@@ -103,7 +119,7 @@ class ProjectStore(private val root: File) {
      * tile, so the listing *is* the tile set). Tile pixels are not read here
      * — the caller streams them per layer through [TileStore] (06 §5.7).
      */
-    fun load(id: String): LoadResult {
+    internal fun load(id: String): LoadResult {
         if (!isValidId(id)) return LoadResult.Failed(FailureReason.BAD_ID)
         val dir = projectDir(id)
         val jsonFile = File(dir, ProjectFile.FILE_NAME)
@@ -160,7 +176,7 @@ class ProjectStore(private val root: File) {
             Log.w(TAG, "project $id: invalid geometry", e)
             return LoadResult.Failed(FailureReason.UNREADABLE)
         }
-        return LoadResult.Loaded(document, unreadableLayers)
+        return LoadResult.Loaded(document, unreadableLayers, file.history)
     }
 
     /**

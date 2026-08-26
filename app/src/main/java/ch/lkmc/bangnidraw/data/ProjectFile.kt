@@ -90,7 +90,9 @@ internal data class ToolRecord(
 )
 
 /** [Document] → its serialised form; `ProjectStore.load` is the inverse. */
-internal fun Document.toProjectFile(): ProjectFile = ProjectFile(
+internal fun Document.toProjectFile(
+    history: HistoryRecord = HistoryRecord(cursor = historyCursor),
+): ProjectFile = ProjectFile(
     formatVersion = ProjectFile.FORMAT_VERSION,
     id = id,
     title = title,
@@ -103,7 +105,7 @@ internal fun Document.toProjectFile(): ProjectFile = ProjectFile(
     layers = stack.layers.map { it.props.toRecord() },
     activeLayerId = stack.active.id.value,
     nextLayerName = stack.nextName,
-    history = HistoryRecord(cursor = historyCursor),
+    history = history,
     galleryUri = galleryUri,
 )
 

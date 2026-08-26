@@ -1,10 +1,13 @@
 package ch.lkmc.bangnidraw.data
 
+import ch.lkmc.bangnidraw.engine.core.HistoryEntry
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.CPU_MIRROR_CAP_BYTES
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.TileKey
+import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -17,22 +20,27 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * The single coalescing tile writer (`docs/plan/06-document-and-persistence.md`
- * §6.3) — roadmap 3a's half of it: `markDirty` plus the drain. The `FlushJob`
- * queue that orders history entries against tile flushes is 3b's, because
- * there is no entry to order against until the journal exists.
+ * The single writer (`docs/plan/06-document-and-persistence.md` §6.3): one
+ * coalescing mirror of unflushed tiles, and one ordered job queue that is the
+ * whole §5.6 crash-safety story —
  *
- * [pending] holds the latest copy per (layer, tile) — a tile dirtied five
- * times before the drainer reaches it is written once, with the latest bytes.
- * It is also the unflushed CPU mirror of §5.5 step 1: between a readback
- * landing and its write completing, these buffers are the newest CPU-side
- * truth for their keys, which is what 3b's journal capture will read.
+ * 1. a step's "before" tiles not held in the mirror are read from disk *into
+ *    the entry* before any flush of those keys,
+ * 2. `<seq>.entry` (and `.redo` before restored tiles) is written tmp+rename,
+ * 3. the step's readback is awaited, then the tiles the step changed are
+ *    flushed,
+ * 4. `project.json` last, at the checkpoint.
  *
- * **Storage full** (§6.3): a failed write flips [storageFull] on and stops
- * the drain; nothing is dropped. The mirror cap is lifted — [hasMirrorRoom]
- * answers true — strokes keep committing into memory, and the pending writes
- * are retried on [retryPending] (each checkpoint now; each autosave tick once
- * 3b's clocks exist). The first successful write leaves the state.
+ * Ordering holds because tiles are flushed **only** inside jobs and jobs run
+ * strictly in queue order on one coroutine: when [FlushJob.WriteEntry] for
+ * stroke N runs, the disk still holds the pre-N state for every key its
+ * mirror capture missed. There is no idle flush — a tile always belongs to
+ * some job's step 3, or to a checkpoint.
+ *
+ * **Storage full** (§6.3): a failed write flips [storageFull] and leaves the
+ * tiles pending; nothing is dropped. The mirror cap is lifted
+ * ([hasMirrorRoom]), strokes keep committing, [retryPending] retries on each
+ * checkpoint/autosave tick, and the first successful write clears the state.
  */
 class TileFlusher(
     private val write: TileWriter,
@@ -43,6 +51,68 @@ class TileFlusher(
         @Throws(IOException::class)
         fun write(layer: LayerId, key: TileKey, pixels: ByteArray)
     }
+
+    /** The ordered work of §6.3; run strictly FIFO by the single worker. */
+    sealed interface FlushJob {
+        /**
+         * One committed stroke's §5.6 sequence. [mirrorBefore] holds raw
+         * pixel copies captured from the mirror at commit time (§5.5 step 1);
+         * every other key of [entry] is resolved from disk (step 2 of §5.5)
+         * or recorded as empty. [awaitReadback] must return only once the
+         * step's own readback has landed in the mirror; [result] completes
+         * with the stamped entry — or null when the entry could not be
+         * written, which is a storage-full condition, not a crash.
+         */
+        class WriteEntry(
+            val entry: HistoryEntry,
+            val seq: Long,
+            val ts: Long,
+            val mirrorBefore: Map<Pair<LayerId, TileKey>, ByteArray>,
+            val awaitReadback: suspend () -> Unit,
+            val result: CompletableDeferred<HistoryEntry?> = CompletableDeferred(),
+        ) : FlushJob
+
+        /**
+         * The first undo of a step captures its "after" into `<seq>.redo`
+         * (§5.4), before the restored tiles are flushed — which queue order
+         * guarantees, because the restore's [FlushKeys] is enqueued behind
+         * this. [result] is the sidecar's size for the journal's accounting,
+         * or null on a failed write.
+         */
+        class WriteRedo(
+            val entry: HistoryEntry,
+            val mirrorCurrent: Map<Pair<LayerId, TileKey>, ByteArray>,
+            val result: CompletableDeferred<Long?> = CompletableDeferred(),
+        ) : FlushJob
+
+        /** Flush these pending keys now — restored tiles after an undo/redo. */
+        class FlushKeys(val keys: List<Pair<LayerId, TileKey>>) : FlushJob
+
+        /**
+         * §5.6 step 2's tail for a layer deletion: the directory goes only
+         * after the entry holding its tiles was written, which queue order
+         * provides. No producer until the layer UI lands; the job exists
+         * because §6.3 names it and the ordering is this class's contract.
+         */
+        class DeleteLayerDir(val dir: File) : FlushJob
+
+        /**
+         * Flush everything pending; [done] reports whether the mirror is
+         * empty afterwards. The checkpoint enqueues this and writes
+         * `project.json` only on completion — step 4's "last".
+         */
+        class Checkpoint(val done: CompletableDeferred<Boolean> = CompletableDeferred()) : FlushJob
+    }
+
+    /** Resolves a key's on-disk "before"/"current" bytes for entry payloads. */
+    fun interface DiskReader {
+        /** The encoded `.tile` bytes verbatim, or null when absent/corrupt. */
+        fun read(layer: LayerId, key: TileKey): ByteArray?
+    }
+
+    var diskReader: DiskReader = DiskReader { _, _ -> null }
+
+    internal var historyStore: HistoryStore? = null
 
     private val lock = Any()
     private val pending = LinkedHashMap<Pair<LayerId, TileKey>, CpuTile>()
@@ -55,10 +125,14 @@ class TileFlusher(
      */
     private val latestRevision = HashMap<Pair<LayerId, TileKey>, Int>()
 
-    /** Serialises the drain: the worker and [flushAll] must not interleave. */
-    private val drainMutex = Mutex()
+    /** Serialises job execution: the worker and [runQueued] must not interleave. */
+    private val jobMutex = Mutex()
 
-    private val wake = Channel<Unit>(Channel.CONFLATED)
+    /**
+     * §6.3's bounded queue (`capacity = 64`): enqueue suspends the ViewModel
+     * side when IO lags rather than growing without bound.
+     */
+    private val queue = Channel<FlushJob>(capacity = 64)
 
     private val _storageFull = MutableStateFlow(false)
 
@@ -80,13 +154,13 @@ class TileFlusher(
     fun hasMirrorRoom(): Boolean = _storageFull.value || pendingBytes < CPU_MIRROR_CAP_BYTES
 
     /**
-     * Accepts one readback tile: replaces any pending copy for the key and
-     * wakes the drain. Returns false — with the buffer already recycled —
-     * when [CpuTile.revision] is older than what this key has already seen,
-     * which is the §10.1 out-of-order case, not an error.
+     * Accepts one readback tile into the mirror. Returns false — with the
+     * buffer already recycled — when [CpuTile.revision] is older than what
+     * this key has already seen (§10.1's out-of-order case, not an error).
      *
      * Called on the GL thread; the lock covers map mutation only, never a
-     * copy (§6.3).
+     * copy (§6.3). No flush is triggered: the tile belongs to its stroke's
+     * [FlushJob.WriteEntry], already in the queue.
      */
     fun markDirty(tile: CpuTile): Boolean {
         val mapKey = tile.layerId to tile.key
@@ -102,63 +176,162 @@ class TileFlusher(
             if (replaced == null) pendingBytes += TILE_BYTES
         }
         replaced?.let { pool?.release(it.pixels) }
-        wake.trySend(Unit)
         return true
     }
 
-    /** Wakes the drain to retry after a failure — the checkpoint/autosave hook. */
+    /**
+     * Raw pixel copies of the mirror's current contents for [keys] — §5.5
+     * step 1 of the capture rule, taken on the GL thread at commit, *before*
+     * the stroke's own readback can overwrite these keys. Copies, not
+     * references: the worker recycles a pending buffer the moment its write
+     * lands, and a capture holding the reference would read recycled bytes.
+     */
+    fun captureMirror(keys: List<Pair<LayerId, TileKey>>): Map<Pair<LayerId, TileKey>, ByteArray> {
+        val out = HashMap<Pair<LayerId, TileKey>, ByteArray>()
+        synchronized(lock) {
+            for (key in keys) {
+                val tile = pending[key] ?: continue
+                out[key] = tile.pixels.copyOf()
+            }
+        }
+        return out
+    }
+
+    /** Enqueues [job]; suspends when the queue is at §6.3's bound. */
+    suspend fun enqueue(job: FlushJob) {
+        queue.send(job)
+    }
+
+    /** Wakes a retry of everything pending — the checkpoint/autosave hook. */
     fun retryPending() {
-        wake.trySend(Unit)
+        queue.trySend(FlushJob.Checkpoint())
     }
 
     /**
      * Starts the worker: one coroutine, [io] expected to be
      * `Dispatchers.IO.limitedParallelism(1)` (§6.3). Tests skip this and call
-     * [flushAll] directly, so every assertion runs deterministically.
+     * [runQueued], so every assertion runs deterministically.
      */
     fun start(scope: CoroutineScope, io: CoroutineDispatcher): Job =
         scope.launch(io) {
             while (isActive) {
-                wake.receive()
-                drainMutex.withLock { drain() }
+                val job = queue.receive()
+                jobMutex.withLock { run(job) }
             }
         }
 
-    /**
-     * Drains everything pending now — the checkpoint path, which must see
-     * tiles on disk before `project.json` is renamed. Returns true when the
-     * mirror is empty afterwards; false means a write failed and
-     * [storageFull] is set.
-     */
-    suspend fun flushAll(): Boolean = drainMutex.withLock {
-        drain()
-        synchronized(lock) { pending.isEmpty() }
+    /** Drains every job queued so far, inline — the tests' worker. */
+    suspend fun runQueued() {
+        while (true) {
+            val job = queue.tryReceive().getOrNull() ?: return
+            jobMutex.withLock { run(job) }
+        }
     }
 
-    /** Only under [drainMutex]. */
-    private fun drain() {
-        while (true) {
-            val next: CpuTile
-            synchronized(lock) {
-                val entry = pending.entries.firstOrNull() ?: return
-                next = entry.value
-                pending.remove(entry.key)
-                pendingBytes -= TILE_BYTES
+    /**
+     * Enqueues a [FlushJob.Checkpoint] and waits it out: on return every
+     * job enqueued before this call has run, in order, and the answer says
+     * whether the mirror drained (false = storage-full; `project.json` may
+     * still be written — metadata is not pixels — and the retry keeps the
+     * tiles).
+     */
+    suspend fun checkpointFlush(): Boolean {
+        val job = FlushJob.Checkpoint()
+        queue.send(job)
+        return job.done.await()
+    }
+
+    // --------------------------------------------------------------- worker
+
+    private suspend fun run(job: FlushJob) {
+        when (job) {
+            is FlushJob.WriteEntry -> runWriteEntry(job)
+            is FlushJob.WriteRedo -> runWriteRedo(job)
+            is FlushJob.FlushKeys -> flushKeys(job.keys)
+            is FlushJob.DeleteLayerDir -> job.dir.deleteRecursively()
+            is FlushJob.Checkpoint -> {
+                flushKeys(synchronized(lock) { pending.keys.toList() })
+                job.done.complete(synchronized(lock) { pending.isEmpty() })
             }
+        }
+    }
+
+    private suspend fun runWriteEntry(job: FlushJob.WriteEntry) {
+        val store = historyStore
+        if (store == null) {
+            job.result.complete(null)
+            return
+        }
+        val keys = HistoryCodec.payloadKeys(job.entry)
+        val payloads = keys.map { key ->
+            val raw = job.mirrorBefore[key]
+            val encoded = when {
+                // §5.5's order: the unflushed mirror first — it holds the
+                // tile as of the last commit…
+                raw != null -> if (TileCodec.isAllZero(raw)) EMPTY else TileCodec.encode(raw)
+                // …else the .tile file: already deflated, header included,
+                // copied verbatim (§5.6 step 1 — no inflate/deflate)…
+                else -> diskReader.read(key.first, key.second)
+                    // …else the tile was empty before (len 0), and undo
+                    // deletes it.
+                    ?: EMPTY
+            }
+            HistoryStore.Payload(key.first, key.second, encoded)
+        }
+        val stamped = try {
+            store.append(job.entry, job.seq, job.ts, payloads)
+        } catch (_: IOException) {
+            _storageFull.value = true
+            job.result.complete(null)
+            return
+        }
+        job.result.complete(stamped)
+        // §5.6 step 3: the step's own pixels land in the mirror, then flush.
+        job.awaitReadback()
+        flushKeys(keys)
+    }
+
+    private suspend fun runWriteRedo(job: FlushJob.WriteRedo) {
+        val store = historyStore
+        if (store == null) {
+            job.result.complete(null)
+            return
+        }
+        val keys = HistoryCodec.payloadKeys(job.entry)
+        val payloads = keys.map { key ->
+            val raw = job.mirrorCurrent[key]
+            val encoded = when {
+                raw != null -> if (TileCodec.isAllZero(raw)) EMPTY else TileCodec.encode(raw)
+                else -> diskReader.read(key.first, key.second) ?: EMPTY
+            }
+            HistoryStore.Payload(key.first, key.second, encoded)
+        }
+        val bytes = try {
+            store.writeRedo(job.entry, payloads)
+        } catch (_: IOException) {
+            _storageFull.value = true
+            job.result.complete(null)
+            return
+        }
+        job.result.complete(bytes)
+    }
+
+    /** Only under [jobMutex]. One failed write stops the pass; nothing is lost. */
+    private fun flushKeys(keys: List<Pair<LayerId, TileKey>>) {
+        for (mapKey in keys) {
+            val current = synchronized(lock) {
+                pending.remove(mapKey)?.also { pendingBytes -= TILE_BYTES }
+            } ?: continue
             try {
-                write.write(next.layerId, next.key, next.pixels)
-                pool?.release(next.pixels)
+                write.write(current.layerId, current.key, current.pixels)
+                pool?.release(current.pixels)
                 _storageFull.value = false
             } catch (_: IOException) {
-                val mapKey = next.layerId to next.key
                 synchronized(lock) {
-                    // Put the tile back — unless a newer copy arrived while
-                    // this write was failing, in which case that copy is the
-                    // one to keep and this buffer goes back to the pool.
                     if (pending.containsKey(mapKey)) {
-                        pool?.release(next.pixels)
+                        pool?.release(current.pixels)
                     } else {
-                        pending[mapKey] = next
+                        pending[mapKey] = current
                         pendingBytes += TILE_BYTES
                     }
                 }
@@ -166,5 +339,9 @@ class TileFlusher(
                 return
             }
         }
+    }
+
+    private companion object {
+        val EMPTY = ByteArray(0)
     }
 }

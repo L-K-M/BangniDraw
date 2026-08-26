@@ -236,10 +236,10 @@ class CanvasViewModel @Inject constructor(
         val doc = document ?: return
         checkpointMutex.withLock {
             if (!dirty && store.exists(doc.id)) return
-            // §5.6's order, without the journal yet: (readbacks land) → tiles
-            // flushed → project.json last, the commit point.
+            // §5.6's order: (readbacks land) → queued jobs and tiles flushed
+            // → project.json last, the commit point.
             awaitReadbacks()
-            flusher.flushAll()
+            flusher.checkpointFlush()
             val now = System.currentTimeMillis()
             val folded = fold(document ?: return, now)
             document = folded

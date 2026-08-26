@@ -1101,3 +1101,58 @@ unreadable.
   with `isValid()` instead — it returns false before the surface is ready too,
   so it would silently drop legitimate early calls, and the `stampDabs` guard
   would leak the very batch it declined to stamp.
+
+## PR #13 (roadmap 2.4b) — GLM round 7
+
+**Round scored: nits-only.** Nothing raised this round changed behavior. The
+Major's mechanism is structurally impossible here, the first Minor's premise is
+contingent on a contract I verified does not hold, and what was applied is a
+no-op reorder plus test assertions. First round of the nits-only streak; two
+consecutive are needed.
+
+- **R-064 ⚠️ `driver.cancel()` runs while the released engine is still pinned**
+  (PR #13, GLM round 7, Major). **Reorder applied; the mechanism refuted.**
+  The finding is explicitly conditional — *"If the driver's `cancel()`
+  synchronously dispatches its cancel path (a common design for input
+  drivers)"* — and the condition is false, not merely unmet. `StrokeDriver.cancel`
+  is `isActive = false` and nothing else; the class takes `(preset, seed, zoom)`
+  and holds no listener, no host, no callback of any kind, so it cannot reach
+  `onStrokeCancel` even in principle. There is no re-entrant window to close and
+  no `DabRing` slot to strand.
+
+  Applied anyway, on the finding's *other* argument — "dropping the pin first is
+  strictly safer and costs nothing" — which is true and is the whole reason this
+  is a nit rather than a decline. Nulling before the side effect makes the seam
+  correct on its own terms instead of on a fact about `StrokeDriver`. The comment
+  says which of the two it is, so a later reader does not conclude a re-entrancy
+  hazard was found here.
+
+- **R-065 ❌ `onSession` changed from idempotent to destructive on repeat
+  emissions** (PR #13, GLM round 7, Minor). **Refuted; the contract documented
+  instead, which is the action the finding itself asks for in that case.**
+  The finding is honest that it is contingent — *"This is contingent on
+  `CanvasSurface`'s emission contract, which isn't visible in this chunk, so
+  verify before acting"* — so I verified it. `onSession` has exactly two call
+  sites: `AndroidView`'s `factory` (line 66), which runs once per view instance,
+  and `DisposableEffect(Unit)`'s `onDispose` (line 94). `update` does not call
+  it. A canvas-size change goes through `key(canvas)`, which disposes (emitting
+  null) before the new factory runs. So a non-null session is never re-emitted
+  without an intervening null, and the re-attach scenario has no path.
+
+  The suggested `if (attached === session) return@CanvasSurface` is declined as
+  dead code defending an emission the contract does not make — and the finding's
+  own fallback says so: *"If the callback is strictly transition-only, document
+  that contract at the CanvasSurface call site instead."* Done.
+
+- **R-066 ✅ the "exact" replay test omitted flow and aspect** (PR #13, GLM round
+  7, Minor). **Applied, and widened past what was asked.** The test's stated
+  justification is journal replay, which needs the whole dab back, and it
+  compared three fields. `angle` and `hardness` were missing too, so all four
+  were added rather than the two named.
+
+  Mutation-tested, because an assertion that reads as coverage is this PR's most
+  frequent defect: introducing a process-wide counter into `DabGenerator`'s flow
+  computation — precisely the non-replayed state the test claims to guard —
+  fails the new assertion with `dab 0 flow diverged. Expected <0.94> ... actual
+  <0.98>`. Not vacuous. It also passes unmodified, so there is no real
+  non-determinism to escalate.

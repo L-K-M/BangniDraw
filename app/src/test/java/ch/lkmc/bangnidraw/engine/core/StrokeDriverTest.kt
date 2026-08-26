@@ -205,6 +205,15 @@ class StrokeDriverTest {
             assertEquals(a.x[i], b.x[i], 0f, "dab $i x diverged")
             assertEquals(a.y[i], b.y[i], 0f, "dab $i y diverged")
             assertEquals(a.radius[i], b.radius[i], 0f, "dab $i radius diverged")
+            // Every field the generator varies, not the three that were easy
+            // to name. The test's own justification is journal replay, which
+            // needs the WHOLE dab to come back — a flow or aspect drawn from
+            // wall-clock time, accumulated distance or a mis-wired RNG stream
+            // would replay visibly differently while x, y and radius matched.
+            assertEquals(a.flow[i], b.flow[i], 0f, "dab $i flow diverged")
+            assertEquals(a.aspect[i], b.aspect[i], 0f, "dab $i aspect diverged")
+            assertEquals(a.angle[i], b.angle[i], 0f, "dab $i angle diverged")
+            assertEquals(a.hardness[i], b.hardness[i], 0f, "dab $i hardness diverged")
         }
     }
 

@@ -243,9 +243,25 @@ fun CanvasScreen(onBack: () -> Unit) {
                 // `acquireDabBatch` would fail. §4 makes dropping it correct:
                 // a cancelled stroke leaves no trace, so there is nothing the
                 // dead engine still owes.
-                strokeState.driver?.cancel()
+                //
+                // `CanvasSurface` calls this exactly twice per session — once
+                // from the `AndroidView` factory and once from its
+                // `DisposableEffect`'s dispose — and never re-emits a session
+                // it has already handed over, so there is no live stroke to
+                // preserve here and no identity guard to add. A guard would be
+                // dead code defending an emission this contract does not make.
+                //
+                // Pins dropped BEFORE the cancel, and the local is what makes
+                // that possible. `StrokeDriver.cancel` only clears a boolean —
+                // it takes no listener and cannot reach these handlers, so it
+                // cannot re-enter today. The ordering is written this way so
+                // the seam stays correct on its own terms rather than on a
+                // fact about another class: whatever runs below, the pin is
+                // already gone.
+                val stale = strokeState.driver
                 strokeState.driver = null
                 strokeState.engine = null
+                stale?.cancel()
                 session = attached
             },
             touchHandler = touch,

@@ -317,6 +317,17 @@ and the contradiction is noted here.
   else entirely; not recycling one we do own is a small object per frame. The
   asymmetry decides it — do not "fix" this into a `recycle()` without a source
   that actually settles ownership.
+- **`thumb.png` is composited on the CPU, not through `CompositePass`.**
+  `06-document-and-persistence.md` §6.4 renders the thumbnail on the GL
+  thread at checkpoints, with a 250 ms timeout for a surface that is gone.
+  Roadmap 3c writes it on IO from the flushed tiles instead: at a checkpoint
+  the tiles are on disk by §5.6's ordering, a NORMAL source-over stack is
+  the same arithmetic either way (and NORMAL is all v1 produces — a future
+  non-NORMAL blend logs and approximates as source-over until step 4's
+  flatten brings §10.4's GL machinery), and the GL thread is never borrowed
+  mid-gesture at all — the risk 06's timeout exists to hedge. Revisit when
+  the flatten lands.
+
 - **The scaffold's `detectTransformGestures` was deleted, not rewired.** It
   drove a Compose drawing of the paper; pointing it at the engine would make it
   a second owner of touch input, and `07-input-and-stylus.md` §2 makes

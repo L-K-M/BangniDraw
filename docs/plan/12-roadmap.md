@@ -462,17 +462,26 @@ holds a "Layer 1".
 
 **Split into three PRs, and the seams are named here before the first line of
 code** (rule 1). Step 3 is an M step carrying four obligations from PR 2.1's
-reviews, and step 2's own history says what happens otherwise: 2.3, 2.4 and 2.5
-each turned out to be two or more PRs, and the two that were split *in advance*
-went smoothly while the one that was not (2.5, split mid-flight) cost a
-re-plan. The test each part has to pass is the one 2.5b's note set: **each is
-independently demoable and leaves `main` shippable**, so a step that stops after
-any of them has shipped something a person can use rather than scaffolding.
+reviews, and step 2's history is the argument for splitting *now* rather than
+when the diff stops fitting. Every step-2 split was made ahead of the code —
+2.3 and 2.4 in the original table, 2.5 into 2.5a/2.5b before any 2.5 code
+existed (`b1c839c`), and 2.5b again into 2.5b/c/d before 2.5b's code
+(`1a74df4`) — and none of them cost a re-plan. The row that was *not* split is
+the one that hurt: 2.4b was measured, both candidate seams were examined and
+rejected for stated reasons, and it still landed at ~3,030 lines against an M
+band topping out at ~2,500 (`ebc65c3`). Note also what 2.5 shows about the
+limits of an advance split: it was split twice, because the second seam only
+became visible once 2.5a had landed. **An advance split is a first estimate,
+not a promise** — the value is in naming a seam before the work makes the
+choice for you, not in never revising it. The test each part has to pass is the
+one 2.5b's note set: **each is independently demoable and leaves `main`
+shippable**, so a step that stops after any of them has shipped something a
+person can use rather than scaffolding.
 
 | PR | Branch | Implementation | Acceptance | Status |
 | --- | --- | --- | --- | --- |
-| 3a | `fable/project-store` | The painting survives: `CpuTile`, `TileStore` (deflated premultiplied RGBA8, `<tx>_<ty>.tile`), `ProjectStore` (folder per uuid, `project.json` written last, tmp+rename), and the readback path step 2 left stubbed — `EngineSession.endStroke` passes `readback = null` today, and §10.1's enqueue plus the CPU mirror are what turn merged tiles into bytes on disk. Carries **all four** of PR 2.1's load obligations, because every one of them is a `ProjectStore.load` behavior: the layer-id→path policy (R-001), the case-insensitive id collision, R-020's NaN/Infinity token, and the unreadable-**layers** count beside §4's unreadable-tiles count | Device: paint, leave the canvas, reopen it — the painting is there to the last completed stroke. `adb shell am force-stop` during a checkpoint leaves `project.json` old or new, never torn. JVM: `TileStoreTest` (deflate round trip, premultiplied bytes untouched), `ProjectStoreTest` on a temp folder (write-last commit point, recovery from a stray `.tmp`, and one case per load obligation) | ⬜ |
-| 3b | `fable/history-journal` | Undo: `HistoryJournal` and `AutosavePolicy` in `engine/core` (pure), `HistoryStore` (`history/<seq>.entry`), undo/redo in the canvas top strip with the "capped at N steps / M MB" readout, and checkpointing. Carries the **replay half** of the `nextName` obligation — re-deriving the counter as `max(persisted, high-water + 1)` over the recovered stack *and* the names replay assigns, plus marking `@string/layer_default` `translatable="false"`, without which the scan under-recovers under a second locale | Device: three strokes, undo twice, redo once; then `adb shell am crash ch.lkmc.bangnidraw.debug` mid-sequence and reopen — intact to the last completed stroke, and undo still steps back through earlier ones. JVM: `HistoryJournalTest` (undo/redo/truncate-on-new-edit/prune, round trip through the on-disk encoding), `AutosavePolicyTest` (quiet window, ceiling), `LayerStackTest` gains the invariants the journal inverts | ⬜ |
+| 3a | `fable/project-store` | The painting survives: `CpuTile`, `TileStore` (deflated premultiplied RGBA8, `<tx>_<ty>.tile`), `ProjectStore` (folder per uuid, `project.json` written last, tmp+rename), and the readback path step 2 left stubbed — `EngineSession.endStroke` passes `readback = null` today, and §10.1's enqueue plus the CPU mirror are what turn merged tiles into bytes on disk. Carries **all four** of PR 2.1's load obligations, because every one of them is a `ProjectStore.load` behavior: the layer-id→path policy (R-001), the case-insensitive id collision, R-020's NaN/Infinity token, and the unreadable-**layers** count beside §4's unreadable-tiles count. Also `TileFlusher`'s writer half (see the note below) and the one checkpoint trigger that needs no clock: on leave and `ON_STOP`, so `project.json` is written before the screen is popped | Device: paint, leave the canvas, reopen it — the painting is there to the last completed stroke. `adb shell am force-stop` while leaving the canvas leaves `project.json` old or new, never torn. JVM: `TileStoreTest` (deflate round trip, premultiplied bytes untouched), `ProjectStoreTest` on a temp folder (write-last commit point, recovery from a stray `.tmp`, and one case per load obligation), `TileFlusherTest`'s storage-full case | ⬜ |
+| 3b | `fable/history-journal` | Undo: `HistoryJournal` and `AutosavePolicy` in `engine/core` (pure), `HistoryStore` (`history/<seq>.entry`), undo/redo in the canvas top strip with the "capped at N steps / M MB" readout, `AutosavePolicy`'s quiet and ceiling clocks on top of 3a's leave-and-stop checkpoint, and `TileFlusher`'s job queue. Carries the **replay half** of the `nextName` obligation — re-deriving the counter as `max(persisted, high-water + 1)` over the recovered stack *and* the names replay assigns, plus marking `@string/layer_default` `translatable="false"`, without which the scan under-recovers under a second locale | Device: three strokes, undo twice, redo once; then `adb shell am crash ch.lkmc.bangnidraw.debug` mid-sequence and reopen — intact to the last completed stroke, and undo still steps back through earlier ones. JVM: `HistoryJournalTest` (undo/redo/truncate-on-new-edit/prune, round trip through the on-disk encoding), `AutosavePolicyTest` (quiet window, ceiling), `LayerStackTest` gains the invariants the journal inverts | ⬜ |
 | 3c | `fable/studio-real` | The Studio: `StudioScreen` becomes real (shelf grid newest-first, hold menu with delete-and-confirm, storage readout), `NewCanvasDialog` (presets from `CanvasPresets`, custom within `MemoryBudget`, paper colour), the thumbnail writer (`thumb.png` from the readback composite on checkpoint), and `Prefs` (DataStore) | Device: create a canvas from the dialog, see it in the shelf with a fresh thumbnail and "edited just now", delete it with confirmation. **This completes step 3.** JVM: whatever `Prefs` and the shelf ordering put in `engine/core`; the screens themselves are covered by the device check | ⬜ |
 
 *Why these three seams and not others.* The split is by **what a person can do
@@ -498,6 +507,19 @@ line count. If 3a measures past the M band once written, the seam to use is
 `ProjectStore.load`'s *obligations*: land the store and the happy path, then the
 four degradation cases with their tests. That is a named fallback, not a
 licence — measure first, and if 3a fits, it stays one PR.
+
+*`TileFlusher` spans 3a and 3b too, and the line between them is its job
+queue.* 06 §6.3 gives the flusher two jobs that look like one: it is the single
+coalescing writer (one coroutine on `Dispatchers.IO.limitedParallelism(1)`, a
+tile dirtied five times before the drain is written once, storage-full lifts
+the mirror cap and keeps committing) *and* it is what enforces §5.6's ordering —
+entry written before the tiles that entry's undo restores. The first is 3a's,
+because 3a is where tiles first reach disk and where a write can first fail.
+The second is 3b's, because there is no entry to order tiles against until the
+journal exists, and an ordering rule that cannot be violated yet also cannot be
+tested yet. So 3a lands `TileFlusher` with `markDirty` and the drain;
+3b adds the `FlushJob` queue (`WriteEntry`, `DeleteLayerDir`, `Checkpoint`) and
+`TornWriteTest`.
 
 *The `nextName` counter spans two of these, and that is stated rather than
 discovered.* Persisting it is 3a's (`project.json` gains the field); re-deriving

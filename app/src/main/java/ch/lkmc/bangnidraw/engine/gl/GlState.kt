@@ -25,6 +25,7 @@ class GlState {
     private var blendEnabled: Boolean? = null
     private var blendSrc = -1
     private var blendDst = -1
+    private var blendEquation = -1
     private var scissorEnabled: Boolean? = null
     private var scissorX = -1
     private var scissorY = -1
@@ -52,6 +53,7 @@ class GlState {
         blendEnabled = null
         blendSrc = -1
         blendDst = -1
+        blendEquation = -1
         scissorEnabled = null
         scissorX = -1
         scissorY = -1
@@ -100,20 +102,46 @@ class GlState {
      * premultiplied: hardware blending is then a single multiply-add and needs
      * no backdrop read.
      */
-    fun blendSourceOver() = setBlend(true, GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+    fun blendSourceOver() =
+        setBlend(true, GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA, GLES30.GL_FUNC_ADD)
+
+    /**
+     * `glBlendEquation(GL_MAX)` — the stroke buffer's `BufferMode.Max` (§7.2),
+     * where overlapping dabs within one stroke never exceed the strongest
+     * single dab.
+     *
+     * GL ignores the blend factors entirely under `GL_MAX`, but they are still
+     * set to a fixed pair rather than left alone: the cache below has to hold
+     * one known state per mode, or the next `blendSourceOver` could decide the
+     * factors already match and skip the `glBlendFunc` that `GL_MAX` never
+     * needed to issue.
+     */
+    fun blendMax() = setBlend(true, GLES30.GL_ONE, GLES30.GL_ONE, GLES30.GL_MAX)
 
     /** Blending off: the shader writes the finished composite (§3.3). */
-    fun blendOff() = setBlend(false, 0, 0)
+    fun blendOff() = setBlend(false, 0, 0, GLES30.GL_FUNC_ADD)
 
-    private fun setBlend(enabled: Boolean, src: Int, dst: Int) {
+    /**
+     * The equation is cached alongside the factors, and that is not
+     * housekeeping. `GL_MAX` is sticky context state: a pass that set it and a
+     * later `blendSourceOver` that only compared factors would leave every
+     * subsequent composite maxing instead of blending — a whole-screen
+     * corruption that no JVM test can reach and that looks like a shader bug.
+     */
+    private fun setBlend(enabled: Boolean, src: Int, dst: Int, equation: Int) {
         if (blendEnabled != enabled) {
             if (enabled) GLES30.glEnable(GLES30.GL_BLEND) else GLES30.glDisable(GLES30.GL_BLEND)
             blendEnabled = enabled
         }
-        if (enabled && (src != blendSrc || dst != blendDst)) {
+        if (!enabled) return
+        if (src != blendSrc || dst != blendDst) {
             GLES30.glBlendFunc(src, dst)
             blendSrc = src
             blendDst = dst
+        }
+        if (equation != blendEquation) {
+            GLES30.glBlendEquation(equation)
+            blendEquation = equation
         }
     }
 

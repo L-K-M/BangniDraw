@@ -449,17 +449,28 @@ object Shaders {
     """.trimIndent()
 
     /**
-     * A unit quad in tile space. No screen transform: a merge renders a tile
-     * into a tile and never touches the view.
+     * A tile-to-tile quad. No screen transform: a merge renders a tile into a
+     * tile and never touches the view.
+     *
+     * Driven by [FullRectQuad], whose uv runs `(0,0)..(1,1)` across a rect of
+     * `(0,0)..(w,h)` — so the uv **is** the normalized position and doubles as
+     * the clip coordinate, with no viewport uniform to keep in step. The
+     * position attribute the quad also supplies is left undeclared: this pass
+     * has no use for canvas pixels, and an attribute a shader does not consume
+     * costs nothing.
+     *
+     * The mapping is the identity in both directions — texel row 0 lands on
+     * target row 0 — so §3.1's y-down convention passes through untouched,
+     * which is what a tile-to-tile pass must do whichever way rows are stored.
      */
     val TILE_VERT = """
         $VERSION_LINE
         precision highp float;
-        layout(location = $ATTR_POS) in vec2 a_corner;
+        layout(location = $ATTR_UV) in vec3 a_uvw;
         out vec2 v_uv;
         void main() {
-            v_uv = a_corner;
-            gl_Position = vec4(a_corner * 2.0 - 1.0, 0.0, 1.0);
+            v_uv = a_uvw.xy;
+            gl_Position = vec4(a_uvw.xy * 2.0 - 1.0, 0.0, 1.0);
         }
     """.trimIndent()
 

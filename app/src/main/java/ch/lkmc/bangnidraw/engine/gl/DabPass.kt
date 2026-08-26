@@ -1,0 +1,302 @@
+package ch.lkmc.bangnidraw.engine.gl
+
+import android.opengl.GLES30
+import ch.lkmc.bangnidraw.engine.core.BufferMode
+import ch.lkmc.bangnidraw.engine.core.DabBatch
+import ch.lkmc.bangnidraw.engine.core.IntRect
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
+import ch.lkmc.bangnidraw.engine.core.PoolExhausted
+import ch.lkmc.bangnidraw.engine.core.TileGrid
+import ch.lkmc.bangnidraw.engine.core.TileKey
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
+
+/**
+ * Stamps a batch of dabs into the stroke buffer
+ * (`docs/plan/03-canvas-engine.md` §7.2).
+ *
+ * **Grouped by tile key, not drawn in arrival order.** Each touched key gets
+ * one FBO bind and one `glDrawArraysInstanced`. On tile-based GPUs — every
+ * phone this ships to — an FBO rebind ends a render pass and flushes tile
+ * memory, so drawing dabs in arrival order across keys would cost a render
+ * pass per dab instead of one per key.
+ *
+ * Instance order within a key equals batch order, and GL blends primitives in
+ * order, so overlap within a batch is deterministic and matches the fold
+ * `DabStamp.blendIntoBuffer` performs on the CPU — the property §7.2 states
+ * and `DabStampTest` pins on the JVM side.
+ *
+ * **No allocation once warm** (`10-performance.md` §2.4): every scratch array
+ * and the instance buffer are fields that grow and are reused, because this
+ * runs on the touch path several times a frame.
+ *
+ * GL-thread-only.
+ */
+class DabPass(
+    private val program: GlProgram,
+    private val state: GlState,
+) {
+
+    private val fbo = GlFbo()
+    private val vao = IntArray(1)
+    private val cornerVbo = IntArray(1)
+    private val instanceVbo = IntArray(1)
+    private var instanceCapacityDabs = 0
+    private var built = false
+
+    /**
+     * Per-dab instance data, interleaved in [INSTANCE_LAYOUT]'s order.
+     *
+     * Interleaved rather than one buffer per attribute: the GPU reads a whole
+     * instance at once, and separate streams would be six strided fetches per
+     * dab for no gain.
+     */
+    private var instanceData = FloatArray(0)
+    private var instanceBuffer: FloatBuffer =
+        ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder()).asFloatBuffer()
+
+    /** The distinct keys the current batch touches, packed. */
+    private var distinctKeys = IntArray(0)
+
+    /** Dense "already collected" flags, indexed by tile, cleared after each batch. */
+    private var seen = BooleanArray(0)
+
+    /** Scratch for the keys a single dab touches. */
+    private val dabKeys = IntArray(MAX_KEYS_PER_DAB)
+
+    /**
+     * Stamps [batch] into [buffer], returning the canvas rect it dirtied and
+     * growing the buffer's own dirty rect by it.
+     *
+     * A key whose slice the pool refuses is **skipped**, not fatal: §2.1 makes
+     * a full pool a normal outcome the caller declines. A dropped tile is a
+     * gap in one stroke; a crash loses the painting. §7.1's reservation of a
+     * full layer's worth for the buffer is what makes this the pathological
+     * stroke rather than the ordinary one.
+     */
+    fun stamp(
+        batch: DabBatch,
+        buffer: StrokeBuffer,
+        mode: BufferMode,
+        colorR: Float,
+        colorG: Float,
+        colorB: Float,
+    ): IntRect {
+        if (batch.count == 0) return IntRect.EMPTY
+        val grid = buffer.grid
+        ensureBuilt()
+        ensureInstanceCapacity(batch.count)
+        if (instanceCapacityDabs < batch.count) return IntRect.EMPTY
+
+        state.useProgram(program)
+        program.uniform3f("u_color", colorR, colorG, colorB)
+        when (mode) {
+            BufferMode.Accumulate -> state.blendSourceOver()
+            BufferMode.Max -> state.blendMax()
+        }
+        state.viewport(0, 0, TILE_SIZE, TILE_SIZE)
+        // Every dab is clipped to the slice by its own quad geometry, so no
+        // scissor is wanted here — and one left enabled by a previous pass
+        // would silently clip dabs to that pass's rect.
+        state.scissorOff()
+        GLES30.glBindVertexArray(vao[0])
+
+        val keyCount = collectKeys(batch, grid)
+        var dirty = IntRect.EMPTY
+        for (i in 0 until keyCount) {
+            val key = TileKey(distinctKeys[i])
+            val n = gatherDabsFor(batch, grid, key)
+            if (n == 0) continue
+            val handle = try {
+                buffer.sliceForWrite(key)
+            } catch (_: PoolExhausted) {
+                continue
+            }
+            if (!fbo.bindArrayLayer(buffer.pageTexture(handle.page), handle.slice)) continue
+
+            val origin = grid.origin(key)
+            program.uniform2f("u_tileOrigin", origin.x.toFloat(), origin.y.toFloat())
+            uploadInstances(n)
+            GLES30.glDrawArraysInstanced(GLES30.GL_TRIANGLE_STRIP, 0, CORNERS, n)
+            dirty = union(dirty, grid.tileRect(key))
+        }
+
+        GLES30.glBindVertexArray(0)
+        // GL_MAX is sticky context state. Leaving it set would make the next
+        // composite take the maximum of source and destination instead of
+        // blending — a whole-screen corruption that reads as a shader bug.
+        // GlState caches the equation, so under Accumulate this costs nothing.
+        state.blendSourceOver()
+        buffer.growDirty(dirty)
+        return dirty
+    }
+
+    // ------------------------------------------------------------- gathering
+
+    /**
+     * Fills [distinctKeys] with the keys [batch] touches and returns how many.
+     *
+     * A dense flag array rather than a `HashSet`: a set would allocate per
+     * batch on the touch path, and the grid's tile count bounds the flags at
+     * `TileGrid.MAX_TILES` booleans. The flags are cleared by walking the keys
+     * just collected, not by refilling the whole array, so the cost is the
+     * number of touched tiles rather than the canvas size.
+     */
+    private fun collectKeys(batch: DabBatch, grid: TileGrid): Int {
+        if (seen.size < grid.tileCount) seen = BooleanArray(grid.tileCount)
+        if (distinctKeys.size < grid.tileCount) distinctKeys = IntArray(grid.tileCount)
+        var distinct = 0
+        for (i in 0 until batch.count) {
+            val n = grid.keysFor(IntRect.forDab(batch.x[i], batch.y[i], batch.radius[i]), dabKeys)
+            for (j in 0 until n) {
+                val key = TileKey(dabKeys[j])
+                val index = key.ty * grid.tilesX + key.tx
+                if (index < 0 || index >= seen.size || seen[index]) continue
+                seen[index] = true
+                distinctKeys[distinct++] = dabKeys[j]
+            }
+        }
+        for (i in 0 until distinct) {
+            val key = TileKey(distinctKeys[i])
+            seen[key.ty * grid.tilesX + key.tx] = false
+        }
+        return distinct
+    }
+
+    /**
+     * Copies the dabs whose rect meets [key] into [instanceData], **in batch
+     * order**, and returns how many.
+     *
+     * Batch order is the contract: GL blends instances in order, so this is
+     * what makes GPU overlap equal `DabStamp`'s CPU fold.
+     */
+    private fun gatherDabsFor(batch: DabBatch, grid: TileGrid, key: TileKey): Int {
+        val tile = grid.tileRect(key)
+        var n = 0
+        for (i in 0 until batch.count) {
+            val rect = IntRect.forDab(batch.x[i], batch.y[i], batch.radius[i])
+            if (rect.right <= tile.left || rect.left >= tile.right) continue
+            if (rect.bottom <= tile.top || rect.top >= tile.bottom) continue
+            var o = n * DAB_FLOATS
+            instanceData[o++] = batch.x[i]
+            instanceData[o++] = batch.y[i]
+            instanceData[o++] = batch.radius[i]
+            instanceData[o++] = batch.hardness[i]
+            instanceData[o++] = batch.flow[i]
+            instanceData[o++] = batch.angle[i]
+            instanceData[o] = batch.aspect[i]
+            n++
+        }
+        return n
+    }
+
+    private fun uploadInstances(n: Int) {
+        instanceBuffer.position(0)
+        instanceBuffer.put(instanceData, 0, n * DAB_FLOATS)
+        instanceBuffer.position(0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instanceVbo[0])
+        GLES30.glBufferSubData(GLES30.GL_ARRAY_BUFFER, 0, n * DAB_FLOATS * 4, instanceBuffer)
+    }
+
+    // -------------------------------------------------------------- plumbing
+
+    private fun ensureInstanceCapacity(dabs: Int) {
+        if (dabs <= instanceCapacityDabs) return
+        val capacity = maxOf(dabs, instanceCapacityDabs * 2, MIN_INSTANCE_DABS)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instanceVbo[0])
+        GLES30.glBufferData(
+            GLES30.GL_ARRAY_BUFFER, capacity * DAB_FLOATS * 4, null, GLES30.GL_STREAM_DRAW,
+        )
+        // Capacity is committed only once the driver has accepted it.
+        // GL_OUT_OF_MEMORY here would otherwise leave the pass believing it has
+        // room it does not, and the next glBufferSubData would write past the
+        // buffer's real end. `stamp` checks the capacity again and draws
+        // nothing rather than corrupting memory.
+        if (GlErrors.checkAllocation("dab instance VBO ($capacity dabs)") != GLES30.GL_NO_ERROR) return
+        instanceData = FloatArray(capacity * DAB_FLOATS)
+        instanceBuffer = ByteBuffer
+            .allocateDirect(capacity * DAB_FLOATS * 4)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+        instanceCapacityDabs = capacity
+    }
+
+    private fun ensureBuilt() {
+        if (built) return
+        GLES30.glGenVertexArrays(1, vao, 0)
+        GLES30.glGenBuffers(1, cornerVbo, 0)
+        GLES30.glGenBuffers(1, instanceVbo, 0)
+        GLES30.glBindVertexArray(vao[0])
+
+        // The unit quad every instance shares: (-1,-1)..(1,1) as a strip.
+        val corners = floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)
+        val cornerBuf = ByteBuffer.allocateDirect(corners.size * 4)
+            .order(ByteOrder.nativeOrder()).asFloatBuffer().put(corners)
+        cornerBuf.position(0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, cornerVbo[0])
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, corners.size * 4, cornerBuf, GLES30.GL_STATIC_DRAW)
+        GLES30.glEnableVertexAttribArray(Shaders.ATTR_DAB_CORNER)
+        GLES30.glVertexAttribPointer(Shaders.ATTR_DAB_CORNER, 2, GLES30.GL_FLOAT, false, 0, 0)
+
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instanceVbo[0])
+        val stride = DAB_FLOATS * 4
+        var offset = 0
+        for ((location, size) in INSTANCE_LAYOUT) {
+            GLES30.glEnableVertexAttribArray(location)
+            GLES30.glVertexAttribPointer(location, size, GLES30.GL_FLOAT, false, stride, offset)
+            // The divisor is what makes these per-dab rather than per-vertex.
+            // Without it every dab in a batch would draw with the first dab's
+            // parameters: four correct-looking quads stacked in one place.
+            GLES30.glVertexAttribDivisor(location, 1)
+            offset += size * 4
+        }
+        GLES30.glBindVertexArray(0)
+        built = true
+    }
+
+    fun release() {
+        if (built) {
+            GLES30.glDeleteVertexArrays(1, vao, 0)
+            GLES30.glDeleteBuffers(1, cornerVbo, 0)
+            GLES30.glDeleteBuffers(1, instanceVbo, 0)
+            built = false
+            instanceCapacityDabs = 0
+        }
+        fbo.release()
+    }
+
+    private fun union(a: IntRect, b: IntRect): IntRect = when {
+        a.isEmpty -> b
+        b.isEmpty -> a
+        else -> IntRect(
+            minOf(a.left, b.left), minOf(a.top, b.top),
+            maxOf(a.right, b.right), maxOf(a.bottom, b.bottom),
+        )
+    }
+
+    private companion object {
+        const val CORNERS = 4
+
+        /** centre (2), radius, hardness, flow, angle, aspect — §6's per-dab fields. */
+        const val DAB_FLOATS = 7
+
+        const val MIN_INSTANCE_DABS = 256
+
+        /**
+         * A dab spans at most 2×2 tiles at ordinary sizes; the scratch is sized
+         * for the largest `DabGenerator` will emit, and `TileGrid.keysFor`
+         * stops at the array's length rather than overrunning it.
+         */
+        const val MAX_KEYS_PER_DAB = 64
+
+        val INSTANCE_LAYOUT = arrayOf(
+            Shaders.ATTR_DAB_CENTER to 2,
+            Shaders.ATTR_DAB_RADIUS to 1,
+            Shaders.ATTR_DAB_HARDNESS to 1,
+            Shaders.ATTR_DAB_FLOW to 1,
+            Shaders.ATTR_DAB_ANGLE to 1,
+            Shaders.ATTR_DAB_ASPECT to 1,
+        )
+    }
+}

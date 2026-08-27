@@ -101,6 +101,12 @@ internal data class LayoutSpec(
     val railWidthDp: Int,
     val sliderLengthDp: Int,
     val railContentHeightDp: Int,
+    /**
+     * Paint-preset slots the FULL rail shows; the rest overflow to the
+     * settings sheet's chip row. `Int.MAX_VALUE` outside FULL mode, where
+     * the rail never lists presets (GROUPED/SHORT/DOCK show the active one).
+     */
+    val paintSlotBudget: Int,
 ) {
     /** Persistent chrome only; transient panels and the first-run hint are excluded. */
     fun persistentChrome(windowWidthDp: Int, windowHeightDp: Int): List<LayoutRect> {
@@ -210,8 +216,14 @@ internal data class LayoutSpec(
     }
 
     companion object {
-        fun forWindow(width: WidthClass, heightDp: Int, hand: Hand): LayoutSpec {
+        fun forWindow(
+            width: WidthClass,
+            heightDp: Int,
+            hand: Hand,
+            paintCount: Int = DEFAULT_PAINT_COUNT,
+        ): LayoutSpec {
             require(heightDp >= 0) { "heightDp must not be negative" }
+            require(paintCount >= 1) { "paintCount must be positive" }
 
             val railMode = railMode(width, heightDp)
             val slot = toolSlot(width, railMode)
@@ -225,6 +237,8 @@ internal data class LayoutSpec(
             } else {
                 SliderPlacement.LEDGE
             }
+            val paintSlotBudget = paintSlotBudget(railMode, slot, heightDp, paintCount)
+
             return LayoutSpec(
                 widthClass = width,
                 railMode = railMode,
@@ -248,7 +262,8 @@ internal data class LayoutSpec(
                     slot + RAIL_EXTRA_WIDTH_DP
                 },
                 sliderLengthDp = sliderLength,
-                railContentHeightDp = contentHeight(railMode, slot),
+                railContentHeightDp = contentHeight(railMode, slot, paintSlotBudget),
+                paintSlotBudget = paintSlotBudget,
             )
         }
 
@@ -279,7 +294,11 @@ internal data class LayoutSpec(
             return MIN_TARGET_DP
         }
 
-        private fun contentHeight(mode: RailMode, slotDp: Int): Int = when (mode) {
+        private fun contentHeight(
+            mode: RailMode,
+            slotDp: Int,
+            paintSlotBudget: Int,
+        ): Int = when (mode) {
             RailMode.DOCK -> DOCK_HEIGHT_DP
             RailMode.SHORT -> shortContentHeightDp()
             RailMode.GROUPED ->
@@ -288,12 +307,38 @@ internal data class LayoutSpec(
                     DIVIDER_HEIGHT_DP +
                     GROUPED_SLIDER_DP +
                     RAIL_PADDING_DP
-            RailMode.FULL ->
-                FULL_TOOL_COUNT * slotDp +
-                    FULL_GAP_COUNT * TOOL_GAP_DP +
+            RailMode.FULL -> {
+                val toolCount = paintSlotBudget + FULL_NON_PAINT_SLOTS
+
+                toolCount * slotDp +
+                    (toolCount - 1) * TOOL_GAP_DP +
                     FULL_DIVIDER_COUNT * DIVIDER_HEIGHT_DP +
                     FULL_SLIDER_DP +
                     RAIL_PADDING_DP
+            }
+        }
+
+        /**
+         * How many paint-preset slots the FULL rail shows before the rest
+         * moves to the settings sheet's chip row (`docs/plan/08-ui-and-layout.md`
+         * §1). The mode thresholds above are sized for the v1 set of five
+         * paints; a larger catalogue must not stretch the rail past the
+         * window, so extra presets overflow into the sheet instead. Solves
+         * `paints·(slot + gap) + NON_PAINT ≤ heightDp`, where NON_PAINT is
+         * the fixed non-paint slots, their gaps, dividers, slider, and padding.
+         */
+        private fun paintSlotBudget(
+            mode: RailMode,
+            slotDp: Int,
+            heightDp: Int,
+            paintCount: Int,
+        ): Int {
+            if (mode != RailMode.FULL) return Int.MAX_VALUE
+
+            val available = heightDp - FULL_NON_PAINT_SLOTS * slotDp -
+                FULL_NON_PAINT_GAPS * TOOL_GAP_DP -
+                FULL_DIVIDER_COUNT * DIVIDER_HEIGHT_DP - FULL_SLIDER_DP - RAIL_PADDING_DP
+            return (available / (slotDp + TOOL_GAP_DP)).coerceIn(1, paintCount)
         }
 
         const val MIN_TARGET_DP = 48
@@ -311,9 +356,11 @@ internal data class LayoutSpec(
         private const val EXPANDED_FULL_MIN_DP = 798
         private const val SHORT_TOOL_COUNT = 6
         private const val GROUPED_TOOL_COUNT = 6
-        private const val FULL_TOOL_COUNT = 10
+        private const val DEFAULT_PAINT_COUNT = 5
+        // Mirrors ToolRail.fullSlots: one eraser and four secondary tools.
+        private const val FULL_NON_PAINT_SLOTS = 5
+        private const val FULL_NON_PAINT_GAPS = 4
         private const val GROUPED_GAP_COUNT = 5
-        private const val FULL_GAP_COUNT = 9
         private const val FULL_DIVIDER_COUNT = 2
         private const val TOOL_GAP_DP = 4
         private const val DIVIDER_HEIGHT_DP = 9

@@ -569,6 +569,13 @@ and the contradiction is noted here.
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.
   User names are literal; never resolve arbitrary stored `@string/` values.
+- **The FULL rail does not list every paint preset.** Its paint slots are
+  capped by `LayoutSpec.paintSlotBudget`, solved from the window height so
+  the rail never grows past it; the active preset always keeps a slot
+  (`RailSlotPolicy`), and the overflow presets are reachable through the
+  settings sheet's chip row — the same path GROUPED/SHORT/DOCK already use.
+  The `*_FULL_MIN_DP` thresholds stay sized for the v1 catalogue; they select
+  a mode, not a capacity.
 - **HSV fine controls use `HsvChannel`.** Keep their ranges, discrete steps,
   reads, and replacements in that pure enum so visual sliders and accessibility
   adjustments cannot drift. The current-color chip has a named long-click only;

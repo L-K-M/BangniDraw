@@ -62,6 +62,64 @@ class LayoutSpecTest {
     }
 
     @Test
+    fun `the full rail budgets exactly the paint slots that fit`() {
+        // The FULL thresholds are sized for the v1 catalogue of five paints:
+        // at the minimum height the budget is exactly five, and it grows by
+        // one slot per slot-plus-gap of extra height.
+        assertEquals(5, LayoutSpec.forWindow(WidthClass.MEDIUM, 718, Hand.RIGHT).paintSlotBudget)
+        assertEquals(5, LayoutSpec.forWindow(WidthClass.MEDIUM, 769, Hand.RIGHT).paintSlotBudget)
+        assertEquals(5, LayoutSpec.forWindow(WidthClass.EXPANDED, 798, Hand.RIGHT).paintSlotBudget)
+        assertEquals(5, LayoutSpec.forWindow(WidthClass.EXPANDED, 857, Hand.RIGHT).paintSlotBudget)
+        assertEquals(
+            6,
+            LayoutSpec.forWindow(WidthClass.MEDIUM, 770, Hand.RIGHT, paintCount = 6)
+                .paintSlotBudget,
+        )
+        assertEquals(
+            6,
+            LayoutSpec.forWindow(WidthClass.EXPANDED, 858, Hand.RIGHT, paintCount = 6)
+                .paintSlotBudget,
+        )
+    }
+
+    @Test
+    fun `the full rail content height follows its paint budget`() {
+        assertEquals(718, LayoutSpec.forWindow(WidthClass.MEDIUM, 769, Hand.RIGHT).railContentHeightDp)
+        assertEquals(
+            770,
+            LayoutSpec.forWindow(WidthClass.MEDIUM, 770, Hand.RIGHT, paintCount = 6)
+                .railContentHeightDp,
+        )
+        assertEquals(798, LayoutSpec.forWindow(WidthClass.EXPANDED, 857, Hand.RIGHT).railContentHeightDp)
+        assertEquals(
+            858,
+            LayoutSpec.forWindow(WidthClass.EXPANDED, 858, Hand.RIGHT, paintCount = 6)
+                .railContentHeightDp,
+        )
+    }
+
+    @Test
+    fun `the full rail never reserves absent paint slots`() {
+        val fivePaints = LayoutSpec.forWindow(
+            WidthClass.MEDIUM,
+            1080,
+            Hand.RIGHT,
+            paintCount = 5,
+        )
+
+        assertEquals(5, fivePaints.paintSlotBudget)
+        assertEquals(718, fivePaints.railContentHeightDp)
+    }
+
+    @Test
+    fun `only the full rail caps paint slots`() {
+        for (mode in listOf(200, 288, 461, 509)) {
+            val spec = LayoutSpec.forWindow(WidthClass.MEDIUM, mode, Hand.RIGHT)
+            assertEquals(Int.MAX_VALUE, spec.paintSlotBudget, "height $mode")
+        }
+    }
+
+    @Test
     fun `every tool target stays at least 48 dp`() {
         for (width in WidthClass.entries) {
             for (height in listOf(200, 288, 461, 509, 718, 798)) {

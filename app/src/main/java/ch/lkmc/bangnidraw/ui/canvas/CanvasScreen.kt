@@ -787,7 +787,14 @@ private fun CanvasContent(
         val railHeight = (
             maxHeight.value - verticalInsetDp - LayoutSpec.TOP_STRIP_DP
             ).toInt().coerceAtLeast(0)
-        val layout = LayoutSpec.forWindow(widthClass, railHeight, state.handedness)
+        val layout = LayoutSpec.forWindow(
+            widthClass,
+            railHeight,
+            state.handedness,
+            paintCount = BrushPresets.railOrder(state.brushPresets)
+                .count { !it.eraseMode }
+                .coerceAtLeast(1),
+        )
         val undoAvailability =
             if (state.canUndo) ActionAvailability.ENABLED else ActionAvailability.DISABLED
         val redoAvailability =

@@ -260,6 +260,7 @@
     <string name="settings_stylus_only">仅用手写笔绘画</string>
     <string name="settings_stylus_only_help">手指仍可移动、缩放和旋转画布。</string>
     <string name="settings_pen_button">S Pen 按键</string>
+    <string name="settings_eraser_end">橡皮擦笔尾</string>
     <string name="settings_pen_button_eraser">橡皮擦</string>
     <string name="settings_pen_button_eyedropper">吸管</string>
     <string name="settings_pen_button_none">不执行操作</string>

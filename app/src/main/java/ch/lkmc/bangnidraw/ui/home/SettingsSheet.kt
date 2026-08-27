@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.AutosavePolicy
+import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
@@ -60,6 +61,7 @@ internal fun SettingsSheet(
     onHandedness: (Hand) -> Unit,
     onTouchDrawingMode: (TouchDrawingMode) -> Unit,
     onPenButtonAction: (PenButtonAction) -> Unit,
+    onEraserEndPreset: (String) -> Unit,
     onPressurePreference: (PressurePreference) -> Unit,
     onHapticsMode: (HapticsMode) -> Unit,
     onGallerySync: (Boolean) -> Unit,
@@ -141,6 +143,19 @@ internal fun SettingsSheet(
                     R.string.settings_pen_button_none,
                     state.penButtonAction == PenButtonAction.None,
                 ) { onPenButtonAction(PenButtonAction.None) }
+            }
+            item { SettingLabel(R.string.settings_eraser_end) }
+            item {
+                ChoiceRow(
+                    R.string.preset_hard_eraser,
+                    state.eraserEndPreset == BrushPresets.HARD_ERASER_ID,
+                ) { onEraserEndPreset(BrushPresets.HARD_ERASER_ID) }
+            }
+            item {
+                ChoiceRow(
+                    R.string.preset_soft_eraser,
+                    state.eraserEndPreset == BrushPresets.SOFT_ERASER_ID,
+                ) { onEraserEndPreset(BrushPresets.SOFT_ERASER_ID) }
             }
             item { SettingLabel(R.string.settings_pressure) }
             item {

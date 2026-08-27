@@ -311,6 +311,7 @@ fun StudioScreen(
             onHandedness = viewModel::setHandedness,
             onTouchDrawingMode = viewModel::setTouchDrawingMode,
             onPenButtonAction = viewModel::setPenButtonAction,
+            onEraserEndPreset = viewModel::setEraserEndPreset,
             onPressurePreference = viewModel::setPressurePreference,
             onHapticsMode = viewModel::setHapticsMode,
             onGallerySync = viewModel::setGallerySync,

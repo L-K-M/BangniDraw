@@ -12,6 +12,7 @@ import ch.lkmc.bangnidraw.data.ImageEncode
 import ch.lkmc.bangnidraw.data.Prefs
 import ch.lkmc.bangnidraw.data.ProjectStore
 import ch.lkmc.bangnidraw.data.ShareCache
+import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Document
 import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
@@ -80,6 +81,7 @@ class StudioViewModel @Inject constructor(
         val handedness: Hand = Hand.RIGHT,
         val touchDrawingMode: TouchDrawingMode = TouchDrawingMode.ENABLED,
         val penButtonAction: PenButtonAction = PenButtonAction.Eraser,
+        val eraserEndPreset: String = BrushPresets.HARD_ERASER_ID,
         val pressurePreference: PressurePreference = PressurePreference.LINEAR,
         val hapticsMode: HapticsMode = HapticsMode.ENABLED,
         val gallerySync: Boolean = true,
@@ -115,6 +117,11 @@ class StudioViewModel @Inject constructor(
         viewModelScope.launch {
             prefs.penButtonAction.collect { value ->
                 _uiState.update { it.copy(penButtonAction = value) }
+            }
+        }
+        viewModelScope.launch {
+            prefs.eraserEndPreset.collect { value ->
+                _uiState.update { it.copy(eraserEndPreset = value) }
             }
         }
         viewModelScope.launch {
@@ -171,6 +178,10 @@ class StudioViewModel @Inject constructor(
 
     internal fun setPenButtonAction(value: PenButtonAction) {
         viewModelScope.launch { prefs.setPenButtonAction(value) }
+    }
+
+    internal fun setEraserEndPreset(value: String) {
+        viewModelScope.launch { prefs.setEraserEndPreset(value) }
     }
 
     internal fun setPressurePreference(value: PressurePreference) {

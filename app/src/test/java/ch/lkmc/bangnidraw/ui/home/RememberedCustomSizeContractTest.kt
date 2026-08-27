@@ -29,10 +29,11 @@ class RememberedCustomSizeContractTest {
         assertTrue("var customEdited by rememberSaveable" in dialog)
         assertTrue("LaunchedEffect(lastCustomSize)" in dialog)
         assertTrue(
-            Regex("if\\s*\\(customEdited\\)[^\\n]*return@LaunchedEffect").containsMatchIn(dialog),
+            Regex("if\\s*\\(customEdited\\)\\s*return@LaunchedEffect").containsMatchIn(dialog),
         )
         assertTrue("customEdited = true" in dialog)
-        assertTrue("fun prefill" in dialog)
+        assertTrue("prefill(lastCustomSize?.width)" in dialog)
+        assertTrue("prefill(lastCustomSize?.height)" in dialog)
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()

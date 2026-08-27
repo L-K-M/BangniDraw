@@ -9,6 +9,7 @@ enum class TemporaryReason {
     PenButton,
     LongPress,
     Hover,
+    Rail,
 }
 
 data class ToolSelection(

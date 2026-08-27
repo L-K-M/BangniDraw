@@ -13,6 +13,25 @@ package ch.lkmc.bangnidraw.engine.core
  */
 object BrushPresets {
 
+    const val PENCIL_ID = "builtin.pencil"
+    const val INK_PEN_ID = "builtin.ink_pen"
+    const val PAINTBRUSH_ID = "builtin.paintbrush"
+    const val AIRBRUSH_ID = "builtin.airbrush"
+    const val MARKER_ID = "builtin.marker"
+    const val HARD_ERASER_ID = "builtin.hard_eraser"
+    const val SOFT_ERASER_ID = "builtin.soft_eraser"
+    const val HARD_ERASER_NAME = "@string/preset_hard_eraser"
+
+    val RAIL_ORDER: List<String> = listOf(
+        PENCIL_ID,
+        INK_PEN_ID,
+        PAINTBRUSH_ID,
+        AIRBRUSH_ID,
+        MARKER_ID,
+        HARD_ERASER_ID,
+        SOFT_ERASER_ID,
+    )
+
     /**
      * Hardness 1 with the shader's 1 px anti-aliasing skirt is a crisp line;
      * flow 1, `Max` buffering and opacity 1 mean overlaps within one stroke
@@ -25,7 +44,7 @@ object BrushPresets {
      * nowhere to hide a wobble.
      */
     val INK_PEN = BrushPreset(
-        id = "builtin.ink_pen",
+        id = INK_PEN_ID,
         name = "@string/preset_ink_pen",
         icon = "round",
         size = 6f,
@@ -52,4 +71,10 @@ object BrushPresets {
 
     /** The preset a fresh document opens with. */
     val DEFAULT: BrushPreset get() = INK_PEN
+
+    /** Built-ins follow the product rail; user presets follow by id. */
+    fun railOrder(presets: List<BrushPreset>): List<BrushPreset> {
+        val rank = RAIL_ORDER.withIndex().associate { (index, id) -> id to index }
+        return presets.sortedWith(compareBy({ rank[it.id] ?: Int.MAX_VALUE }, { it.id }))
+    }
 }

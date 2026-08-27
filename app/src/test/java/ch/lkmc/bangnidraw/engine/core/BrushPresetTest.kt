@@ -11,16 +11,35 @@ import kotlin.test.assertTrue
 /**
  * `docs/plan/11-testing.md` §3.15, against `04-tools.md` §2 and §5.
  *
- * The half of §3.15 that reads preset *files* under `assets/brushes/` lands
- * with `BrushPresetStore`; there are no files to read yet. What is here is
- * the model those files decode into: its ranges, its forward compatibility,
- * and the dynamics the shipped preset promises.
+ * File loading is covered by `BrushPresetStoreTest`; this pins the model those
+ * files decode into, its ranges, and its forward compatibility.
  */
 class BrushPresetTest {
 
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = false
+    }
+
+    @Test
+    fun `rail order follows the product catalogue`() {
+        val user = BrushPresets.DEFAULT.copy(id = "user.brush")
+        val shuffled = listOf(
+            user,
+            BrushPresets.DEFAULT.copy(id = BrushPresets.MARKER_ID),
+            BrushPresets.DEFAULT.copy(id = BrushPresets.PENCIL_ID),
+            BrushPresets.DEFAULT.copy(id = BrushPresets.HARD_ERASER_ID, eraseMode = true),
+        )
+
+        assertEquals(
+            listOf(
+                BrushPresets.PENCIL_ID,
+                BrushPresets.MARKER_ID,
+                BrushPresets.HARD_ERASER_ID,
+                user.id,
+            ),
+            BrushPresets.railOrder(shuffled).map { it.id },
+        )
     }
 
     private fun preset(id: String = "test.brush") = BrushPreset(id = id, name = "Test")

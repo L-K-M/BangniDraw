@@ -4,6 +4,12 @@ enum class PenButtonAction {
     Eraser,
     Eyedropper,
     None,
+    ;
+
+    companion object {
+        fun fromStored(value: String?): PenButtonAction =
+            entries.firstOrNull { it.name == value } ?: Eraser
+    }
 }
 
 enum class ButtonState {

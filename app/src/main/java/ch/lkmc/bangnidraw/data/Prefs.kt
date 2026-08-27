@@ -4,8 +4,11 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import ch.lkmc.bangnidraw.engine.core.BrushPresets
+import ch.lkmc.bangnidraw.engine.core.PenButtonAction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -63,10 +66,26 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         dataStore.edit { it[KEY_DEBUG_LATENCY] = enabled }
     }
 
+    val penButtonAction: Flow<PenButtonAction> =
+        dataStore.data.map { PenButtonAction.fromStored(it[KEY_PEN_BUTTON_ACTION]) }
+
+    suspend fun setPenButtonAction(action: PenButtonAction) {
+        dataStore.edit { it[KEY_PEN_BUTTON_ACTION] = action.name }
+    }
+
+    val eraserEndPreset: Flow<String> =
+        dataStore.data.map { it[KEY_ERASER_END_PRESET] ?: BrushPresets.HARD_ERASER_ID }
+
+    suspend fun setEraserEndPreset(id: String) {
+        dataStore.edit { it[KEY_ERASER_END_PRESET] = id }
+    }
+
     private companion object {
         const val STORE_NAME = "bangni"
         val KEY_NEXT_SKETCH = intPreferencesKey("nextSketchNumber")
         val KEY_GALLERY_SYNC = booleanPreferencesKey("gallerySync")
         val KEY_DEBUG_LATENCY = booleanPreferencesKey("debugLatency")
+        val KEY_PEN_BUTTON_ACTION = stringPreferencesKey("penButtonAction")
+        val KEY_ERASER_END_PRESET = stringPreferencesKey("eraserEndPreset")
     }
 }

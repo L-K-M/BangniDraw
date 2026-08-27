@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.data.ApplicationScope
+import ch.lkmc.bangnidraw.data.BrushPresetStore
 import ch.lkmc.bangnidraw.data.CpuFlatten
 import ch.lkmc.bangnidraw.data.CpuTile
 import ch.lkmc.bangnidraw.data.GalleryExporter
@@ -25,6 +26,9 @@ import ch.lkmc.bangnidraw.data.TileStore
 import ch.lkmc.bangnidraw.data.Thumbnails
 import ch.lkmc.bangnidraw.data.highestDefaultNameIn
 import ch.lkmc.bangnidraw.engine.core.AutosavePolicy
+import ch.lkmc.bangnidraw.engine.core.BrushPreset
+import ch.lkmc.bangnidraw.engine.core.BrushPresets
+import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Document
 import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
@@ -33,9 +37,18 @@ import ch.lkmc.bangnidraw.engine.core.HistoryJournal
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
+import ch.lkmc.bangnidraw.engine.core.PenButtonAction
+import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
+import ch.lkmc.bangnidraw.engine.core.StrokeSource
+import ch.lkmc.bangnidraw.engine.core.StylusToolPolicy
+import ch.lkmc.bangnidraw.engine.core.TemporaryReason
+import ch.lkmc.bangnidraw.engine.core.TemporaryToolTarget
 import ch.lkmc.bangnidraw.engine.core.TileKey
+import ch.lkmc.bangnidraw.engine.core.ToolKind
+import ch.lkmc.bangnidraw.engine.core.ToolSelection
+import ch.lkmc.bangnidraw.engine.core.ToolSwitcher
 import ch.lkmc.bangnidraw.ui.navigation.CanvasRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -83,6 +96,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class CanvasViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val store: ProjectStore,
+    private val presetStore: BrushPresetStore,
     private val exporter: GalleryExporter,
     private val prefs: Prefs,
     @ApplicationScope private val appScope: CoroutineScope,
@@ -108,6 +122,10 @@ class CanvasViewModel @Inject constructor(
             val historyBytes: Long = 0L,
             val historyMaxSteps: Int = 0,
             val historyMaxBytes: Long = 0L,
+            val brushPresets: List<BrushPreset>,
+            val toolSelection: ToolSelection,
+            val penButtonAction: PenButtonAction,
+            val eraserEndPreset: String,
         ) : UiState
     }
 
@@ -115,6 +133,14 @@ class CanvasViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow<UiState>(UiState.Loading)
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+
+    private val toolSwitcher = ToolSwitcher(ToolKind.Brush(BrushPresets.DEFAULT))
+
+    @Volatile
+    private var brushPresets: List<BrushPreset> = listOf(BrushPresets.DEFAULT)
+
+    private var penButtonAction = PenButtonAction.Eraser
+    private var eraserEndPreset = BrushPresets.HARD_ERASER_ID
 
     private val pool = TileBufferPool()
 
@@ -205,9 +231,28 @@ class CanvasViewModel @Inject constructor(
 
     init {
         viewModelScope.launch(Dispatchers.IO) { open() }
+        viewModelScope.launch {
+            prefs.penButtonAction.collect { action ->
+                penButtonAction = action
+                updateToolUi()
+            }
+        }
+        viewModelScope.launch {
+            prefs.eraserEndPreset.collect { id ->
+                eraserEndPreset = id
+                updateToolUi()
+            }
+        }
     }
 
     private fun open() {
+        brushPresets = BrushPresets.railOrder(presetStore.load()).ifEmpty {
+            listOf(BrushPresets.DEFAULT)
+        }
+        val default = brushPresets.firstOrNull { it.id == BrushPresets.PENCIL_ID }
+            ?: brushPresets.first()
+        toolSwitcher.select(ToolKind.Brush(default))
+
         when (val result = store.load(projectId)) {
             is ProjectStore.LoadResult.Loaded -> openLoaded(result)
             is ProjectStore.LoadResult.Failed -> when (result.reason) {
@@ -309,6 +354,97 @@ class CanvasViewModel @Inject constructor(
             historyBytes = j?.stats()?.bytes ?: 0L,
             historyMaxSteps = journalLimits.maxEntries,
             historyMaxBytes = journalLimits.maxBytes,
+            brushPresets = brushPresets,
+            toolSelection = toolSwitcher.selection.value,
+            penButtonAction = penButtonAction,
+            eraserEndPreset = eraserEndPreset,
+        )
+    }
+
+    private fun updateToolUi() {
+        val state = _uiState.value
+        if (state !is UiState.Ready) return
+
+        _uiState.value = state.copy(
+            brushPresets = brushPresets,
+            toolSelection = toolSwitcher.selection.value,
+            penButtonAction = penButtonAction,
+            eraserEndPreset = eraserEndPreset,
+        )
+    }
+
+    fun selectBrush(id: String) {
+        val preset = brushPresets.firstOrNull { it.id == id } ?: return
+
+        toolSwitcher.select(ToolKind.Brush(preset))
+        updateToolUi()
+    }
+
+    fun selectEyedropper() {
+        toolSwitcher.pushTemporary(ToolKind.Eyedropper(), TemporaryReason.Rail)
+        updateToolUi()
+    }
+
+    fun updateBrushSize(value: Float) = updateBrush { it.withSize(value) }
+
+    fun updateBrushOpacity(value: Float) = updateBrush { it.withOpacity(value) }
+
+    private fun updateBrush(transform: (BrushPreset) -> BrushPreset) {
+        val selection = toolSwitcher.selection.value
+        val kind = selection.kind
+        if (kind !is ToolKind.Brush) return
+
+        val updated = transform(kind.preset)
+        brushPresets = brushPresets.map { if (it.id == updated.id) updated else it }
+        val reason = selection.temporaryReason
+        if (reason == null) {
+            toolSwitcher.select(ToolKind.Brush(updated))
+        } else {
+            toolSwitcher.pushTemporary(ToolKind.Brush(updated), reason)
+        }
+        updateToolUi()
+        appScope.launch(Dispatchers.IO) {
+            runCatching { presetStore.save(updated) }
+                .onFailure { android.util.Log.w(TAG, "brush ${updated.id} could not be saved", it) }
+        }
+    }
+
+    fun beginStrokeTool(source: StrokeSource, button: ButtonState): ToolSelection {
+        val pointer = when (source) {
+            StrokeSource.STYLUS -> PointerTool.STYLUS
+            StrokeSource.ERASER_END -> PointerTool.ERASER
+            StrokeSource.FINGER -> PointerTool.FINGER
+            StrokeSource.MOUSE -> PointerTool.MOUSE
+        }
+        val request = StylusToolPolicy.resolve(pointer, button, penButtonAction)
+            ?: return toolSwitcher.selection.value
+        val kind = when (request.target) {
+            TemporaryToolTarget.Eraser -> ToolKind.Brush(resolveEraserPreset())
+            TemporaryToolTarget.Eyedropper -> ToolKind.Eyedropper()
+        }
+        toolSwitcher.pushTemporary(kind, request.reason)
+        updateToolUi()
+        return toolSwitcher.selection.value
+    }
+
+    fun endStrokeTool(reason: TemporaryReason?) {
+        if (reason == null) return
+
+        toolSwitcher.popTemporary(reason)
+        updateToolUi()
+    }
+
+    private fun resolveEraserPreset(): BrushPreset {
+        brushPresets.firstOrNull { it.id == eraserEndPreset && it.eraseMode }?.let { return it }
+        brushPresets.firstOrNull { it.id == BrushPresets.HARD_ERASER_ID }?.let { return it }
+        brushPresets.firstOrNull { it.eraseMode }?.let { return it }
+
+        val active = (toolSwitcher.selection.value.kind as? ToolKind.Brush)?.preset
+            ?: BrushPresets.DEFAULT
+        return active.copy(
+            id = BrushPresets.HARD_ERASER_ID,
+            name = BrushPresets.HARD_ERASER_NAME,
+            eraseMode = true,
         )
     }
 

@@ -145,6 +145,13 @@ class StylusStateTest {
     }
 
     @Test
+    fun `an unknown stored button action falls back to erasing`() {
+        assertEquals(PenButtonAction.Eraser, PenButtonAction.fromStored("future-action"))
+        assertEquals(PenButtonAction.Eraser, PenButtonAction.fromStored(null))
+        assertEquals(PenButtonAction.Eyedropper, PenButtonAction.fromStored("Eyedropper"))
+    }
+
+    @Test
     fun `reset forgets the pen entirely`() {
         val s = StylusState()
         s.onDown(1f, 2f, PointerTool.STYLUS)

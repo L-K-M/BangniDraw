@@ -128,6 +128,14 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 Recorded per PLAN.md's rule: when the plan contradicts itself, PLAN.md wins
 and the contradiction is noted here.
 
+- **The v1 pencil uses the reserved grain key `procedural`.**
+  `04-tools.md` §5 says its `grain` stays null until a CC0 texture arrives,
+  while roadmap step 5 requires procedural shader noise in the meantime.
+  The latter is the user-visible requirement: `DabStamp` and `dab.frag` share
+  a canvas-anchored integer hash, so the grain does not swim between dabs.
+  No third-party asset was added, so there is no provenance entry yet; an
+  eventual CC0 texture replaces the reserved key and records its source here.
+
 - **`merge.frag`'s ERASE branch consults `u_alphaLock`; the plan's skeleton
   does not.** `docs/plan/03-canvas-engine.md` §7.4's table says of ERASE
   "(alpha-lock: the eraser is a no-op on locked layers — 05 §1)", and

@@ -227,6 +227,25 @@ class DabStampTest {
     }
 
     @Test
+    fun `procedural grain is stable in canvas space`() {
+        val weights = (0 until 16).map { x -> DabStamp.proceduralGrain(x + 0.5f, 3.5f) }
+
+        assertTrue(weights.all { it in DabStamp.GRAIN_MIN_WEIGHT..1f })
+        assertTrue(weights.distinct().size > 8, "the hash must vary across the paper: $weights")
+        assertEquals(
+            DabStamp.proceduralGrain(4.1f, 7.1f),
+            DabStamp.proceduralGrain(4.9f, 7.9f),
+            1e-6f,
+            "sub-pixel dab movement must not make the paper grain swim",
+        )
+
+        val d = dab(x = 4.5f, y = 7.5f)
+        val plain = DabStamp.contribution(4.5f, 7.5f, d, white).a
+        val grain = DabStamp.contribution(4.5f, 7.5f, d, white, GrainMode.Procedural).a
+        assertEquals(plain * DabStamp.proceduralGrain(4.5f, 7.5f), grain, 1e-6f)
+    }
+
+    @Test
     fun `every contribution over a spread of dabs stays premultiplied`() {
         val color = floatArrayOf(1f, 0.4f, 0f)
         for (radius in floatArrayOf(0.2f, 1f, 7f, 60f)) {

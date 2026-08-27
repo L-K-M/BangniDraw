@@ -451,7 +451,7 @@ class EngineSession(
      * [pumpReadback] keeps polling after the commit until everything in flight
      * has been mapped and handed to the tile sink.
      */
-    fun endStroke() {
+    fun endStroke(opacityCeiling: Float) {
         val thisRevision = revisions.incrementAndGet()
         // §8.3's order, and it holds because the FIFO assumption §8.3 flags was
         // verified against graphics-core 1.0.4 (AGENTS.md): this block runs
@@ -471,7 +471,7 @@ class EngineSession(
             // be lost — and its slot would still be checked out when the replay
             // arrives, where nothing releases it any more.
             drainPending(stamp = true)
-            renderer.endStroke(revision = thisRevision) { spec, keys ->
+            renderer.endStroke(revision = thisRevision, opacityCeiling = opacityCeiling) { spec, keys ->
                 onStrokeMerged?.invoke(spec, keys, thisRevision)
             }
         }

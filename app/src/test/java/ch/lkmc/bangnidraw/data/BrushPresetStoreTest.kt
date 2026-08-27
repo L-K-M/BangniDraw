@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.data
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.Curve
+import ch.lkmc.bangnidraw.engine.core.GrainMode
 import ch.lkmc.bangnidraw.engine.core.Jitter
 import ch.lkmc.bangnidraw.engine.core.TiltEffect
 import ch.lkmc.bangnidraw.engine.core.TipOrientation
@@ -47,6 +48,10 @@ class BrushPresetStoreTest {
                 "builtin.soft_eraser",
             ),
             presets.mapTo(linkedSetOf()) { it.id },
+        )
+        assertEquals(
+            GrainMode.Procedural,
+            presets.single { it.id == "builtin.pencil" }.grainMode,
         )
     }
 

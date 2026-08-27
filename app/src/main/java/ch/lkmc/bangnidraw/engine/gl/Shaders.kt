@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.engine.gl
 
 import ch.lkmc.bangnidraw.engine.core.BlendMode
 import ch.lkmc.bangnidraw.engine.core.DabStamp
+import ch.lkmc.bangnidraw.engine.core.GrainMode
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 
 /**
@@ -362,6 +363,7 @@ object Shaders {
         uniform vec2 u_tileOrigin;
         uniform vec3 u_color;
         out vec2 v_local;
+        out vec2 v_canvas;
         flat out float v_radius;
         flat out float v_hardness;
         flat out vec4  v_color;
@@ -374,6 +376,7 @@ object Shaders {
                               + a_corner.y * pad * i_aspect * axisMinor;
             vec2 d = p - i_center;
             v_local = vec2(dot(d, axisMajor), dot(d, axisMinor) / i_aspect);
+            v_canvas = p;
             v_radius = r;
             v_hardness = i_hardness;
             float area = i_radius < 1.0 ? i_radius * i_radius : 1.0;
@@ -397,17 +400,30 @@ object Shaders {
     val DAB_FRAG = """
         $VERSION_LINE
         precision highp float;
+        precision highp int;
+        uniform int u_grainMode;
         in vec2 v_local;
+        in vec2 v_canvas;
         flat in float v_radius;
         flat in float v_hardness;
         flat in vec4  v_color;
         out vec4 o_color;
+
+        float proceduralGrain(vec2 canvas) {
+            uvec2 cell = uvec2(floor(max(canvas, vec2(0.0))));
+            uint h = cell.x * ${DabStamp.GRAIN_HASH_X}u + cell.y * ${DabStamp.GRAIN_HASH_Y}u;
+            h = h ^ (h >> ${DabStamp.GRAIN_HASH_SHIFT}u);
+            float unit = float(h & ${DabStamp.GRAIN_HASH_MASK}u) / float(${DabStamp.GRAIN_HASH_MASK});
+            return ${DabStamp.GRAIN_MIN_WEIGHT} + (1.0 - ${DabStamp.GRAIN_MIN_WEIGHT}) * unit;
+        }
+
         void main() {
             float d = length(v_local);
             float r = v_radius;
             float feather = max(fwidth(d), ${DabStamp.GRADIENT_EPSILON});
             float inner = clamp(min(r * v_hardness, r - feather), 0.0, r);
             float m = 1.0 - smoothstep(inner, r, d);
+            if (u_grainMode == ${GrainMode.Procedural.shaderId}) m *= proceduralGrain(v_canvas);
             o_color = v_color * m;
         }
     """.trimIndent()
@@ -419,6 +435,7 @@ object Shaders {
         uniforms = listOf(
             Uniform("u_tileOrigin", "vec2"),
             Uniform("u_color", "vec3"),
+            Uniform("u_grainMode", "int"),
         ),
     )
 

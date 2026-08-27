@@ -392,7 +392,7 @@ class CanvasRenderer(
      * make the routing depend on a producer's habit.
      */
     fun stampDabs(batch: DabBatch): IntRect {
-        if (stroke == null) return IntRect.EMPTY
+        val spec = stroke ?: return IntRect.EMPTY
         val pass = dabPass ?: return IntRect.EMPTY
         val buffer = strokeBuffer ?: return IntRect.EMPTY
         val startNs = clock.nowNanos()
@@ -400,7 +400,8 @@ class CanvasRenderer(
         var dirty = IntRect.EMPTY
         if (committed > 0) {
             dirty = pass.stamp(
-                batch, buffer, strokeBufferMode, strokeR, strokeG, strokeB,
+                batch, buffer, strokeBufferMode, spec.grainMode,
+                strokeR, strokeG, strokeB,
                 from = 0, until = committed,
             )
         }
@@ -408,7 +409,8 @@ class CanvasRenderer(
             val tail = tailBuffer
             if (tail != null) {
                 val tailRect = pass.stamp(
-                    batch, tail, strokeBufferMode, strokeR, strokeG, strokeB,
+                    batch, tail, strokeBufferMode, spec.grainMode,
+                    strokeR, strokeG, strokeB,
                     from = committed, until = batch.count,
                 )
                 previousTailRect = previousTailRect.union(tailRect)
@@ -476,9 +478,13 @@ class CanvasRenderer(
      * merge has already consumed it by then, but resetting first would free
      * slices the enqueued reads have not been issued against yet.
      */
-    fun endStroke(revision: Int, onMerged: ((StrokeSpec, List<TileKey>) -> Unit)? = null): Int {
+    fun endStroke(
+        revision: Int,
+        opacityCeiling: Float,
+        onMerged: ((StrokeSpec, List<TileKey>) -> Unit)? = null,
+    ): Int {
         val startNs = clock.nowNanos()
-        val spec = stroke ?: return 0
+        val spec = stroke?.withOpacityCeiling(opacityCeiling) ?: return 0
         val buffer = strokeBuffer ?: return 0
         val pass = mergePass ?: return 0
         // Before the merge and before any early return: the tail is front-layer

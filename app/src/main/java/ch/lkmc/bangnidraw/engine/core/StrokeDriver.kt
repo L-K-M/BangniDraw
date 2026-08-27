@@ -24,9 +24,9 @@ package ch.lkmc.bangnidraw.engine.core
 class StrokeDriver(
     private val preset: BrushPreset,
     /**
-     * Per stroke, not per app: `DabGenerator` derives every dab's jitter and
-     * grain phase from it, so reusing one seed would make every stroke of a
-     * jittering brush identical (§6's `seed` field).
+     * Per stroke, not per app: `DabGenerator` derives every dab's jitter from
+     * it, so reusing one seed would make every stroke of a jittering brush
+     * identical (§6's `seed` field). Procedural grain stays canvas-anchored.
      */
     seed: Long,
     zoom: Float = 1f,

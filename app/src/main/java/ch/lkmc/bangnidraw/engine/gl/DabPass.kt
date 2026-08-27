@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.engine.gl
 import android.opengl.GLES30
 import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.DabBatch
+import ch.lkmc.bangnidraw.engine.core.GrainMode
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.PoolExhausted
@@ -99,6 +100,7 @@ class DabPass(
         batch: DabBatch,
         buffer: StrokeBuffer,
         mode: BufferMode,
+        grainMode: GrainMode,
         colorR: Float,
         colorG: Float,
         colorB: Float,
@@ -122,6 +124,7 @@ class DabPass(
 
         state.useProgram(program)
         program.uniform3f("u_color", colorR, colorG, colorB)
+        program.uniform1i("u_grainMode", grainMode.shaderId)
         when (mode) {
             BufferMode.Accumulate -> state.blendSourceOver()
             BufferMode.Max -> state.blendMax()

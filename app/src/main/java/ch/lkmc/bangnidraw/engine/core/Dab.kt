@@ -25,7 +25,7 @@ data class Dab(
     val angle: Float,
     /** Minor/major axis; 1 is round. */
     val aspect: Float,
-    /** Per-dab jitter and grain phase, derived from the stroke seed. */
+    /** Reserved texture-grain phase, derived from the stroke seed. */
     val seed: Float,
 ) {
     companion object {
@@ -65,6 +65,10 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
     val seed = FloatArray(capacity)
 
     var count = 0
+        private set
+
+    /** Distinguishes the same pooled object across separate acquisitions. */
+    internal var reuseGeneration = 0L
         private set
 
     var strokeId = 0L
@@ -117,6 +121,45 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         }
         if (isFull) return false
         val i = count
+        write(i, x, y, radius, flow, hardness, angle, aspect, seed)
+        count = i + 1
+        dirty = dirty.union(IntRect.forDab(x, y, radius))
+        return true
+    }
+
+    /** Rewrites an unsubmitted dab, expanding its dirty bounds if needed. */
+    internal fun replace(
+        index: Int,
+        x: Float,
+        y: Float,
+        radius: Float,
+        flow: Float,
+        hardness: Float,
+        angle: Float,
+        aspect: Float,
+        seed: Float,
+    ) {
+        require(index in 0 until count) { "index $index is outside 0..${count - 1}" }
+        require(radius in Dab.MIN_RADIUS..Dab.MAX_RADIUS) {
+            "dab radius $radius is outside ${Dab.MIN_RADIUS}..${Dab.MAX_RADIUS}"
+        }
+
+        write(index, x, y, radius, flow, hardness, angle, aspect, seed)
+        dirty = dirty.union(IntRect.forDab(x, y, radius))
+    }
+
+    private fun write(
+        index: Int,
+        x: Float,
+        y: Float,
+        radius: Float,
+        flow: Float,
+        hardness: Float,
+        angle: Float,
+        aspect: Float,
+        seed: Float,
+    ) {
+        val i = index
         this.x[i] = x
         this.y[i] = y
         this.radius[i] = radius
@@ -125,9 +168,6 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         this.angle[i] = angle
         this.aspect[i] = aspect
         this.seed[i] = seed
-        count = i + 1
-        dirty = dirty.union(IntRect.forDab(x, y, radius))
-        return true
     }
 
     fun add(dab: Dab): Boolean = add(
@@ -151,6 +191,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
      * floats × 8 on every batch is work that buys nothing.
      */
     fun clear() {
+        reuseGeneration++
         count = 0
         predictedFrom = -1
         strokeId = 0L

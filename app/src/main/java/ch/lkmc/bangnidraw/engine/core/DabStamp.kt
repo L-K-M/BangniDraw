@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.engine.core
 
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -102,8 +103,10 @@ object DabStamp {
         py: Float,
         dab: Dab,
         colorRgb: FloatArray,
+        grainMode: GrainMode = GrainMode.None,
     ): StrokeMerge.Rgba {
-        val m = coverageAt(px, py, dab)
+        var m = coverageAt(px, py, dab)
+        if (grainMode == GrainMode.Procedural) m *= proceduralGrain(px, py)
         if (m <= 0f) return StrokeMerge.Rgba.TRANSPARENT
         val w = dab.flow * areaWeight(dab.radius) * m
         return StrokeMerge.Rgba(colorRgb[0] * w, colorRgb[1] * w, colorRgb[2] * w, w)
@@ -127,6 +130,16 @@ object DabStamp {
         val gy = (major * s + minorScaled * c * invAspect) / d
         val feather = abs(gx) + abs(gy)
         return coverage(d, dab.radius, dab.hardness, feather)
+    }
+
+    /** Stable, canvas-anchored pencil grain shared with `dab.frag`. */
+    fun proceduralGrain(px: Float, py: Float): Float {
+        val x = floor(px.coerceAtLeast(0f)).toInt().toUInt()
+        val y = floor(py.coerceAtLeast(0f)).toInt().toUInt()
+        var hash = x * GRAIN_HASH_X.toUInt() + y * GRAIN_HASH_Y.toUInt()
+        hash = hash xor (hash shr GRAIN_HASH_SHIFT)
+        val unit = (hash and GRAIN_HASH_MASK.toUInt()).toFloat() / GRAIN_HASH_MASK
+        return GRAIN_MIN_WEIGHT + (1f - GRAIN_MIN_WEIGHT) * unit
     }
 
     private fun coverage(d: Float, radius: Float, hardness: Float, feather: Float): Float {
@@ -170,4 +183,10 @@ object DabStamp {
 
     /** Keeps the analytic and shader gradients finite at the dab centre. */
     const val GRADIENT_EPSILON = 1e-6f
+
+    const val GRAIN_HASH_X = 1_664_525
+    const val GRAIN_HASH_Y = 1_013_904_223
+    const val GRAIN_HASH_SHIFT = 16
+    const val GRAIN_HASH_MASK = 1_023
+    const val GRAIN_MIN_WEIGHT = 0.55f
 }

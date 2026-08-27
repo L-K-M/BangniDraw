@@ -56,7 +56,11 @@ class DabGenerator(
 
     /** Where the stroke's first dab went, so a tap can be rewritten by [end]. */
     private var firstBatch: DabBatch? = null
+    private var firstBatchGeneration = -1L
     private var firstIndex = -1
+    private var firstX = 0f
+    private var firstY = 0f
+    private var firstSeed = 0f
 
     /** Canvas px per ms, an EMA over about the last three samples. */
     private var velocity = 0f
@@ -97,6 +101,7 @@ class DabGenerator(
         pressureOpacityMax = 0f
         maxPressure = 0f
         firstBatch = null
+        firstBatchGeneration = -1L
         firstIndex = -1
         return if (emit(first.x, first.y, first, out)) 1 else 0
     }
@@ -191,14 +196,28 @@ class DabGenerator(
 
         // A tap. The down sample of an S Pen almost always reports near-zero
         // pressure, so the one dab the tap left would be an invisible speck.
-        // Rewrite it at the maximum pressure the tap actually saw — the user
+        // Correct it at the maximum pressure the tap actually saw — the user
         // pressed, the digitizer just reported the press after the contact.
-        val batch = firstBatch ?: return 0
+        // A submitted batch may already be back in the ring, so only rewrite
+        // the same acquisition; otherwise append the correction at pen-up.
+        val batch = firstBatch
         val i = firstIndex
-        if (i < 0 || i >= batch.count) return 0
+        if (i < 0) return 0
         val p = maxPressure
-        batch.radius[i] = radiusFor(p, last.tilt, dabIndexOfFirst)
-        batch.flow[i] = flowFor(p, last.tilt)
+        val elongation = elongationFor(last.tilt)
+        val radius = finalRadiusFor(p, last.tilt, dabIndexOfFirst, elongation)
+        val flow = flowFor(p, last.tilt)
+        val aspect = aspectFor(elongation)
+        val angle = angleFor(last.orientation, strokeAngle = 0f, elongation)
+        val canReplace = batch === out &&
+            batch.reuseGeneration == firstBatchGeneration &&
+            i < batch.count
+        if (canReplace) {
+            batch.replace(i, firstX, firstY, radius, flow, preset.hardness, angle, aspect, firstSeed)
+            return 1
+        }
+
+        if (!out.add(firstX, firstY, radius, flow, preset.hardness, angle, aspect, firstSeed)) return 0
         return 1
     }
 
@@ -266,6 +285,7 @@ class DabGenerator(
         // of that frame's dabs could still be sitting in `firstBatch`. See the
         // KDoc above for why a tail must never hold that reference at all.
         other.firstBatch = null
+        other.firstBatchGeneration = -1L
         other.firstIndex = -1
     }
 
@@ -322,31 +342,20 @@ class DabGenerator(
         }
 
         val elongation = elongationFor(sample.tilt)
-        val angle = when {
-            elongation > 1f -> sample.orientation
-            else -> when (preset.orientation) {
-                TipOrientation.Fixed -> 0f
-                TipOrientation.Stylus -> sample.orientation
-                TipOrientation.StrokeDirection -> sample.strokeAngle
-            }
-        }
-        val baseAspect = when (val tip = preset.tip) {
-            is TipShape.Round -> 1f
-            is TipShape.Flat -> tip.aspect
-        }
-        // Elongation grows the major axis and leaves the minor alone, so the
-        // stored radius (the major semi-axis) scales up and the aspect
-        // (minor/major) scales down by the same factor.
-        val added = if (elongation > 1f) elongation else 1f
-        val finalRadius = (radius * added).coerceIn(minRadius, maxRadius)
-        val aspect = (baseAspect / added).coerceIn(TipShape.Flat.MIN_ASPECT, 1f)
+        val angle = angleFor(sample.orientation, sample.strokeAngle, elongation)
+        val finalRadius = (radius * elongation).coerceIn(minRadius, maxRadius)
+        val aspect = aspectFor(elongation)
 
         val ok = out.add(px, py, finalRadius, flow, preset.hardness, angle, aspect, dabSeed)
         if (!ok) return false
         if (firstBatch == null) {
             firstBatch = out
+            firstBatchGeneration = out.reuseGeneration
             firstIndex = out.count - 1
             dabIndexOfFirst = index
+            firstX = px
+            firstY = py
+            firstSeed = dabSeed
         }
         dabCount++
         return true
@@ -386,6 +395,32 @@ class DabGenerator(
 
     private fun elongationFor(tilt: Float): Float =
         if (!preset.tilt.elongate) 1f else 1f + tiltFraction(tilt)
+
+    private fun finalRadiusFor(
+        pressure: Float,
+        tilt: Float,
+        jitterIndex: Int,
+        elongation: Float,
+    ): Float = (radiusFor(pressure, tilt, jitterIndex) * elongation).coerceIn(minRadius, maxRadius)
+
+    private fun aspectFor(elongation: Float): Float {
+        val base = when (val tip = preset.tip) {
+            is TipShape.Round -> 1f
+            is TipShape.Flat -> tip.aspect
+        }
+        // Elongation grows the major axis and leaves the minor alone.
+        return (base / elongation).coerceIn(TipShape.Flat.MIN_ASPECT, 1f)
+    }
+
+    private fun angleFor(orientation: Float, strokeAngle: Float, elongation: Float): Float {
+        if (elongation > 1f) return orientation
+
+        return when (preset.orientation) {
+            TipOrientation.Fixed -> 0f
+            TipOrientation.Stylus -> orientation
+            TipOrientation.StrokeDirection -> strokeAngle
+        }
+    }
 
     private fun tiltMultiplier(tilt: Float, atFlat: Float): Float =
         if (atFlat == 1f) 1f else 1f + (atFlat - 1f) * tiltFraction(tilt)

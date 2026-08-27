@@ -11,5 +11,6 @@
   "spacing": 0.12,
   "tip": { "type": "flat", "aspect": 0.3 },
   "orientation": "Stylus",
+  "pressureSize": { "p0": 1.0, "p1": 1.0, "p2": 1.0, "p3": 1.0 },
   "stabilizer": 0.4
 }

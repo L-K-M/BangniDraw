@@ -16,5 +16,6 @@
   "tilt": { "sizeAtFlat": 2.2, "opacityAtFlat": 0.5, "elongate": true },
   "jitter": { "size": 0.1, "position": 0.15 },
   "stabilizer": 0.2,
+  "grain": "procedural",
   "bufferMode": "Accumulate"
 }

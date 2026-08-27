@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.engine.gl
 
 import ch.lkmc.bangnidraw.engine.core.DabStamp
+import ch.lkmc.bangnidraw.engine.core.GrainMode
 import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -345,6 +346,26 @@ class StrokeShaderContractTest {
             "and dimmed by their true area",
         )
         assertTrue(body.contains("i_flow * area"), "the area weight must scale flow")
+    }
+
+    @Test
+    fun `procedural grain is selected explicitly and anchored to the canvas`() {
+        val vertex = stripped(dabVert)
+        val fragment = stripped(dabFrag)
+
+        assertTrue(vertex.contains("v_canvas = p"), "the fragment needs canvas coordinates, not dab-local uv")
+        assertTrue(
+            fragment.contains("u_grainMode == ${GrainMode.Procedural.shaderId}"),
+            "the shader id must come from GrainMode",
+        )
+        assertTrue(
+            fragment.contains("proceduralGrain(v_canvas)"),
+            "grain must stay fixed on the paper while dabs move over it",
+        )
+        assertTrue(fragment.contains("${DabStamp.GRAIN_HASH_X}u"))
+        assertTrue(fragment.contains("${DabStamp.GRAIN_HASH_Y}u"))
+        assertTrue(fragment.contains("${DabStamp.GRAIN_HASH_MASK}u"))
+        assertTrue(fragment.contains("${DabStamp.GRAIN_MIN_WEIGHT}"))
     }
 
     @Test

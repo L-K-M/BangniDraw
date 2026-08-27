@@ -51,6 +51,8 @@ data class StrokeSpec(
     val alphaLock: Boolean = false,
     /** `preset.dilution`, 0 for non-mixing presets (09 §3.1). Only read in [StrokeMode.MIX]. */
     val dilution: Float = 0f,
+    /** Procedural dab modulation; texture grains remain post-v1. */
+    val grainMode: GrainMode = GrainMode.None,
     /** Non-null bypasses the stroke buffer entirely (§7.6). */
     val rmw: RmwKind? = null,
 ) {
@@ -68,4 +70,7 @@ data class StrokeSpec(
 
     /** §7.6: smudge and blur write the layer directly and never allocate a buffer. */
     val usesStrokeBuffer: Boolean get() = rmw == null
+
+    /** Replaces pen-down's provisional opacity with the measured stroke peak. */
+    fun withOpacityCeiling(value: Float): StrokeSpec = copy(opacity = value)
 }

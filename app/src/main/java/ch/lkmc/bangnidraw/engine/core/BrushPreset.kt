@@ -131,6 +131,12 @@ enum class BufferMode {
     Accumulate,
 }
 
+/** Grain path selected once at pen-down and fixed for the stroke. */
+enum class GrainMode(val shaderId: Int) {
+    None(0),
+    Procedural(1),
+}
+
 /**
  * Every parameter a brush can have (`docs/plan/04-tools.md` §2). All
  * serializable, all defaulted, so a preset JSON can omit what it does not
@@ -192,7 +198,7 @@ data class BrushPreset(
     val mixing: Boolean = false,
     /** Mixing only: how much the paint's share yields to what is under it. */
     val dilution: Float = 0f,
-    /** Post-v1: asset key of a tileable grain texture. */
+    /** Reserved `procedural` key now; a tileable asset key when grains land. */
     val grain: String? = null,
     val eraseMode: Boolean = false,
     val bufferMode: BufferMode = BufferMode.Max,
@@ -248,6 +254,10 @@ data class BrushPreset(
     /** The radius the slider's [size] means, before any dynamics. */
     val baseRadius: Float get() = size / 2f
 
+    /** Unknown texture keys stay inert until the post-v1 texture loader exists. */
+    val grainMode: GrainMode
+        get() = if (grain == PROCEDURAL_GRAIN) GrainMode.Procedural else GrainMode.None
+
     /** [size] with the slider moved to [value], clamped into the preset's range. */
     fun withSize(value: Float): BrushPreset =
         copy(size = if (value.isNaN()) size else value.coerceIn(sizeMin, sizeMax))
@@ -268,5 +278,7 @@ data class BrushPreset(
 
         const val MIN_SPACING = 0.01f
         const val MAX_SPACING = 4f
+
+        const val PROCEDURAL_GRAIN = "procedural"
     }
 }

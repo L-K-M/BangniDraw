@@ -1,11 +1,14 @@
 package ch.lkmc.bangnidraw.engine.core
 
+import java.io.File
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlin.math.PI
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.serialization.json.Json
 
 /** `docs/plan/11-testing.md` §3.4, against `04-tools.md` §3. */
 class DabGeneratorTest {
@@ -62,6 +65,16 @@ class DabGeneratorTest {
         sample(from + (to - from) * t, 0f, pressure = pressure, timeMs = it * msPerStep)
     }
 
+    private val builtIns: Map<String, BrushPreset> by lazy {
+        val json = Json { ignoreUnknownKeys = true }
+        File("src/main/assets/brushes").listFiles().orEmpty()
+            .filter { it.extension == "json" }
+            .associate { file ->
+                val preset = json.decodeFromString<BrushPreset>(file.readText())
+                preset.id to preset
+            }
+    }
+
     // ---------------------------------------------------------------- taps
 
     @Test
@@ -86,6 +99,76 @@ class DabGeneratorTest {
             sample(10f, 10f, pressure = 0.9f, timeMs = 16),
         )
         assertEquals(1, run(plain, path).size)
+    }
+
+    @Test
+    fun `every built-in preset emits its specified full-pressure dab`() {
+        data class Expected(
+            val radiusMin: Float,
+            val radiusMax: Float,
+            val flow: Float,
+            val hardness: Float,
+            val aspect: Float,
+        )
+
+        val expected = mapOf(
+            "builtin.pencil" to Expected(1.8f, 2.2f, 0.35f, 0.75f, 1f),
+            "builtin.ink_pen" to Expected(3f, 3f, 1f, 1f, 1f),
+            "builtin.paintbrush" to Expected(19f, 21f, 0.6f, 0.45f, 0.7f),
+            "builtin.airbrush" to Expected(60f, 60f, 0.06f, 0f, 1f),
+            "builtin.marker" to Expected(12f, 12f, 1f, 0.95f, 0.3f),
+            "builtin.hard_eraser" to Expected(15f, 15f, 1f, 0.95f, 1f),
+            "builtin.soft_eraser" to Expected(40f, 40f, 0.4f, 0.15f, 1f),
+        )
+        assertEquals(expected.keys, builtIns.keys)
+
+        for ((id, e) in expected) {
+            val preset = builtIns.getValue(id)
+            val dab = run(
+                preset,
+                listOf(sample(20f, 20f, pressure = 1f, orientation = 0.6f)),
+                seed = 7L,
+            ).single()
+
+            assertTrue(
+                dab.radius >= e.radiusMin - pxEps && dab.radius <= e.radiusMax + pxEps,
+                "$id radius ${dab.radius}",
+            )
+            assertEquals(e.flow, dab.flow, 1e-5f, "$id flow")
+            assertEquals(e.hardness, dab.hardness, 1e-5f, "$id hardness")
+            assertEquals(e.aspect, dab.aspect, 1e-5f, "$id aspect")
+            assertTrue(dab.radius.isFinite() && dab.flow.isFinite(), "$id emitted non-finite dynamics")
+        }
+    }
+
+    @Test
+    fun `built-in pressure and tilt dynamics stay distinct`() {
+        val pencil = builtIns.getValue("builtin.pencil")
+        val upright = run(pencil, listOf(sample(0f, 0f, pressure = 1f)), seed = 11L).single()
+        val flat = run(
+            pencil,
+            listOf(sample(0f, 0f, pressure = 1f, tilt = (PI / 2).toFloat())),
+            seed = 11L,
+        ).single()
+        assertTrue(flat.radius > upright.radius * 4f, "pencil tilt must widen the side of the lead")
+        assertEquals(upright.flow * 0.5f, flat.flow, 1e-5f, "tilted pencil must be lighter")
+        assertEquals(0.5f, flat.aspect, 1e-5f, "tilted pencil must elongate along its azimuth")
+
+        val airbrush = builtIns.getValue("builtin.airbrush")
+        val air = run(airbrush, listOf(sample(0f, 0f, pressure = 0.5f))).single()
+        assertEquals(0.03f, air.flow, 0.002f, "airbrush pressure chiefly controls low flow")
+
+        val marker = builtIns.getValue("builtin.marker")
+        val markerLight = run(
+            marker,
+            listOf(sample(0f, 0f, pressure = 0.2f, orientation = 0.7f)),
+        ).single()
+        assertEquals(12f, markerLight.radius, pxEps, "marker width ignores pressure")
+        assertEquals(0.7f, markerLight.angle, pxEps, "marker tip follows stylus orientation")
+
+        val softEraser = builtIns.getValue("builtin.soft_eraser")
+        val soft = run(softEraser, listOf(sample(0f, 0f, pressure = 0.5f))).single()
+        assertEquals(0.2f, soft.flow, 0.002f, "soft eraser pressure controls lift per dab")
     }
 
     @Test
@@ -116,6 +199,26 @@ class DabGeneratorTest {
             "the tap should have been redrawn wider: ${faint.radius} -> ${fixed.radius}",
         )
         assertTrue(fixed.flow > faint.flow, "and darker: ${faint.flow} -> ${fixed.flow}")
+        assertEquals(IntRect.forDab(fixed.x, fixed.y, fixed.radius), batch.dirty)
+    }
+
+    @Test
+    fun `a tap correction survives release of its first batch`() {
+        val preset = plain.copy(pressureSize = Curve.Linear, pressureFlow = Curve.Linear)
+        val generator = DabGenerator(preset, seed = 1L)
+        val first = DabBatch(64)
+        generator.begin(sample(10f, 10f, pressure = 0.02f), first)
+        generator.advance(sample(10.2f, 10f, pressure = 0.9f, timeMs = 12), first)
+        val faint = first[0]
+
+        // The renderer releases each submitted ring slot before pen-up.
+        first.clear()
+        val ending = DabBatch(64)
+
+        assertEquals(1, generator.end(ending))
+        assertEquals(1, ending.count)
+        assertTrue(ending[0].radius > faint.radius)
+        assertTrue(ending[0].flow > faint.flow)
     }
 
     @Test
@@ -704,10 +807,8 @@ class DabGeneratorTest {
 
     @Test
     fun `a copy cannot rewrite the real stroke's first dab`() {
-        // `end()` rewrites a tap's first dab IN PLACE, through a reference to
-        // the caller's batch, using the maximum pressure the tap saw. A copy
-        // carrying that reference could reach into a committed stroke and
-        // change a dab already merged onto the layer.
+        // `end()` corrects a tap using the maximum pressure it saw. A copy
+        // must neither reach into the real batch nor emit a correction for it.
         //
         // The pressure curve and the extra sample are both load-bearing. With
         // `Curve.One` the rewrite recomputes the SAME radius and carrying the
@@ -726,17 +827,21 @@ class DabGeneratorTest {
         // Same position, so no dab and no path length — only the copy's
         // maxPressure moves, which is exactly what end() would write.
         tail.advance(sample(5f, 5f, pressure = 1f, timeMs = 8L), DabBatch())
-        tail.end(DabBatch())
+        val tailEnd = DabBatch()
+        assertEquals(0, tail.end(tailEnd))
+        assertEquals(0, tailEnd.count)
 
         assertEquals(firstRadius, out.radius[0], 0f, "the copy's end() rewrote the real batch's first dab")
 
-        // And the guard is not vacuous: the real generator's own end() DOES
-        // rewrite it, so the value being compared is one end() can change.
+        // And the guard is not vacuous: the real generator emits a stronger
+        // correction when its opening batch has already been submitted.
         real.advance(sample(5f, 5f, pressure = 1f, timeMs = 8L), DabBatch())
-        real.end(DabBatch())
+        val realEnd = DabBatch()
+        assertEquals(1, real.end(realEnd))
         assertTrue(
-            out.radius[0] != firstRadius,
-            "end() must actually rewrite a tap's first dab, or this test proves nothing",
+            realEnd.radius[0] > firstRadius,
+            "end() must actually strengthen the tap, or this test proves nothing",
         )
+        assertEquals(firstRadius, out.radius[0], 0f, "a submitted batch is immutable")
     }
 }

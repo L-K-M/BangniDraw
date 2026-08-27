@@ -175,9 +175,8 @@ private fun CanvasContent(
                     val active = stack.layers.getOrNull(stack.activeIndex) ?: return
                     val preset = BrushPresets.DEFAULT
                     val erasing = preset.eraseMode || source == StrokeSource.ERASER_END
-                    // A new seed per stroke: DabGenerator derives every dab's
-                    // jitter and grain phase from it, so one shared seed would
-                    // make every stroke of a jittering brush identical.
+                    // A new seed keeps each stroke's jitter independent;
+                    // procedural grain remains fixed to the canvas.
                     val driver = StrokeDriver(preset, seed = strokeState.nextSeed(), zoom = view.scale)
                     strokeState.driver = driver
                     strokeState.engine = engine
@@ -195,6 +194,7 @@ private fun CanvasContent(
                         // opacity and endStroke re-sends the measured one.
                         opacity = preset.opacity,
                         alphaLock = active.props.alphaLock,
+                        grainMode = preset.grainMode,
                     )
                     engine.beginStroke(
                         spec, preset.bufferMode,
@@ -243,7 +243,7 @@ private fun CanvasContent(
                     } else {
                         driver.cancel()
                     }
-                    engine.endStroke()
+                    engine.endStroke(driver.opacityCeiling)
                     // The commit's pixels reach disk through the readback; the
                     // ViewModel only needs to know the document changed.
                     viewModel.onStrokeCommitted()
@@ -509,13 +509,12 @@ internal class StrokeUiState {
     // stroke of every session wobble identically to the first stroke of the
     // last one. Nothing in the suite depends on the sequence — StrokeDriverTest
     // passes its own seeds — so determinism here buys nothing and costs the
-    // grain its independence across launches.
+    // jitter its independence across launches.
     private var seed = System.nanoTime()
 
     /**
-     * A fresh seed per stroke. `DabGenerator` derives every dab's jitter and
-     * grain phase from it, so one shared seed would make every stroke of a
-     * jittering brush trace the same wobble.
+     * A fresh seed per stroke keeps a jittering brush from tracing the same
+     * wobble every time. Procedural grain remains fixed to the canvas.
      */
     fun nextSeed(): Long = seed++
 }

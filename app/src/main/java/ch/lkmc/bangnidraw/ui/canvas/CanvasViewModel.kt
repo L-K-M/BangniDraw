@@ -1404,10 +1404,15 @@ class CanvasViewModel @Inject constructor(
             updateToolUi()
         }
         val inputWasOpen = actionGate.strokeInputInFlight
-        var nextAction = actionGate.endStrokeInput()
-        if (inputWasOpen && disposition == StrokeEndDisposition.COMPLETE) {
-            nextAction = nextAction ?: actionGate.completeStroke()
+        val inputAction = actionGate.endStrokeInput()
+        val completionAction = if (
+            inputWasOpen && disposition == StrokeEndDisposition.COMPLETE
+        ) {
+            actionGate.completeStroke()
+        } else {
+            null
         }
+        val nextAction = inputAction ?: completionAction
         chrome = CanvasUiPolicy.onStrokeEnd(chrome)
         updateInteractionUi()
         if (nextAction != null) executeAction(nextAction)

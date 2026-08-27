@@ -935,7 +935,7 @@ class EngineSession(
      */
     var onStrokeMerged: ((StrokeSpec, List<TileKey>, revision: Int) -> Unit)? = null
 
-    /** Reports an empty, refused, failed, or released commit exactly once. */
+    /** Reports an empty, refused, failed, or released commit on Main, once. */
     var onStrokeNotMerged: (() -> Unit)? = null
 
     /**
@@ -1006,7 +1006,7 @@ class EngineSession(
 
     private fun completeStrokeWithoutMerge(fallback: () -> Unit) {
         if (!pendingStrokeFallback.compareAndSet(fallback, null)) return
-        fallback()
+        pollHandler.post(fallback)
     }
 
     /**
@@ -1225,8 +1225,11 @@ class EngineSession(
         }
         glRenderer.execute {
             renderer.release()
-            pendingStrokeFallback.getAndSet(null)?.invoke()
-            pollHandler.post { completeFill(false) }
+            val droppedStroke = pendingStrokeFallback.getAndSet(null)
+            pollHandler.post {
+                droppedStroke?.invoke()
+                completeFill(false)
+            }
         }
         glRenderer.stop(false)
     }

@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import androidx.annotation.MainThread
 import ch.lkmc.bangnidraw.engine.core.BlendMode
 
 /** Document mutations parked while the front-buffered stroke owns the GPU. */
@@ -28,7 +29,7 @@ internal sealed interface CanvasActionDecision {
     data object Parked : CanvasActionDecision
 }
 
-/** Pure queue behind the no-document-mutation-during-stroke UI invariant. */
+/** Main-confined queue behind the no-mutation-during-stroke UI invariant. */
 internal class CanvasActionGate {
     private enum class StrokePhase {
         IDLE,
@@ -49,6 +50,7 @@ internal class CanvasActionGate {
 
     val pendingCount: Int get() = pending.size
 
+    @MainThread
     fun beginStroke(): Boolean {
         if (busy || strokeInFlight) return false
 
@@ -57,6 +59,7 @@ internal class CanvasActionGate {
     }
 
     /** Restores input UI at pen-up without exposing the pending history edit. */
+    @MainThread
     fun endStrokeInput(): CanvasDocumentAction? {
         strokePhase = when (strokePhase) {
             StrokePhase.INPUT -> StrokePhase.COMMIT
@@ -68,6 +71,7 @@ internal class CanvasActionGate {
     }
 
     /** Opens the gate only after the stroke has a journal entry or fallback. */
+    @MainThread
     fun completeStroke(): CanvasDocumentAction? {
         strokePhase = when (strokePhase) {
             StrokePhase.INPUT -> StrokePhase.INPUT_COMPLETE
@@ -78,23 +82,27 @@ internal class CanvasActionGate {
         return next()
     }
 
+    @MainThread
     fun request(action: CanvasDocumentAction): CanvasActionDecision {
         if (!strokeInFlight && !busy) return CanvasActionDecision.Run(action)
         pending += action
         return CanvasActionDecision.Parked
     }
 
+    @MainThread
     fun beginWork() {
         check(!busy) { "document work is already running" }
         busy = true
     }
 
+    @MainThread
     fun finishWork(): CanvasDocumentAction? {
         check(busy) { "no document work is running" }
         busy = false
         return next()
     }
 
+    @MainThread
     fun next(): CanvasDocumentAction? {
         if (strokeInFlight || busy) return null
         return pending.removeFirstOrNull()

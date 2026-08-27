@@ -65,6 +65,18 @@ class EngineRenderPolicyTest {
     }
 
     @Test
+    fun `front invalidation recovers only an active stroke`() {
+        val policy = EngineRenderPolicy()
+
+        assertEquals(MultiDrawCompletion.NONE, policy.onFrontInvalidated())
+        policy.beginStroke()
+        assertEquals(MultiDrawCompletion.RESUME_FRONT, policy.onFrontInvalidated())
+        assertEquals(FrontFramePlan.RECOVER, policy.frontFrame())
+        policy.finishStroke(StrokeFinish.CANCEL_BUFFERED)
+        assertEquals(FrontFramePlan.INCREMENTAL, policy.frontFrame())
+    }
+
+    @Test
     fun `multiple completions coalesce before the main thread resumes`() {
         val policy = EngineRenderPolicy()
         policy.beginStroke()

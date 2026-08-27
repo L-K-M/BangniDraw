@@ -3,11 +3,15 @@ package ch.lkmc.bangnidraw.ui.canvas
 import android.content.res.AssetManager
 import android.os.Handler
 import android.os.Looper
+import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.graphics.lowlatency.BufferInfo
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
+import androidx.graphics.opengl.GLRenderer
 import androidx.graphics.opengl.egl.EGLManager
 import androidx.graphics.surface.SurfaceControlCompat
+import ch.lkmc.bangnidraw.engine.core.AttachmentCompletion
+import ch.lkmc.bangnidraw.engine.core.AttachmentRenderPlan
 import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Coverage
@@ -26,6 +30,9 @@ import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.ReadbackDrainResult
 import ch.lkmc.bangnidraw.engine.core.ReadbackPolicy
 import ch.lkmc.bangnidraw.engine.core.RedrawDecision
+import ch.lkmc.bangnidraw.engine.core.RedrawCompletionTracker
+import ch.lkmc.bangnidraw.engine.core.RenderAttachmentGate
+import ch.lkmc.bangnidraw.engine.core.RenderDispatch
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeCommitDecision
 import ch.lkmc.bangnidraw.engine.core.StrokeFinish
@@ -35,6 +42,7 @@ import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
 import java.nio.ByteBuffer
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicReference
 
 internal enum class LayerEditResult { APPLIED, REFUSED }
@@ -79,26 +87,105 @@ class EngineSession(
      */
     private val revisions: java.util.concurrent.atomic.AtomicInteger =
         java.util.concurrent.atomic.AtomicInteger(0),
-) : GLFrontBufferedRenderer.Callback<DabBatch> {
+) {
+
+    private enum class DriverCreationMode {
+        DEFERRED,
+        SYNCHRONOUS_REDRAW,
+    }
+
+    private data class DriverAttachment(
+        val generation: Long,
+        val driver: GLFrontBufferedRenderer<DabBatch>,
+    )
 
     val renderer = CanvasRenderer(canvas, budget, assets, onTile = onTile)
     private val renderPolicy = EngineRenderPolicy()
+    private val attachmentGate = RenderAttachmentGate()
     private val frontResumeSignal = DabBatch(capacity = 1)
     private val pollHandler = Handler(Looper.getMainLooper())
-    private val frontResumeTick = Runnable {
-        if (renderPolicy.resumeFront() != MultiDrawCompletion.RESUME_FRONT) return@Runnable
-        if (!frontBuffered.isValid()) return@Runnable
+    private val surfaceView = surface
+    private val glRenderer = GLRenderer().apply { start() }
+    private val redrawCompletionTracker = RedrawCompletionTracker()
 
-        frontBuffered.renderFrontBufferedLayer(frontResumeSignal)
+    @Volatile
+    private var released = false
+
+    @Volatile
+    private var frontBuffered: DriverAttachment? = null
+
+    private fun completeMultiDraw(generation: Long): AttachmentCompletion {
+        val completion = attachmentGate.multiDrawCompleted(generation)
+        if (completion !is AttachmentCompletion.Accepted) return completion
+
+        renderPolicy.onMultiDrawCompleted()
+        var plan = completion.plan
+        val resume = renderPolicy.resumeFront() == MultiDrawCompletion.RESUME_FRONT
+        if (resume && plan.dispatch != RenderDispatch.FRONT) {
+            val frontPlan = attachmentGate.requestFront()
+            if (plan.dispatch == RenderDispatch.NONE) plan = frontPlan
+        }
+        dispatch(plan)
+        return completion
     }
 
     var onRmwStarted: ((StrokeSpec) -> Unit)? = null
     var onRmwTilesTouched: ((StrokeSpec, IntArray, Int) -> Unit)? = null
     var onRmwCancelled: ((StrokeSpec, List<TileKey>) -> Unit)? = null
 
+    private val surfaceCallback = object : SurfaceHolder.Callback2 {
+        override fun surfaceCreated(holder: SurfaceHolder) = Unit
+
+        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            if (width <= 0 || height <= 0) {
+                discardSurface()
+                return
+            }
+
+            scheduleDriverCreation()
+        }
+
+        override fun surfaceDestroyed(holder: SurfaceHolder) {
+            discardSurface()
+        }
+
+        override fun surfaceRedrawNeeded(holder: SurfaceHolder) {
+            val completion = CountDownLatch(1)
+            scheduleDriverCreation(
+                redrawCompletion = Runnable { completion.countDown() },
+                mode = DriverCreationMode.SYNCHRONOUS_REDRAW,
+            )
+            var interrupted = false
+            while (true) {
+                try {
+                    completion.await()
+                    break
+                } catch (_: InterruptedException) {
+                    interrupted = true
+                }
+            }
+
+            if (interrupted) Thread.currentThread().interrupt()
+        }
+
+        override fun surfaceRedrawNeededAsync(holder: SurfaceHolder, drawingFinished: Runnable) {
+            scheduleDriverCreation(drawingFinished)
+        }
+    }
+
     init {
         renderer.onRmwFirstTouch = { spec, keys, count ->
             onRmwTilesTouched?.invoke(spec, keys, count)
+        }
+        // Registered before every graphics-core driver so redraw callbacks can
+        // retire the old driver before its own callback sees the same event.
+        surfaceView.holder.addCallback(surfaceCallback)
+        if (
+            surfaceView.holder.surface.isValid &&
+            surfaceView.width > 0 &&
+            surfaceView.height > 0
+        ) {
+            scheduleDriverCreation()
         }
     }
 
@@ -130,16 +217,6 @@ class EngineSession(
      * instead.
      */
     fun describeEngine(): String = renderer.describe()
-
-    /**
-     * `GLFrontBufferedRenderer` starts its GL thread inside its own
-     * constructor, so a callback can fire before this line finishes assigning.
-     *
-     * That is safe because [renderer] is declared *above* it, while the one
-     * callback that needs `frontBuffered` posts that work to the main queue.
-     * Reordering [renderer] would let a callback observe a null value.
-     */
-    private val frontBuffered = GLFrontBufferedRenderer(surface, this)
 
     /**
      * True once the device has been probed and can run the engine (§13).
@@ -188,7 +265,7 @@ class EngineSession(
      * thread, after the renderer has read it — the same rule [stampDabs] used
      * to state, moved to the callback that now owns the read.
      */
-    override fun onDrawFrontBufferedLayer(
+    private fun onDrawFrontBufferedLayer(
         eglManager: EGLManager,
         width: Int,
         height: Int,
@@ -281,7 +358,7 @@ class EngineSession(
      * hands us a pre-rotated buffer. The logical present quad goes through
      * [transform], which is why §3.2 step 3 forbids a blit here.
      */
-    override fun onDrawMultiBufferedLayer(
+    private fun onDrawMultiBufferedLayer(
         eglManager: EGLManager,
         width: Int,
         height: Int,
@@ -317,28 +394,182 @@ class EngineSession(
         // The dabs are not restamped either: the merge already happened.
     }
 
-    override fun onMultiBufferedLayerRenderComplete(
-        frontBufferedLayerSurfaceControl: SurfaceControlCompat,
-        multiBufferedLayerSurfaceControl: SurfaceControlCompat,
-        transaction: SurfaceControlCompat.Transaction,
-    ) {
-        if (renderPolicy.onMultiDrawCompleted() != MultiDrawCompletion.RESUME_FRONT) return
-
-        // Recheck on main so pen-up cannot race a late resume behind commit.
-        pollHandler.post(frontResumeTick)
-    }
-
     private fun ensureContext() {
         if (contextReady) return
         contextReady = true
         isSupported = renderer.onContextCreated(strict = debugBuild)
     }
 
+    private fun scheduleDriverCreation(
+        redrawCompletion: Runnable? = null,
+        mode: DriverCreationMode = DriverCreationMode.DEFERRED,
+    ) {
+        val generation = attachmentGate.surfaceChanged()
+        runRedrawCompletions(redrawCompletionTracker.beginGeneration(generation))
+        redrawCompletion?.let { queueRedrawCompletion(generation, it) }
+        if (released) return
+
+        discardDriver()
+        deferActiveFrontRecovery()
+        // SurfaceView dispatches a callback snapshot. Inline sync creation is
+        // excluded from that pass; deferred creation preserves startup order.
+        when (mode) {
+            DriverCreationMode.DEFERRED -> pollHandler.post { createDriver(generation) }
+            DriverCreationMode.SYNCHRONOUS_REDRAW -> createDriver(generation, mode)
+        }
+    }
+
+    private fun createDriver(
+        generation: Long,
+        mode: DriverCreationMode = DriverCreationMode.DEFERRED,
+    ) {
+        if (!attachmentGate.isCurrentGeneration(generation)) return
+        if (!surfaceView.holder.surface.isValid) {
+            runRedrawCompletions(redrawCompletionTracker.abandon(generation))
+            return
+        }
+        if (surfaceView.width <= 0 || surfaceView.height <= 0) {
+            runRedrawCompletions(redrawCompletionTracker.abandon(generation))
+            return
+        }
+
+        val driver = GLFrontBufferedRenderer(
+            surfaceView,
+            GenerationCallback(generation),
+            glRenderer = glRenderer,
+        )
+        if (!attachmentGate.isCurrentGeneration(generation)) {
+            driver.release(true)
+            return
+        }
+
+        frontBuffered = DriverAttachment(generation, driver)
+        // Driver target attachment and prior scene commands share this FIFO.
+        glRenderer.execute {
+            when (mode) {
+                DriverCreationMode.DEFERRED -> pollHandler.post {
+                    dispatch(attachmentGate.surfaceReady(generation))
+                }
+                DriverCreationMode.SYNCHRONOUS_REDRAW -> {
+                    dispatch(attachmentGate.surfaceReady(generation))
+                }
+            }
+        }
+    }
+
+    private fun discardSurface() {
+        attachmentGate.surfaceDestroyed()
+        discardDriver()
+        deferActiveFrontRecovery()
+        runRedrawCompletions(redrawCompletionTracker.destroy())
+    }
+
+    private fun discardDriver() {
+        val attachment = frontBuffered ?: return
+
+        frontBuffered = null
+        attachment.driver.release(true)
+    }
+
+    private fun deferActiveFrontRecovery() {
+        if (renderPolicy.onFrontInvalidated() != MultiDrawCompletion.RESUME_FRONT) return
+
+        attachmentGate.requestFront()
+    }
+
+    private fun queueRedrawCompletion(generation: Long, completion: Runnable) {
+        runRedrawCompletions(redrawCompletionTracker.queue(generation, completion))
+    }
+
+    private fun finishRedrawCompletions(generation: Long) {
+        runRedrawCompletions(redrawCompletionTracker.finish(generation))
+    }
+
+    private fun abandonRedrawCompletions() {
+        runRedrawCompletions(redrawCompletionTracker.release())
+    }
+
+    private fun runRedrawCompletions(completions: List<Runnable>) {
+        completions.forEach(Runnable::run)
+    }
+
+    private fun isLive(): Boolean = !released && glRenderer.isRunning()
+
+    private inner class GenerationCallback(
+        private val generation: Long,
+    ) : GLFrontBufferedRenderer.Callback<DabBatch> {
+
+        override fun onDrawFrontBufferedLayer(
+            eglManager: EGLManager,
+            width: Int,
+            height: Int,
+            bufferInfo: BufferInfo,
+            transform: FloatArray,
+            param: DabBatch,
+        ) {
+            if (!attachmentGate.acceptsDriverCallback(generation)) return
+
+            this@EngineSession.onDrawFrontBufferedLayer(
+                eglManager, width, height, bufferInfo, transform, param,
+            )
+        }
+
+        override fun onDrawMultiBufferedLayer(
+            eglManager: EGLManager,
+            width: Int,
+            height: Int,
+            bufferInfo: BufferInfo,
+            transform: FloatArray,
+            params: Collection<DabBatch>,
+        ) {
+            if (!attachmentGate.acceptsDriverCallback(generation)) return
+
+            this@EngineSession.onDrawMultiBufferedLayer(
+                eglManager, width, height, bufferInfo, transform, params,
+            )
+        }
+
+        override fun onMultiBufferedLayerRenderComplete(
+            frontBufferedLayerSurfaceControl: SurfaceControlCompat,
+            multiBufferedLayerSurfaceControl: SurfaceControlCompat,
+            transaction: SurfaceControlCompat.Transaction,
+        ) {
+            if (!attachmentGate.acceptsDriverCallback(generation)) return
+
+            // graphics-core commits the transaction after this callback
+            // returns. The next GL command therefore observes that commit.
+            glRenderer.execute {
+                val completion = completeMultiDraw(generation)
+                if (completion is AttachmentCompletion.Accepted) {
+                    finishRedrawCompletions(generation)
+                }
+            }
+        }
+    }
+
+    private fun dispatch(
+        plan: AttachmentRenderPlan,
+        frontParam: DabBatch = frontResumeSignal,
+    ) {
+        val attachment = frontBuffered ?: return
+        if (attachment.generation != plan.generation) return
+
+        val driver = attachment.driver
+
+        if (!driver.isValid()) return
+
+        when (plan.dispatch) {
+            RenderDispatch.NONE -> Unit
+            RenderDispatch.COMMIT -> driver.commit()
+            RenderDispatch.FRONT -> driver.renderFrontBufferedLayer(frontParam)
+        }
+    }
+
     // ---------------------------------------------------------------- façade
 
     /** Applies initial document state before scheduling one scene redraw. */
     internal fun configure(stack: LayerStack, paperColor: Int, view: ViewTransform) {
-        frontBuffered.execute {
+        glRenderer.execute {
             renderer.setStack(stack)
             renderer.setPaperColor(paperColor)
             renderer.setView(view)
@@ -355,12 +586,12 @@ class EngineSession(
      * shows up as one torn frame every few hundred and never reproduces.
      */
     fun setView(view: ViewTransform) {
-        frontBuffered.execute { renderer.setView(view) }
+        glRenderer.execute { renderer.setView(view) }
         redraw()
     }
 
     fun setStack(stack: LayerStack) {
-        frontBuffered.execute { renderer.setStack(stack) }
+        glRenderer.execute { renderer.setStack(stack) }
         redraw()
     }
 
@@ -372,11 +603,11 @@ class EngineSession(
         beforeCommit: () -> Boolean,
         onResult: (LayerEditResult) -> Unit,
     ) {
-        if (!frontBuffered.isValid()) {
+        if (!isLive()) {
             onResult(LayerEditResult.REFUSED)
             return
         }
-        frontBuffered.execute {
+        glRenderer.execute {
             if (!renderer.isReady) {
                 pollHandler.post { onResult(LayerEditResult.REFUSED) }
                 return@execute
@@ -404,13 +635,13 @@ class EngineSession(
     }
 
     fun setPaperColor(argb: Int) {
-        frontBuffered.execute { renderer.setPaperColor(argb) }
+        glRenderer.execute { renderer.setPaperColor(argb) }
         redraw()
     }
 
     /** Theme colours for the transparent-paper checkerboard, and the dp scale. */
     fun setCheckerboard(checkerPx: Float, colorA: Int, colorB: Int) {
-        frontBuffered.execute {
+        glRenderer.execute {
             renderer.checkerPx = checkerPx
             renderer.checkerA = colorA
             renderer.checkerB = colorB
@@ -424,11 +655,11 @@ class EngineSession(
         params: EyedropperParams,
         onColor: (Int?) -> Unit,
     ) {
-        if (!frontBuffered.isValid()) {
+        if (!isLive()) {
             onColor(null)
             return
         }
-        frontBuffered.execute {
+        glRenderer.execute {
             val color = renderer.sampleColor(x, y, params)
             pollHandler.post { onColor(color) }
         }
@@ -439,11 +670,11 @@ class EngineSession(
         reference: FillReference,
         onReference: (TiledPixelSource?) -> Unit,
     ) {
-        if (!frontBuffered.isValid()) {
+        if (!isLive()) {
             onReference(null)
             return
         }
-        frontBuffered.execute {
+        glRenderer.execute {
             val source = renderer.fillReference(reference)
             pollHandler.post { onReference(source) }
         }
@@ -460,11 +691,11 @@ class EngineSession(
             onResult(false)
             return
         }
-        if (!frontBuffered.isValid()) {
+        if (!isLive()) {
             completeFill(false)
             return
         }
-        frontBuffered.execute {
+        glRenderer.execute {
             val pending = renderer.finishReadback()
             if (ReadbackPolicy.strokeCommit(pending) == StrokeCommitDecision.CANCEL) {
                 pendingMirror = pending
@@ -506,7 +737,7 @@ class EngineSession(
         renderPolicy.beginStroke()
         activeStrokeRmw = spec.rmw != null
         activeStrokeSpec = spec
-        frontBuffered.execute {
+        glRenderer.execute {
             if (spec.rmw != null) {
                 val pending = renderer.finishReadback()
                 if (ReadbackPolicy.strokeCommit(pending) == StrokeCommitDecision.CANCEL) {
@@ -599,7 +830,7 @@ class EngineSession(
             dabRing.release(batch)
             return
         }
-        if (!frontBuffered.isValid()) {
+        if (!isLive()) {
             // The renderer is gone; the block would be dropped with the slot
             // still checked out. `execute` after release logs and returns
             // rather than throwing (AGENTS.md), so nothing else would say so.
@@ -615,7 +846,7 @@ class EngineSession(
         // at best, and its slot held until the next sample at worst. Queue then
         // publish means every request finds its own batch already there.
         pendingBatches.add(batch)
-        frontBuffered.renderFrontBufferedLayer(batch)
+        dispatch(attachmentGate.requestFront(), batch)
     }
 
     /** The next commit revision — the restore path's share of the counter. */
@@ -646,7 +877,7 @@ class EngineSession(
         // verified against graphics-core 1.0.4 (AGENTS.md): this block runs
         // before the multi-buffered draw `commit()` schedules, so the layer
         // already owns the stroke by the time the committed frame is composed.
-        frontBuffered.execute {
+        glRenderer.execute {
             // §10.1's ordering rule, enforced where §10.2 says it must be:
             // stroke N+1's capture must not run until stroke N's readback has
             // been mapped into the mirror, or undoing N+1 would also revert N.
@@ -671,11 +902,9 @@ class EngineSession(
                 onStrokeMerged?.invoke(spec, keys, thisRevision)
             }
         }
-        if (!frontBuffered.isValid()) return
-        // commit(), not redraw(): the multi-buffered layer is redrawn AND the
-        // front layer is hidden. A plain redraw would leave the front buffer's
-        // last stroke frame on screen, doubling the stroke over the merged one.
-        frontBuffered.commit()
+        // A scene commit hides the front layer. If the surface is detached,
+        // the gate latches it until graphics-core has rebuilt its targets.
+        dispatch(attachmentGate.endStroke())
         pumpReadback()
     }
 
@@ -697,8 +926,8 @@ class EngineSession(
     private var pendingThumbnails = 0
 
     private val pollTick = Runnable {
-        if (!frontBuffered.isValid()) return@Runnable
-        frontBuffered.execute {
+        if (!isLive()) return@Runnable
+        glRenderer.execute {
             renderer.pollReadback()
             renderer.pollLayerThumbnails()
             pendingMirror = renderer.readbackPending
@@ -722,12 +951,12 @@ class EngineSession(
         onThumbnail: (LayerId, LayerThumbnail?) -> Unit,
     ) {
         if (layers.isEmpty()) return
-        if (!frontBuffered.isValid()) {
+        if (!isLive()) {
             layers.forEach { onThumbnail(it, null) }
             return
         }
 
-        frontBuffered.execute {
+        glRenderer.execute {
             renderer.requestLayerThumbnails(layers) { layer, thumbnail ->
                 pollHandler.post { onThumbnail(layer, thumbnail) }
             }
@@ -747,7 +976,7 @@ class EngineSession(
      */
     fun uploadTiles(layerId: LayerId, tiles: List<Pair<TileKey, ByteArray>>, last: Boolean) {
         if (tiles.isEmpty() && !last) return
-        frontBuffered.execute {
+        glRenderer.execute {
             if (renderer.isReady) {
                 val textures = renderer.textures(layerId)
                 if (textures != null) {
@@ -770,12 +999,12 @@ class EngineSession(
         tiles: Map<TileKey, ByteArray?>,
         onDone: (Boolean) -> Unit,
     ) {
-        if (!frontBuffered.isValid()) {
+        if (!isLive()) {
             renderPolicy.completeRmwCancel()
             onDone(false)
             return
         }
-        frontBuffered.execute {
+        glRenderer.execute {
             val restored = renderer.restoreCancelledRmw(layer, tiles)
             pollHandler.post {
                 val deferredRedraw = renderPolicy.completeRmwCancel()
@@ -795,11 +1024,11 @@ class EngineSession(
      * A pending result keeps callers from persisting stale CPU pixels.
      */
     internal fun finishReadback(onDone: (ReadbackDrainResult) -> Unit) {
-        if (!frontBuffered.isValid()) {
+        if (!isLive()) {
             onDone(ReadbackDrainResult.COMPLETE)
             return
         }
-        frontBuffered.execute {
+        glRenderer.execute {
             val pending = renderer.finishReadback()
             pendingMirror = pending
             if (pending > 0) pumpReadback()
@@ -821,6 +1050,7 @@ class EngineSession(
             StrokeCancelMode.READ_MODIFY_WRITE -> StrokeFinish.CANCEL_READ_MODIFY_WRITE
         }
         val deferredRedraw = renderPolicy.finishStroke(finish)
+        attachmentGate.cancelFront()
         val cancelledSpec = activeStrokeSpec
         activeStrokeRmw = false
         activeStrokeSpec = null
@@ -828,11 +1058,11 @@ class EngineSession(
         // synchronously deliver the restore callback.
         beforeCancel(mode)
 
-        if (!frontBuffered.isValid()) {
+        if (!isLive()) {
             if (cancelledSpec?.rmw != null) onRmwCancelled?.invoke(cancelledSpec, emptyList())
             return mode
         }
-        frontBuffered.execute {
+        glRenderer.execute {
             // Released, not stamped: §4 says a cancelled stroke leaves no
             // trace, but the slots still have to come back.
             drainPending(stamp = false)
@@ -841,13 +1071,13 @@ class EngineSession(
         // §8.4: cancel() drops the front-buffered content, and the
         // multi-buffered layer beneath is still showing the pre-stroke state,
         // so nothing else needs drawing.
-        frontBuffered.cancel()
+        frontBuffered?.driver?.cancel()
         if (deferredRedraw == RedrawDecision.DRAW) redraw()
         return mode
     }
 
     fun invalidate(op: SandwichPolicy.Op) {
-        frontBuffered.execute { renderer.invalidate(op) }
+        glRenderer.execute { renderer.invalidate(op) }
         redraw()
     }
 
@@ -858,29 +1088,30 @@ class EngineSession(
     }
 
     private fun redrawNow() {
-        if (!frontBuffered.isValid()) return
-
-        // commit() holds new front renders until the old front buffer is
-        // released and cleared. Direct multi rendering bypasses that barrier.
-        frontBuffered.commit()
+        dispatch(attachmentGate.requestScene())
     }
 
     /** Runs [block] on the GL thread. */
-    fun execute(block: () -> Unit) = frontBuffered.execute(block)
+    fun execute(block: () -> Unit) = glRenderer.execute(block)
 
     /**
      * Tears the session down.
      *
-     * `cancelPending = true`: anything still queued draws into a surface that
-     * is going away. The GL objects are deleted inside the release callback,
-     * which is the last moment there is a context to delete them with.
+     * The driver is discarded first. Canvas GL objects are then deleted on the
+     * shared context before its thread stops.
      */
     fun release() {
+        if (released) return
+
+        released = true
         // The pump has nothing left to poll — the renderer's own release path
         // maps what is still in flight, on the GL thread, with a live context.
         renderPolicy.release()
+        attachmentGate.release()
+        surfaceView.holder.removeCallback(surfaceCallback)
+        discardDriver()
+        abandonRedrawCompletions()
         pollHandler.removeCallbacks(pollTick)
-        pollHandler.removeCallbacks(frontResumeTick)
         // Anything published but never drawn: `cancelPending = true` below
         // means those callbacks will not run, so their slots would stay checked
         // out. Harmless for a session that is going away — except that the ring
@@ -891,10 +1122,11 @@ class EngineSession(
             val pending = pendingBatches.poll() ?: break
             dabRing.release(pending)
         }
-        frontBuffered.release(true) {
+        glRenderer.execute {
             renderer.release()
             pollHandler.post { completeFill(false) }
         }
+        glRenderer.stop(false)
     }
 
     private companion object {

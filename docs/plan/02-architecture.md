@@ -153,6 +153,11 @@ resize, the first frame after open — go through
 an empty-param `commit()` after the view/fit uniforms have been set via
 `execute {}`. Unlike `renderMultiBufferedLayer`, `commit()` holds later front
 requests until the multi-buffer release has cleared the front buffer.
+`EngineSession` owns the `GLRenderer`; each `SurfaceHolder` generation gets a
+new `GLFrontBufferedRenderer` over that shared context. Scene and front requests
+wait behind an attachment gate until a GL-thread marker confirms the new
+targets. This keeps tile textures alive while discarding graphics-core 1.0.4's
+per-driver counters on resize or background/restore.
 `EngineSession.redraw()` wraps this and is called by `setView`,
 `applyPixelOp`, `uploadTiles`, `setActiveLayer` and after resize. During a
 two-finger gesture the redraw is throttled to one per `Choreographer` frame.
@@ -463,18 +468,15 @@ navigates.
 
 ### 8.2 Surface recreation and session rebuild: GPU state is a cache
 
-graphics-core's EGL context lives in a `GLRenderer` that persists across
-`SurfaceHolder` callbacks: `surfaceChanged` re-creates its SurfaceControls
-and render targets, `surfaceDestroyed` detaches them, and `TilePool`'s
-textures survive both. graphics-core registers no client-visible callback
-for any of this, so `CanvasSurface` registers its **own**
-`SurfaceHolder.Callback` on the `SurfaceView`. On `surfaceDestroyed` it
-calls `session.flushReadbacks()` (§3.3) and `cancelStroke()` — after the
-surface is gone the renderer has no targets and a
-`renderFrontBufferedLayer`/`commit` issued then is silently dropped, so a
-stroke in flight is cancelled through the same path as palm rejection.
-`surfaceChanged` needs nothing beyond the size report of §8.4 and a
-`redraw()`.
+`EngineSession` owns a `GLRenderer` whose EGL context persists across
+`SurfaceHolder` callbacks, so `TilePool` textures survive. Its client
+`Callback2` runs before graphics-core's callback. A change, destruction, or
+redraw request retires that generation's `GLFrontBufferedRenderer`. Normal
+replacement is posted until callback dispatch has ended; the synchronous redraw
+fallback creates inline against SurfaceView's callback snapshot. A
+generation-safe GL marker then opens the attachment gate and commits the
+latched scene. This also prevents graphics-core 1.0.4 from carrying a canceled
+commit counter into the next target.
 
 The only cold path is a **new `EngineSession`** — after `release()` on
 Compose dispose of `CanvasSurface`, after `detachSession()`, or on a genuine

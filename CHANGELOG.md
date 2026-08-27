@@ -2,6 +2,7 @@
 
 ## 1.0.3 - 2026-08-27
 
+- Restore the canvas after startup and surface recreation.
 - Give every tool a distinct rail icon (the pencil and smudge, and the
   airbrush and blur, shared glyphs).
 - Show a live zoom/angle readout while a pinch or pan gesture runs.

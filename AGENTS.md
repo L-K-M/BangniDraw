@@ -290,9 +290,25 @@ and the contradiction is noted here.
 - **`renderMultiBufferedLayer(Collection<T>)` exists in 1.0.4 but bypasses
   commit coordination.** It does not increment the library's `mCommitCount`,
   so a new front render can race the later release-time clear.
-  `EngineSession.redraw()` uses `commit()` with an empty active segment instead.
-  Equal Compose state is filtered before it can request another redraw, and
-  initial stack, paper, and view configuration schedules one commit.
+  But `commit()` increments that count before checking whether its render
+  target exists; calling it before `surfaceChanged` schedules nothing and
+  strands every later render behind a count that cannot fall. `EngineSession`
+  therefore gates every commit and front request on its own `SurfaceHolder`
+  callback. A generation-tagged GL FIFO marker makes the current attachment
+  ready only after graphics-core creates its targets; stale markers are ignored.
+  Each attachment gets a fresh `GLFrontBufferedRenderer`, resetting 1.0.4's
+  sticky counters, while one shared `GLRenderer` preserves the canvas GL
+  resources. The app callback is registered first, so it retires the old
+  wrapper before graphics-core handles the same redraw event. Equal Compose
+  state is filtered before it requests another redraw. Every actionable gate
+  result carries its attachment generation; the dispatcher accepts only the
+  matching wrapper, because redraw and upload completion can arrive off-main.
+  `Callback2` completion waits for a GL FIFO marker queued by the multi-buffer
+  completion callback, after graphics-core submits its transaction. Do not use
+  `Transaction.addTransactionCommittedListener`: graphics-core delivers it
+  only from API 31, while the app supports API 29. Normal creation stays posted
+  so startup configuration reaches GL first; the blocking synchronous-redraw
+  fallback creates inline.
 - **A commit-backed multi-buffer completion hides the front layer before its
   buffer is released.** Front requests stay queued while `mCommitCount` is
   nonzero. Release marks the front buffer dirty; the next front callback clears

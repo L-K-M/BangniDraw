@@ -4,6 +4,44 @@ Findings from full security/bug reviews of `main`. Each entry states
 what was found, the impact, and what was done about it — a declined fix
 says why, so a later reader does not re-litigate it blind.
 
+## Review 2 — 2026-08-27, `9f4ad22`
+
+Scope: every direct push after step 5's first commit (`c649855`, the
+head Review 1 covered) through the v1.0.0 tag — commits `cab83b5`…
+`9f4ad22`: step 5's remainder, steps 6–9, and the settings/release
+tail. Method: close read of each commit against the plan documents and
+AGENTS.md's recorded rules.
+
+### Fixed
+
+- **Undo/redo validation broke against checkpoint-lagged tile sets**
+  (step 6). The immutable model's tile keys only reconcile with pixels
+  at the checkpoint fold, so between an undo and the next checkpoint
+  the model can still list keys whose pixels an undone stroke already
+  emptied. `LayerHistory`'s add-undo (exact `Layer(props)`) and
+  clear-undo (`isNotEmpty`) refused those undos — add layer → paint →
+  autosave checkpoint → undo stroke → undo add silently did nothing —
+  and clear-undo/redo failed the same way; the renderer's `prepareCopy`
+  exact source-set check refused a duplicate's redo. Fixed both ways:
+  `LayerHistory` no longer compares tile sets where folds decide
+  membership, and an applied undo/redo now folds its restore outcomes
+  into the model immediately (`LayerTileUpdates.apply`, idempotent with
+  the checkpoint fold). Pinned by `LayerHistoryTest` and
+  `LayerTileUpdatesTest`.
+
+### Reviewed and clean
+
+Grain CPU/GL hash parity and the flat-tip feather gradient; tap
+  correction across recycled dab batches; tool-switcher nesting;
+  fit-composed input inversion; eyedropper generation guards and
+  readback y-orientation; sandwich ping-pong page exclusion and blend
+  GLSL vs `Composite`; transactional merge/duplicate/flatten passes
+  including the opacity-widened merge keys; sparse-history redo
+  sidecar owners and recovery replay; smudge deposit/absorb and blur
+  GLSL vs `SmudgeKernel`; RMW capture/cancel restore ordering through
+  `ResolveCurrent`; flood-fill tolerance/expansion/AA; palette and
+  stored-color parsing; layout, shortcut, and pressure tables.
+
 ## Review 1 — 2026-08-27, `c649855`
 
 Scope: every Kotlin file in `app/src/main` (data, engine/core,

@@ -26,7 +26,6 @@ import ch.lkmc.bangnidraw.data.ProjectStore
 import ch.lkmc.bangnidraw.data.RmwHistoryCapture
 import ch.lkmc.bangnidraw.data.ShareCache
 import ch.lkmc.bangnidraw.data.TileBufferPool
-import ch.lkmc.bangnidraw.data.TileCodec
 import ch.lkmc.bangnidraw.data.TileFlusher
 import ch.lkmc.bangnidraw.data.TileStore
 import ch.lkmc.bangnidraw.data.Thumbnails
@@ -106,6 +105,7 @@ import ch.lkmc.bangnidraw.engine.core.TemporaryReason
 import ch.lkmc.bangnidraw.engine.core.TemporaryToolTarget
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.TilePresence
+import ch.lkmc.bangnidraw.engine.core.presenceOf
 import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ToolSelection
 import ch.lkmc.bangnidraw.engine.core.ToolSwitcher
@@ -1383,11 +1383,7 @@ class CanvasViewModel @Inject constructor(
         if (pixels.remaining() != TILE_BYTES) return
         val copy = pool.acquire()
         pixels.get(copy)
-        tileUpdates[layer to key] = if (TileCodec.isAllZero(copy)) {
-            TilePresence.EMPTY
-        } else {
-            TilePresence.PAINTED
-        }
+        tileUpdates[layer to key] = presenceOf(copy)
         dirty = true
         contentDirty = true
         thumbDirty = true
@@ -1806,9 +1802,13 @@ class CanvasViewModel @Inject constructor(
         edit: StackEdit,
         work: DocumentWork = DocumentWork.START,
     ) {
-        val doc = document ?: return
-        val engine = session ?: return
-        val invalidation = LayerEditPolicy.invalidation(doc.stack, edit.entry) ?: return
+        // An ALREADY_STARTED caller (the opacity gesture) holds the action
+        // gate open; every early return here must hand it back or every
+        // later document action parks forever.
+        val doc = document ?: return abortStartedWork(work)
+        val engine = session ?: return abortStartedWork(work)
+        val invalidation = LayerEditPolicy.invalidation(doc.stack, edit.entry)
+            ?: return abortStartedWork(work)
         val deleted = LayerEditPolicy.deletedLayers(doc.stack, edit.stack)
         val jobRef = AtomicReference<TileFlusher.FlushJob.WriteEntry?>()
         val pixelOps = listOfNotNull(edit.pixels)
@@ -1909,6 +1909,10 @@ class CanvasViewModel @Inject constructor(
         if (next != null) executeAction(next)
     }
 
+    private fun abortStartedWork(work: DocumentWork) {
+        if (work == DocumentWork.ALREADY_STARTED) finishDocumentWork()
+    }
+
     private fun emitLayerFeedback(refusal: Refusal?) {
         layerRefusal = refusal
         layerFeedbackRevision += 1
@@ -2005,19 +2009,29 @@ class CanvasViewModel @Inject constructor(
             }
 
             val paperColor = historyEdit.paperColor ?: doc.paperColor
+            // Restores know their exact outcome — null emptied a key, bytes
+            // painted one — so the model takes them now rather than waiting
+            // for the checkpoint fold. The later fold re-applies the same
+            // outcomes from the readback sink, so the two never disagree, and
+            // the GL side's exact key checks (a duplicate redo's source set,
+            // for one) stop seeing fold lag (AGENTS.md).
+            val foldedStack = LayerTileUpdates.apply(
+                historyEdit.stack,
+                restoreOutcomes(restores),
+            )
             document = doc.copy(
-                stack = historyEdit.stack,
+                stack = foldedStack,
                 paperColor = paperColor,
                 historyCursor = journal?.cursor ?: doc.historyCursor,
             )
             val state = _uiState.value
             if (state is UiState.Ready) {
-                _uiState.value = state.copy(stack = historyEdit.stack, paperColor = paperColor)
+                _uiState.value = state.copy(stack = foldedStack, paperColor = paperColor)
             }
             updateLayerThumbnailState(
                 before = doc.stack,
-                after = historyEdit.stack,
-                pixelLayers = historyEdit.stack.layers.map(Layer::id),
+                after = foldedStack,
+                pixelLayers = foldedStack.layers.map(Layer::id),
             )
             if (paperColor != doc.paperColor) engine.setPaperColor(paperColor)
             dirty = true
@@ -2052,6 +2066,19 @@ class CanvasViewModel @Inject constructor(
             keys += op.tiles.keys.map { op.layer to it }
         }
         return keys.toList()
+    }
+
+    /** Restore outcomes in the checkpoint fold's vocabulary. */
+    private fun restoreOutcomes(
+        restores: List<HistoryPixels.Restore>,
+    ): Map<Pair<LayerId, TileKey>, TilePresence> = buildMap {
+        // One entry's restores are per-layer maps whose keys are distinct
+        // (payloadKeys), so no (layer, key) can repeat and order cannot matter.
+        for (restore in restores) {
+            for ((key, bytes) in restore.tiles) {
+                put(restore.layer to key, presenceOf(bytes))
+            }
+        }
     }
 
     private fun failHistoryApply(direction: HistoryDirection) {

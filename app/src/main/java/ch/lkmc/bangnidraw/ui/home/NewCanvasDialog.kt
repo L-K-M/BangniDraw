@@ -95,10 +95,10 @@ fun NewCanvasDialog(
     var selected by rememberSaveable { mutableIntStateOf(defaults.presetIndex) }
     // The Custom row starts from the last custom size this device created
     // (08 §2.1's "remembered"), falling back to the square default.
-    var customW by rememberSaveable {
+    var customW by rememberSaveable(lastCustomSize) {
         mutableStateOf(lastCustomSize?.width?.toString() ?: DEFAULT_CUSTOM_EDGE)
     }
-    var customH by rememberSaveable {
+    var customH by rememberSaveable(lastCustomSize) {
         mutableStateOf(lastCustomSize?.height?.toString() ?: DEFAULT_CUSTOM_EDGE)
     }
     // Keyed on the selection: an override was chosen FOR a preset, so

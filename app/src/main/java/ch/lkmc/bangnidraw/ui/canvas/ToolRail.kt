@@ -17,13 +17,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BlurOn
+import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.Highlight
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -142,11 +145,12 @@ internal fun ToolRail(
             ToolColumn(
                 slots = slots,
                 slot = layout.toolSlotDp.dp,
-                dividersAfter = when (layout.railMode) {
-                    RailMode.FULL -> setOf(FULL_PAINT_LAST_INDEX, FULL_ERASER_INDEX)
-                    RailMode.GROUPED -> setOf(GROUPED_ERASER_INDEX)
-                    RailMode.SHORT, RailMode.DOCK -> emptySet()
-                },
+                dividersAfter = dividersAfter(
+                    railMode = layout.railMode,
+                    paints = paints,
+                    paint = currentPaint,
+                    eraser = eraser,
+                ),
                 gap = if (layout.railMode == RailMode.SHORT) 0.dp else TOOL_GAP,
             )
 
@@ -163,6 +167,33 @@ internal fun ToolRail(
             }
         }
     }
+}
+
+/**
+ * Where the group dividers fall, derived from the slot lists rather than
+ * hardcoded indices — a preset set that is not exactly the built-in seven
+ * (corrupt JSON falls back to fewer; user presets append) must not put a
+ * divider through the middle of a group.
+ */
+private fun dividersAfter(
+    railMode: RailMode,
+    paints: List<BrushPreset>,
+    paint: BrushPreset?,
+    eraser: BrushPreset?,
+): Set<Int> = when (railMode) {
+    RailMode.FULL -> buildSet {
+        if (paints.isNotEmpty()) {
+            add(paints.lastIndex)
+            if (eraser != null) add(paints.size)
+        } else if (eraser != null) {
+            add(0)
+        }
+    }
+    RailMode.GROUPED -> {
+        val eraserIndex = if (paint != null) 1 else 0
+        if (eraser != null) setOf(eraserIndex) else if (paint != null) setOf(0) else emptySet()
+    }
+    RailMode.SHORT, RailMode.DOCK -> emptySet()
 }
 
 @Composable
@@ -511,12 +542,15 @@ private fun View.tick(mode: HapticsMode) {
 }
 
 private fun iconFor(id: String): ImageVector = when (id) {
-    BrushPresets.PENCIL_ID -> Icons.Filled.Gesture
+    // One distinct glyph per tool: the pencil must not share Gesture with the
+    // smudge tool, nor the airbrush BlurOn with blur — identical glyphs in one
+    // rail defeat the glance-recognition the rail exists for.
+    BrushPresets.PENCIL_ID -> Icons.Filled.Draw
     BrushPresets.INK_PEN_ID -> Icons.Filled.Create
     BrushPresets.PAINTBRUSH_ID -> Icons.Filled.Brush
-    BrushPresets.AIRBRUSH_ID -> Icons.Filled.BlurOn
-    BrushPresets.MARKER_ID -> Icons.Filled.Edit
-    else -> Icons.Filled.Brush
+    BrushPresets.AIRBRUSH_ID -> Icons.Filled.Air
+    BrushPresets.MARKER_ID -> Icons.Filled.Highlight
+    else -> Icons.Filled.Tune
 }
 
 private data class ToolSlot(
@@ -545,7 +579,4 @@ private val TEMPORARY_BORDER = 2.dp
 private val DIVIDER_MARGIN = 4.dp
 private val DASH_ON = 6.dp
 private val DASH_OFF = 4.dp
-private const val FULL_PAINT_LAST_INDEX = 4
-private const val FULL_ERASER_INDEX = 5
-private const val GROUPED_ERASER_INDEX = 1
 private const val RAIL_ALPHA = 0.92f

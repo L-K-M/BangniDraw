@@ -148,20 +148,42 @@ class HistoryJournalTest {
     }
 
     @Test
-    fun `redo sidecar bytes join the entry and the prune budget`() {
+    fun `redo sidecar bytes prune immediately`() {
         val j = journal(maxBytes = 100L)
         j.push(entry(1, bytes = 40))
         j.push(entry(2, bytes = 40))
-        j.noteRedoBytes(1, 15)
-        assertEquals(95L, j.bytes)
-        // The grown entry now tips the budget on the next push, so seq 1 —
-        // entry plus sidecar — is what gets pruned.
-        val result = j.push(entry(3, bytes = 40))
-        assertEquals(listOf(1L), result.pruned)
-        assertEquals(80L, j.bytes)
+        j.undo()
+
+        val pruned = j.noteRedoBytes(2, 30)
+
+        assertEquals(listOf(1L), pruned)
+        assertEquals(listOf(2L), j.entries.map { it.seq })
+        assertEquals(70L, j.bytes)
+        assertEquals(0, j.cursor)
+        assertTrue(j.canRedo())
+
         // A sidecar landing for a seq that is gone is ignored, not an error.
-        j.noteRedoBytes(1, 15)
-        assertEquals(80L, j.bytes)
+        assertEquals(emptyList(), j.noteRedoBytes(1, 15))
+        assertEquals(70L, j.bytes)
+    }
+
+    @Test
+    fun `redo accounting preserves one applicable entry when its sidecar exceeds the cap`() {
+        val j = journal(maxBytes = 100L)
+        j.push(entry(1, bytes = 20))
+        j.push(entry(2, bytes = 20))
+        j.push(entry(3, bytes = 20))
+        j.undo()
+        j.noteRedoBytes(3, 10)
+        j.undo()
+
+        val pruned = j.noteRedoBytes(2, 100)
+
+        assertEquals(listOf(1L, 3L), pruned)
+        assertEquals(listOf(2L), j.entries.map { it.seq })
+        assertEquals(120L, j.bytes)
+        assertEquals(0, j.cursor)
+        assertEquals(2L, j.redo()?.seq)
     }
 
     @Test

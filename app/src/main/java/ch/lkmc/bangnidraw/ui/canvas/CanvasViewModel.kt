@@ -2050,12 +2050,18 @@ class CanvasViewModel @Inject constructor(
                 }
                 withContext(Dispatchers.Main) {
                     if (capturedRedoBytes != null) {
-                        journal?.noteRedoBytes(entry.seq, capturedRedoBytes)
+                        accountRedoBytes(entry.seq, capturedRedoBytes)
                     }
                     finishDocumentWork()
                 }
             }
         }
+    }
+
+    private fun accountRedoBytes(seq: Long, redoBytes: Long) {
+        val j = journal ?: return
+        pendingDeletes += j.noteRedoBytes(seq, redoBytes)
+        document = document?.copy(historyCursor = j.cursor)
     }
 
     private fun historyFlushKeys(

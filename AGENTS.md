@@ -456,6 +456,13 @@ and the contradiction is noted here.
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.
   User names are literal; never resolve arbitrary stored `@string/` values.
 
+- **Redo-sidecar accounting can prune both sides of the history cursor.** A
+  first undo adds bytes after the original push, so `noteRedoBytes` enforces
+  the cap immediately. It drops the oldest applied entries first, then the
+  far redo tail if needed; keeping the nearest redo entry preserves a valid
+  transition from the current pixels. The returned seqs join `pendingDeletes`
+  and remain on disk until the next checkpoint commits their absence.
+
 - **What "`engine/core` is pure JVM" actually forbids.**
   `docs/plan/02-architecture.md` §1 writes the rule as "`kotlin.*` and
   `java.util` only", but the plan itself puts `@Serializable` on two

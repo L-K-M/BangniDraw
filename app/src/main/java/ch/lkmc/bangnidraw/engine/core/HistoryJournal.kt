@@ -86,14 +86,7 @@ class HistoryJournal(
         bytes += entry.bytes
         cursor = list.size
 
-        val pruned = ArrayList<Long>()
-        while (list.size > 1 && (list.size > limits.maxEntries || bytes > limits.maxBytes)) {
-            val dropped = list.removeAt(0)
-            pruned.add(dropped.seq)
-            bytes -= dropped.bytes
-            cursor -= 1
-        }
-        return PushResult(truncated, pruned)
+        return PushResult(truncated, pruneToLimits())
     }
 
     /** Drops a divergent redo branch even when the new edit could not be journaled. */
@@ -126,12 +119,14 @@ class HistoryJournal(
      * The store wrote `<seq>.redo`: its size joins the entry's byte count, so
      * the prune-by-bytes cap sees what the journal actually costs on disk
      * (§5.1, §5.4). Unknown seqs are ignored — the sidecar may land after its
-     * entry was truncated by a concurrent push.
+     * entry was truncated by a concurrent push. Returns entries pruned by the
+     * updated total so their files can follow the checkpoint-safe deletion
+     * path.
      */
-    fun noteRedoBytes(seq: Long, redoBytes: Long) {
+    fun noteRedoBytes(seq: Long, redoBytes: Long): List<Long> {
         require(redoBytes >= 0) { "redo bytes must be >= 0, was $redoBytes" }
         val index = list.indexOfFirst { it.seq == seq }
-        if (index < 0) return
+        if (index < 0) return emptyList()
         val entry = list[index]
         // stamp() is single-shot by design; the generated copy is the
         // documented escape hatch for the journal's own bookkeeping.
@@ -149,6 +144,26 @@ class HistoryJournal(
             is HistoryEntry.PaperColor -> entry.copy(bytes = entry.bytes + redoBytes)
         }
         bytes += redoBytes
+
+        return pruneToLimits()
+    }
+
+    /**
+     * Drops applied history from the oldest end first. If that is not enough,
+     * the far end of the redo branch goes next: its nearest entry remains
+     * applicable to the current pixels. One entry always survives, even when
+     * it alone exceeds the byte cap.
+     */
+    private fun pruneToLimits(): List<Long> {
+        val pruned = ArrayList<Long>()
+        while (list.size > 1 && (list.size > limits.maxEntries || bytes > limits.maxBytes)) {
+            val index = if (cursor > 0) 0 else list.lastIndex
+            val dropped = list.removeAt(index)
+            pruned.add(dropped.seq)
+            bytes -= dropped.bytes
+            if (index < cursor) cursor -= 1
+        }
+        return pruned
     }
 
     /** The UI readout: "history capped at N steps / M MB" sits beside these. */

@@ -173,6 +173,9 @@ class EngineSession(
     /** Exactly one completion survives an apply/release race. */
     private val fillResult = AtomicReference<((Boolean) -> Unit)?>(null)
 
+    /** Fallback for an end command dropped by surface release. */
+    private val pendingStrokeFallback = AtomicReference<(() -> Unit)?>(null)
+
     // ------------------------------------------------------------- callbacks
 
     /**
@@ -464,6 +467,7 @@ class EngineSession(
             completeFill(false)
             return
         }
+        val mergedListener = onStrokeMerged
         frontBuffered.execute {
             val pending = renderer.finishReadback()
             if (ReadbackPolicy.strokeCommit(pending) == StrokeCommitDecision.CANCEL) {
@@ -475,7 +479,7 @@ class EngineSession(
 
             val revision = revisions.incrementAndGet()
             val applied = renderer.applyFill(spec, coverage, color, revision) { merged, keys ->
-                onStrokeMerged?.invoke(merged, keys, revision)
+                mergedListener?.invoke(merged, keys, revision)
             }
             pendingMirror = renderer.readbackPending
             if (pendingMirror > 0) pumpReadback()
@@ -631,6 +635,9 @@ class EngineSession(
      */
     var onStrokeMerged: ((StrokeSpec, List<TileKey>, revision: Int) -> Unit)? = null
 
+    /** Reports an empty, refused, failed, or released commit exactly once. */
+    var onStrokeNotMerged: (() -> Unit)? = null
+
     /**
      * Merges the stroke into its layer (§7.4) and enqueues §10.1's readback of
      * the merged tiles. The fences usually signal a frame or two later, so
@@ -642,6 +649,19 @@ class EngineSession(
         activeStrokeRmw = false
         activeStrokeSpec = null
         val thisRevision = revisions.incrementAndGet()
+        val mergedListener = onStrokeMerged
+        val notMergedListener = onStrokeNotMerged
+        val fallback: () -> Unit = {
+            if (notMergedListener != null) notMergedListener()
+        }
+        if (!pendingStrokeFallback.compareAndSet(null, fallback)) {
+            fallback()
+            return
+        }
+        if (!frontBuffered.isValid()) {
+            completeStrokeWithoutMerge(fallback)
+            return
+        }
         // §8.3's order, and it holds because the FIFO assumption §8.3 flags was
         // verified against graphics-core 1.0.4 (AGENTS.md): this block runs
         // before the multi-buffered draw `commit()` schedules, so the layer
@@ -660,6 +680,7 @@ class EngineSession(
                 pumpReadback()
                 drainPending(stamp = false)
                 renderer.cancelStroke()
+                completeStrokeWithoutMerge(fallback)
                 return@execute
             }
             // §8.3's `dabPass.drain(untilStrokeEnd)`: any batch published but
@@ -667,16 +688,26 @@ class EngineSession(
             // be lost — and its slot would still be checked out when the replay
             // arrives, where nothing releases it any more.
             drainPending(stamp = true)
-            renderer.endStroke(revision = thisRevision, opacityCeiling = opacityCeiling) { spec, keys ->
-                onStrokeMerged?.invoke(spec, keys, thisRevision)
+            val merged = renderer.endStroke(
+                revision = thisRevision,
+                opacityCeiling = opacityCeiling,
+            ) { spec, keys ->
+                if (pendingStrokeFallback.compareAndSet(fallback, null)) {
+                    mergedListener?.invoke(spec, keys, thisRevision)
+                }
             }
+            if (merged == 0) completeStrokeWithoutMerge(fallback)
         }
-        if (!frontBuffered.isValid()) return
         // commit(), not redraw(): the multi-buffered layer is redrawn AND the
         // front layer is hidden. A plain redraw would leave the front buffer's
         // last stroke frame on screen, doubling the stroke over the merged one.
         frontBuffered.commit()
         pumpReadback()
+    }
+
+    private fun completeStrokeWithoutMerge(fallback: () -> Unit) {
+        if (!pendingStrokeFallback.compareAndSet(fallback, null)) return
+        fallback()
     }
 
     /**
@@ -893,6 +924,7 @@ class EngineSession(
         }
         frontBuffered.release(true) {
             renderer.release()
+            pendingStrokeFallback.getAndSet(null)?.invoke()
             pollHandler.post { completeFill(false) }
         }
     }

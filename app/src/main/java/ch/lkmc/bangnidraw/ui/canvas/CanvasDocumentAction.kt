@@ -30,10 +30,19 @@ internal sealed interface CanvasActionDecision {
 
 /** Pure queue behind the no-document-mutation-during-stroke UI invariant. */
 internal class CanvasActionGate {
-    private val pending = ArrayDeque<CanvasDocumentAction>()
+    private enum class StrokePhase {
+        IDLE,
+        INPUT,
+        INPUT_COMPLETE,
+        COMMIT,
+    }
 
-    var strokeInFlight = false
-        private set
+    private val pending = ArrayDeque<CanvasDocumentAction>()
+    private var strokePhase = StrokePhase.IDLE
+
+    val strokeInFlight: Boolean get() = strokePhase != StrokePhase.IDLE
+    val strokeInputInFlight: Boolean
+        get() = strokePhase == StrokePhase.INPUT || strokePhase == StrokePhase.INPUT_COMPLETE
 
     var busy = false
         private set
@@ -43,14 +52,29 @@ internal class CanvasActionGate {
     fun beginStroke(): Boolean {
         if (busy || strokeInFlight) return false
 
-        strokeInFlight = true
+        strokePhase = StrokePhase.INPUT
         return true
     }
 
-    fun endStroke(): CanvasDocumentAction? {
-        if (!strokeInFlight) return null
+    /** Restores input UI at pen-up without exposing the pending history edit. */
+    fun endStrokeInput(): CanvasDocumentAction? {
+        strokePhase = when (strokePhase) {
+            StrokePhase.INPUT -> StrokePhase.COMMIT
+            StrokePhase.INPUT_COMPLETE -> StrokePhase.IDLE
+            StrokePhase.IDLE, StrokePhase.COMMIT -> return null
+        }
 
-        strokeInFlight = false
+        return next()
+    }
+
+    /** Opens the gate only after the stroke has a journal entry or fallback. */
+    fun completeStroke(): CanvasDocumentAction? {
+        strokePhase = when (strokePhase) {
+            StrokePhase.INPUT -> StrokePhase.INPUT_COMPLETE
+            StrokePhase.COMMIT -> StrokePhase.IDLE
+            StrokePhase.IDLE, StrokePhase.INPUT_COMPLETE -> return null
+        }
+
         return next()
     }
 

@@ -1491,7 +1491,10 @@ class CanvasViewModel @Inject constructor(
         snapshot?.keys?.let(keys::addAll)
         keys.addAll(rendererKeys)
         if (keys.isEmpty() || session !== engine) {
-            viewModelScope.launch(Dispatchers.Main.immediate) { finishRmwRestore() }
+            viewModelScope.launch(Dispatchers.Main.immediate) {
+                if (session === engine) engine.completeCancelledRmwRestore()
+                finishRmwRestore()
+            }
             return
         }
 

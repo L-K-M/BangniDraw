@@ -684,7 +684,7 @@ class CanvasRenderer(
             val count = rmwTouches.all(rmwKeyScratch)
             val keys = ArrayList<TileKey>(count)
             for (index in 0 until count) keys += TileKey(rmwKeyScratch[index])
-            if (keys.isNotEmpty()) onRmwCancelled?.invoke(spec, keys)
+            onRmwCancelled?.invoke(spec, keys)
             rmwTouches.reset()
             rmwDirty = IntRect.EMPTY
         }
@@ -699,6 +699,10 @@ class CanvasRenderer(
     /** The rect the open stroke has dirtied so far, for the caller's redraw. */
     val strokeDirty: IntRect
         get() = if (stroke?.rmw != null) rmwDirty else strokeBuffer?.dirty ?: IntRect.EMPTY
+
+    /** Cumulative committed and predicted pixels needed after a front-layer reset. */
+    internal val strokePreviewDirty: IntRect
+        get() = strokeDirty.union(previousTailRect)
 
     /** A new surface, or a resize: `Accum` and `Scratch` are the only casualties. */
     fun onSurfaceChanged(width: Int, height: Int) {
@@ -1240,9 +1244,9 @@ class CanvasRenderer(
     }
 
     /**
-     * §8.1's front-buffered frame: the same composite as [drawFrame], over the
-     * stroke's dirty rect, with the active layer previewed through
-     * `preview.frag`.
+     * §8.1's front-buffered frame: update [compositeDirtyCanvas] in `Accum`,
+     * then copy [presentDirtyCanvas] to the front layer. The two differ while
+     * guarding against AndroidX clearing that layer after a multi-buffer draw.
      *
      * **It goes through the same [compositeIntoAccum] as the committed frame,
      * and that is the point rather than a convenience.** §7.5 promises that
@@ -1258,37 +1262,69 @@ class CanvasRenderer(
      * [BufferScissor] carries that into buffer px. `Accum` is
      * viewport-oriented, so it takes the *window* rect; only the present quad,
      * which writes the real buffer, takes the transformed one.
+     * Returns true only after the front target was presented.
      */
     fun drawStrokeFrame(
         frameBufferId: Int,
         bufferWidth: Int,
         bufferHeight: Int,
         bufferTransform: FloatArray,
-        dirtyCanvas: IntRect,
-    ) {
+        compositeDirtyCanvas: IntRect,
+        presentDirtyCanvas: IntRect,
+    ): Boolean {
         readback?.poll()
         val current = stack
         val screenTransform = screen
         val pass = compositePass
         val spec = stroke
         if (current == null || screenTransform == null || pass == null || spec == null ||
-            !isReady || !accum.isAllocated || dirtyCanvas.isEmpty
+            !isReady || !accum.isAllocated || presentDirtyCanvas.isEmpty
         ) {
             // Nothing is drawn and nothing is cleared: the front layer keeps
             // whatever it held, and the multi-buffered layer beneath is still
             // showing a correct pre-stroke composite. Clearing here would flash
             // the stroke away instead.
-            return
+            return false
         }
-        val windowRect = screenTransform.screenBoundsOf(dirtyCanvas, viewportWidth, viewportHeight)
-        if (windowRect.isEmpty) return
-        val bufferRect = BufferScissor.bounds(windowRect, bufferTransform, bufferWidth, bufferHeight)
-        if (bufferRect.isEmpty) return
+        val presentWindowRect = screenTransform.screenBoundsOf(
+            presentDirtyCanvas,
+            viewportWidth,
+            viewportHeight,
+        )
+        if (presentWindowRect.isEmpty) return false
+        val bufferRect = BufferScissor.bounds(
+            presentWindowRect,
+            bufferTransform,
+            bufferWidth,
+            bufferHeight,
+        )
+        if (bufferRect.isEmpty) return false
 
         val startNs = clock.nowNanos()
         state.invalidate()
-        if (!compositeIntoAccum(current, screenTransform, pass, dirtyCanvas, windowRect, spec)) return
-        presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform, bufferRect)
+        if (!compositeDirtyCanvas.isEmpty) {
+            val compositeWindowRect = screenTransform.screenBoundsOf(
+                compositeDirtyCanvas,
+                viewportWidth,
+                viewportHeight,
+            )
+            if (
+                !compositeWindowRect.isEmpty &&
+                !compositeIntoAccum(
+                    current,
+                    screenTransform,
+                    pass,
+                    compositeDirtyCanvas,
+                    compositeWindowRect,
+                    spec,
+                )
+            ) {
+                return false
+            }
+        }
+        if (!presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform, bufferRect)) {
+            return false
+        }
         // The clock stops HERE, before the error check. `checkGlDebug` drains
         // `glGetError` in a loop — a driver round-trip, and a synchronisation
         // point on some drivers — and it is a cost only debug builds pay. Since
@@ -1298,6 +1334,7 @@ class CanvasRenderer(
         val compositeNs = clock.nowNanos() - startNs
         GlErrors.checkGlDebug("drawStrokeFrame")
         publishFrame(compositeNs)
+        return true
     }
 
     /**
@@ -1586,7 +1623,7 @@ class CanvasRenderer(
         bufferHeight: Int,
         bufferTransform: FloatArray,
         scissor: IntRect?,
-    ) {
+    ): Boolean {
         val program = present
         if (program == null || bufferWidth <= 0 || bufferHeight <= 0) {
             // `compositeIntoAccum` may have left an Accum-sized scissor enabled,
@@ -1594,7 +1631,7 @@ class CanvasRenderer(
             // end. A leaked scissor is not a dropped frame: it is applied, in
             // Accum coordinates, to whatever graphics-core binds next.
             state.scissorOff()
-            return
+            return false
         }
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, frameBufferId)
         state.viewport(0, 0, bufferWidth, bufferHeight)
@@ -1633,6 +1670,7 @@ class CanvasRenderer(
         // leaving it set would clip whatever graphics-core draws next to this
         // stroke's dirty rect.
         state.scissorOff()
+        return true
     }
 
     private fun rebuildSandwichIfNeeded(current: LayerStack, screenTransform: ScreenTransform) {

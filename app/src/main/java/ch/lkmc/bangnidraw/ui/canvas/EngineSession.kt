@@ -7,23 +7,28 @@ import android.view.SurfaceView
 import androidx.graphics.lowlatency.BufferInfo
 import androidx.graphics.lowlatency.GLFrontBufferedRenderer
 import androidx.graphics.opengl.egl.EGLManager
+import androidx.graphics.surface.SurfaceControlCompat
 import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.core.Coverage
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.DabRing
+import ch.lkmc.bangnidraw.engine.core.EngineRenderPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
-import ch.lkmc.bangnidraw.engine.core.Coverage
 import ch.lkmc.bangnidraw.engine.core.FillReference
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
+import ch.lkmc.bangnidraw.engine.core.MultiDrawCompletion
 import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.ReadbackDrainResult
 import ch.lkmc.bangnidraw.engine.core.ReadbackPolicy
+import ch.lkmc.bangnidraw.engine.core.RedrawDecision
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeCommitDecision
+import ch.lkmc.bangnidraw.engine.core.StrokeFinish
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
@@ -77,6 +82,15 @@ class EngineSession(
 ) : GLFrontBufferedRenderer.Callback<DabBatch> {
 
     val renderer = CanvasRenderer(canvas, budget, assets, onTile = onTile)
+    private val renderPolicy = EngineRenderPolicy()
+    private val frontResumeSignal = DabBatch(capacity = 1)
+    private val pollHandler = Handler(Looper.getMainLooper())
+    private val frontResumeTick = Runnable {
+        if (renderPolicy.resumeFront() != MultiDrawCompletion.RESUME_FRONT) return@Runnable
+        if (!frontBuffered.isValid()) return@Runnable
+
+        frontBuffered.renderFrontBufferedLayer(frontResumeSignal)
+    }
 
     var onRmwStarted: ((StrokeSpec) -> Unit)? = null
     var onRmwTilesTouched: ((StrokeSpec, IntArray, Int) -> Unit)? = null
@@ -121,11 +135,9 @@ class EngineSession(
      * `GLFrontBufferedRenderer` starts its GL thread inside its own
      * constructor, so a callback can fire before this line finishes assigning.
      *
-     * That is safe only because [renderer] is declared *above* it and the
-     * callbacks read [renderer] and the flags — never `frontBuffered` itself.
-     * Reordering these two declarations would let a callback observe a null
-     * `renderer`. (An earlier version of this KDoc said "null until the first
-     * frame", which described a nullable field that never existed.)
+     * That is safe because [renderer] is declared *above* it, while the one
+     * callback that needs `frontBuffered` posts that work to the main queue.
+     * Reordering [renderer] would let a callback observe a null value.
      */
     private val frontBuffered = GLFrontBufferedRenderer(surface, this)
 
@@ -190,12 +202,13 @@ class EngineSession(
             // flag starts **true** and only ever flips to false once
             // [ensureContext] has probed — so batches published before that
             // probe are queued normally and are sitting here when it fails.
-            // Bailing out silently would strand every one of them and their
-            // ring slots: `acquireDabBatch` returning null for the rest of the
-            // session, R-063's shape on the live path.
+            // Bailing out silently would strand every slot and backpressure
+            // all later input for the rest of the session.
             drainPending(stamp = false)
             return
         }
+        val framePlan = renderPolicy.frontFrame()
+
         renderer.onSurfaceChanged(width, height)
         // [param] is deliberately NOT consumed here: it is also in
         // [pendingBatches], which is the authoritative list, and stamping it
@@ -206,15 +219,19 @@ class EngineSession(
         // requests, so an earlier callback may already have drained everything
         // this one was scheduled for — and it recomposited when it did, so
         // there is nothing left to draw.
-        val dirty = drainPending(stamp = true)
-        if (dirty.isEmpty) return
-        renderer.drawStrokeFrame(
+        val incrementalDirty = drainPending(stamp = true)
+        val dirty = framePlan.dirty(incrementalDirty, renderer.strokePreviewDirty)
+        if (dirty.present.isEmpty) return
+
+        val presented = renderer.drawStrokeFrame(
             frameBufferId = bufferInfo.frameBufferId,
             bufferWidth = bufferInfo.width,
             bufferHeight = bufferInfo.height,
             bufferTransform = transform,
-            dirtyCanvas = dirty,
+            compositeDirtyCanvas = dirty.composite,
+            presentDirtyCanvas = dirty.present,
         )
+        if (presented) renderPolicy.frontFramePresented(framePlan)
     }
 
     /**
@@ -298,6 +315,17 @@ class EngineSession(
         // is always empty by the time the replay arrives.
         //
         // The dabs are not restamped either: the merge already happened.
+    }
+
+    override fun onMultiBufferedLayerRenderComplete(
+        frontBufferedLayerSurfaceControl: SurfaceControlCompat,
+        multiBufferedLayerSurfaceControl: SurfaceControlCompat,
+        transaction: SurfaceControlCompat.Transaction,
+    ) {
+        if (renderPolicy.onMultiDrawCompleted() != MultiDrawCompletion.RESUME_FRONT) return
+
+        // Recheck on main so pen-up cannot race a late resume behind commit.
+        pollHandler.post(frontResumeTick)
     }
 
     private fun ensureContext() {
@@ -465,6 +493,7 @@ class EngineSession(
      * for it is a no-op, so refusing late costs nothing.
      */
     fun beginStroke(spec: StrokeSpec, mode: BufferMode, r: Float, g: Float, b: Float) {
+        renderPolicy.beginStroke()
         activeStrokeRmw = spec.rmw != null
         activeStrokeSpec = spec
         frontBuffered.execute {
@@ -516,30 +545,11 @@ class EngineSession(
      */
     private val pendingBatches = java.util.concurrent.ConcurrentLinkedQueue<DabBatch>()
 
-    // Slots are released from BOTH threads: the input thread through
-    // [releaseDabBatch] and the empty-batch path, the GL thread from inside
-    // [stampDabs]'s execute block. That is safe because DabRing's `acquire` and
-    // `release` are `@Synchronized` — checked, not assumed. "Single-producer/
-    // single-consumer" above describes the *dab flow*, not the release path,
-    // and it would be a poor thing to leave a reader inferring lock-freedom
-    // from.
+    // Slots return from both threads: input through [releaseDabBatch] and early
+    // exits, GL through [drainPending]. DabRing synchronizes its pool;
+    // "single-producer/single-consumer" describes dab flow, not release.
 
-    /**
-     * Borrows a batch to fill, or null when the GL thread still holds every
-     * slot.
-     *
-     * **A null means the caller drops that sample**, and the caller does. §3.5
-     * describes a producer that keeps its samples and coalesces them into the
-     * next batch; `CanvasScreen.onStrokeSample` does not do that yet — it
-     * returns, and the sample's position, pressure and tilt are gone. The
-     * driver resumes from its last accepted sample, so the path degrades rather
-     * than breaks.
-     *
-     * Said plainly rather than promised, because a doc claiming §3.5's
-     * "nothing is lost" while the only producer drops on the floor is worse
-     * than no doc. Implementing the coalescing belongs with 2.5's ring-driven
-     * front-buffered path, where a starved ring stops being hypothetical.
-     */
+    /** Borrows a bounded ring slot, or null while the GL thread holds all slots. */
     fun acquireDabBatch(): DabBatch? = dabRing.acquire()
 
     /**
@@ -618,6 +628,7 @@ class EngineSession(
      * has been mapped and handed to the tile sink.
      */
     fun endStroke(opacityCeiling: Float) {
+        renderPolicy.finishStroke(StrokeFinish.COMMIT)
         activeStrokeRmw = false
         activeStrokeSpec = null
         val thisRevision = revisions.incrementAndGet()
@@ -674,8 +685,6 @@ class EngineSession(
 
     @Volatile
     private var pendingThumbnails = 0
-
-    private val pollHandler = Handler(Looper.getMainLooper())
 
     private val pollTick = Runnable {
         if (!frontBuffered.isValid()) return@Runnable
@@ -752,16 +761,23 @@ class EngineSession(
         onDone: (Boolean) -> Unit,
     ) {
         if (!frontBuffered.isValid()) {
+            renderPolicy.completeRmwCancel()
             onDone(false)
             return
         }
         frontBuffered.execute {
             val restored = renderer.restoreCancelledRmw(layer, tiles)
             pollHandler.post {
-                if (restored) redraw()
+                val deferredRedraw = renderPolicy.completeRmwCancel()
+                if (restored || deferredRedraw == RedrawDecision.DRAW) redraw()
                 onDone(restored)
             }
         }
+    }
+
+    /** Completes an RMW cancellation that touched no tiles. */
+    internal fun completeCancelledRmwRestore() {
+        if (renderPolicy.completeRmwCancel() == RedrawDecision.DRAW) redraw()
     }
 
     /**
@@ -790,6 +806,11 @@ class EngineSession(
         } else {
             StrokeCancelMode.BUFFERED
         }
+        val finish = when (mode) {
+            StrokeCancelMode.BUFFERED -> StrokeFinish.CANCEL_BUFFERED
+            StrokeCancelMode.READ_MODIFY_WRITE -> StrokeFinish.CANCEL_READ_MODIFY_WRITE
+        }
+        val deferredRedraw = renderPolicy.finishStroke(finish)
         val cancelledSpec = activeStrokeSpec
         activeStrokeRmw = false
         activeStrokeSpec = null
@@ -811,6 +832,7 @@ class EngineSession(
         // multi-buffered layer beneath is still showing the pre-stroke state,
         // so nothing else needs drawing.
         frontBuffered.cancel()
+        if (deferredRedraw == RedrawDecision.DRAW) redraw()
         return mode
     }
 
@@ -828,6 +850,11 @@ class EngineSession(
      * is not needed.
      */
     fun redraw() {
+        if (renderPolicy.requestRedraw() != RedrawDecision.DRAW) return
+        redrawNow()
+    }
+
+    private fun redrawNow() {
         if (!frontBuffered.isValid()) return
         frontBuffered.renderMultiBufferedLayer(emptyList())
     }
@@ -845,7 +872,9 @@ class EngineSession(
     fun release() {
         // The pump has nothing left to poll — the renderer's own release path
         // maps what is still in flight, on the GL thread, with a live context.
+        renderPolicy.release()
         pollHandler.removeCallbacks(pollTick)
+        pollHandler.removeCallbacks(frontResumeTick)
         // Anything published but never drawn: `cancelPending = true` below
         // means those callbacks will not run, so their slots would stay checked
         // out. Harmless for a session that is going away — except that the ring

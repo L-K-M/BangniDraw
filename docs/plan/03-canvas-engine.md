@@ -879,6 +879,14 @@ the front layer shows the post-dab composite for the touched rects, the
 screen is correct everywhere at all times, and the front layer "grows" as
 the stroke grows.
 
+A multi-buffer completion hides the front layer, and its later buffer release
+may clear a newer front frame. The path does not count or wait for callbacks.
+An active completion recomposites the cumulative preview once; protected
+frames then composite only new dirt into `Accum` while presenting cumulative
+pixels from it. A completion between strokes protects the next stroke. Redraws
+during a stroke are deferred, and equal Compose inputs are filtered before
+they request one.
+
 ### 8.2 `onDrawMultiDoubleBufferedLayer(eglManager, bufferInfo, transform, params)`
 
 Draws the **full viewport** from committed state (stroke buffer already

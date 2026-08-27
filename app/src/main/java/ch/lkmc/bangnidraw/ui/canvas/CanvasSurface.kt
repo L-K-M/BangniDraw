@@ -20,6 +20,8 @@ import androidx.core.content.getSystemService
 import androidx.core.view.ViewCompat
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.DeviceMemory
+import ch.lkmc.bangnidraw.engine.core.EngineUpdate
+import ch.lkmc.bangnidraw.engine.core.EngineUpdatePolicy
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
@@ -70,6 +72,9 @@ internal fun CanvasSurface(
     val budget = remember(canvas) { MemoryBudget.compute(readDeviceMemory(context), canvas) }
     val sessionHolder = remember { arrayOfNulls<EngineSession>(1) }
     val surfaceHolder = remember { arrayOfNulls<SurfaceView>(1) }
+    val appliedStack = remember { arrayOfNulls<LayerStack>(1) }
+    val appliedPaperColor = remember { arrayOfNulls<Int>(1) }
+    val appliedView = remember { arrayOfNulls<ViewTransform>(1) }
     val density = context.resources.displayMetrics.density
     val accessibility = Modifier.semantics {
         contentDescription = canvasDescription
@@ -124,6 +129,9 @@ internal fun CanvasSurface(
                 session.setStack(stack)
                 session.setPaperColor(paperColor)
                 session.setView(view)
+                appliedStack[0] = stack
+                appliedPaperColor[0] = paperColor
+                appliedView[0] = view
                 onSession(session)
             }
         },
@@ -146,14 +154,24 @@ internal fun CanvasSurface(
                 gestureExclusionWidthDp,
             )
 
-            // Compose recomposes on every state change; the engine only needs
-            // to hear about the ones that change what it draws. Each setter
-            // hops to the GL thread and requests one redraw, and the renderer
-            // ignores a value equal to what it holds.
+            // A multi-buffer redraw hides live front-buffer ink. Only changed
+            // document values may cross this recomposition boundary.
             sessionHolder[0]?.let { session ->
-                session.setStack(stack)
-                session.setPaperColor(paperColor)
-                session.setView(view)
+                if (EngineUpdatePolicy.decide(appliedStack[0], stack) == EngineUpdate.APPLY) {
+                    appliedStack[0] = stack
+                    session.setStack(stack)
+                }
+                if (
+                    EngineUpdatePolicy.decide(appliedPaperColor[0], paperColor) ==
+                    EngineUpdate.APPLY
+                ) {
+                    appliedPaperColor[0] = paperColor
+                    session.setPaperColor(paperColor)
+                }
+                if (EngineUpdatePolicy.decide(appliedView[0], view) == EngineUpdate.APPLY) {
+                    appliedView[0] = view
+                    session.setView(view)
+                }
             }
         },
     )

@@ -219,14 +219,10 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
  * the references until that replay has actually run, so identity matters and
  * reusing a slot early would repaint a stroke with the next one's dabs.
  *
- * [acquire] returning `null` is backpressure, not an error: the producer
- * falls back to an allocating batch and logs it in debug. If that ever fires
- * in practice the slot count is wrong, not the design. **That fallback batch
- * never comes back through [release]** — it belongs to no slot, and the GC
- * reclaims it. [release] throws on one rather than ignoring it: a batch this
- * ring never handed out arriving at [release] means the caller has lost track
- * of which batches are pooled, and that is worth a stack trace at the moment
- * it happens rather than a silent no-op and a later slot leak.
+ * [acquire] returning `null` is bounded backpressure. Prediction may skip a
+ * frame; real input resumes from its last accepted sample when a slot returns.
+ * Allocating on this path would let a stalled GL thread grow memory without a
+ * bound.
  */
 class DabRing(
     slots: Int = DAB_RING_SLOTS,

@@ -12,6 +12,7 @@ class BrushToolGlyphPolicyTest {
             "ink_pen" to BrushToolGlyph.INK_PEN,
             "paintbrush" to BrushToolGlyph.PAINTBRUSH,
             "airbrush" to BrushToolGlyph.AIRBRUSH,
+            "spray_can" to BrushToolGlyph.SPRAY_CAN,
             "marker" to BrushToolGlyph.MARKER,
         )
 

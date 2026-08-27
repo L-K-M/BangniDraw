@@ -5,6 +5,7 @@ internal enum class BrushToolGlyph(val presetKey: String?) {
     INK_PEN("ink_pen"),
     PAINTBRUSH("paintbrush"),
     AIRBRUSH("airbrush"),
+    SPRAY_CAN("spray_can"),
     MARKER("marker"),
     ERASER(null),
     CUSTOM(null),

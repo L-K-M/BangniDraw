@@ -130,6 +130,7 @@ class DabGeneratorTest {
             "builtin.ink_pen" to Expected(3f, 3f, 1f, 1f, 1f),
             "builtin.paintbrush" to Expected(19f, 21f, 0.6f, 0.45f, 0.7f),
             "builtin.airbrush" to Expected(60f, 60f, 0.06f, 0f, 1f),
+            "builtin.spray_can" to Expected(26f, 54f, 0.045f, 0f, 1f),
             "builtin.marker" to Expected(12f, 12f, 1f, 0.95f, 0.3f),
             "builtin.hard_eraser" to Expected(15f, 15f, 1f, 0.95f, 1f),
             "builtin.soft_eraser" to Expected(40f, 40f, 0.4f, 0.15f, 1f),

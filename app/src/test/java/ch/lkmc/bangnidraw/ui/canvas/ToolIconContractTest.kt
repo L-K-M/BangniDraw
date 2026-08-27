@@ -10,12 +10,13 @@ import kotlin.test.fail
 class ToolIconContractTest {
 
     @Test
-    fun `marker and eraser use purpose-built silhouettes`() {
+    fun `ambiguous tools use purpose-built silhouettes`() {
         val rail = source(TOOL_RAIL_PATH)
 
         assertTrue("icon = iconFor(BrushToolGlyphPolicy.forPreset(preset))" in rail)
         assertTrue("BrushToolGlyph.ERASER -> ToolGlyphs.Eraser" in rail)
         assertTrue("BrushToolGlyph.MARKER -> ToolGlyphs.Marker" in rail)
+        assertTrue("BrushToolGlyph.SPRAY_CAN -> ToolGlyphs.SprayCan" in rail)
         assertTrue("description = { brushPresetName(preset) }" in rail)
         assertFalse("if (preset.eraseMode) stringResource(R.string.tool_eraser)" in rail)
         assertFalse("DeleteSweep" in rail)
@@ -28,10 +29,14 @@ class ToolIconContractTest {
         assertEquals(ICON_VIEWPORT, ToolGlyphs.Marker.viewportHeight)
         assertEquals(ICON_VIEWPORT, ToolGlyphs.Eraser.viewportWidth)
         assertEquals(ICON_VIEWPORT, ToolGlyphs.Eraser.viewportHeight)
+        assertEquals(ICON_VIEWPORT, ToolGlyphs.SprayCan.viewportWidth)
+        assertEquals(ICON_VIEWPORT, ToolGlyphs.SprayCan.viewportHeight)
         assertTrue(ToolGlyphs.Marker.name.contains("Marker"))
         assertTrue(ToolGlyphs.Eraser.name.contains("Eraser"))
+        assertTrue(ToolGlyphs.SprayCan.name.contains("SprayCan"))
         assertEquals(SEMANTIC_PARTS, ToolGlyphs.Marker.root.size)
         assertEquals(SEMANTIC_PARTS, ToolGlyphs.Eraser.root.size)
+        assertEquals(SEMANTIC_PARTS, ToolGlyphs.SprayCan.root.size)
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()

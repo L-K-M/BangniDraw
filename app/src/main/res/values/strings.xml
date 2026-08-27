@@ -118,6 +118,7 @@
     <string name="preset_ink_pen">Ink pen</string>
     <string name="preset_paintbrush">Paintbrush</string>
     <string name="preset_airbrush">Airbrush</string>
+    <string name="preset_spray_can">Spray can</string>
     <string name="preset_marker">Marker</string>
     <string name="preset_hard_eraser">Hard eraser</string>
     <string name="preset_soft_eraser">Soft eraser</string>

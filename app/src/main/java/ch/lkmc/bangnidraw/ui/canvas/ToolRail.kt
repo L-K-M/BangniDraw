@@ -664,6 +664,7 @@ private fun iconFor(glyph: BrushToolGlyph): ImageVector = when (glyph) {
     BrushToolGlyph.INK_PEN -> Icons.Filled.Create
     BrushToolGlyph.PAINTBRUSH -> Icons.Filled.Brush
     BrushToolGlyph.AIRBRUSH -> Icons.Filled.Air
+    BrushToolGlyph.SPRAY_CAN -> ToolGlyphs.SprayCan
     BrushToolGlyph.MARKER -> ToolGlyphs.Marker
     BrushToolGlyph.ERASER -> ToolGlyphs.Eraser
     BrushToolGlyph.CUSTOM -> Icons.Filled.Tune

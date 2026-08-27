@@ -105,7 +105,7 @@ class AccessibilitySemanticsContractTest {
         val SWITCH_DELEGATES_TO_ROW = Regex(
             """Switch\(\s*checked\s*=\s*checked,\s*onCheckedChange\s*=\s*null""",
         )
-        val NAMED_CLICK = Regex("""onClick\(\s*label\s*=\s*\w+""")
+        val NAMED_CLICK = Regex("""onClick\(\s*label\s*=\s*recentDismissLabel""")
         val NULL_SAFE_SCREEN_READER = Regex(
             """accessibilityManager\?\.\s*hasActiveScreenReader\(\)\s*!=\s*true""",
         )

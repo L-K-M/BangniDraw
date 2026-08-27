@@ -16,6 +16,8 @@ class ColorPanelAccessibilityContractTest {
         assertTrue("HsvChannel.entries.forEach" in controls)
         assertTrue("contentDescription = label" in controls)
         assertTrue("onValueChangeFinished" in controls)
+        assertTrue("pendingHsv = next" in controls)
+        assertTrue("latestCommit.value(pendingHsv)" in controls)
     }
 
     @Test

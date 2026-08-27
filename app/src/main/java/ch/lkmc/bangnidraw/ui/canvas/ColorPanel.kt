@@ -287,6 +287,7 @@ private fun HsvControls(
 ) {
     val latestHsv = rememberUpdatedState(hsv)
     val latestCommit = rememberUpdatedState(onCommit)
+    var pendingHsv by remember { mutableStateOf(hsv) }
 
     // Finish commits the last preview for touch, keyboard, and accessibility.
     Column(
@@ -315,8 +316,12 @@ private fun HsvControls(
                 valueText = valueText,
                 range = channel.range,
                 steps = channel.steps,
-                onChanged = { onPreview(channel.replace(hsv, it)) },
-                onFinished = { latestCommit.value(latestHsv.value) },
+                onChanged = {
+                    val next = channel.replace(latestHsv.value, it)
+                    pendingHsv = next
+                    onPreview(next)
+                },
+                onFinished = { latestCommit.value(pendingHsv) },
             )
         }
     }

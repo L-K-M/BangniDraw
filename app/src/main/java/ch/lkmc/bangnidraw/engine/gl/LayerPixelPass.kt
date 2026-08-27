@@ -1,6 +1,8 @@
 package ch.lkmc.bangnidraw.engine.gl
 
+import android.opengl.GLES30
 import ch.lkmc.bangnidraw.engine.core.BlendMode
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.PoolExhausted
 import ch.lkmc.bangnidraw.engine.core.SliceHandle
@@ -31,12 +33,14 @@ internal class LayerPixelPass(
     private inner class PendingTransaction(
         private val target: LayerTextures,
         private val pending: List<Pending>,
+        private val removed: List<TileKey> = emptyList(),
     ) : Transaction {
         private var open = true
 
         override fun commit() {
             check(open) { "layer pixel transaction is already closed" }
             pending.forEach { target.swap(it.key, it.handle) }
+            removed.forEach(target::remove)
             open = false
         }
 
@@ -98,6 +102,33 @@ internal class LayerPixelPass(
         target: LayerTextures,
         keys: Set<TileKey>,
     ): Transaction? = composite(sources, target, keys)
+
+    fun restore(
+        target: LayerTextures,
+        tiles: Map<TileKey, ByteArray?>,
+    ): Transaction? {
+        val pending = ArrayList<Pending>(tiles.size)
+        val removed = ArrayList<TileKey>()
+        for ((key, pixels) in tiles) {
+            if (pixels == null) {
+                if (!target.slice(key).isNone) removed += key
+                continue
+            }
+            if (pixels.size != TILE_BYTES) {
+                pending.forEach { pool.free(it.handle) }
+                return null
+            }
+            val handle = try {
+                pool.allocate()
+            } catch (_: PoolExhausted) {
+                pending.forEach { pool.free(it.handle) }
+                return null
+            }
+            upload(handle, pixels)
+            pending += Pending(key, handle)
+        }
+        return PendingTransaction(target, pending, removed)
+    }
 
     private fun composite(
         sources: List<Source>,
@@ -161,6 +192,26 @@ internal class LayerPixelPass(
         state.viewport(0, 0, TILE_SIZE, TILE_SIZE)
         clearFbo.clear(0f, 0f, 0f, 0f)
         return handle
+    }
+
+    private fun upload(handle: SliceHandle, pixels: ByteArray) {
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, pool.textureOf(handle.page))
+        GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1)
+        GLES30.glTexSubImage3D(
+            GLES30.GL_TEXTURE_2D_ARRAY,
+            0,
+            0,
+            0,
+            handle.slice,
+            TILE_SIZE,
+            TILE_SIZE,
+            1,
+            GLES30.GL_RGBA,
+            GLES30.GL_UNSIGNED_BYTE,
+            java.nio.ByteBuffer.wrap(pixels),
+        )
+        GlErrors.checkGlDebug("layer restore")
     }
 
     fun release() {

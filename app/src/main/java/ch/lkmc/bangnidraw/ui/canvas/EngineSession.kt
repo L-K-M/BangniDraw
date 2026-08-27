@@ -15,12 +15,15 @@ import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
+import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
 import java.nio.ByteBuffer
+
+internal enum class LayerEditResult { APPLIED, REFUSED }
 
 /**
  * The per-canvas façade the ViewModel and tools talk to
@@ -292,6 +295,39 @@ class EngineSession(
     fun setStack(stack: LayerStack) {
         frontBuffered.execute { renderer.setStack(stack) }
         redraw()
+    }
+
+    /** Applies one journaled layer transition without exposing GL to the UI. */
+    internal fun applyLayerEdit(
+        stack: LayerStack,
+        pixelOps: List<PixelOp>,
+        invalidation: SandwichPolicy.Op,
+        beforeCommit: () -> Boolean,
+        onResult: (LayerEditResult) -> Unit,
+    ) {
+        if (!frontBuffered.isValid()) {
+            onResult(LayerEditResult.REFUSED)
+            return
+        }
+        frontBuffered.execute {
+            if (!renderer.isReady) {
+                pollHandler.post { onResult(LayerEditResult.REFUSED) }
+                return@execute
+            }
+            renderer.finishReadback()
+            val revision = revisions.incrementAndGet()
+            val applied = renderer.applyPixelOps(pixelOps, revision, beforeCommit)
+            if (applied) {
+                renderer.setStack(stack, invalidation)
+                pendingMirror = renderer.readbackPending
+                if (pendingMirror > 0) pumpReadback()
+            }
+            pollHandler.post {
+                val result = if (applied) LayerEditResult.APPLIED else LayerEditResult.REFUSED
+                if (applied) redraw()
+                onResult(result)
+            }
+        }
     }
 
     fun setPaperColor(argb: Int) {

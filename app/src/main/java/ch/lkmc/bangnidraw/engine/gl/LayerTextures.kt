@@ -95,6 +95,12 @@ class LayerTextures(
         if (previous.packed != handle.packed) pool.free(previous)
     }
 
+    /** Removes one restored-as-empty key and returns its slice to the pool. */
+    internal fun remove(k: TileKey) {
+        val previous = index.put(k, SliceHandle.NONE)
+        pool.free(previous)
+    }
+
     /**
      * Fills [out] with the packed keys of this layer that fall inside [rect]
      * and have a slice, sorted by page, and returns how many.

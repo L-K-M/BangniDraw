@@ -624,6 +624,12 @@ class CanvasRenderer(
 
         data class Clear(val layer: LayerId, val keys: Set<TileKey>) : PreparedPixelOp
         data class Delete(val layer: LayerId, val keys: Set<TileKey>) : PreparedPixelOp
+        data class Restore(
+            val transaction: LayerPixelPass.Transaction,
+            val layer: LayerId,
+            val tiles: Map<TileKey, ByteArray?>,
+            val createdTarget: LayerId? = null,
+        ) : PreparedPixelOp
     }
 
     private data class PixelTarget(
@@ -645,9 +651,7 @@ class CanvasRenderer(
                 is PixelOp.Clear -> prepareClear(op)
                 is PixelOp.Delete -> prepareDelete(op)
                 is PixelOp.Flatten -> layerPixelPass?.let { prepareFlatten(it, op) }
-                // History restores already upload through EngineSession; raw
-                // bytes do not belong in this structural transaction.
-                is PixelOp.Restore -> null
+                is PixelOp.Restore -> layerPixelPass?.let { prepareRestore(it, op) }
             }
             if (next == null) {
                 abort(prepared)
@@ -756,6 +760,22 @@ class CanvasRenderer(
         return PreparedPixelOp.Delete(op.layer, layer.tiles)
     }
 
+    private fun prepareRestore(pass: LayerPixelPass, op: PixelOp.Restore): PreparedPixelOp.Restore? {
+        if (op.tiles.keys.any { !grid.contains(it) }) return null
+        val target = targetFor(op.layer) ?: return null
+        val transaction = pass.restore(target.textures, op.tiles)
+        if (transaction == null) {
+            releaseCreatedTarget(op.layer, target)
+            return null
+        }
+        return PreparedPixelOp.Restore(
+            transaction,
+            op.layer,
+            op.tiles,
+            createdTarget = op.layer.takeIf { target.created },
+        )
+    }
+
     private fun targetFor(id: LayerId): PixelTarget? {
         val existing = layers[id]
         if (existing != null) return PixelTarget(existing, created = false)
@@ -770,10 +790,13 @@ class CanvasRenderer(
 
     private fun abort(prepared: List<PreparedPixelOp>) {
         for (op in prepared) {
-            if (op !is PreparedPixelOp.Composite) continue
-
-            op.transaction.abort()
-            val id = op.createdTarget ?: continue
+            val (transaction, id) = when (op) {
+                is PreparedPixelOp.Composite -> op.transaction to op.createdTarget
+                is PreparedPixelOp.Restore -> op.transaction to op.createdTarget
+                else -> continue
+            }
+            transaction.abort()
+            if (id == null) continue
             layers.remove(id)?.release()
         }
     }
@@ -787,6 +810,10 @@ class CanvasRenderer(
             }
             is PreparedPixelOp.Clear -> clearLayer(prepared.layer, prepared.keys, revision)
             is PreparedPixelOp.Delete -> deleteLayer(prepared.layer, prepared.keys, revision)
+            is PreparedPixelOp.Restore -> {
+                prepared.transaction.commit()
+                emitRestored(prepared.layer, prepared.tiles, revision)
+            }
         }
     }
 
@@ -827,6 +854,23 @@ class CanvasRenderer(
         for (key in keys) {
             transparentTile.clear()
             sink(layer, key, revision, transparentTile)
+        }
+    }
+
+    private fun emitRestored(
+        layer: LayerId,
+        tiles: Map<TileKey, ByteArray?>,
+        revision: Int,
+    ) {
+        val sink = onTile ?: return
+        for ((key, pixels) in tiles) {
+            val buffer = if (pixels == null) {
+                transparentTile.clear()
+                transparentTile
+            } else {
+                java.nio.ByteBuffer.wrap(pixels)
+            }
+            sink(layer, key, revision, buffer)
         }
     }
 

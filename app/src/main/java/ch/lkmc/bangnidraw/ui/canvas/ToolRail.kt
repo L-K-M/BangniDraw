@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.ScatterPlot
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -664,6 +665,7 @@ private fun iconFor(glyph: BrushToolGlyph): ImageVector = when (glyph) {
     BrushToolGlyph.INK_PEN -> Icons.Filled.Create
     BrushToolGlyph.PAINTBRUSH -> Icons.Filled.Brush
     BrushToolGlyph.AIRBRUSH -> Icons.Filled.Air
+    BrushToolGlyph.SPRAY_CAN -> Icons.Filled.ScatterPlot
     BrushToolGlyph.MARKER -> ToolGlyphs.Marker
     BrushToolGlyph.ERASER -> ToolGlyphs.Eraser
     BrushToolGlyph.CUSTOM -> Icons.Filled.Tune

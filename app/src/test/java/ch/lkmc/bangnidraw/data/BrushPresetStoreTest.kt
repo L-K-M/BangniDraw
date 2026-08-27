@@ -43,6 +43,7 @@ class BrushPresetStoreTest {
                 "builtin.ink_pen",
                 "builtin.paintbrush",
                 "builtin.airbrush",
+                "builtin.spray_can",
                 "builtin.marker",
                 "builtin.hard_eraser",
                 "builtin.soft_eraser",

@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "id": "builtin.spray_can",
+  "name": "@string/preset_spray_can",
+  "icon": "spray_can",
+  "size": 80.0,
+  "sizeMin": 10.0,
+  "sizeMax": 300.0,
+  "flow": 0.045,
+  "hardness": 0.0,
+  "spacing": 0.5,
+  "pressureSize": { "p0": 0.7, "p1": 0.8, "p2": 0.9, "p3": 1.0 },
+  "pressureFlow": { "p0": 0.0, "p1": 0.33333334, "p2": 0.6666667, "p3": 1.0 },
+  "jitter": { "size": 0.35, "position": 0.85 },
+  "stabilizer": 0.05,
+  "bufferMode": "Accumulate"
+}

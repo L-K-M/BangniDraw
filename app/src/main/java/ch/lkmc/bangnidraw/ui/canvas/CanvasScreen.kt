@@ -964,34 +964,27 @@ private fun CanvasContent(
                 // starts at the newest swatches.
                 LaunchedEffect(Unit) { recentScroll.scrollTo(0) }
                 // The auto-dismiss pauses while the user is scrolling the
-                // swatch list, and never runs for accessibility services —
-                // TalkBack traversal of a row of hex-named swatches cannot
-                // fit a fixed window (WCAG 2.2.1), and switch-scanning is
-                // slower still. Read fresh on every restart, so enabling a
-                // service mid-session is honored.
+                // swatch list, and never runs while a screen reader is
+                // active — TalkBack traversal of a row of hex-named swatches
+                // cannot fit a fixed window (WCAG 2.2.1). Read fresh on
+                // every restart and again after the delay, so enabling
+                // TalkBack mid-session is honored.
                 val accessibilityManager = context.getSystemService(
                     android.view.accessibility.AccessibilityManager::class.java,
                 )
                 LaunchedEffect(showRecentSwatches, recentScroll.isScrollInProgress) {
-                    val screenReaderActive = accessibilityManager?.let { am ->
-                        am.isTouchExplorationEnabled ||
-                            am.getEnabledAccessibilityServiceList(
-                                android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK,
-                            ).isNotEmpty()
-                    } == true
-                    if (!recentScroll.isScrollInProgress && !screenReaderActive) {
+                    if (
+                        !recentScroll.isScrollInProgress &&
+                        !accessibilityManager.hasActiveScreenReader()
+                    ) {
                         delay(RECENT_POPOVER_MS)
-                        // Re-check: a service may have been enabled while
-                        // the wait ran (TalkBack's volume-key shortcut), and
-                        // yanking the popover mid-traversal is the exact
-                        // failure the guard exists to prevent.
-                        val screenReaderEnabledNow = accessibilityManager?.let { am ->
-                            am.isTouchExplorationEnabled ||
-                                am.getEnabledAccessibilityServiceList(
-                                    android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK,
-                                ).isNotEmpty()
-                        } == true
-                        if (!screenReaderEnabledNow) showRecentSwatches = false
+                        // Re-check: TalkBack may have been enabled while the
+                        // wait ran (its volume-key shortcut), and yanking the
+                        // popover mid-traversal is the exact failure the
+                        // guard exists to prevent.
+                        if (!accessibilityManager.hasActiveScreenReader()) {
+                            showRecentSwatches = false
+                        }
                     }
                 }
                 val interaction = remember { MutableInteractionSource() }
@@ -1340,6 +1333,21 @@ private fun BoxScope.RecentPopover(
         }
     }
 }
+
+/**
+ * Whether a screen reader is driving this session: touch exploration
+ * (TalkBack's classic mode) or any enabled service that speaks. Deliberately
+ * NOT every accessibility service — a password manager or screen dimmer
+ * (FEEDBACK_GENERIC) must not freeze the popover's auto-dismiss. Slower
+ * non-spoken navigation (Switch Access) is not exempted.
+ */
+private fun android.view.accessibility.AccessibilityManager?.hasActiveScreenReader(): Boolean =
+    this?.let { am ->
+        am.isTouchExplorationEnabled ||
+            am.getEnabledAccessibilityServiceList(
+                android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_SPOKEN,
+            ).isNotEmpty()
+    } == true
 
 @Composable
 private fun panelAnnouncement(panel: CanvasPanel?): String = when (panel) {

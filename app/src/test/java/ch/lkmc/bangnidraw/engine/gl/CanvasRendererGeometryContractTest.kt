@@ -74,6 +74,22 @@ class CanvasRendererGeometryContractTest {
         )
     }
 
+    @Test
+    fun `accum and window targets keep their distinct row conventions`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+        val composite = section(source, COMPOSITE_START, COMPOSITE_END)
+        val present = section(source, PRESENT_START, PRESENT_END)
+
+        assertTrue(
+            ACCUM_SCISSOR_FLIP in composite,
+            "the viewport-oriented Accum texture still needs GL's lower-left conversion",
+        )
+        assertTrue(
+            HARDWARE_BUFFER_SCISSOR in present,
+            "the SurfaceControl target must keep top-first HardwareBuffer rows",
+        )
+    }
+
     private fun repositoryRoot(): File {
         val workingDirectory = File(
             requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),
@@ -114,6 +130,9 @@ class CanvasRendererGeometryContractTest {
             "pass,\n                compositeCanvasRect,\n                compositeWindowRect,"
         const val LOGICAL_QUAD_DRAW =
             "screenQuad.draw(accum.width.toFloat(), accum.height.toFloat())"
+        const val ACCUM_SCISSOR_FLIP = "accum.height - accumScissor.bottom"
+        const val HARDWARE_BUFFER_SCISSOR =
+            "BufferScissor.toHardwareBufferScissor(scissor, bufferHeight, scissorScratch)"
         const val PAPER_CALL = "drawPaper(screenTransform, bakedIntoBelow = useSandwich)"
         val PAPER_SCREEN_UNIFORM = Regex(
             """program\.uniform4f\(\s*"u_screen",\s*screenTransform\.a,\s*""" +

@@ -299,6 +299,13 @@ and the contradiction is noted here.
   inverse-mapped to canvas space, not the original dab rect. Otherwise the
   clear crosses a tile edge without redrawing its neighbor and leaves 1 px
   white grid seams until pen-up.
+- **Accum and the window target use different scissor row conventions.**
+  `Accum` is an ordinary texture FBO, so its y-down dirty rect becomes
+  `height - bottom` for `glScissor`. graphics-core's HardwareBuffer is consumed
+  by SurfaceControl in top-first buffer rows; the present quad already accounts
+  for that orientation, so its scissor keeps `y = top`. Flipping it again opens
+  the vertically reflected damage band: live ink appears only where the stroke
+  crosses that reflection, then the unscissored pen-up frame reveals everything.
 - **Paper is a transformed canvas quad, not a viewport clear.** The old
   `03-canvas-engine.md` §3.2 step 1 said to clear viewport-sized `Accum` to the
   paper colour, while `08-ui-and-layout.md` §5.1 explicitly defines

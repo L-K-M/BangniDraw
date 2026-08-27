@@ -276,8 +276,9 @@ rect in window space (steps 1–2) or in buffer space (step 3):
    bufferInfo.frameBufferId)` (the callbacks' own target, which our
    per-tile FBO binds have replaced by now), `glViewport(0, 0,
    bufferInfo.width, bufferInfo.height)`, scissor = the dirty rect mapped
-   through `transform` (§8.1 step 3), and a full-rect textured quad of
-   `Accum` drawn with the §3.1 vertex shader — `u_screen` identity,
+   through `transform` (§8.1 step 3) while keeping the HardwareBuffer's
+   top-first row (`y = top`, not `height - bottom`), and a full-rect textured
+   quad of `Accum` drawn with the §3.1 vertex shader — `u_screen` identity,
    `u_viewport = (bufferInfo.width, bufferInfo.height)`, `u_bufferTransform
    = transform`. A `glBlitFramebuffer` cannot rotate: when graphics-core
    hands a pre-rotated buffer (`bufferInfo.width/height` swapped relative
@@ -877,7 +878,8 @@ thread after the front callback consumes them (02 §3.2).
    new predicted tail's rect (§9). Map it to window px through
    `ScreenTransform` (rotated → take the bounding box of the four corners),
    inflate by 1 px, clip to the viewport, then through `transform`
-   (graphics-core's pre-rotation matrix) to buffer px for the scissor. Inverse
+   (graphics-core's pre-rotation matrix) to top-first HardwareBuffer px for the
+   scissor. Do not apply the offscreen FBO's y-flip a second time. Inverse
    map the inflated window rect back to canvas px for tile selection; otherwise
    the clear crosses a tile edge while the neighboring tile is omitted.
 4. Composite that rect exactly as §3.2/§4: Below (paper baked in) →

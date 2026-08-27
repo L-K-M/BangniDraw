@@ -1697,7 +1697,7 @@ class CanvasRenderer(
             // rect and is untouched outside it. That is what makes the stale
             // content of a front buffer irrelevant — nothing here is drawn
             // incrementally onto what was there before.
-            BufferScissor.toGlScissor(scissor, bufferHeight, scissorScratch)
+            BufferScissor.toHardwareBufferScissor(scissor, bufferHeight, scissorScratch)
             state.scissor(
                 scissorScratch[0], scissorScratch[1], scissorScratch[2], scissorScratch[3],
             )

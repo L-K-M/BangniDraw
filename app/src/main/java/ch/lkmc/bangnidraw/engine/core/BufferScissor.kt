@@ -90,17 +90,15 @@ object BufferScissor {
     }
 
     /**
-     * The scissor box GL wants: `(x, y, width, height)` with **y measured from
-     * the bottom**, written into [out].
+     * The scissor for graphics-core's HardwareBuffer-backed window target.
      *
-     * `glScissor`'s origin is the lower-left of the framebuffer, while every
-     * rect in this engine is y-down from the top (§3.1). Converting here, next
-     * to the transform that produced the rect, keeps the flip in one place —
-     * the alternative is a `bufferHeight - bottom` at each call site, which is
-     * the shape of an off-by-one nobody notices until a stroke's top row goes
-     * missing.
+     * SurfaceControl consumes that target in top-first buffer rows. The full
+     * present quad already accounts for this orientation through its y-down
+     * projection and texture coordinates, so flipping [rect] again would open
+     * the vertically mirrored damage band. Accum is an ordinary texture FBO
+     * and keeps its separate `height - bottom` conversion.
      */
-    fun toGlScissor(rect: IntRect, bufferHeight: Int, out: IntArray) {
+    fun toHardwareBufferScissor(rect: IntRect, bufferHeight: Int, out: IntArray) {
         require(out.size >= 4) { "a scissor needs 4 ints, was ${out.size}" }
         // The two halves of this guard are worth very different amounts, and
         // two earlier versions of this comment got the difference wrong in
@@ -112,24 +110,19 @@ object BufferScissor {
         // other frame's scissor. The `right >= left && bottom >= top` half is
         // what catches it, and it is the load-bearing half.
         //
-        // A negative **x or y** is legal. The box is accepted and intersected
-        // with the framebuffer, and since fragments exist only inside the
-        // framebuffer — and the y-flip below presumes a target exactly
-        // `bufferHeight` tall — that intersection is *precisely* the dirty rect
-        // clipped to the buffer. Unclipped input would therefore render the
-        // right pixels, not the wrong rows. The clipping half of this guard is
-        // a tripwire for a caller that bypassed [bounds], not a defence against
-        // visible corruption, and saying otherwise sends the next reader
-        // hunting a failure mode that does not exist.
+        // A box outside the framebuffer is legal and gets intersected with it.
+        // The clipping half is therefore a tripwire for bypassing [bounds],
+        // while the ordered-edge half prevents a rejected GL call from leaving
+        // the previous frame's scissor active.
         require(
             rect.left >= 0 && rect.top >= 0 && rect.bottom <= bufferHeight &&
                 rect.right >= rect.left && rect.bottom >= rect.top
         ) {
-            "toGlScissor needs a rect already clipped to the buffer, was " +
+            "toHardwareBufferScissor needs a rect already clipped to the buffer, was " +
                 "$rect height=$bufferHeight"
         }
         out[0] = rect.left
-        out[1] = bufferHeight - rect.bottom
+        out[1] = rect.top
         out[2] = rect.right - rect.left
         out[3] = rect.bottom - rect.top
     }

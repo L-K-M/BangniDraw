@@ -70,16 +70,45 @@ class LayoutSpecTest {
         assertEquals(5, LayoutSpec.forWindow(WidthClass.MEDIUM, 769, Hand.RIGHT).paintSlotBudget)
         assertEquals(5, LayoutSpec.forWindow(WidthClass.EXPANDED, 798, Hand.RIGHT).paintSlotBudget)
         assertEquals(5, LayoutSpec.forWindow(WidthClass.EXPANDED, 857, Hand.RIGHT).paintSlotBudget)
-        assertEquals(6, LayoutSpec.forWindow(WidthClass.MEDIUM, 770, Hand.RIGHT).paintSlotBudget)
-        assertEquals(6, LayoutSpec.forWindow(WidthClass.EXPANDED, 858, Hand.RIGHT).paintSlotBudget)
+        assertEquals(
+            6,
+            LayoutSpec.forWindow(WidthClass.MEDIUM, 770, Hand.RIGHT, paintCount = 6)
+                .paintSlotBudget,
+        )
+        assertEquals(
+            6,
+            LayoutSpec.forWindow(WidthClass.EXPANDED, 858, Hand.RIGHT, paintCount = 6)
+                .paintSlotBudget,
+        )
     }
 
     @Test
     fun `the full rail content height follows its paint budget`() {
         assertEquals(718, LayoutSpec.forWindow(WidthClass.MEDIUM, 769, Hand.RIGHT).railContentHeightDp)
-        assertEquals(770, LayoutSpec.forWindow(WidthClass.MEDIUM, 770, Hand.RIGHT).railContentHeightDp)
+        assertEquals(
+            770,
+            LayoutSpec.forWindow(WidthClass.MEDIUM, 770, Hand.RIGHT, paintCount = 6)
+                .railContentHeightDp,
+        )
         assertEquals(798, LayoutSpec.forWindow(WidthClass.EXPANDED, 857, Hand.RIGHT).railContentHeightDp)
-        assertEquals(858, LayoutSpec.forWindow(WidthClass.EXPANDED, 858, Hand.RIGHT).railContentHeightDp)
+        assertEquals(
+            858,
+            LayoutSpec.forWindow(WidthClass.EXPANDED, 858, Hand.RIGHT, paintCount = 6)
+                .railContentHeightDp,
+        )
+    }
+
+    @Test
+    fun `the full rail never reserves absent paint slots`() {
+        val fivePaints = LayoutSpec.forWindow(
+            WidthClass.MEDIUM,
+            1080,
+            Hand.RIGHT,
+            paintCount = 5,
+        )
+
+        assertEquals(5, fivePaints.paintSlotBudget)
+        assertEquals(718, fivePaints.railContentHeightDp)
     }
 
     @Test

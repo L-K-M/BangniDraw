@@ -216,8 +216,14 @@ internal data class LayoutSpec(
     }
 
     companion object {
-        fun forWindow(width: WidthClass, heightDp: Int, hand: Hand): LayoutSpec {
+        fun forWindow(
+            width: WidthClass,
+            heightDp: Int,
+            hand: Hand,
+            paintCount: Int = DEFAULT_PAINT_COUNT,
+        ): LayoutSpec {
             require(heightDp >= 0) { "heightDp must not be negative" }
+            require(paintCount >= 1) { "paintCount must be positive" }
 
             val railMode = railMode(width, heightDp)
             val slot = toolSlot(width, railMode)
@@ -231,7 +237,7 @@ internal data class LayoutSpec(
             } else {
                 SliderPlacement.LEDGE
             }
-            val paintSlotBudget = paintSlotBudget(railMode, slot, heightDp)
+            val paintSlotBudget = paintSlotBudget(railMode, slot, heightDp, paintCount)
 
             return LayoutSpec(
                 widthClass = width,
@@ -320,13 +326,18 @@ internal data class LayoutSpec(
          * window, so extra presets overflow into the sheet instead. Solves
          * `paints·slot + (paints − 1)·gap + NON_PAINT ≤ heightDp`.
          */
-        private fun paintSlotBudget(mode: RailMode, slotDp: Int, heightDp: Int): Int {
+        private fun paintSlotBudget(
+            mode: RailMode,
+            slotDp: Int,
+            heightDp: Int,
+            paintCount: Int,
+        ): Int {
             if (mode != RailMode.FULL) return Int.MAX_VALUE
 
             val available = heightDp - FULL_NON_PAINT_SLOTS * slotDp -
                 FULL_NON_PAINT_GAPS * TOOL_GAP_DP -
                 FULL_DIVIDER_COUNT * DIVIDER_HEIGHT_DP - FULL_SLIDER_DP - RAIL_PADDING_DP
-            return (available / (slotDp + TOOL_GAP_DP)).coerceAtLeast(1)
+            return (available / (slotDp + TOOL_GAP_DP)).coerceIn(1, paintCount)
         }
 
         const val MIN_TARGET_DP = 48
@@ -344,6 +355,8 @@ internal data class LayoutSpec(
         private const val EXPANDED_FULL_MIN_DP = 798
         private const val SHORT_TOOL_COUNT = 6
         private const val GROUPED_TOOL_COUNT = 6
+        private const val DEFAULT_PAINT_COUNT = 5
+        // Mirrors ToolRail.fullSlots: one eraser and four secondary tools.
         private const val FULL_NON_PAINT_SLOTS = 5
         private const val FULL_NON_PAINT_GAPS = 4
         private const val GROUPED_GAP_COUNT = 5

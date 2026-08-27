@@ -65,7 +65,7 @@ asserts each mode's content height against them:
 secondary tools). A larger catalogue does not stretch the rail past the
 window: `LayoutSpec.paintSlotBudget` solves `paints·slot + (paints−1)·gap +
 non-paint ≤ rail height` for the number of paint slots that fit (exactly
-five at each `FULL_MIN`), the active preset always keeps a slot
+five at each `FULL_MIN`, capped by the loaded paint count), the active preset always keeps a slot
 (`RailSlotPolicy`), and the remaining presets stay reachable through the
 settings sheet's chip row — the same path GROUPED/SHORT/DOCK already use
 for every preset but the active one.

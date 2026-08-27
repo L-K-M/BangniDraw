@@ -574,8 +574,8 @@ and the contradiction is noted here.
   the rail never grows past it; the active preset always keeps a slot
   (`RailSlotPolicy`), and the overflow presets are reachable through the
   settings sheet's chip row — the same path GROUPED/SHORT/DOCK already use.
-  `FULL_TOOL_COUNT` and the `*_FULL_MIN_DP` thresholds stay sized for the v1
-  catalogue; they are mode thresholds, not a capacity.
+  The `*_FULL_MIN_DP` thresholds stay sized for the v1 catalogue; they select
+  a mode, not a capacity.
 - **HSV fine controls use `HsvChannel`.** Keep their ranges, discrete steps,
   reads, and replacements in that pure enum so visual sliders and accessibility
   adjustments cannot drift. The current-color chip has a named long-click only;

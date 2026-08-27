@@ -21,6 +21,7 @@ class ColorPanelAccessibilityContractTest {
             "onValueChangeFinished",
             "remember(hsv) { mutableStateOf(hsv) }",
             "pendingHsv = next",
+            "latestPreview.value(next)",
             "latestCommit.value(pendingHsv)",
             "R.string.color_percent_value",
         ).forEach { marker ->

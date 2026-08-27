@@ -289,6 +289,7 @@ private fun HsvControls(
     onCommit: (HsvColor) -> Unit,
 ) {
     val latestHsv = rememberUpdatedState(hsv)
+    val latestPreview = rememberUpdatedState(onPreview)
     val latestCommit = rememberUpdatedState(onCommit)
     var pendingHsv by remember(hsv) { mutableStateOf(hsv) }
 
@@ -322,7 +323,7 @@ private fun HsvControls(
                 onChanged = {
                     val next = channel.replace(latestHsv.value, it)
                     pendingHsv = next
-                    onPreview(next)
+                    latestPreview.value(next)
                 },
                 onFinished = { latestCommit.value(pendingHsv) },
             )

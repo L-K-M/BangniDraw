@@ -2,6 +2,7 @@
 
 ## 1.0.9 - 2026-08-27
 
+- Add a new built-in spray can brush preset.
 - Keep the canvas visible and correctly positioned through display rotation.
 - Replace the ambiguous marker and eraser rail icons.
 - Draw pressure curves above their knot controls.

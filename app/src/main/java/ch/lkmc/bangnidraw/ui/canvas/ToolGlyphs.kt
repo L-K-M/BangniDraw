@@ -82,4 +82,54 @@ internal object ToolGlyphs {
             close()
         }
     }.build()
+
+    val SprayCan: ImageVector = ImageVector.Builder(
+        name = "ToolSprayCan",
+        defaultWidth = ICON_SIZE,
+        defaultHeight = ICON_SIZE,
+        viewportWidth = ICON_VIEWPORT,
+        viewportHeight = ICON_VIEWPORT,
+    ).apply {
+        // A stepped nozzle separates the can from a generic bottle.
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(9f, 4f)
+            lineTo(15f, 4f)
+            lineTo(15f, 5f)
+            lineTo(18f, 5f)
+            lineTo(18f, 7f)
+            lineTo(13f, 7f)
+            lineTo(13f, 8f)
+            lineTo(9f, 8f)
+            close()
+        }
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(8f, 8f)
+            lineTo(16f, 8f)
+            lineTo(18f, 10f)
+            lineTo(18f, 21f)
+            lineTo(17f, 22f)
+            lineTo(7f, 22f)
+            lineTo(6f, 21f)
+            lineTo(6f, 10f)
+            close()
+        }
+        // Three separated flecks make the local spray action legible at 24 dp.
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(19f, 1f)
+            lineTo(21f, 1f)
+            lineTo(21f, 3f)
+            lineTo(19f, 3f)
+            close()
+            moveTo(21f, 5f)
+            lineTo(23f, 5f)
+            lineTo(23f, 7f)
+            lineTo(21f, 7f)
+            close()
+            moveTo(19f, 9f)
+            lineTo(21f, 9f)
+            lineTo(21f, 11f)
+            lineTo(19f, 11f)
+            close()
+        }
+    }.build()
 }

@@ -21,4 +21,21 @@ class HsvPickerTest {
         assertEquals(HsvColor(200f, 1f, 0f), HsvPicker.select(75f, 75f, 100f, current))
         assertEquals(HsvColor(200f, 0.5f, 0.5f), HsvPicker.select(50f, 50f, 100f, current))
     }
+
+    @Test
+    fun `greyscale commit keeps the selected hue for saturation`() {
+        val grey = HsvSelection.fromArgb(0xFF808080.toInt())
+        val ringSelection = grey.select(
+            HsvPicker.select(50f, 100f, 100f, grey.hsv),
+        )
+
+        assertEquals(grey.argb, ringSelection.argb)
+
+        val saturated = ringSelection.select(
+            HsvPicker.select(75f, 50f, 100f, ringSelection.hsv),
+        )
+
+        assertEquals(90f, saturated.hsv.h)
+        assertEquals(HsvColor(90f, 1f, grey.hsv.v).toArgb(), saturated.argb)
+    }
 }

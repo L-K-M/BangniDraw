@@ -69,6 +69,7 @@ import ch.lkmc.bangnidraw.engine.core.DishWell
 import ch.lkmc.bangnidraw.engine.core.HsvColor
 import ch.lkmc.bangnidraw.engine.core.HsvChannel
 import ch.lkmc.bangnidraw.engine.core.HsvPicker
+import ch.lkmc.bangnidraw.engine.core.HsvSelection
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.HueMilestone
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
@@ -105,8 +106,11 @@ internal fun ColorPanel(
     onTextInputFocus: (TextInputFocus) -> Unit,
     hapticsMode: HapticsMode,
 ) {
-    var hsv by remember(state.current) { mutableStateOf(HsvColor.fromArgb(state.current)) }
-    var draft by remember(state.current) { mutableIntStateOf(state.current) }
+    var selection by remember(state.current) {
+        mutableStateOf(HsvSelection.fromArgb(state.current))
+    }
+    val hsv = selection.hsv
+    val draft = selection.argb
     val scroll = rememberScrollState()
     // Naming on create: two palettes must not share one "My palette" chip
     // (the stored name is what distinguishes them — there is no rename yet).
@@ -126,14 +130,18 @@ internal fun ColorPanel(
     }
 
     fun preview(next: HsvColor) {
-        hsv = next
-        draft = next.toArgb()
+        selection = selection.select(next)
     }
 
     fun select(argb: Int) {
-        draft = argb
-        hsv = HsvColor.fromArgb(argb)
+        selection = selection.select(argb)
         onColorSelected(argb)
+    }
+
+    fun select(next: HsvColor) {
+        val committed = selection.select(next)
+        selection = committed
+        onColorSelected(committed.argb)
     }
 
     Surface(
@@ -154,12 +162,12 @@ internal fun ColorPanel(
                 hsv = hsv,
                 hapticsMode = hapticsMode,
                 onPreview = ::preview,
-                onCommit = { select(it.toArgb()) },
+                onCommit = ::select,
             )
             HsvControls(
                 hsv = hsv,
                 onPreview = ::preview,
-                onCommit = { select(it.toArgb()) },
+                onCommit = ::select,
             )
             ColorChips(
                 current = draft,

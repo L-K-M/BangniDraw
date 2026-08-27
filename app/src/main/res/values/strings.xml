@@ -29,6 +29,11 @@
     <string name="studio_delete_body">The painting and its undo history are removed from this device.</string>
     <string name="studio_delete_gallery_too">Also delete the copy in the gallery</string>
     <string name="studio_deleted">Deleted</string>
+    <string name="studio_delete_failed">Couldn’t delete</string>
+    <string name="studio_create_failed">Couldn’t create the painting</string>
+    <string name="studio_share_failed">Couldn’t share</string>
+    <string name="studio_duplicate_failed">Couldn’t duplicate</string>
+    <string name="studio_rename_failed">Couldn’t rename</string>
     <!-- Appended to a duplicated painting’s title (06 §8). Leading space
          deliberate. -->
     <string name="studio_copy_suffix">" copy"</string>
@@ -159,6 +164,7 @@
     <string name="palette_recent_dismiss">Close recent colors</string>
     <string name="palette_my">My palette</string>
     <string name="palette_create">New palette</string>
+    <string name="palette_name_taken">A palette with this name already exists</string>
     <string name="palette_replace">Replace with current</string>
     <string name="palette_eyedrop">Pick from canvas</string>
     <string name="palette_delete">Delete swatch</string>

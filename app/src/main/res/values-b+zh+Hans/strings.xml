@@ -25,6 +25,11 @@
     <string name="studio_delete_body">这张画和它的撤销历史将从此设备移除。</string>
     <string name="studio_delete_gallery_too">同时删除相册里的副本</string>
     <string name="studio_deleted">已删除</string>
+    <string name="studio_delete_failed">无法删除</string>
+    <string name="studio_create_failed">无法创建画作</string>
+    <string name="studio_share_failed">无法分享</string>
+    <string name="studio_duplicate_failed">无法复制画作</string>
+    <string name="studio_rename_failed">无法重命名</string>
     <string name="studio_copy_suffix">" 副本"</string>
     <string name="share_as_png">以 PNG 分享</string>
     <string name="share_as_jpeg">以 JPEG 分享</string>
@@ -140,6 +145,7 @@
     <string name="palette_recent_dismiss">关闭最近使用的颜色</string>
     <string name="palette_my">我的调色板</string>
     <string name="palette_create">新建调色板</string>
+    <string name="palette_name_taken">已有同名调色板</string>
     <string name="palette_replace">替换为当前颜色</string>
     <string name="palette_eyedrop">从画布取色</string>
     <string name="palette_delete">删除色样</string>

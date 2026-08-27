@@ -2060,6 +2060,7 @@ class CanvasViewModel @Inject constructor(
 
     private fun accountRedoBytes(seq: Long, redoBytes: Long) {
         val j = journal ?: return
+        // Accounting can now prune and move the main-thread-confined cursor.
         pendingDeletes += j.noteRedoBytes(seq, redoBytes)
         document = document?.copy(historyCursor = j.cursor)
     }

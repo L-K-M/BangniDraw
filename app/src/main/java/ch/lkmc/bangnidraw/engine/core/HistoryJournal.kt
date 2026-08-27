@@ -118,9 +118,9 @@ class HistoryJournal(
     /**
      * The store wrote `<seq>.redo`: its size joins the entry's byte count, so
      * the prune-by-bytes cap sees what the journal actually costs on disk
-     * (§5.1, §5.4). Unknown seqs are ignored — the sidecar may land after its
-     * entry was truncated by a concurrent push. Returns entries pruned by the
-     * updated total so their files can follow the checkpoint-safe deletion
+     * (§5.1, §5.4). Unknown seqs are ignored — a newer edit may truncate the
+     * entry while its sidecar write is in flight. Returns entries pruned by
+     * the updated total so their files can follow the checkpoint-safe deletion
      * path.
      */
     fun noteRedoBytes(seq: Long, redoBytes: Long): List<Long> {

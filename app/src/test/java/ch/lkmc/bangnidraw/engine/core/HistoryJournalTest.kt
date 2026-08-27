@@ -174,7 +174,7 @@ class HistoryJournalTest {
         j.push(entry(2, bytes = 20))
         j.push(entry(3, bytes = 20))
         j.undo()
-        j.noteRedoBytes(3, 10)
+        assertEquals(emptyList(), j.noteRedoBytes(3, 10))
         j.undo()
 
         val pruned = j.noteRedoBytes(2, 100)
@@ -184,6 +184,23 @@ class HistoryJournalTest {
         assertEquals(120L, j.bytes)
         assertEquals(0, j.cursor)
         assertEquals(2L, j.redo()?.seq)
+    }
+
+    @Test
+    fun `sidecar accounting prunes when its entry is applied`() {
+        val j = journal(maxBytes = 100L)
+        j.push(entry(1, bytes = 30))
+        j.push(entry(2, bytes = 30))
+        j.undo()
+        j.redo()
+
+        val pruned = j.noteRedoBytes(2, 50)
+
+        assertEquals(listOf(1L), pruned)
+        assertEquals(listOf(2L), j.entries.map { it.seq })
+        assertEquals(80L, j.bytes)
+        assertEquals(1, j.cursor)
+        assertEquals(2L, j.undo()?.seq)
     }
 
     @Test

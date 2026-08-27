@@ -228,6 +228,8 @@ class CanvasViewModel @Inject constructor(
             val fillProgress: Float? = null,
             /** True while the leave checkpoint runs; the closing scrim shows. */
             val closing: Boolean = false,
+            /** Bumped when a leave fails; the screen toasts once per bump. */
+            val leaveNoticeRevision: Long = 0L,
         ) : UiState
     }
 
@@ -359,6 +361,9 @@ class CanvasViewModel @Inject constructor(
     private var lastSyncedRevision = 0
 
     private var gallerySyncJob: Job? = null
+
+    /** One leave at a time: the guard lets a failed leave retry. */
+    private var leaveJob: Job? = null
 
     /** When the document first differed from disk — the ceiling clock's anchor. */
     @Volatile
@@ -2111,13 +2116,15 @@ class CanvasViewModel @Inject constructor(
      * scrim: shown only if the flush takes longer than 300 ms.
      */
     fun leave(afterWrite: () -> Unit) {
+        if (leaveJob?.isActive == true) return
         setClosing(true)
-        appScope.launch {
+        leaveJob = appScope.launch {
             // The app scope has no exception handler: an uncaught failure
             // here would crash the process on its way out the door. A failed
-            // flush keeps the canvas open — logged, not fatal — and only a
-            // successful handoff to navigation leaves the scrim up (it covers
-            // the exit transition).
+            // flush keeps the canvas open — logged and tosted, not fatal —
+            // and only a successful handoff to navigation keeps the scrim up
+            // (it covers the exit transition); a swallowed navigation gets a
+            // grace-period reset instead of a stranded scrim.
             var handedOff = false
             try {
                 withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
@@ -2126,9 +2133,29 @@ class CanvasViewModel @Inject constructor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                android.util.Log.e(TAG, "leave checkpoint failed; canvas stays open", e)
+                android.util.Log.e(TAG, "leave failed; canvas stays open", e)
+                withContext(Dispatchers.Main) { noteLeaveFailure() }
             } finally {
-                if (!handedOff) setClosing(false)
+                if (!handedOff) {
+                    setClosing(false)
+                } else {
+                    // If navigation was swallowed (a cancelled predictive-back
+                    // gesture, an uncollected event), lift the scrim rather
+                    // than stranding it. Harmless when navigation succeeded:
+                    // the cleared ViewModel has no observers left.
+                    delay(LEAVE_HANDOFF_GRACE_MS)
+                    setClosing(false)
+                }
+            }
+        }
+    }
+
+    private fun noteLeaveFailure() {
+        _uiState.update { state ->
+            if (state is UiState.Ready) {
+                state.copy(leaveNoticeRevision = state.leaveNoticeRevision + 1)
+            } else {
+                state
             }
         }
     }
@@ -2370,6 +2397,9 @@ class CanvasViewModel @Inject constructor(
 
         /** ≥ [ch.lkmc.bangnidraw.engine.gl.Readback]'s 1 s fence timeout. */
         const val READBACK_WAIT_MS = 2_000L
+
+        /** Well past the ~300 ms exit transition; lifts a stranded scrim. */
+        const val LEAVE_HANDOFF_GRACE_MS = 3_000L
 
         const val READY_WAIT_MS = 5_000L
 

@@ -20,6 +20,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,6 +69,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
@@ -213,6 +215,7 @@ private fun CanvasContent(
     val context = LocalContext.current
     CanvasImmersiveEffect()
     var seenStrokeNotice by remember { mutableLongStateOf(state.strokeLayerNoticeRevision) }
+    var seenLeaveNotice by remember { mutableLongStateOf(state.leaveNoticeRevision) }
 
     fun updateView(next: ViewTransform) {
         view = next
@@ -221,6 +224,12 @@ private fun CanvasContent(
     // 06 §4's one honest toast per open, when something could not be read.
     LaunchedEffect(state.warning) {
         state.warning?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+    }
+    // A failed leave keeps the canvas open; say so once per failure.
+    LaunchedEffect(state.leaveNoticeRevision) {
+        if (state.leaveNoticeRevision == seenLeaveNotice) return@LaunchedEffect
+        seenLeaveNotice = state.leaveNoticeRevision
+        Toast.makeText(context, R.string.err_leave_failed, Toast.LENGTH_LONG).show()
     }
     LaunchedEffect(state.strokeLayerNoticeRevision) {
         if (state.strokeLayerNoticeRevision == seenStrokeNotice) return@LaunchedEffect
@@ -1105,6 +1114,9 @@ private fun CanvasContent(
                     color = MaterialTheme.colorScheme.scrim.copy(alpha = CLOSING_SCRIM_ALPHA),
                     modifier = Modifier
                         .fillMaxSize()
+                        // The scrim is the front-most hit node while visible:
+                        // chrome and canvas must not take input mid-flush.
+                        .pointerInput(Unit) { detectTapGestures { } }
                         .zIndex(CLOSING_SCRIM_Z),
                 ) {
                     Column(
@@ -1116,7 +1128,9 @@ private fun CanvasContent(
                         Text(
                             text = stringResource(R.string.canvas_closing),
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(top = 12.dp),
+                            modifier = Modifier
+                                .padding(top = 12.dp)
+                                .semantics { liveRegion = LiveRegionMode.Polite },
                         )
                     }
                 }

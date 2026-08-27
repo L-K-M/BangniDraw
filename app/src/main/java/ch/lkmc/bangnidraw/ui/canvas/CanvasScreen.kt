@@ -112,6 +112,7 @@ import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TemporaryReason
 import ch.lkmc.bangnidraw.engine.core.ToolKind
+import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.core.WidthClass
@@ -282,7 +283,7 @@ private fun CanvasContent(
                 }
                 override fun onColorPick(x: Float, y: Float) {
                     val engine = session ?: return
-                    engine.sampleColor(x, y, EyedropperParams()) { color ->
+                    engine.sampleColor(x, y, viewModel.currentEyedropperParams()) { color ->
                         color?.let(viewModel::selectBrushColor)
                     }
                 }
@@ -886,8 +887,8 @@ private fun CanvasContent(
                 onFillSettingsRequested = {
                     viewModel.togglePanel(CanvasPanel.FILL_SETTINGS)
                 },
-                onSizeChanged = viewModel::updateBrushSize,
-                onOpacityChanged = viewModel::updateBrushOpacity,
+                onSizeChanged = viewModel::updateActiveToolSize,
+                onOpacityChanged = viewModel::updateActiveToolOpacity,
                 onTuningFinished = viewModel::persistBrushTuning,
                 )
             }
@@ -1062,7 +1063,7 @@ private fun CanvasContent(
             PanelHost(
                 layout = layout,
                 windowWidth = windowWidth,
-                announcement = panelAnnouncement(panel),
+                announcement = panelAnnouncement(panel, state.toolSelection.kind),
                 visibility = if (panel == null) {
                     PanelVisibility.HIDDEN
                 } else {
@@ -1080,7 +1081,7 @@ private fun CanvasContent(
                 )
             }
 
-            val ledgePreset = (state.toolSelection.kind as? ToolKind.Brush)?.preset
+            val ledgePreset = ToolSliderPreset.forKind(state.toolSelection.kind)
             if (ledgePreset != null) {
                 val ledgeModifier = when (layout.railMode) {
                     RailMode.DOCK -> Modifier
@@ -1109,8 +1110,8 @@ private fun CanvasContent(
                         layout = layout,
                         preset = ledgePreset,
                         hapticsMode = state.hapticsMode,
-                        onSizeChanged = viewModel::updateBrushSize,
-                        onOpacityChanged = viewModel::updateBrushOpacity,
+                        onSizeChanged = viewModel::updateActiveToolSize,
+                        onOpacityChanged = viewModel::updateActiveToolOpacity,
                         onTuningFinished = viewModel::persistBrushTuning,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1209,10 +1210,9 @@ private fun CanvasPanelContent(
             onTextInputFocus = onTextInputFocus,
             hapticsMode = state.hapticsMode,
         )
-        CanvasPanel.BRUSH_SETTINGS -> {
-            val preset = (state.toolSelection.kind as? ToolKind.Brush)?.preset ?: return
-            BrushSettingsSheet(
-                active = preset,
+        CanvasPanel.BRUSH_SETTINGS -> when (val kind = state.toolSelection.kind) {
+            is ToolKind.Brush -> BrushSettingsSheet(
+                active = kind.preset,
                 presets = state.brushPresets,
                 brushColor = state.color.current,
                 paperColor = state.paperColor,
@@ -1222,6 +1222,22 @@ private fun CanvasPanelContent(
                 onPresetChanged = viewModel::updateActiveBrush,
                 onPresetPersisted = viewModel::persistActiveBrush,
                 onReset = viewModel::resetActiveBrush,
+            )
+            is ToolKind.Smudge -> SmudgeSettingsSheet(
+                active = kind.params,
+                onChanged = viewModel::updateSmudgeParams,
+            )
+            is ToolKind.Blur -> BlurSettingsSheet(
+                active = kind.params,
+                onChanged = viewModel::updateBlurParams,
+            )
+            is ToolKind.Eyedropper -> EyedropperSettingsSheet(
+                active = kind.params,
+                onChanged = viewModel::updateEyedropperParams,
+            )
+            is ToolKind.Fill -> FillSettingsSheet(
+                active = state.fillParams,
+                onChanged = viewModel::updateFillParams,
             )
         }
         CanvasPanel.FILL_SETTINGS -> FillSettingsSheet(
@@ -1233,10 +1249,16 @@ private fun CanvasPanelContent(
 }
 
 @Composable
-private fun panelAnnouncement(panel: CanvasPanel?): String = when (panel) {
+private fun panelAnnouncement(panel: CanvasPanel?, kind: ToolKind? = null): String = when (panel) {
     CanvasPanel.LAYERS -> stringResource(R.string.panel_layers_opened)
     CanvasPanel.COLOR -> stringResource(R.string.panel_color_opened)
-    CanvasPanel.BRUSH_SETTINGS -> stringResource(R.string.panel_brush_opened)
+    CanvasPanel.BRUSH_SETTINGS -> when (kind) {
+        is ToolKind.Smudge -> stringResource(R.string.panel_smudge_opened)
+        is ToolKind.Blur -> stringResource(R.string.panel_blur_opened)
+        is ToolKind.Eyedropper -> stringResource(R.string.panel_eyedropper_opened)
+        is ToolKind.Fill -> stringResource(R.string.panel_fill_opened)
+        else -> stringResource(R.string.panel_brush_opened)
+    }
     CanvasPanel.FILL_SETTINGS -> stringResource(R.string.panel_fill_opened)
     CanvasPanel.OVERFLOW, null -> ""
 }

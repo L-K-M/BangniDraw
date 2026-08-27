@@ -76,6 +76,9 @@
     <string name="panel_color_opened">Color panel opened</string>
     <string name="panel_brush_opened">Brush settings opened</string>
     <string name="panel_fill_opened">Fill settings opened</string>
+    <string name="panel_smudge_opened">Smudge settings opened</string>
+    <string name="panel_blur_opened">Blur settings opened</string>
+    <string name="panel_eyedropper_opened">Eyedropper settings opened</string>
     <string name="canvas_undo">Undo</string>
     <string name="canvas_redo">Redo</string>
     <string name="canvas_more">More actions</string>
@@ -180,6 +183,7 @@
     <string name="brush_jitter_position">Position jitter</string>
     <string name="brush_stabilizer">Stabilizer</string>
     <string name="brush_group_paint">Paint</string>
+    <string name="brush_group_mixing">Mixing</string>
     <string name="brush_pigment">Pigment mixing</string>
     <string name="brush_dilution">Dilution</string>
     <string name="brush_grain">Paper grain</string>
@@ -187,6 +191,12 @@
     <string name="brush_buffer_max">Capped</string>
     <string name="brush_buffer_accumulate">Builds up</string>
     <string name="brush_reset">Reset to preset</string>
+    <string name="smudge_strength">Strength</string>
+    <string name="smudge_pickup">Pickup</string>
+    <string name="smudge_pressure_strength">Pressure → strength</string>
+    <string name="blur_radius">Radius</string>
+    <string name="eyedropper_sample">Sample</string>
+    <string name="eyedropper_radius">Sample radius</string>
     <string name="brush_value_px">%1$.1f px</string>
     <string name="brush_value_percent">%1$.0f%%</string>
     <string name="brush_value_number">%1$.2f</string>

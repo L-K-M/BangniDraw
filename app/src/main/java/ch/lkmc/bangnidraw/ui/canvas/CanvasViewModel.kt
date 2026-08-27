@@ -52,6 +52,7 @@ import ch.lkmc.bangnidraw.engine.core.ColorUiState
 import ch.lkmc.bangnidraw.engine.core.DishState
 import ch.lkmc.bangnidraw.engine.core.DishWell
 import ch.lkmc.bangnidraw.engine.core.Document
+import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
 import ch.lkmc.bangnidraw.engine.core.FillParams
 import ch.lkmc.bangnidraw.engine.core.FloodFill
@@ -86,8 +87,10 @@ import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.PixelHistoryEntry
 import ch.lkmc.bangnidraw.engine.core.PixelCommitKind
 import ch.lkmc.bangnidraw.engine.core.Refusal
+import ch.lkmc.bangnidraw.engine.core.BlurParams
 import ch.lkmc.bangnidraw.engine.core.RmwSpec
 import ch.lkmc.bangnidraw.engine.core.RmwStrokePolicy
+import ch.lkmc.bangnidraw.engine.core.SmudgeParams
 import ch.lkmc.bangnidraw.engine.core.SizeAdjustment
 import ch.lkmc.bangnidraw.engine.core.StackEdit
 import ch.lkmc.bangnidraw.engine.core.StackResult
@@ -270,6 +273,12 @@ class CanvasViewModel @Inject constructor(
     )
     private var hoverPointer: PointerTool? = null
     private var fillParams = FillParams()
+
+    /** Session-local tool parameters; the settings sheets edit these live. */
+    private var smudgeParams = SmudgeParams()
+    private var blurParams = BlurParams()
+    private var eyedropperParams = EyedropperParams()
+
     private var fillPhase = FillPhase.IDLE
     @Volatile private var fillGeneration = 0L
     @Volatile private var fillProgressValue = 0f
@@ -802,13 +811,13 @@ class CanvasViewModel @Inject constructor(
 
     fun selectSmudge() {
         clearColorPick()
-        toolSwitcher.select(ToolKind.Smudge())
+        toolSwitcher.select(ToolKind.Smudge(smudgeParams))
         updateToolUi()
     }
 
     fun selectBlur() {
         clearColorPick()
-        toolSwitcher.select(ToolKind.Blur())
+        toolSwitcher.select(ToolKind.Blur(blurParams))
         updateToolUi()
     }
 
@@ -826,9 +835,44 @@ class CanvasViewModel @Inject constructor(
         updateToolUi()
     }
 
+    internal fun updateSmudgeParams(params: SmudgeParams) {
+        smudgeParams = params
+        if (toolSwitcher.selection.value.kind is ToolKind.Smudge) {
+            toolSwitcher.select(ToolKind.Smudge(params))
+        }
+        updateToolUi()
+    }
+
+    internal fun updateBlurParams(params: BlurParams) {
+        blurParams = params
+        if (toolSwitcher.selection.value.kind is ToolKind.Blur) {
+            toolSwitcher.select(ToolKind.Blur(params))
+        }
+        updateToolUi()
+    }
+
+    internal fun updateEyedropperParams(params: EyedropperParams) {
+        eyedropperParams = params
+        val selection = toolSwitcher.selection.value
+        if (selection.kind is ToolKind.Eyedropper) {
+            val reason = selection.temporaryReason
+            if (reason == null) {
+                toolSwitcher.select(ToolKind.Eyedropper(params))
+            } else {
+                toolSwitcher.pushTemporary(ToolKind.Eyedropper(params), reason)
+            }
+        }
+        updateToolUi()
+    }
+
+    /** The parameters the next eyedropper stroke samples with. */
+    internal fun currentEyedropperParams(): EyedropperParams = eyedropperParams
+
     fun selectEyedropper() {
         clearColorPick()
         colorPickSession = newColorPick(ColorPickTarget.Current)
+        // The tool itself is selected in selectEyedropperTool, which carries
+        // the session's eyedropperParams — not the defaults.
         selectEyedropperTool()
     }
 
@@ -859,7 +903,7 @@ class CanvasViewModel @Inject constructor(
     internal fun beginKeyboardEyedropper() {
         clearColorPick()
         colorPickSession = newColorPick(ColorPickTarget.Current)
-        toolSwitcher.pushTemporary(ToolKind.Eyedropper(), TemporaryReason.Keyboard)
+        toolSwitcher.pushTemporary(ToolKind.Eyedropper(eyedropperParams), TemporaryReason.Keyboard)
         updateToolUi()
     }
 
@@ -880,7 +924,7 @@ class CanvasViewModel @Inject constructor(
         // top entry before Rail so hover exit cannot release out of order.
         hoverPointer = null
         toolSwitcher.popTemporary(TemporaryReason.Hover)
-        toolSwitcher.pushTemporary(ToolKind.Eyedropper(), TemporaryReason.Rail)
+        toolSwitcher.pushTemporary(ToolKind.Eyedropper(eyedropperParams), TemporaryReason.Rail)
         updateToolUi()
     }
 
@@ -1164,23 +1208,68 @@ class CanvasViewModel @Inject constructor(
     internal fun rmwSpec(kind: ToolKind): RmwSpec? =
         RmwStrokePolicy.spec(kind, activeColorMixer)
 
-    /** Rail tuning is session state; the settings sheet persists explicitly. */
-    fun updateBrushSize(value: Float) = updateActiveBrush { it.withSize(value) }
+    /**
+     * The rail and ledge sliders (`08` §3.2): they edit the *active tool*,
+     * whichever kind it is. Rail tuning is session state; the brush settings
+     * sheet persists explicitly, and RMW parameters are session-only like
+     * [fillParams]. The size for an RMW tool is raw px within its own
+     * sizeMin..sizeMax — the slider maps it through [BrushSizeScale].
+     */
+    fun updateActiveToolSize(value: Float) {
+        when (val kind = toolSwitcher.selection.value.kind) {
+            is ToolKind.Brush -> updateActiveBrush { it.withSize(value) }
+            is ToolKind.Smudge -> updateSmudgeParams(kind.params.copy(size = value))
+            is ToolKind.Blur -> updateBlurParams(kind.params.copy(size = value))
+            is ToolKind.Fill, is ToolKind.Eyedropper -> Unit
+        }
+    }
 
-    fun updateBrushOpacity(value: Float) = updateActiveBrush { it.withOpacity(value) }
+    fun updateActiveToolOpacity(value: Float) {
+        when (val kind = toolSwitcher.selection.value.kind) {
+            is ToolKind.Brush -> updateActiveBrush { it.withOpacity(value) }
+            is ToolKind.Smudge -> updateSmudgeParams(kind.params.copy(strength = value))
+            is ToolKind.Blur -> updateBlurParams(kind.params.copy(strength = value))
+            is ToolKind.Fill, is ToolKind.Eyedropper -> Unit
+        }
+    }
 
     internal fun adjustBrushSize(adjustment: SizeAdjustment) {
-        updateActiveBrush { preset ->
-            preset.withSize(
-                BrushSizeScale.adjust(
-                    preset.size,
-                    preset.sizeMin,
-                    preset.sizeMax,
-                    adjustment,
+        when (val kind = toolSwitcher.selection.value.kind) {
+            is ToolKind.Brush -> {
+                updateActiveBrush { preset ->
+                    preset.withSize(
+                        BrushSizeScale.adjust(
+                            preset.size,
+                            preset.sizeMin,
+                            preset.sizeMax,
+                            adjustment,
+                        ),
+                    )
+                }
+                persistBrushTuning()
+            }
+            is ToolKind.Smudge -> updateSmudgeParams(
+                kind.params.copy(
+                    size = BrushSizeScale.adjust(
+                        kind.params.size,
+                        kind.params.sizeMin,
+                        kind.params.sizeMax,
+                        adjustment,
+                    ),
                 ),
             )
+            is ToolKind.Blur -> updateBlurParams(
+                kind.params.copy(
+                    size = BrushSizeScale.adjust(
+                        kind.params.size,
+                        kind.params.sizeMin,
+                        kind.params.sizeMax,
+                        adjustment,
+                    ),
+                ),
+            )
+            is ToolKind.Fill, is ToolKind.Eyedropper -> Unit
         }
-        persistBrushTuning()
     }
 
     internal fun updateActiveBrush(updated: BrushPreset) {

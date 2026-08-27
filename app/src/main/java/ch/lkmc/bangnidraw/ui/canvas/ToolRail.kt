@@ -61,6 +61,7 @@ import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.ToolKind
+import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.ToolButtonEmphasis
 import ch.lkmc.bangnidraw.engine.core.ToolSelection
 import ch.lkmc.bangnidraw.ui.theme.LocalThemeTone
@@ -89,7 +90,7 @@ internal fun ToolRail(
 ) {
     val view = LocalView.current
     val paints = BrushPresets.railOrder(presets).filterNot(BrushPreset::eraseMode)
-    val activeBrush = (selection.kind as? ToolKind.Brush)?.preset
+    val sliderPreset = ToolSliderPreset.forKind(selection.kind)
     val currentPaint = paints.firstOrNull { it.id == paintBrushId } ?: paints.firstOrNull()
     val eraser = presets.firstOrNull { it.id == eraserBrushId && it.eraseMode }
         ?: presets.firstOrNull { it.eraseMode }
@@ -154,9 +155,9 @@ internal fun ToolRail(
                 gap = if (layout.railMode == RailMode.SHORT) 0.dp else TOOL_GAP,
             )
 
-            if (activeBrush != null && layout.sliderLengthDp > 0) {
+            if (sliderPreset != null && layout.sliderLengthDp > 0) {
                 BrushSliders(
-                    preset = activeBrush,
+                    preset = sliderPreset,
                     length = layout.sliderLengthDp.dp,
                     view = view,
                     hapticsMode = hapticsMode,
@@ -319,6 +320,7 @@ private fun fullSlots(
             onBlurSelected,
             onFillSelected,
             onEyedropperSelected,
+            onSettingsRequested,
             onFillSettingsRequested,
         )
     return result
@@ -369,6 +371,7 @@ private fun groupedSlots(
             onBlurSelected,
             onFillSelected,
             onEyedropperSelected,
+            onSettingsRequested,
             onFillSettingsRequested,
         )
     return result
@@ -413,6 +416,7 @@ private fun secondarySlots(
     onBlurSelected: () -> Unit,
     onFillSelected: () -> Unit,
     onEyedropperSelected: () -> Unit,
+    onSettingsRequested: () -> Unit,
     onFillSettingsRequested: () -> Unit,
 ): List<ToolSlot> {
     val smudgeActive = selection.kind is ToolKind.Smudge
@@ -427,7 +431,7 @@ private fun secondarySlots(
                 if (smudgeActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
                 selection,
             ),
-        ) { if (!smudgeActive) switch(view, hapticsMode, onSmudgeSelected) },
+        ) { if (smudgeActive) onSettingsRequested() else switch(view, hapticsMode, onSmudgeSelected) },
         ToolSlot(
             Icons.Filled.BlurOn,
             { stringResource(R.string.tool_blur) },
@@ -435,7 +439,7 @@ private fun secondarySlots(
                 if (blurActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
                 selection,
             ),
-        ) { if (!blurActive) switch(view, hapticsMode, onBlurSelected) },
+        ) { if (blurActive) onSettingsRequested() else switch(view, hapticsMode, onBlurSelected) },
         ToolSlot(
             Icons.Filled.FormatColorFill,
             { stringResource(R.string.tool_fill) },
@@ -454,7 +458,7 @@ private fun secondarySlots(
                 if (eyedropperActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
                 selection,
             ),
-        ) { if (!eyedropperActive) switch(view, hapticsMode, onEyedropperSelected) },
+        ) { if (eyedropperActive) onSettingsRequested() else switch(view, hapticsMode, onEyedropperSelected) },
     )
 }
 

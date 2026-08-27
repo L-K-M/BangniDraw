@@ -10,8 +10,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -64,6 +66,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.data.ImageEncode
+import ch.lkmc.bangnidraw.engine.core.Hand
+import ch.lkmc.bangnidraw.engine.core.LayoutSpec
+import ch.lkmc.bangnidraw.engine.core.WidthClass
 
 /**
  * The Studio: the shelf of paintings, newest first, and the way to start a
@@ -72,10 +77,9 @@ import ch.lkmc.bangnidraw.data.ImageEncode
  * confirm, rename, and — since step 4 — duplicate; share stays a stub until
  * ShareCache lands), the storage readout, and the New Canvas dialog.
  *
- * Two 08 §2 refinements deliberately wait: the width-class `gridMinCell`
- * table (one adaptive minimum serves every class until `LayoutSpec` lands
- * with the panels in step 6+) and the "+ as first tile" on wide screens (the
- * FAB opens the same dialog everywhere).
+ * The same [LayoutSpec] that places Canvas chrome supplies the shelf's
+ * adaptive cell width. Wide windows put New first in reading order; compact
+ * windows keep it thumb-reachable as a FAB.
  */
 @Composable
 fun StudioScreen(
@@ -96,18 +100,25 @@ fun StudioScreen(
         onPauseOrDispose { }
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { showNewCanvas = true },
-                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text(stringResource(R.string.studio_new)) },
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-        },
-    ) { padding ->
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val widthClass = WidthClass.forWidth(maxWidth.value.toInt())
+        val layout = LayoutSpec.forWindow(widthClass, maxHeight.value.toInt(), Hand.RIGHT)
+        val compact = widthClass == WidthClass.COMPACT
+
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            floatingActionButton = {
+                if (compact) {
+                    ExtendedFloatingActionButton(
+                        onClick = { showNewCanvas = true },
+                        icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                        text = { Text(stringResource(R.string.studio_new)) },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            },
+        ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -148,7 +159,7 @@ fun StudioScreen(
                 )
             }
             Spacer(Modifier.height(16.dp))
-            if (state.loaded && state.paintings.isEmpty()) {
+            if (compact && state.loaded && state.paintings.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -174,11 +185,16 @@ fun StudioScreen(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(GRID_MIN_CELL_DP.dp),
+                    columns = GridCells.Adaptive(layout.gridMinCellDp.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(bottom = 96.dp),
                 ) {
+                    if (!compact) {
+                        item(key = NEW_PAINTING_KEY) {
+                            NewPaintingCell { showNewCanvas = true }
+                        }
+                    }
                     items(state.paintings, key = { it.id }) { painting ->
                         PaintingCell(
                             painting = painting,
@@ -218,6 +234,7 @@ fun StudioScreen(
                 }
             }
         }
+        }
     }
 
     if (showNewCanvas) {
@@ -253,6 +270,37 @@ fun StudioScreen(
     }
 }
 
+@Composable
+private fun NewPaintingCell(onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(PAINTING_ASPECT)
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline,
+                    shape = RoundedCornerShape(CELL_RADIUS_DP.dp),
+                ),
+        ) {
+            Icon(
+                Icons.Filled.Add,
+                contentDescription = stringResource(R.string.studio_new),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Text(
+            text = stringResource(R.string.studio_new),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
 /**
  * One shelf tile: thumbnail in a 4:3 box, title, relative time; the hold
  * menu hangs off a long press (08 §2).
@@ -278,13 +326,16 @@ private fun PaintingCell(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(4f / 3f)
+                .aspectRatio(PAINTING_ASPECT)
                 .border(
                     1.dp,
                     MaterialTheme.colorScheme.outlineVariant,
-                    RoundedCornerShape(4.dp),
+                    RoundedCornerShape(CELL_RADIUS_DP.dp),
                 )
-                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp))
+                .background(
+                    MaterialTheme.colorScheme.surface,
+                    RoundedCornerShape(CELL_RADIUS_DP.dp),
+                )
                 .combinedClickable(
                     onClick = onOpen,
                     onLongClick = {
@@ -460,8 +511,6 @@ private fun PaintingCell(
     }
 }
 
-/**
- * 08 §2 names 150/180/220 dp per width class; one adaptive minimum stands in
- * until the width-class `LayoutSpec` lands (see the screen KDoc).
- */
-private const val GRID_MIN_CELL_DP = 150
+private const val NEW_PAINTING_KEY = "new-painting"
+private const val PAINTING_ASPECT = 4f / 3f
+private const val CELL_RADIUS_DP = 4

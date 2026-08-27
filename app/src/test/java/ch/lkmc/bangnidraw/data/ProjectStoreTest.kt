@@ -475,6 +475,33 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun `active duplicate stage survives listing from another store`() {
+        store.checkpoint(document(id = "src"))
+        TileStore(store.layerDir("src", LayerId("layer-b")))
+            .write(TileKey(0, 0), ByteArray(TILE_BYTES) { 7 })
+        var listed = false
+        val listingStore = ProjectStore(
+            root,
+            DuplicateFileWriter { source, target ->
+                if (!listed) {
+                    listed = true
+                    val stage = root.listFiles().orEmpty().single {
+                        it.name.endsWith(ProjectStore.DUPLICATING_SUFFIX)
+                    }
+                    store.list()
+                    assertTrue(stage.exists(), "another store must spare an active stage")
+                }
+                source.copyTo(target)
+            },
+        )
+
+        val newId = listingStore.duplicate("src", { "$it copy" })
+
+        kotlin.test.assertNotNull(newId)
+        assertIs<ProjectStore.LoadResult.Loaded>(listingStore.load(newId))
+    }
+
+    @Test
     fun `delete removes the folder and nothing else`() {
         store.checkpoint(document(id = "keep"))
         store.checkpoint(document(id = "kill"))

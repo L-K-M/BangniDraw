@@ -37,8 +37,6 @@ class ProjectStore internal constructor(
 
     constructor(root: File) : this(root, DEFAULT_DUPLICATE_FILE_WRITER)
 
-    private val activeDuplicateStages = ConcurrentHashMap.newKeySet<String>()
-
     internal sealed interface LoadResult {
         /**
          * The document opened. [unreadableLayers] counts layer records the
@@ -587,6 +585,9 @@ class ProjectStore internal constructor(
     }
 
     internal companion object {
+        // Every store instance must spare a duplicate another instance owns.
+        private val activeDuplicateStages = ConcurrentHashMap.newKeySet<String>()
+
         const val TAG = "ProjectStore"
         const val LAYERS_DIR = "layers"
         const val THUMB_NAME = "thumb.png"

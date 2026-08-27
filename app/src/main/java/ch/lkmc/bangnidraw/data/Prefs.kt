@@ -8,8 +8,11 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
+import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
+import ch.lkmc.bangnidraw.engine.core.PigmentAvailability
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -84,6 +87,14 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         dataStore.edit { it[KEY_ERASER_END_PRESET] = id }
     }
 
+    val mixerChoice: Flow<MixerChoice> =
+        dataStore.data.map { MixerChoice.fromStored(it[KEY_MIXER], pigmentAvailability) }
+
+    suspend fun setMixerChoice(choice: MixerChoice) {
+        val stored = MixerChoice.fromStored(choice.name, pigmentAvailability)
+        dataStore.edit { it[KEY_MIXER] = stored.name }
+    }
+
     /** Rail size/opacity live outside preset JSON (`04-tools.md` §5.1). */
     internal suspend fun brushTunings(ids: Iterable<String>): Map<String, BrushTuning> {
         val snapshot = dataStore.data.first()
@@ -110,6 +121,9 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
 
     private fun opacityKey(id: String) = floatPreferencesKey("brushOpacity.$id")
 
+    private val pigmentAvailability: PigmentAvailability
+        get() = if (BuildConfig.MIXBOX) PigmentAvailability.AVAILABLE else PigmentAvailability.ABSENT
+
     private companion object {
         const val STORE_NAME = "bangni"
         val KEY_NEXT_SKETCH = intPreferencesKey("nextSketchNumber")
@@ -117,5 +131,6 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         val KEY_DEBUG_LATENCY = booleanPreferencesKey("debugLatency")
         val KEY_PEN_BUTTON_ACTION = stringPreferencesKey("penButtonAction")
         val KEY_ERASER_END_PRESET = stringPreferencesKey("eraserEndPreset")
+        val KEY_MIXER = stringPreferencesKey("mixer")
     }
 }

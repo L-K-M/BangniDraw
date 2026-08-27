@@ -6,6 +6,10 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+val mixboxEnabled = providers.gradleProperty("bangnidraw.mixbox")
+    .map(String::toBooleanStrict)
+    .getOrElse(true)
+
 android {
     namespace = "ch.lkmc.bangnidraw"
     compileSdkVersion("android-37.0")
@@ -20,6 +24,8 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("boolean", "MIXBOX", mixboxEnabled.toString())
+        resValue("bool", "mixbox_enabled", mixboxEnabled.toString())
     }
 
     signingConfigs {
@@ -60,10 +66,21 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+
+    sourceSets {
+        getByName("main") {
+            kotlin.srcDir(if (mixboxEnabled) "src/mixbox/java" else "src/nomixbox/java")
+            if (mixboxEnabled) assets.srcDir("src/mixbox/assets")
+        }
+        if (mixboxEnabled) {
+            getByName("test").kotlin.srcDir("src/testMixbox/java")
+        }
     }
 }
 
@@ -106,7 +123,7 @@ dependencies {
     implementation(libs.androidx.graphics.core)
     implementation(libs.androidx.input.motionprediction)
     // CC BY-NC 4.0 — ADR 0003. The app is non-commercial as distributed.
-    implementation(libs.mixbox)
+    if (mixboxEnabled) implementation(libs.mixbox)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)

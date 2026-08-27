@@ -1,6 +1,9 @@
 package ch.lkmc.bangnidraw.data
 
 import android.content.Context
+import ch.lkmc.bangnidraw.engine.core.ColorMixer
+import ch.lkmc.bangnidraw.engine.core.RgbMixer
+import ch.lkmc.bangnidraw.engine.mixbox.MixboxBinding
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -43,6 +46,10 @@ object DataModule {
             root = File(context.filesDir, BRUSH_PRESET_DIRECTORY),
             assets = AndroidBrushPresetAssets(context.assets),
         )
+
+    @Provides
+    @Singleton
+    fun provideAvailableColorMixer(): ColorMixer = MixboxBinding.create() ?: RgbMixer
 
     @Provides
     @Singleton

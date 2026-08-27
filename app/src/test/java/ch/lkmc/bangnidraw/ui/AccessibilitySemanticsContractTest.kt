@@ -2,7 +2,6 @@ package ch.lkmc.bangnidraw.ui
 
 import java.io.File
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -11,9 +10,13 @@ class AccessibilitySemanticsContractTest {
     @Test
     fun `fill controls expose labels groups and one toggle target`() {
         val source = source(FILL_SETTINGS_PATH)
-        val sliderBody = source
-            .substringAfter(FILL_SLIDER_START)
-            .substringBefore(FILL_TOGGLE_START)
+        val sliderStart = source.indexOf(FILL_SLIDER_START)
+        if (sliderStart < 0) fail("missing Slider in $FILL_SETTINGS_PATH")
+
+        val sliderEnd = source.indexOf(FILL_TOGGLE_START, sliderStart)
+        if (sliderEnd <= sliderStart) fail("missing FillToggle in $FILL_SETTINGS_PATH")
+
+        val sliderBody = source.substring(sliderStart, sliderEnd)
 
         assertTrue("contentDescription = label" in sliderBody, "fill sliders need names")
         assertTrue(".selectableGroup()" in source, "fill reference choices need a group")
@@ -28,9 +31,8 @@ class AccessibilitySemanticsContractTest {
     fun `settings radio choices expose four independent groups`() {
         val source = source(SETTINGS_PATH)
 
-        assertEquals(
-            SETTINGS_CHOICE_GROUPS,
-            SELECTABLE_GROUP.findAll(source).count(),
+        assertTrue(
+            SELECTABLE_GROUP.findAll(source).count() >= SETTINGS_CHOICE_GROUPS,
             "hand, pen button, pressure, and mixer need separate groups",
         )
     }

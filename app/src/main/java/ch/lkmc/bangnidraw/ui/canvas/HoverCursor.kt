@@ -94,22 +94,21 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCrosshair(cente
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPipette(center: Offset) {
-    val start = Offset(center.x - PIPETTE_HALF_PX, center.y + PIPETTE_HALF_PX)
-    val end = Offset(center.x + PIPETTE_HALF_PX, center.y - PIPETTE_HALF_PX)
-    drawLine(PaperSwatchBlack, start, end, OUTER_STROKE_PX * 2f)
-    drawLine(PaperSwatchWhite, start, end, INNER_STROKE_PX * 2f)
+    // A centered ring plus crosshair: the sample point is exactly the cursor
+    // position, and the tip of a diagonal pipette glyph would sit 8 px off it.
     drawCircle(
         color = PaperSwatchBlack,
-        radius = PIPETTE_TIP_PX,
-        center = end,
+        radius = PIPETTE_RING_PX,
+        center = center,
         style = Stroke(width = OUTER_STROKE_PX),
     )
     drawCircle(
         color = PaperSwatchWhite,
-        radius = PIPETTE_TIP_PX,
-        center = end,
+        radius = PIPETTE_RING_PX,
+        center = center,
         style = Stroke(width = INNER_STROKE_PX),
     )
+    drawCrosshair(center)
 }
 
 private const val OUTER_STROKE_PX = 3f
@@ -117,5 +116,4 @@ private const val INNER_STROKE_PX = 1f
 private const val CROSSHAIR_PX = 3f
 private const val DASH_ON_PX = 6f
 private const val DASH_OFF_PX = 4f
-private const val PIPETTE_HALF_PX = 8f
-private const val PIPETTE_TIP_PX = 4f
+private const val PIPETTE_RING_PX = 6f

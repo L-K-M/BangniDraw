@@ -73,7 +73,9 @@ class StudioViewModel @Inject constructor(
      * evicted bitmaps are simply GC'd (never recycled while displayed).
      */
     private val thumbnailCache = object : LruCache<StudioThumbnailKey, Bitmap>(THUMBNAIL_CACHE_KIB) {
-        override fun sizeOf(key: StudioThumbnailKey, value: Bitmap): Int = value.byteCount / KIB
+        // Rounded up: a sub-KiB bitmap must still count against the budget.
+        override fun sizeOf(key: StudioThumbnailKey, value: Bitmap): Int =
+            (value.byteCount + KIB - 1) / KIB
     }
 
     /** Cache-then-decode, on IO; the shelf cell suspends on this. */
@@ -81,7 +83,9 @@ class StudioViewModel @Inject constructor(
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             thumbnailCache.get(key) ?: key.path?.let { path ->
                 BitmapFactory.decodeFile(path)?.also { bitmap ->
-                    thumbnailCache.put(key, bitmap)
+                    // A decode racing a delete must not resurrect the entry:
+                    // the painting is gone, its pixels have no shelf to serve.
+                    if (File(path).exists()) thumbnailCache.put(key, bitmap)
                 }
             }
         }
@@ -90,7 +94,12 @@ class StudioViewModel @Inject constructor(
     private fun evictThumbnails(id: String) {
         val dir = store.projectDir(id).path
         for (key in thumbnailCache.snapshot().keys) {
-            if (key.path?.startsWith(dir) == true) thumbnailCache.remove(key)
+            val path = key.path ?: continue
+            // Segment boundary: an id that prefixes another painting's id
+            // must not take its neighbour's thumbnails with it.
+            if (path == dir || path.startsWith(dir + File.separator)) {
+                thumbnailCache.remove(key)
+            }
         }
     }
 
@@ -430,8 +439,8 @@ class StudioViewModel @Inject constructor(
     fun delete(id: String, alsoGallery: Boolean, galleryUri: String?, onDone: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             if (alsoGallery && galleryUri != null) exporter.delete(galleryUri)
-            evictThumbnails(id)
             val deleted = store.delete(id)
+            evictThumbnails(id)
             refresh()
             withContext(Dispatchers.Main) { onDone(deleted) }
         }

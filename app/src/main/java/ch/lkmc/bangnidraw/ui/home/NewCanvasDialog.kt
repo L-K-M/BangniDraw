@@ -27,6 +27,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -94,12 +95,18 @@ fun NewCanvasDialog(
     )
     var selected by rememberSaveable { mutableIntStateOf(defaults.presetIndex) }
     // The Custom row starts from the last custom size this device created
-    // (08 §2.1's "remembered"), falling back to the square default.
-    var customW by rememberSaveable(lastCustomSize) {
-        mutableStateOf(lastCustomSize?.width?.toString() ?: DEFAULT_CUSTOM_EDGE)
-    }
-    var customH by rememberSaveable(lastCustomSize) {
-        mutableStateOf(lastCustomSize?.height?.toString() ?: DEFAULT_CUSTOM_EDGE)
+    // (08 §2.1's "remembered"), falling back to the square default. The
+    // remembered size arrives asynchronously, so it syncs only until the
+    // user types: a keystroke is intent and always wins over the pre-fill,
+    // whether the emission lands before it or after.
+    fun prefill(edge: Int?): String = edge?.toString() ?: DEFAULT_CUSTOM_EDGE
+    var customW by rememberSaveable { mutableStateOf(prefill(lastCustomSize?.width)) }
+    var customH by rememberSaveable { mutableStateOf(prefill(lastCustomSize?.height)) }
+    var customEdited by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(lastCustomSize) {
+        if (customEdited) return@LaunchedEffect
+        customW = prefill(lastCustomSize?.width)
+        customH = prefill(lastCustomSize?.height)
     }
     // Keyed on the selection: an override was chosen FOR a preset, so
     // switching presets starts from that preset's own default again —
@@ -158,8 +165,14 @@ fun NewCanvasDialog(
                     width = customW,
                     height = customH,
                     enabled = isCustom,
-                    onWidthChange = { customW = it.filter(Char::isDigit).take(5) },
-                    onHeightChange = { customH = it.filter(Char::isDigit).take(5) },
+                    onWidthChange = {
+                        customEdited = true
+                        customW = it.filter(Char::isDigit).take(5)
+                    },
+                    onHeightChange = {
+                        customEdited = true
+                        customH = it.filter(Char::isDigit).take(5)
+                    },
                 )
                 val helper = when {
                     !isCustom -> null

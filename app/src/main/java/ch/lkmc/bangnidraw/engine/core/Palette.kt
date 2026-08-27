@@ -204,6 +204,34 @@ object PalettePolicy {
         return palettes.toMutableList().also { it[index] = palette }
     }
 
+    /**
+     * A created palette's stored name: the typed one, trimmed and length-
+     * capped; blank input falls back to the display token so the chip still
+     * localizes. Typed names are literals by the closed grammar — two
+     * palettes no longer share one name just because neither was renamed.
+     */
+    fun createdName(input: String): String =
+        input.trim().take(NAME_MAX_LENGTH).ifEmpty { PaletteCatalog.MY_PALETTE_NAME }
+
+    /** Compares the name the chip will show, including the localized default. */
+    fun isCreatedNameTaken(
+        input: String,
+        defaultDisplayName: String,
+        existingDisplayNames: Set<String>,
+    ): Boolean {
+        val storedName = createdName(input)
+        val displayName = if (storedName == PaletteCatalog.MY_PALETTE_NAME) {
+            defaultDisplayName
+        } else {
+            storedName
+        }
+
+        return displayName in existingDisplayNames
+    }
+
+    /** Long enough for a real name, short enough for one chip. */
+    const val NAME_MAX_LENGTH = 48
+
     const val RECENT_LIMIT = 16
 }
 

@@ -1186,11 +1186,11 @@ class CanvasViewModel @Inject constructor(
         viewModelScope.launch { prefs.setActivePalette(id) }
     }
 
-    internal fun createUserPalette() {
+    internal fun createUserPalette(name: String) {
         val source = colorUiState().activePalette
         val created = Palette(
             id = UUID.randomUUID().toString(),
-            name = PaletteCatalog.MY_PALETTE_NAME,
+            name = PalettePolicy.createdName(name),
             swatches = source.swatches,
         )
         userPalettes = userPalettes + created

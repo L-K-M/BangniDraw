@@ -545,11 +545,14 @@ class ProjectStore internal constructor(
      * Deletes one painting: rename to `<uuid>.deleting` first — atomic within
      * the same filesystem — so a kill mid-delete leaves a folder [list]
      * ignores and sweeps, then delete recursively (06 §8).
+     *
+     * Reports whether the folder is gone. A bad id or a missing folder is
+     * false: nothing was deleted, and the shelf owes the user that answer.
      */
-    fun delete(id: String) {
-        if (!isValidId(id)) return
+    fun delete(id: String): Boolean {
+        if (!isValidId(id)) return false
         val dir = projectDir(id)
-        if (!dir.exists()) return
+        if (!dir.exists()) return false
         val doomed = File(root, id + DELETING_SUFFIX)
         if (doomed.exists()) doomed.deleteRecursively()
         if (dir.renameTo(doomed)) {
@@ -559,6 +562,7 @@ class ProjectStore internal constructor(
             // the painting behind.
             dir.deleteRecursively()
         }
+        return !dir.exists()
     }
 
     /** §2: `*.tmp` swept from the project dir and every layer dir. */

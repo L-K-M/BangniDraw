@@ -15,6 +15,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -507,9 +508,21 @@ class ProjectStoreTest {
         store.checkpoint(document(id = "kill"))
         TileStore(store.layerDir("kill", LayerId("layer-a")))
             .write(TileKey(0, 0), ByteArray(TILE_BYTES) { 9 })
-        store.delete("kill")
+        assertTrue(store.delete("kill"))
         assertTrue(!store.projectDir("kill").exists())
         assertTrue(root.listFiles()!!.none { it.name.endsWith(".deleting") })
         assertIs<ProjectStore.LoadResult.Loaded>(store.load("keep"))
+    }
+
+    @Test
+    fun `delete reports false when nothing was removed`() {
+        store.checkpoint(document(id = "keep"))
+        // A shelf id that never existed: a stale listing, a double tap.
+        assertFalse(store.delete("ghost"))
+        // Deleting twice is a second no-op, not a success.
+        assertTrue(store.delete("keep"))
+        assertFalse(store.delete("keep"))
+        // An id that cannot address a folder is refused, not removed.
+        assertFalse(store.delete("../../evil"))
     }
 }

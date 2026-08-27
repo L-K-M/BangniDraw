@@ -137,9 +137,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   hardcode "帮你Draw" in a composable (rename checklist: PLAN.md "Renaming").
 - Colors come from `ui/theme/Color.kt` — no ad-hoc `Color(0x…)` in
   screens. The theme follows the system (light and dark), no dynamic color.
-- **Greyscale ARGB cannot encode hue.** `ColorPanel` keeps an `HsvSelection`
-  while it is open; committing a ring hue must not reconstruct HSV from the
-  unchanged grey ARGB before saturation changes.
+- **Greyscale ARGB cannot encode hue.** `ColorPanel` keeps an `HsvSelection`;
+  panel-originated ARGB echoes must not reconstruct HSV, while external colors
+  must. Do not key the selection state directly to the current ARGB.
 - Scripts follow the family house style: header comment doubles as
   `--help` via the awk one-liner; `==>` / `--` / `!!` log prefixes;
   `set -euo pipefail`.

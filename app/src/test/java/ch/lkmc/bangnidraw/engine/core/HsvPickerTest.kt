@@ -23,19 +23,59 @@ class HsvPickerTest {
     }
 
     @Test
-    fun `greyscale commit keeps the selected hue for saturation`() {
+    fun `greyscale commits keep the selected hue for saturation`() {
         val grey = HsvSelection.fromArgb(0xFF808080.toInt())
-        val ringSelection = grey.select(
+        val ringSelection = grey.commit(
             HsvPicker.select(50f, 100f, 100f, grey.hsv),
         )
 
         assertEquals(grey.argb, ringSelection.argb)
 
-        val saturated = ringSelection.select(
-            HsvPicker.select(75f, 50f, 100f, ringSelection.hsv),
+        val lighterSelection = ringSelection.commit(
+            ringSelection.hsv.copy(v = 0.75f),
+        )
+        val parentEcho = lighterSelection.sync(lighterSelection.argb)
+        val saturated = parentEcho.commit(
+            parentEcho.hsv.copy(s = 1f),
         )
 
         assertEquals(90f, saturated.hsv.h)
-        assertEquals(HsvColor(90f, 1f, grey.hsv.v).toArgb(), saturated.argb)
+        assertEquals(HsvColor(90f, 1f, 0.75f).toArgb(), saturated.argb)
+    }
+
+    @Test
+    fun `external color resets the selection`() {
+        val grey = HsvSelection.fromArgb(0xFF808080.toInt()).commit(
+            HsvColor(90f, 0f, 0.5f),
+        )
+        val external = 0xFF0000FF.toInt()
+
+        val synced = grey.sync(external)
+
+        assertEquals(HsvColor.fromArgb(external), synced.hsv)
+        assertEquals(external, synced.argb)
+    }
+
+    @Test
+    fun `ARGB round trip stays exact for picker colors`() {
+        repeat(CHANNEL_LEVELS) { channel ->
+            val grey = Composite.argb(OPAQUE_ALPHA, channel, channel, channel)
+            assertEquals(grey, HsvSelection.fromArgb(grey).argb)
+        }
+
+        for (red in 0 until CHANNEL_LEVELS step CHANNEL_SAMPLE_STEP) {
+            for (green in 0 until CHANNEL_LEVELS step CHANNEL_SAMPLE_STEP) {
+                for (blue in 0 until CHANNEL_LEVELS step CHANNEL_SAMPLE_STEP) {
+                    val color = Composite.argb(OPAQUE_ALPHA, red, green, blue)
+                    assertEquals(color, HsvSelection.fromArgb(color).argb)
+                }
+            }
+        }
+    }
+
+    private companion object {
+        const val CHANNEL_LEVELS = 256
+        const val CHANNEL_SAMPLE_STEP = 17
+        const val OPAQUE_ALPHA = 255
     }
 }

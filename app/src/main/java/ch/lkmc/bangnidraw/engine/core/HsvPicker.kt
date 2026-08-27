@@ -4,15 +4,29 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 
 /** Retains hue while ARGB is greyscale and cannot encode it. */
-class HsvSelection private constructor(val hsv: HsvColor) {
+internal class HsvSelection private constructor(
+    val hsv: HsvColor,
+    private val syncedArgb: Int,
+) {
     val argb: Int get() = hsv.toArgb()
 
-    fun select(next: HsvColor): HsvSelection = HsvSelection(next)
+    fun preview(next: HsvColor): HsvSelection = HsvSelection(next, syncedArgb)
 
-    fun select(argb: Int): HsvSelection = fromArgb(argb)
+    fun commit(next: HsvColor): HsvSelection = HsvSelection(next, next.toArgb())
+
+    fun commit(argb: Int): HsvSelection = fromArgb(argb)
+
+    fun sync(argb: Int): HsvSelection {
+        if (argb == syncedArgb) return this
+
+        return fromArgb(argb)
+    }
 
     companion object {
-        fun fromArgb(argb: Int): HsvSelection = HsvSelection(HsvColor.fromArgb(argb))
+        fun fromArgb(argb: Int): HsvSelection {
+            val hsv = HsvColor.fromArgb(argb)
+            return HsvSelection(hsv, hsv.toArgb())
+        }
     }
 }
 

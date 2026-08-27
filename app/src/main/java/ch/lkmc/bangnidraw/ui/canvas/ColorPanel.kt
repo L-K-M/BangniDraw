@@ -106,8 +106,11 @@ internal fun ColorPanel(
     onTextInputFocus: (TextInputFocus) -> Unit,
     hapticsMode: HapticsMode,
 ) {
-    var selection by remember(state.current) {
+    var selection by remember {
         mutableStateOf(HsvSelection.fromArgb(state.current))
+    }
+    LaunchedEffect(state.current) {
+        selection = selection.sync(state.current)
     }
     val hsv = selection.hsv
     val draft = selection.argb
@@ -130,16 +133,16 @@ internal fun ColorPanel(
     }
 
     fun preview(next: HsvColor) {
-        selection = selection.select(next)
+        selection = selection.preview(next)
     }
 
     fun select(argb: Int) {
-        selection = selection.select(argb)
+        selection = selection.commit(argb)
         onColorSelected(argb)
     }
 
     fun select(next: HsvColor) {
-        val committed = selection.select(next)
+        val committed = selection.commit(next)
         selection = committed
         onColorSelected(committed.argb)
     }

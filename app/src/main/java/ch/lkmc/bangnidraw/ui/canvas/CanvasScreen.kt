@@ -665,10 +665,11 @@ private fun CanvasContent(
     // Keyed on the handler, not Unit: a recreated handler starts from an
     // identity transform, and without re-seeding its first gesture would
     // measure from the wrong baseline and jump.
-    LaunchedEffect(touch, state.touchDrawingMode, state.pressurePreference) {
+    LaunchedEffect(touch, state.touchDrawingMode, state.pressurePreference, state.snapRightAngles) {
         touch.setView(view)
         touch.stylusOnly = state.touchDrawingMode == TouchDrawingMode.STYLUS_ONLY
         touch.pressureCurve = PressureCurve.of(preference = state.pressurePreference)
+        touch.snapRightAngles = state.snapRightAngles
     }
 
     val shortcutContext = if (

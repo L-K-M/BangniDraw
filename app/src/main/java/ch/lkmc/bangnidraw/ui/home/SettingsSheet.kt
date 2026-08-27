@@ -61,6 +61,7 @@ internal fun SettingsSheet(
     onTouchDrawingMode: (TouchDrawingMode) -> Unit,
     onPenButtonAction: (PenButtonAction) -> Unit,
     onPressurePreference: (PressurePreference) -> Unit,
+    onSnapRightAngles: (Boolean) -> Unit,
     onHapticsMode: (HapticsMode) -> Unit,
     onGallerySync: (Boolean) -> Unit,
     onMixerChoice: (MixerChoice) -> Unit,
@@ -160,6 +161,14 @@ internal fun SettingsSheet(
                     R.string.settings_pressure_harder,
                     state.pressurePreference == PressurePreference.HARDER,
                 ) { onPressurePreference(PressurePreference.HARDER) }
+            }
+            item {
+                SwitchRow(
+                    title = R.string.settings_snap_right_angles,
+                    body = R.string.settings_snap_right_angles_help,
+                    checked = state.snapRightAngles,
+                    onCheckedChange = onSnapRightAngles,
+                )
             }
 
             item { SectionTitle(R.string.settings_feedback) }

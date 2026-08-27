@@ -225,6 +225,7 @@ class CanvasViewModel @Inject constructor(
             val touchDrawingMode: TouchDrawingMode,
             val hapticsMode: HapticsMode,
             val pressurePreference: PressurePreference,
+            val snapRightAngles: Boolean = false,
             val debugLatency: Boolean,
             val layerCap: Int,
             val strokeInFlight: Boolean = false,
@@ -261,6 +262,7 @@ class CanvasViewModel @Inject constructor(
     private var touchDrawingMode = TouchDrawingMode.ENABLED
     private var hapticsMode = HapticsMode.ENABLED
     private var pressurePreference = PressurePreference.LINEAR
+    private var snapRightAngles = false
     private var debugLatency = false
     private var chrome = CanvasChromeState()
     private var brushColor = OPAQUE_BLACK
@@ -609,6 +611,7 @@ class CanvasViewModel @Inject constructor(
             touchDrawingMode = touchDrawingMode,
             hapticsMode = hapticsMode,
             pressurePreference = pressurePreference,
+            snapRightAngles = snapRightAngles,
             debugLatency = debugLatency,
             layerCap = layerCap,
             strokeInFlight = actionGate.strokeInFlight,
@@ -647,6 +650,7 @@ class CanvasViewModel @Inject constructor(
             touchDrawingMode = touchDrawingMode,
             hapticsMode = hapticsMode,
             pressurePreference = pressurePreference,
+            snapRightAngles = snapRightAngles,
             debugLatency = debugLatency,
         )
     }

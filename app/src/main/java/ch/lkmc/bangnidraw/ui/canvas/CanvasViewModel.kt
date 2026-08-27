@@ -634,7 +634,7 @@ class CanvasViewModel @Inject constructor(
             palettes = palettes,
             activePaletteId = resolvedId,
             dish = dish,
-            mixerIsPigment = activeColorMixer.isPigment,
+            mixerChoice = if (activeColorMixer.isPigment) MixerChoice.PIGMENT else MixerChoice.RGB,
             pigmentMixerAvailable = availableColorMixer.isPigment,
         )
     }

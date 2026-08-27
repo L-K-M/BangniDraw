@@ -484,13 +484,13 @@ private fun PaletteSwatches(
 private fun MixerSwitch(state: ColorUiState, onMixerChanged: (MixerChoice) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(FIELD_GAP)) {
         FilterChip(
-            selected = state.mixerIsPigment,
+            selected = state.mixerChoice == MixerChoice.PIGMENT,
             enabled = state.pigmentMixerAvailable,
             onClick = { onMixerChanged(MixerChoice.PIGMENT) },
             label = { Text(stringResource(R.string.mixing_pigment)) },
         )
         FilterChip(
-            selected = !state.mixerIsPigment,
+            selected = state.mixerChoice == MixerChoice.RGB,
             onClick = { onMixerChanged(MixerChoice.RGB) },
             label = { Text(stringResource(R.string.mixing_rgb)) },
         )

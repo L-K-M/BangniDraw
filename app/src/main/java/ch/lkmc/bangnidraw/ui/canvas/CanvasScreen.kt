@@ -1217,6 +1217,7 @@ private fun CanvasPanelContent(
                 brushColor = state.color.current,
                 paperColor = state.paperColor,
                 hapticsMode = state.hapticsMode,
+                mixerChoice = state.color.mixerChoice,
                 onPresetSelected = viewModel::selectBrush,
                 onPresetChanged = viewModel::updateActiveBrush,
                 onPresetPersisted = viewModel::persistActiveBrush,

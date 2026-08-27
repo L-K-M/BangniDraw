@@ -51,6 +51,7 @@ import ch.lkmc.bangnidraw.engine.core.BrushSizeScale
 import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.Curve
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
+import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.TiltEffect
 import ch.lkmc.bangnidraw.engine.core.TipOrientation
@@ -67,6 +68,7 @@ internal fun BrushSettingsSheet(
     brushColor: Int,
     paperColor: Int,
     hapticsMode: HapticsMode,
+    mixerChoice: MixerChoice,
     onPresetSelected: (String) -> Unit,
     onPresetChanged: (BrushPreset) -> Unit,
     onPresetPersisted: () -> Unit,
@@ -411,7 +413,9 @@ internal fun BrushSettingsSheet(
                     onPresetPersisted()
                 },
             )
-            if (!active.eraseMode) {
+            // RGB ignores these stored values; retaining them restores the
+            // brush's pigment tuning when the user switches back.
+            if (BrushSettingsPolicy.showsPigmentControls(active, mixerChoice)) {
                 ToggleRow(
                     label = stringResource(R.string.brush_pigment),
                     value = if (active.mixing) ToggleValue.On else ToggleValue.Off,

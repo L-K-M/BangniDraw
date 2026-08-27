@@ -2349,6 +2349,7 @@ class CanvasViewModel @Inject constructor(
     }
 
     private fun releaseLeaveGate() {
+        leaveJob = null
         leaveAfterWrite = null
         leaveHandedOff = false
         actionGate.finishLeave()

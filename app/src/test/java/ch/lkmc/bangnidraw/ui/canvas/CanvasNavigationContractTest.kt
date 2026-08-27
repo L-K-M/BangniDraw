@@ -20,6 +20,17 @@ class CanvasNavigationContractTest {
         assertTrue("requestLeave(afterWrite)" in viewModel)
     }
 
+    @Test
+    fun `reopening the leave gate invalidates the prior job`() {
+        val viewModel = source(CANVAS_VIEW_MODEL_PATH)
+        val start = viewModel.indexOf(RELEASE_LEAVE_GATE)
+        if (start < 0) fail("missing $RELEASE_LEAVE_GATE")
+        val end = viewModel.indexOf(NOTE_LEAVE_FAILURE, start)
+        if (end <= start) fail("missing $NOTE_LEAVE_FAILURE after release gate")
+
+        assertTrue("leaveJob = null" in viewModel.substring(start, end))
+    }
+
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
 
     private fun repositoryRoot(): File {
@@ -42,6 +53,8 @@ class CanvasNavigationContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasViewModel.kt"
         const val BACK_ENTRY_POINTS = 2
         const val DIRECT_LEAVE_ENTRY_POINTS = 2
+        const val RELEASE_LEAVE_GATE = "private fun releaseLeaveGate()"
+        const val NOTE_LEAVE_FAILURE = "private fun noteLeaveFailure()"
         val HANDLE_BACK = Regex("""viewModel\.handleBack\(onBack\)""")
         val REQUEST_LEAVE = Regex("""viewModel\.requestLeave\(""")
     }

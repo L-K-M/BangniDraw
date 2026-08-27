@@ -20,6 +20,7 @@ import ch.lkmc.bangnidraw.engine.core.Coverage
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.DabRing
 import ch.lkmc.bangnidraw.engine.core.EngineRenderPolicy
+import ch.lkmc.bangnidraw.engine.core.EngineViewUpdateGate
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.FillReference
 import ch.lkmc.bangnidraw.engine.core.IntRect
@@ -47,7 +48,6 @@ import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
 import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.atomic.AtomicReference
 
 internal enum class LayerEditResult { APPLIED, REFUSED }
 internal enum class StrokeCancelMode { BUFFERED, READ_MODIFY_WRITE }
@@ -106,6 +106,7 @@ class EngineSession(
     val renderer = CanvasRenderer(canvas, budget, assets, onTile = onTile)
     private val renderPolicy = EngineRenderPolicy()
     private val attachmentGate = RenderAttachmentGate()
+    private val viewUpdateGate = EngineViewUpdateGate()
     private val frontResumeSignal = DabBatch(capacity = 1)
     private val pollHandler = Handler(Looper.getMainLooper())
     private val surfaceView = surface
@@ -251,11 +252,14 @@ class EngineSession(
     @Volatile
     private var activeStrokeSpec: StrokeSpec? = null
 
-    /** Exactly one completion survives an apply/release race. */
-    private val fillResult = AtomicReference<((Boolean) -> Unit)?>(null)
+    /** Release may finish only fills that have not reached durable history. */
+    private val fillResult = AsyncCompletionGate<Boolean>()
 
-    /** Fallback for an end command dropped by surface release. */
-    private val pendingStrokeFallback = AtomicReference<(() -> Unit)?>(null)
+    /** Release may finish only strokes that have not reached durable history. */
+    private val strokeResult = AsyncCompletionGate<Unit>()
+
+    /** Release drains the renderer before detached persistence may continue. */
+    private val releaseGate = SessionReleaseGate<ReadbackDrainResult>()
 
     // ------------------------------------------------------------- callbacks
 
@@ -291,9 +295,12 @@ class EngineSession(
             drainPending(stamp = false, scope = PendingBatchDrainScope.EXHAUSTIVE)
             return
         }
+        val surfaceChanged = renderer.onSurfaceChanged(width, height)
+        if (surfaceChanged) {
+            renderPolicy.requestRedraw()
+            renderPolicy.sceneChanged()
+        }
         val framePlan = renderPolicy.frontFrame()
-
-        renderer.onSurfaceChanged(width, height)
         // [param] is deliberately NOT consumed here: it is also in
         // [pendingBatches], which is the authoritative list, and stamping it
         // both ways would lay its dabs down twice and release its ring slot
@@ -626,7 +633,12 @@ class EngineSession(
         when (plan.dispatch) {
             RenderDispatch.NONE -> Unit
             RenderDispatch.BOOTSTRAP -> driver.renderMultiBufferedLayer(emptyList())
-            RenderDispatch.COMMIT -> driver.commit()
+            RenderDispatch.COMMIT -> {
+                // Registration shares the GL FIFO with the commit request, so
+                // an older SurfaceHolder redraw cannot consume this marker.
+                glRenderer.execute { renderPolicy.registerCommit() }
+                driver.commit()
+            }
             RenderDispatch.FRONT -> driver.renderFrontBufferedLayer(frontParam)
         }
     }
@@ -635,12 +647,14 @@ class EngineSession(
 
     /** Applies initial document state before scheduling one scene redraw. */
     internal fun configure(stack: LayerStack, paperColor: Int, view: ViewTransform) {
-        glRenderer.execute {
-            renderer.setStack(stack)
-            renderer.setPaperColor(paperColor)
-            renderer.setView(view)
+        viewUpdateGate.update(view) {
+            executeSceneChange {
+                renderer.setStack(stack)
+                renderer.setPaperColor(paperColor)
+                renderer.setView(view)
+            }
+            redraw()
         }
-        redraw()
     }
 
     /**
@@ -652,12 +666,14 @@ class EngineSession(
      * shows up as one torn frame every few hundred and never reproduces.
      */
     fun setView(view: ViewTransform) {
-        glRenderer.execute { renderer.setView(view) }
-        redraw()
+        viewUpdateGate.update(view) {
+            executeSceneChange { renderer.setView(view) }
+            redraw()
+        }
     }
 
     fun setStack(stack: LayerStack) {
-        glRenderer.execute { renderer.setStack(stack) }
+        executeSceneChange { renderer.setStack(stack) }
         redraw()
     }
 
@@ -689,6 +705,7 @@ class EngineSession(
             val applied = renderer.applyPixelOps(pixelOps, revision, beforeCommit)
             if (applied) {
                 renderer.setStack(stack, invalidation)
+                renderPolicy.sceneChanged()
                 pendingMirror = renderer.readbackPending
                 if (pendingMirror > 0) pumpReadback()
             }
@@ -701,7 +718,7 @@ class EngineSession(
     }
 
     fun setPaperColor(argb: Int) {
-        glRenderer.execute { renderer.setPaperColor(argb) }
+        executeSceneChange { renderer.setPaperColor(argb) }
         redraw()
     }
 
@@ -712,7 +729,7 @@ class EngineSession(
         colorB: Int,
         canvasVoid: Int,
     ) {
-        glRenderer.execute {
+        executeSceneChange {
             renderer.checkerPx = checkerPx
             renderer.checkerA = colorA
             renderer.checkerB = colorB
@@ -759,39 +776,57 @@ class EngineSession(
         color: Int,
         onResult: (Boolean) -> Unit,
     ) {
-        if (!fillResult.compareAndSet(null, onResult)) {
+        if (!fillResult.begin(onResult)) {
             onResult(false)
             return
         }
         if (!isLive()) {
-            completeFill(false)
+            completeFill(AsyncCompletionOwner.ENGINE, false)
             return
         }
-        val mergedListener = onStrokeMerged
+        val mergeSink = onStrokeMerged
         glRenderer.execute {
             val pending = renderer.finishReadback()
             if (ReadbackPolicy.strokeCommit(pending) == StrokeCommitDecision.CANCEL) {
                 pendingMirror = pending
                 pumpReadback()
-                pollHandler.post { completeFill(false) }
+                pollHandler.post { completeFill(AsyncCompletionOwner.ENGINE, false) }
                 return@execute
             }
 
             val revision = revisions.incrementAndGet()
-            val applied = renderer.applyFill(spec, coverage, color, revision) { merged, keys ->
-                mergedListener?.invoke(merged, keys, revision)
+            var completionPending = false
+            val applied = renderer.applyFill(spec, coverage, color, revision) fillMerged@{ merged, keys ->
+                if (mergeSink == null) {
+                    completionPending = true
+                    pollHandler.post {
+                        redraw()
+                        completeFill(AsyncCompletionOwner.ENGINE, true)
+                    }
+                    return@fillMerged
+                }
+
+                completionPending = fillResult.handOffToHistory()
+                if (!completionPending) return@fillMerged
+
+                val afterHistory: () -> Unit = {
+                    pollHandler.post {
+                        redraw()
+                        completeFill(AsyncCompletionOwner.HISTORY, true)
+                    }
+                }
+                mergeSink(merged, keys, revision, afterHistory)
             }
             pendingMirror = renderer.readbackPending
             if (pendingMirror > 0) pumpReadback()
-            pollHandler.post {
-                if (applied) redraw()
-                completeFill(applied)
+            if (!completionPending) {
+                pollHandler.post { completeFill(AsyncCompletionOwner.ENGINE, applied) }
             }
         }
     }
 
-    private fun completeFill(applied: Boolean) {
-        fillResult.getAndSet(null)?.invoke(applied)
+    private fun completeFill(owner: AsyncCompletionOwner, applied: Boolean) {
+        fillResult.complete(owner, applied)
     }
 
     // ------------------------------------------------------- the stroke (§7)
@@ -933,10 +968,9 @@ class EngineSession(
      * captures (`TileFlusher.captureMirror` copies under its lock) and
      * enqueues the entry job; it must not block.
      */
-    var onStrokeMerged: ((StrokeSpec, List<TileKey>, revision: Int) -> Unit)? = null
-
-    /** Reports an empty, refused, failed, or released commit on Main, once. */
-    var onStrokeNotMerged: (() -> Unit)? = null
+    var onStrokeMerged: (
+        (StrokeSpec, List<TileKey>, revision: Int, afterHistory: () -> Unit) -> Unit
+    )? = null
 
     /**
      * Merges the stroke into its layer (§7.4) and enqueues §10.1's readback of
@@ -944,22 +978,22 @@ class EngineSession(
      * [pumpReadback] keeps polling after the commit until everything in flight
      * has been mapped and handed to the tile sink.
      */
-    fun endStroke(opacityCeiling: Float) {
+    fun endStroke(opacityCeiling: Float, afterHistory: () -> Unit) {
         renderPolicy.finishStroke(StrokeFinish.COMMIT)
+        val dispatchAfterHistory: (Unit) -> Unit = {
+            if (Looper.myLooper() == Looper.getMainLooper()) afterHistory()
+            else pollHandler.post(afterHistory)
+        }
+        if (!strokeResult.begin(dispatchAfterHistory)) {
+            afterHistory()
+            return
+        }
         activeStrokeRmw = false
         activeStrokeSpec = null
         val thisRevision = revisions.incrementAndGet()
-        val mergedListener = onStrokeMerged
-        val notMergedListener = onStrokeNotMerged
-        val fallback: () -> Unit = {
-            if (notMergedListener != null) notMergedListener()
-        }
-        if (!pendingStrokeFallback.compareAndSet(null, fallback)) {
-            fallback()
-            return
-        }
+        val mergeSink = onStrokeMerged
         if (!isLive()) {
-            completeStrokeWithoutMerge(fallback)
+            completeStrokeHistory(AsyncCompletionOwner.ENGINE)
             return
         }
         // §8.3's order, and it holds because the FIFO assumption §8.3 flags was
@@ -980,7 +1014,9 @@ class EngineSession(
                 pumpReadback()
                 drainPending(stamp = false, scope = PendingBatchDrainScope.EXHAUSTIVE)
                 renderer.cancelStroke()
-                completeStrokeWithoutMerge(fallback)
+                pollHandler.post {
+                    completeStrokeHistory(AsyncCompletionOwner.ENGINE)
+                }
                 return@execute
             }
             // §8.3's `dabPass.drain(untilStrokeEnd)`: any batch published but
@@ -988,15 +1024,29 @@ class EngineSession(
             // be lost — and its slot would still be checked out when the replay
             // arrives, where nothing releases it any more.
             drainPending(stamp = true, scope = PendingBatchDrainScope.EXHAUSTIVE)
-            val merged = renderer.endStroke(
+            var completionPending = false
+            renderer.endStroke(
                 revision = thisRevision,
                 opacityCeiling = opacityCeiling,
-            ) { spec, keys ->
-                if (pendingStrokeFallback.compareAndSet(fallback, null)) {
-                    mergedListener?.invoke(spec, keys, thisRevision)
+            ) strokeMerged@{ spec, keys ->
+                if (mergeSink == null) {
+                    completionPending = true
+                    completeStrokeHistory(AsyncCompletionOwner.ENGINE)
+                    return@strokeMerged
+                }
+
+                completionPending = strokeResult.handOffToHistory()
+                if (!completionPending) return@strokeMerged
+
+                mergeSink(spec, keys, thisRevision) {
+                    completeStrokeHistory(AsyncCompletionOwner.HISTORY)
                 }
             }
-            if (merged == 0) completeStrokeWithoutMerge(fallback)
+            if (!completionPending) {
+                pollHandler.post {
+                    completeStrokeHistory(AsyncCompletionOwner.ENGINE)
+                }
+            }
         }
         // A scene commit hides the front layer. If the surface is detached,
         // the gate latches it until graphics-core has rebuilt its targets.
@@ -1004,9 +1054,8 @@ class EngineSession(
         pumpReadback()
     }
 
-    private fun completeStrokeWithoutMerge(fallback: () -> Unit) {
-        if (!pendingStrokeFallback.compareAndSet(fallback, null)) return
-        pollHandler.post(fallback)
+    private fun completeStrokeHistory(owner: AsyncCompletionOwner) {
+        strokeResult.complete(owner, Unit)
     }
 
     /**
@@ -1089,6 +1138,7 @@ class EngineSession(
                 // do (§10.3) — per batch, not once at the end, or the interim
                 // redraws would composite from a stale sandwich.
                 renderer.invalidate(SandwichPolicy.Op.UndoRedo)
+                renderPolicy.sceneChanged()
             }
         }
         redraw()
@@ -1125,16 +1175,21 @@ class EngineSession(
      * A pending result keeps callers from persisting stale CPU pixels.
      */
     internal fun finishReadback(onDone: (ReadbackDrainResult) -> Unit) {
-        if (!isLive()) {
-            onDone(ReadbackDrainResult.COMPLETE)
-            return
-        }
-        glRenderer.execute {
-            val pending = renderer.finishReadback()
-            pendingMirror = pending
-            if (pending > 0) pumpReadback()
-            onDone(ReadbackPolicy.drainResult(pending))
-        }
+        releaseGate.requestReadback(
+            dispatch = {
+                glRenderer.execute {
+                    val pending = renderer.finishReadback()
+                    pendingMirror = pending
+                    if (pending > 0) pumpReadback()
+                    onDone(ReadbackPolicy.drainResult(pending))
+                }
+            },
+            afterRelease = onDone,
+        )
+    }
+
+    internal fun finishReleaseReadback(onDone: (ReadbackDrainResult) -> Unit) {
+        releaseGate.afterRelease(onDone)
     }
 
     /** §4/§8.4: a cancelled stroke leaves no trace. */
@@ -1178,7 +1233,7 @@ class EngineSession(
     }
 
     fun invalidate(op: SandwichPolicy.Op) {
-        glRenderer.execute { renderer.invalidate(op) }
+        executeSceneChange { renderer.invalidate(op) }
         redraw()
     }
 
@@ -1192,6 +1247,14 @@ class EngineSession(
         dispatch(attachmentGate.requestScene())
     }
 
+    /** Orders preview recovery after the renderer mutation it protects. */
+    private fun executeSceneChange(block: () -> Unit) {
+        glRenderer.execute {
+            block()
+            renderPolicy.sceneChanged()
+        }
+    }
+
     /** Runs [block] on the GL thread. */
     fun execute(block: () -> Unit) = glRenderer.execute(block)
 
@@ -1202,7 +1265,7 @@ class EngineSession(
      * shared context before its thread stops.
      */
     fun release() {
-        if (released) return
+        if (releaseGate.beginRelease() == ReleaseStart.ALREADY_STARTED) return
 
         released = true
         // The pump has nothing left to poll — the renderer's own release path
@@ -1224,11 +1287,11 @@ class EngineSession(
             dabRing.release(pending)
         }
         glRenderer.execute {
-            renderer.release()
-            val droppedStroke = pendingStrokeFallback.getAndSet(null)
+            val pending = renderer.release()
+            releaseGate.completeRelease(ReadbackPolicy.drainResult(pending))
             pollHandler.post {
-                droppedStroke?.invoke()
-                completeFill(false)
+                completeFill(AsyncCompletionOwner.ENGINE, false)
+                completeStrokeHistory(AsyncCompletionOwner.ENGINE)
             }
         }
         glRenderer.stop(false)

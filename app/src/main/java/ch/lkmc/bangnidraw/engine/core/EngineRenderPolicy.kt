@@ -15,6 +15,7 @@ internal enum class FrontFramePlan(
 ) {
     INCREMENTAL(FrontDirtySource.INCREMENTAL, FrontDirtySource.INCREMENTAL),
     RECOVER(FrontDirtySource.CUMULATIVE, FrontDirtySource.CUMULATIVE),
+    PROTECTED(FrontDirtySource.INCREMENTAL, FrontDirtySource.CUMULATIVE),
     ;
 
     fun dirty(incremental: IntRect, preview: IntRect): FrontFrameDirty {
@@ -37,15 +38,18 @@ internal enum class MultiDrawCompletion { NONE, RESUME_FRONT }
 
 internal enum class StrokeFinish { COMMIT, CANCEL_BUFFERED, CANCEL_READ_MODIFY_WRITE }
 
-/** Recovers a live stroke once after a multi-buffer transition. */
+/** Coordinates commit-backed draws and protects uncoordinated surface redraws. */
 internal class EngineRenderPolicy {
 
     private var released = false
     private var strokeActive = false
     private var deferredRedraw = false
     private var recoverCumulative = false
+    private var protectCurrentStroke = false
+    private var protectNextStroke = false
     private var resumeQueued = false
     private var rmwCancelPending = false
+    private var registeredCommits = 0
 
     @Synchronized
     fun beginStroke() {
@@ -53,7 +57,17 @@ internal class EngineRenderPolicy {
 
         strokeActive = true
         recoverCumulative = false
+        protectCurrentStroke = protectNextStroke
+        protectNextStroke = false
         resumeQueued = false
+    }
+
+    /** Marks the next multi-buffer completion as release-coordinated. */
+    @Synchronized
+    fun registerCommit() {
+        if (released) return
+
+        registeredCommits++
     }
 
     @Synchronized
@@ -65,12 +79,21 @@ internal class EngineRenderPolicy {
         return RedrawDecision.DEFER
     }
 
+    /** Records a scene mutation at its ordered point on the GL queue. */
+    @Synchronized
+    fun sceneChanged() {
+        if (released || !strokeActive) return
+
+        recoverCumulative = true
+    }
+
     @Synchronized
     fun finishStroke(finish: StrokeFinish): RedrawDecision {
         if (released) return RedrawDecision.COVERED
 
         strokeActive = false
         recoverCumulative = false
+        protectCurrentStroke = false
         resumeQueued = false
         val redrawWasDeferred = deferredRedraw
 
@@ -105,6 +128,16 @@ internal class EngineRenderPolicy {
     @Synchronized
     fun onMultiDrawCompleted(): MultiDrawCompletion {
         if (released) return MultiDrawCompletion.NONE
+
+        val commitBacked = registeredCommits > 0
+        if (commitBacked) {
+            registeredCommits--
+        } else {
+            // SurfaceHolder redraws bypass commit(), so their later release can
+            // clear a stroke that starts after this callback.
+            protectNextStroke = true
+            protectCurrentStroke = strokeActive
+        }
         if (!strokeActive) return MultiDrawCompletion.NONE
 
         recoverCumulative = true
@@ -135,7 +168,9 @@ internal class EngineRenderPolicy {
     fun frontFrame(): FrontFramePlan {
         if (released) return FrontFramePlan.INCREMENTAL
         if (!strokeActive) return FrontFramePlan.INCREMENTAL
-        return if (recoverCumulative) FrontFramePlan.RECOVER else FrontFramePlan.INCREMENTAL
+        if (recoverCumulative) return FrontFramePlan.RECOVER
+
+        return if (protectCurrentStroke) FrontFramePlan.PROTECTED else FrontFramePlan.INCREMENTAL
     }
 
     @Synchronized
@@ -150,7 +185,10 @@ internal class EngineRenderPolicy {
         strokeActive = false
         deferredRedraw = false
         recoverCumulative = false
+        protectCurrentStroke = false
+        protectNextStroke = false
         resumeQueued = false
         rmwCancelPending = false
+        registeredCommits = 0
     }
 }

@@ -420,7 +420,7 @@ private fun brushSlot(
     val active = (selection.kind as? ToolKind.Brush)?.preset?.id == preset.id
     val toggleLabel = stringResource(R.string.cd_toggle_eraser)
     return ToolSlot(
-        icon = if (preset.eraseMode) Icons.Filled.DeleteSweep else iconFor(preset.id),
+        icon = if (preset.eraseMode) Icons.Filled.DeleteSweep else iconFor(preset.icon),
         description = {
             if (preset.eraseMode) stringResource(R.string.tool_eraser) else brushPresetName(preset)
         },
@@ -635,16 +635,28 @@ private object SilentHapticFeedback : HapticFeedback {
     override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
 }
 
-private fun iconFor(id: String): ImageVector = when (id) {
+private fun iconFor(key: String): ImageVector = when (key) {
     // One distinct glyph per tool: the pencil must not share Gesture with the
     // smudge tool, nor the airbrush BlurOn with blur — identical glyphs in one
     // rail defeat the glance-recognition the rail exists for.
-    BrushPresets.PENCIL_ID -> Icons.Filled.Draw
-    BrushPresets.INK_PEN_ID -> Icons.Filled.Create
-    BrushPresets.PAINTBRUSH_ID -> Icons.Filled.Brush
-    BrushPresets.AIRBRUSH_ID -> Icons.Filled.Air
-    BrushPresets.MARKER_ID -> Icons.Filled.Highlight
+    BrushIconKey.Round.serialized -> Icons.Filled.Create
+    BrushIconKey.Flat.serialized -> Icons.Filled.Brush
+    BrushIconKey.Pencil.serialized -> Icons.Filled.Draw
+    BrushIconKey.InkPen.serialized -> Icons.Filled.Create
+    BrushIconKey.Paintbrush.serialized -> Icons.Filled.Brush
+    BrushIconKey.Airbrush.serialized -> Icons.Filled.Air
+    BrushIconKey.Marker.serialized -> Icons.Filled.Highlight
     else -> Icons.Filled.Tune
+}
+
+private enum class BrushIconKey(val serialized: String) {
+    Round("round"),
+    Flat("flat"),
+    Pencil("pencil"),
+    InkPen("ink_pen"),
+    Paintbrush("paintbrush"),
+    Airbrush("airbrush"),
+    Marker("marker"),
 }
 
 private data class ToolSlot(

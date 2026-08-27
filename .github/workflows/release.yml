@@ -59,6 +59,10 @@ jobs:
       - name: Test and lint
         run: ./gradlew testDebugUnitTest lintDebug
 
+      # A tag may bypass PR CI, so re-prove the optional-LUT build here.
+      - name: Verify release without Mixbox
+        run: ./gradlew -Pbangnidraw.mixbox=false testDebugUnitTest assembleRelease
+
       - name: Build release APK
         run: ./gradlew assembleRelease
 

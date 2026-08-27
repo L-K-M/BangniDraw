@@ -6,6 +6,19 @@ import kotlin.math.max
 /** What a pointer is, as far as the arbiter cares (`docs/plan/07-input-and-stylus.md` §3). */
 enum class PointerTool { STYLUS, ERASER, FINGER, MOUSE }
 
+/** Tool policy shared by gesture admission and pen-proximity tracking. */
+internal object PointerToolPolicy {
+    fun immediateStrokeSource(tool: PointerTool): StrokeSource? = when (tool) {
+        PointerTool.STYLUS -> StrokeSource.STYLUS
+        PointerTool.ERASER -> StrokeSource.ERASER_END
+        PointerTool.MOUSE -> StrokeSource.MOUSE
+        PointerTool.FINGER -> null
+    }
+
+    fun hasPenProximity(tool: PointerTool): Boolean =
+        tool == PointerTool.STYLUS || tool == PointerTool.ERASER
+}
+
 /**
  * What the arbiter decided. Delivered through [GestureListener] rather than
  * returned, because a single event can produce two decisions — a second finger
@@ -87,7 +100,7 @@ class GestureArbiter(
      */
     var stylusNear: Boolean = false
 
-    private enum class State { IDLE, STYLUS_DRAW, FINGER_PENDING, FINGER_DRAW, NAVIGATE, TAP_WAIT }
+    private enum class State { IDLE, DIRECT_DRAW, FINGER_PENDING, FINGER_DRAW, NAVIGATE, TAP_WAIT }
 
     private var state = State.IDLE
 
@@ -138,11 +151,9 @@ class GestureArbiter(
     // ------------------------------------------------------------- events
 
     fun down(pointerId: Int, tool: PointerTool, x: Float, y: Float, timeNs: Long, out: GestureListener) {
-        val stylus = tool == PointerTool.STYLUS || tool == PointerTool.ERASER
-        // A stylus landing takes over from anything a finger was doing: at that
-        // point the pen is the intent (§5). Navigation ends without a step, a
-        // finger stroke is rolled back.
-        if (stylus) {
+        val directSource = PointerToolPolicy.immediateStrokeSource(tool)
+        // Pens and the primary mouse button need no finger/chord delay.
+        if (directSource != null) {
             if (state == State.NAVIGATE) {
                 navigating = false
                 out.onNavigateEnd()
@@ -151,19 +162,19 @@ class GestureArbiter(
             }
             clearPointers()
             add(pointerId, x, y, timeNs)
-            state = State.STYLUS_DRAW
+            state = State.DIRECT_DRAW
             drawingId = pointerId
             maxDown = 1
             // clearPointers() + add() means count never passes through 0 here,
             // so the gesture-end reset is skipped. tapPossible is documented as
             // cleared "when a stroke begins", and this branch begins one.
             tapPossible = false
-            out.onDraw(pointerId, if (tool == PointerTool.ERASER) StrokeSource.ERASER_END else StrokeSource.STYLUS)
+            out.onDraw(pointerId, directSource)
             return
         }
 
-        // A finger while the pen is down or near is a palm, always (§5).
-        if (state == State.STYLUS_DRAW || stylusNear) {
+        // A finger while a direct pointer draws, or a pen is near, is ignored.
+        if (state == State.DIRECT_DRAW || stylusNear) {
             val slot = add(pointerId, x, y, timeNs)
             if (slot >= 0) ignored[slot] = true
             out.onIgnore(pointerId)
@@ -217,7 +228,7 @@ class GestureArbiter(
                 ignored[slot] = true
                 out.onIgnore(pointerId)
             }
-            State.STYLUS_DRAW -> Unit // handled above
+            State.DIRECT_DRAW -> Unit // handled above
         }
     }
 
@@ -275,13 +286,25 @@ class GestureArbiter(
         val slot = indexOf(pointerId)
         if (slot < 0) return
         val wasIgnored = ignored[slot]
+
+        // A single quick tap has no MOVE or timer callback to open its stroke.
+        // Resolve it while its buffered down sample is still available.
+        if (
+            !wasIgnored &&
+            state == State.FINGER_PENDING &&
+            !stylusOnly &&
+            participatingCount() == 1
+        ) {
+            beginFingerDraw(pointerId, out)
+        }
+
         if (!wasIgnored) noteLift(slot, timeNs)
         remove(slot)
 
         // What THIS pointer's lift means, if it was participating.
         if (!wasIgnored) {
             when (state) {
-                State.STYLUS_DRAW -> {
+                State.DIRECT_DRAW -> {
                     out.onStrokeEnd(pointerId)
                     // A palm resting through the lift keeps count > 0, so the
                     // gesture never ends and resetGesture never runs. Leaving
@@ -311,7 +334,7 @@ class GestureArbiter(
             if (state == State.NAVIGATE) out.onNavigateEnd()
             // Motionless fingers reach here having entered navigation on the
             // second down: that is exactly what a multi-finger tap looks like.
-            if (state != State.STYLUS_DRAW && state != State.FINGER_DRAW) emitTap(out)
+            if (state != State.DIRECT_DRAW && state != State.FINGER_DRAW) emitTap(out)
             resetGesture()
         }
     }
@@ -331,6 +354,18 @@ class GestureArbiter(
 
     /** Drops all state without emitting anything — a new surface, a new session. */
     fun reset() = resetGesture()
+
+    /** Absolute input-clock deadline for the pending finger, or [NO_TICK_NS]. */
+    internal fun nextTickDeadlineNs(): Long {
+        if (state != State.FINGER_PENDING) return NO_TICK_NS
+        val slot = firstActive()
+        if (slot < 0) return NO_TICK_NS
+
+        if (!stylusOnly) return downNs[slot] + PENDING_MS * NANOS_PER_MILLISECOND
+        if (longPressFired || movedPast[slot]) return NO_TICK_NS
+
+        return downNs[slot] + LONG_PRESS_MS * NANOS_PER_MILLISECOND
+    }
 
     // ------------------------------------------------------------ internals
 
@@ -453,6 +488,9 @@ class GestureArbiter(
          */
         const val MAX_POINTERS = 4
 
+        internal const val NO_TICK_NS = Long.MIN_VALUE
+
         private const val NO_POINTER = -1
+        private const val NANOS_PER_MILLISECOND = 1_000_000L
     }
 }

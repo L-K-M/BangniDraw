@@ -140,7 +140,7 @@ object CanvasPresets {
      * That looks like a missing check — a size could be offered with no layer
      * to paint on — but `MemoryBudget` already rules it out from the other
      * side: `maxCanvasEdge` is the largest edge whose layer worst case still
-     * fits `poolCapacity / (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)`,
+     * fits `poolCapacity / (MIN_USEFUL_LAYERS + TRANSIENT_TILE_RESERVE_LAYERS)`,
      * so anything at or under it holds at least `MIN_USEFUL_LAYERS`, which is
      * 4. Adding the check would not make a false case true; it would restate
      * an invariant one layer down and imply, wrongly, that `maxCanvasEdge`

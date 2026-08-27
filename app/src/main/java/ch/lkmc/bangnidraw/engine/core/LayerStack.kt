@@ -59,7 +59,15 @@ sealed interface PixelOp {
 data class StackEdit(val stack: LayerStack, val pixels: PixelOp?, val entry: HistoryEntry)
 
 /** Why an operation did nothing. Values, never exceptions: each one is a UI hint. */
-enum class Refusal { LAST_LAYER, AT_CAP, LOCKED, HIDDEN_PARTNER, NO_LAYER_BELOW, NOOP }
+enum class Refusal {
+    LAST_LAYER,
+    AT_CAP,
+    OVER_CAPACITY,
+    LOCKED,
+    HIDDEN_PARTNER,
+    NO_LAYER_BELOW,
+    NOOP,
+}
 
 sealed interface StackResult {
     data class Ok(val edit: StackEdit) : StackResult

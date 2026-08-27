@@ -31,7 +31,12 @@ import java.io.File
 import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,6 +44,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -58,7 +65,10 @@ class StudioViewModel @Inject constructor(
     private val shareCache: ShareCache,
 ) : ViewModel() {
 
-    private var staleSyncJob: Job? = null
+    private val projectWorkLock = Any()
+    private val projectWorkMutex = Mutex()
+    private val projectWorkPolicy = StudioProjectWorkPolicy()
+    private val projectJobs = mutableMapOf<Job, StudioProjectJobKind>()
 
     internal data class Painting(
         val id: String,
@@ -144,8 +154,23 @@ class StudioViewModel @Inject constructor(
 
     /** Re-lists the shelf — on first show and every return from the Canvas. */
     fun refresh() {
-        viewModelScope.launch(Dispatchers.IO) {
+        synchronized(projectWorkLock) {
+            projectWorkPolicy.resumeStudio()
+        }
+
+        refreshShelf()
+    }
+
+    private fun refreshShelf() {
+        launchProjectJob(
+            kind = StudioProjectJobKind.REFRESH,
+            admit = projectWorkPolicy::beginRead,
+        ) {
             val listed = store.list()
+            currentCoroutineContext().ensureActive()
+            val freeBytes = store.freeBytes()
+            currentCoroutineContext().ensureActive()
+
             _uiState.update { current ->
                 current.copy(
                     paintings = listed.map {
@@ -159,10 +184,11 @@ class StudioViewModel @Inject constructor(
                         )
                     },
                     totalBytes = listed.sumOf { it.bytes },
-                    freeBytes = store.freeBytes(),
+                    freeBytes = freeBytes,
                     loaded = true,
                 )
             }
+
             syncStale(listed)
         }
     }
@@ -192,11 +218,15 @@ class StudioViewModel @Inject constructor(
     }
 
     internal fun setGallerySync(value: Boolean) {
-        if (!value) staleSyncJob?.cancel()
+        if (!value) {
+            synchronized(projectWorkLock) {
+                projectJobs.filterValues { it == StudioProjectJobKind.SWEEP }.keys.toList()
+            }.forEach(Job::cancel)
+        }
 
         viewModelScope.launch {
             prefs.setGallerySync(value)
-            if (value) refresh()
+            if (value) refreshShelf()
         }
     }
 
@@ -214,36 +244,114 @@ class StudioViewModel @Inject constructor(
      * running sweep is left to finish rather than restarted per refresh.
      */
     private fun syncStale(listed: List<ProjectStore.Summary>) {
-        if (staleSyncJob?.isActive == true) return
         val stale = listed.filter {
             GallerySyncDecision.isStaleOnDisk(it.updatedAt, it.lastGallerySyncAt)
         }
         if (stale.isEmpty()) return
-        staleSyncJob = viewModelScope.launch(Dispatchers.IO) {
-            if (!prefs.gallerySync.first()) return@launch
+
+        launchProjectJob(
+            kind = StudioProjectJobKind.SWEEP,
+            admit = projectWorkPolicy::beginSweep,
+        ) sweep@{
+            if (!prefs.gallerySync.first()) return@sweep
+
             for (summary in stale) {
+                currentCoroutineContext().ensureActive()
                 val doc = (store.load(summary.id) as? ProjectStore.LoadResult.Loaded)
                     ?.document ?: continue
+                currentCoroutineContext().ensureActive()
+
                 val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+                currentCoroutineContext().ensureActive()
                 val png = ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
-                val outcome = exporter.sync(
-                    recordedUri = doc.galleryUri,
-                    recordedModifiedAt = doc.galleryModifiedAt,
-                    recordedBytes = doc.galleryBytes,
-                    displayName = GalleryNames.sanitizeDisplayName(
-                        doc.title,
-                        context.getString(R.string.studio_untitled),
-                    ),
-                    png = png,
-                ) ?: continue
-                store.updateGalleryFields(
-                    doc.id,
-                    galleryUri = outcome.galleryUri,
-                    lastGallerySyncAt = outcome.syncedAt,
-                    galleryModifiedAt = outcome.modifiedAt,
-                    galleryBytes = outcome.bytes,
-                )
+                currentCoroutineContext().ensureActive()
+
+                // Once MediaStore changes, record its outcome before an open
+                // can observe the project.
+                withContext(NonCancellable) {
+                    val outcome = exporter.sync(
+                        recordedUri = doc.galleryUri,
+                        recordedModifiedAt = doc.galleryModifiedAt,
+                        recordedBytes = doc.galleryBytes,
+                        displayName = GalleryNames.sanitizeDisplayName(
+                            doc.title,
+                            context.getString(R.string.studio_untitled),
+                        ),
+                        png = png,
+                    ) ?: return@withContext
+                    store.updateGalleryFields(
+                        doc.id,
+                        galleryUri = outcome.galleryUri,
+                        lastGallerySyncAt = outcome.syncedAt,
+                        galleryModifiedAt = outcome.modifiedAt,
+                        galleryBytes = outcome.bytes,
+                    )
+                }
             }
+        }
+    }
+
+    /** Opens only after every Studio reader has released the project files. */
+    fun openPainting(id: String, onReady: (String) -> Unit) {
+        val jobs = synchronized(projectWorkLock) {
+            if (!projectWorkPolicy.beginOpen()) return
+
+            projectJobs.map { (job, kind) -> TrackedProjectJob(job, kind) }
+        }
+
+        viewModelScope.launch {
+            cancelAndJoinBackgroundJobs(jobs)
+            projectWorkMutex.withLock { onReady(id) }
+        }
+    }
+
+    private fun launchProjectJob(
+        kind: StudioProjectJobKind,
+        admit: () -> Boolean,
+        block: suspend () -> Unit,
+    ): Job? {
+        lateinit var job: Job
+        synchronized(projectWorkLock) {
+            if (!admit()) return null
+
+            job = viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+                try {
+                    projectWorkMutex.withLock { block() }
+                } finally {
+                    finishProjectJob(job, kind)
+                }
+            }
+            projectJobs[job] = kind
+        }
+        job.start()
+
+        return job
+    }
+
+    private fun finishProjectJob(job: Job, kind: StudioProjectJobKind) {
+        synchronized(projectWorkLock) {
+            projectJobs.remove(job)
+            when (kind) {
+                StudioProjectJobKind.SWEEP -> projectWorkPolicy.finishSweep()
+                StudioProjectJobKind.MUTATION -> projectWorkPolicy.finishMutation()
+                StudioProjectJobKind.REFRESH,
+                StudioProjectJobKind.READ,
+                -> Unit
+            }
+        }
+    }
+
+    private suspend fun cancelAndJoinBackgroundJobs(jobs: List<TrackedProjectJob>) {
+        jobs.filter { it.kind != StudioProjectJobKind.MUTATION }
+            .forEach { it.job.cancel() }
+
+        for (tracked in jobs) {
+            if (tracked.kind == StudioProjectJobKind.MUTATION) {
+                tracked.job.join()
+                continue
+            }
+
+            tracked.job.cancelAndJoin()
         }
     }
 
@@ -253,9 +361,12 @@ class StudioViewModel @Inject constructor(
      * the main thread and fires the chooser.
      */
     fun share(id: String, format: ImageEncode.Format, onReady: (android.net.Uri, String) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
+        launchProjectJob(
+            kind = StudioProjectJobKind.READ,
+            admit = projectWorkPolicy::beginRead,
+        ) share@{
             val doc = (store.load(id) as? ProjectStore.LoadResult.Loaded)?.document
-                ?: return@launch
+                ?: return@share
             val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
             val bytes = ImageEncode.encode(rgba, doc.width, doc.height, format, quality = 90)
             val name = GalleryNames.sanitizeDisplayName(
@@ -264,11 +375,12 @@ class StudioViewModel @Inject constructor(
             )
             val ext = if (format == ImageEncode.Format.PNG) "png" else "jpg"
             val mime = if (format == ImageEncode.Format.PNG) "image/png" else "image/jpeg"
+            currentCoroutineContext().ensureActive()
             val uri = try {
                 shareCache.stage("$name.$ext", bytes)
             } catch (e: IOException) {
                 android.util.Log.w("StudioViewModel", "share staging failed", e)
-                return@launch
+                return@share
             }
             withContext(Dispatchers.Main) { onReady(uri, mime) }
         }
@@ -311,18 +423,28 @@ class StudioViewModel @Inject constructor(
      * [onDone] reports success on the main thread for the toast.
      */
     internal fun saveAsNewGalleryItem(id: String, onDone: (GalleryExportOutcome) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
+        launchProjectJob(
+            kind = StudioProjectJobKind.READ,
+            admit = projectWorkPolicy::beginRead,
+        ) {
             val doc = (store.load(id) as? ProjectStore.LoadResult.Loaded)?.document
             val ok = if (doc == null) {
                 false
             } else {
                 val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+                val png = ImageEncode.encode(
+                    rgba,
+                    doc.width,
+                    doc.height,
+                    ImageEncode.Format.PNG,
+                )
+                currentCoroutineContext().ensureActive()
                 exporter.saveAs(
                     GalleryNames.sanitizeDisplayName(
                         doc.title,
                         context.getString(R.string.studio_untitled),
                     ),
-                    ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG),
+                    png,
                     ImageEncode.Format.PNG,
                 )
             }
@@ -331,16 +453,45 @@ class StudioViewModel @Inject constructor(
         }
     }
 
+    private fun launchProjectMutation(block: suspend () -> Unit) {
+        var backgroundJobs = emptyList<TrackedProjectJob>()
+        lateinit var job: Job
+        synchronized(projectWorkLock) {
+            if (!projectWorkPolicy.beginMutation()) return
+
+            backgroundJobs = projectJobs
+                .filterValues { it != StudioProjectJobKind.MUTATION }
+                .map { (activeJob, kind) -> TrackedProjectJob(activeJob, kind) }
+            job = viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+                try {
+                    cancelAndJoinBackgroundJobs(backgroundJobs)
+                    projectWorkMutex.withLock { block() }
+                } finally {
+                    finishProjectJob(job, StudioProjectJobKind.MUTATION)
+                }
+
+                refreshShelf()
+            }
+            projectJobs[job] = StudioProjectJobKind.MUTATION
+        }
+        job.start()
+    }
+
     /**
      * The hold menu's delete, after its confirm dialog (06 §8). The gallery
      * copy goes only when the checkbox said so — it is the user's, and best
      * effort either way.
      */
     fun delete(id: String, alsoGallery: Boolean, galleryUri: String?) {
-        viewModelScope.launch(Dispatchers.IO) {
-            if (alsoGallery && galleryUri != null) exporter.delete(galleryUri)
+        launchProjectMutation {
+            val currentGalleryUri = if (alsoGallery) {
+                (store.load(id) as? ProjectStore.LoadResult.Loaded)
+                    ?.document?.galleryUri ?: galleryUri
+            } else {
+                null
+            }
+            if (currentGalleryUri != null) exporter.delete(currentGalleryUri)
             store.delete(id)
-            refresh()
         }
     }
 
@@ -351,12 +502,11 @@ class StudioViewModel @Inject constructor(
      * first, so the copy is never titled just "copy".
      */
     fun duplicate(id: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        launchProjectMutation {
             store.duplicate(id, titleTransform = { old ->
                 old.ifEmpty { context.getString(R.string.studio_untitled) } +
                     context.getString(R.string.studio_copy_suffix)
             })
-            refresh()
         }
     }
 
@@ -364,9 +514,62 @@ class StudioViewModel @Inject constructor(
     fun rename(id: String, title: String) {
         val trimmed = title.trim()
         if (trimmed.isEmpty()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        launchProjectMutation {
             store.rename(id, trimmed)
-            refresh()
         }
+    }
+}
+
+private enum class StudioProjectJobKind { REFRESH, SWEEP, READ, MUTATION }
+
+private data class TrackedProjectJob(
+    val job: Job,
+    val kind: StudioProjectJobKind,
+)
+
+/** Pure admission rule for Studio jobs that touch project files. */
+internal class StudioProjectWorkPolicy {
+    private var openingPainting = false
+    private var mutationCount = 0
+    private var sweepRunning = false
+
+    fun resumeStudio() {
+        openingPainting = false
+    }
+
+    fun beginRead(): Boolean {
+        if (openingPainting || mutationCount > 0) return false
+
+        return true
+    }
+
+    fun beginSweep(): Boolean {
+        if (!beginRead() || sweepRunning) return false
+
+        sweepRunning = true
+        return true
+    }
+
+    fun finishSweep() {
+        sweepRunning = false
+    }
+
+    fun beginOpen(): Boolean {
+        if (openingPainting) return false
+
+        openingPainting = true
+        return true
+    }
+
+    fun beginMutation(): Boolean {
+        if (openingPainting) return false
+
+        mutationCount += 1
+        return true
+    }
+
+    fun finishMutation() {
+        check(mutationCount > 0)
+        mutationCount -= 1
     }
 }

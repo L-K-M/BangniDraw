@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.input
 
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.PointerTool
+import ch.lkmc.bangnidraw.engine.core.PointerToolPolicy
 
 /**
  * Where the stylus is and what it is doing — the latest hover position,
@@ -106,6 +107,7 @@ class StylusState {
      * flicker lets the palm mark.
      */
     fun isNear(nowNs: Long): Boolean {
+        if (!PointerToolPolicy.hasPenProximity(tool)) return false
         if (isDown || isHovering) return true
         if (exitedAtNs == NEVER) return false
         val sinceMs = (nowNs - exitedAtNs) / 1_000_000L

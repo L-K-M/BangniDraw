@@ -162,18 +162,18 @@ class EngineSessionRenderContractTest {
     }
 
     @Test
-    fun `not merged completions return on the main thread`() {
+    fun `stroke completions return on the main thread`() {
         val source = source(ENGINE_SESSION_PATH)
-        val completion = section(source, STROKE_FALLBACK_START, STROKE_FALLBACK_END)
+        val completion = section(source, END_STROKE_START, END_STROKE_END)
         val release = section(source, RELEASE_START, RELEASE_END)
 
         assertTrue(
-            POST_FALLBACK.containsMatchIn(completion),
-            "ordinary fallback must post to main",
+            MAIN_STROKE_DISPATCH in completion,
+            "stroke completion must dispatch to main",
         )
         assertTrue(
-            POST_DROPPED_FALLBACK.containsMatchIn(release),
-            "release fallback must post to main",
+            POST_RELEASE_COMPLETION.containsMatchIn(release),
+            "release completion must post to main",
         )
     }
 
@@ -258,6 +258,32 @@ class EngineSessionRenderContractTest {
     }
 
     @Test
+    fun `the commit helper registers coordinated rendering first`() {
+        val source = source(ENGINE_SESSION_PATH)
+        val dispatcher = section(source, DISPATCH_START, DISPATCH_END)
+
+        val registration = dispatcher.indexOf(REGISTER_COMMIT_CALL)
+        val commit = COMMIT_CALL.find(dispatcher)?.range?.first ?: -1
+        assertTrue(registration >= 0, "commit coordination is missing")
+        assertTrue(
+            QUEUED_REGISTER_COMMIT_CALL in dispatcher,
+            "commit coordination must use the GL queue",
+        )
+        assertTrue(commit > registration, "coordination must precede the library commit")
+    }
+
+    @Test
+    fun `scene changes invalidate recovery inside the GL queue`() {
+        val source = source(ENGINE_SESSION_PATH)
+        val helper = section(source, SCENE_HELPER_START, SCENE_HELPER_END)
+
+        val mutation = helper.indexOf(SCENE_MUTATION_CALL)
+        val invalidation = helper.indexOf(SCENE_CHANGED_CALL)
+        assertTrue(mutation >= 0, "the queued scene mutation is missing")
+        assertTrue(invalidation > mutation, "recovery must follow the queued scene mutation")
+    }
+
+    @Test
     fun `canvas startup configures one scene before one redraw`() {
         val source = source(CANVAS_SURFACE_PATH)
         val factory = section(source, FACTORY_START, FACTORY_END)
@@ -277,6 +303,18 @@ class EngineSessionRenderContractTest {
         assertTrue(RENDERER_PAPER_CALL in configure, "startup paper configuration is missing")
         assertTrue(RENDERER_VIEW_CALL in configure, "startup view configuration is missing")
         assertEquals(1, REDRAW_CALL.findAll(configure).count(), "startup must redraw once")
+    }
+
+    @Test
+    fun `replacement touch handler receives the current viewport`() {
+        val source = source(CANVAS_SURFACE_PATH)
+        val update = section(source, UPDATE_START, UPDATE_END)
+
+        val viewport = update.indexOf(SET_VIEWPORT_CALL)
+        val listener = update.indexOf(SET_TOUCH_LISTENER_CALL)
+
+        assertTrue(viewport >= 0, "the current handler must receive the existing surface size")
+        assertTrue(viewport < listener, "the handler needs its fit before input is attached")
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
@@ -311,10 +349,11 @@ class EngineSessionRenderContractTest {
         const val CANVAS_SURFACE_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasSurface.kt"
         const val REDRAW_START = "private fun redrawNow()"
-        const val REDRAW_END = "/** Runs [block] on the GL thread. */"
+        const val REDRAW_END = "/** Orders preview recovery"
         const val STAMP_START = "fun stampDabs(batch: DabBatch)"
         const val STAMP_END = "/** The next commit revision"
-        const val END_STROKE_START = "fun endStroke(opacityCeiling: Float)"
+        const val END_STROKE_START =
+            "fun endStroke(opacityCeiling: Float, afterHistory: () -> Unit)"
         const val END_STROKE_END = "/**\n     * §10.1's between-frame poll"
         const val FRONT_DRAW_START = "private fun onDrawFrontBufferedLayer("
         const val FRONT_DRAW_END = "/**\n     * Consumes every published batch"
@@ -331,13 +370,13 @@ class EngineSessionRenderContractTest {
         const val DISPATCH_END = "// ---------------------------------------------------------------- façade"
         const val RELEASE_START = "fun release()"
         const val RELEASE_END = "private companion object"
-        const val STROKE_FALLBACK_START = "private fun completeStrokeWithoutMerge("
-        const val STROKE_FALLBACK_END = "/**\n     * §10.1's between-frame poll"
         const val DRIVER_FACTORY_START = "private fun scheduleDriverCreation("
         const val DRIVER_FACTORY_END = "private inner class GenerationCallback"
         const val CREATE_DRIVER_START = "private fun createDriver("
         const val DISCARD_SURFACE_START = "private fun discardSurface()"
         const val DRIVER_ADAPTER_START = "private inner class GenerationCallback"
+        const val SCENE_HELPER_START = "private fun executeSceneChange("
+        const val SCENE_HELPER_END = "/** Runs [block] on the GL thread. */"
         const val CONFIGURE_START = "internal fun configure("
         const val CONFIGURE_END = "/**\n     * Sets the view transform and redraws."
         const val FACTORY_START = "factory = { ctx ->"
@@ -411,9 +450,9 @@ class EngineSessionRenderContractTest {
         const val RENDERER_RELEASE_CALL = "renderer.release()"
         const val SHARED_GL_STOP_CALL = "glRenderer.stop(false)"
         const val ABANDON_REDRAW_COMPLETIONS = "abandonRedrawCompletions()"
-        val POST_FALLBACK = Regex("""pollHandler\.post\(fallback\)""")
-        val POST_DROPPED_FALLBACK = Regex(
-            """pollHandler\.post\s*\{\s*droppedStroke\?\.invoke\(\)""",
+        const val MAIN_STROKE_DISPATCH = "else pollHandler.post(afterHistory)"
+        val POST_RELEASE_COMPLETION = Regex(
+            """pollHandler\.post\s*\{[\s\S]*completeStrokeHistory""",
         )
         const val SCENE_GATE_CALL = "attachmentGate.requestScene()"
         const val FRONT_GATE_CALL = "attachmentGate.requestFront()"
@@ -432,6 +471,13 @@ class EngineSessionRenderContractTest {
         const val EXECUTE_CALL = "glRenderer.execute {"
         const val FRAME_SNAPSHOT_SCOPE = "PendingBatchDrainScope.FRAME_SNAPSHOT"
         const val EXHAUSTIVE_SCOPE = "PendingBatchDrainScope.EXHAUSTIVE"
+        const val UPDATE_START = "update = { surface ->"
+        const val UPDATE_END = "// A multi-buffer redraw hides live front-buffer ink."
+        const val REGISTER_COMMIT_CALL = "renderPolicy.registerCommit()"
+        const val QUEUED_REGISTER_COMMIT_CALL =
+            "glRenderer.execute { renderPolicy.registerCommit() }"
+        const val SCENE_MUTATION_CALL = "block()"
+        const val SCENE_CHANGED_CALL = "renderPolicy.sceneChanged()"
         const val CONFIGURE_CALL = "session.configure(stack, paperColor, view)"
         const val SET_STACK_CALL = "session.setStack(stack)"
         const val SET_PAPER_CALL = "session.setPaperColor(paperColor)"
@@ -439,6 +485,9 @@ class EngineSessionRenderContractTest {
         const val RENDERER_STACK_CALL = "renderer.setStack(stack)"
         const val RENDERER_PAPER_CALL = "renderer.setPaperColor(paperColor)"
         const val RENDERER_VIEW_CALL = "renderer.setView(view)"
+        const val SET_VIEWPORT_CALL =
+            "touchHandler?.setViewport(canvas, surface.width, surface.height)"
+        const val SET_TOUCH_LISTENER_CALL = "surface.setOnTouchListener(touchHandler)"
         val REDRAW_CALL = Regex("""\bredraw\(\)""")
     }
 }

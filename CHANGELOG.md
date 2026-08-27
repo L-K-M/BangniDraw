@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Make history recovery and renderer replacement crash-safe.
+- Fix GPU-capacity, tool, input, and adaptive-layout failures.
+- Hide inactive pigment controls and remove sandwich frame allocations.
+
 ## 1.0.5 - 2026-08-27
 
 - Restore live stroke presentation after each canvas surface attaches.
@@ -17,7 +23,7 @@
 - Show a live zoom/angle readout while a pinch or pan gesture runs.
 - Throttle eyedropper reads to one per frame (a drag stalled the GL pipeline
   once per input sample).
-- Allocate nothing in the sandwich's per-frame viewport query.
+- Reduce allocations in the sandwich's per-frame viewport query.
 - Add settings sheets for smudge, blur and eyedropper.
 - Hide pigment controls when the pigment mixer is unavailable, and canvas
   actions that cannot run.

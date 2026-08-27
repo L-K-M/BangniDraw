@@ -14,7 +14,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
@@ -29,10 +28,12 @@ class TileFlusherTest {
 
     private class FakeWriter : TileFlusher.TileWriter {
         var fail = false
+        var beforeWrite: (() -> Unit)? = null
         val events = ArrayList<String>()
 
         override fun write(layer: LayerId, key: TileKey, pixels: ByteArray) {
             if (fail) throw IOException("disk full")
+            beforeWrite?.invoke()
             events += "tile:${key.tx}_${key.ty}"
         }
     }
@@ -76,7 +77,7 @@ class TileFlusherTest {
     }
 
     @Test
-    fun `storage full lifts the mirror cap and keeps committing`() = runBlocking {
+    fun `storage full retains every mirror tile until writes recover`() = runBlocking {
         writer.fail = true
 
         // Fill the mirror past CPU_MIRROR_CAP_BYTES while every write fails.
@@ -90,8 +91,8 @@ class TileFlusherTest {
         assertFalse(flushEverything(), "a failing disk cannot drain")
         assertTrue(flusher.storageFull.value)
 
-        // The cap is lifted in the storage-full state: a commit past it is
-        // still accepted, because a refused readback tile is lost work.
+        // The cap is lifted so an already-issued readback cannot be lost.
+        // Document edits pause separately behind their durable FIFO head.
         assertTrue(flusher.hasMirrorRoom())
         assertTrue(flusher.markDirty(CpuTile(layer, TileKey(63, 63), 2, shared)))
 
@@ -122,7 +123,7 @@ class TileFlusherTest {
         // commit path must wait.
         assertFalse(flusher.hasMirrorRoom())
         flushEverything()
-        // Now storage-full: lifted.
+        // Now storage-full: an already-issued readback still has room.
         assertTrue(flusher.hasMirrorRoom())
     }
 
@@ -152,15 +153,21 @@ class TileFlusherTest {
     }
 
     @Test
-    fun `WriteEntry runs section 5-6's order, entry then readback then tiles`() = runBlocking {
+    fun `WriteEntry writes its after-image before any tile`() = runBlocking {
         val key = TileKey(0, 0)
         val entry = strokeEntry(listOf(key))
+        val store = HistoryStore(historyDir)
+        writer.beforeWrite = {
+            assertTrue(store.afterFile(1).isFile, "the recovery image must precede tile writes")
+            writer.events += "after"
+        }
         val job = TileFlusher.FlushJob.WriteEntry(
             entry = entry, seq = 1, ts = 10,
             mirrorBefore = emptyMap(),
             awaitReadback = {
                 // The step's pixels land only now — after the entry is on
                 // disk, before the flush.
+                assertFalse(store.afterFile(1).exists(), "the after-image needs the readback result")
                 writer.events += "readback"
                 flusher.markDirty(tile(key, revision = 1, fill = 9))
                 TileFlusher.ReadbackResult.COMPLETE
@@ -173,8 +180,9 @@ class TileFlusherTest {
         val stamped = assertNotNull(job.result.await())
         assertTrue(stamped.isStamped)
         assertEquals(TileFlusher.StepResult.COMPLETE, job.completion.await())
-        assertTrue(HistoryStore(historyDir).entryFile(1).isFile)
-        assertEquals(listOf("readback", "tile:0_0"), writer.events)
+        assertTrue(store.entryFile(1).isFile)
+        assertTrue(store.afterFile(1).isFile)
+        assertEquals(listOf("readback", "after", "tile:0_0"), writer.events)
         assertEquals(0L, flusher.pendingBytes)
     }
 
@@ -193,10 +201,90 @@ class TileFlusherTest {
         flusher.enqueue(job)
         flusher.runQueued()
 
-        assertNotNull(job.result.await())
-        assertEquals(TileFlusher.StepResult.DEFERRED, job.completion.await())
+        assertFalse(job.result.isCompleted)
+        assertFalse(job.completion.isCompleted)
         assertTrue(writer.events.isEmpty())
         assertEquals(TILE_BYTES.toLong(), flusher.pendingBytes)
+    }
+
+    @Test
+    fun `checkpoint retries a pending entry before flushing its tile`() = runBlocking {
+        val key = TileKey(0, 0)
+        flusher.markDirty(tile(key, revision = 1, fill = 9))
+        var readbackAttempts = 0
+        val job = TileFlusher.FlushJob.WriteEntry(
+            entry = strokeEntry(listOf(key)),
+            seq = 1,
+            ts = 10,
+            mirrorBefore = emptyMap(),
+            awaitReadback = {
+                readbackAttempts += 1
+                if (readbackAttempts < 3) {
+                    TileFlusher.ReadbackResult.PENDING
+                } else {
+                    TileFlusher.ReadbackResult.COMPLETE
+                }
+            },
+        )
+
+        flusher.enqueue(job)
+        flusher.runQueued()
+        assertFalse(job.result.isCompleted)
+        assertFalse(job.completion.isCompleted)
+
+        val checkpoint = TileFlusher.FlushJob.Checkpoint()
+        flusher.enqueue(checkpoint)
+        flusher.runQueued()
+
+        assertFalse(checkpoint.done.isCompleted)
+        assertEquals(2, readbackAttempts)
+        assertTrue(writer.events.isEmpty())
+
+        flusher.runQueued()
+
+        assertTrue(checkpoint.done.await())
+        assertNotNull(job.result.await())
+        assertEquals(TileFlusher.StepResult.COMPLETE, job.completion.await())
+        assertEquals(3, readbackAttempts)
+        assertTrue(HistoryStore(historyDir).afterFile(1).isFile)
+        assertEquals(listOf("tile:0_0"), writer.events)
+        assertEquals(0L, flusher.pendingBytes)
+    }
+
+    @Test
+    fun `checkpoint retries a failed after-image before flushing its tile`() = runBlocking {
+        val key = TileKey(0, 0)
+        flusher.markDirty(tile(key, revision = 1, fill = 9))
+        val store = HistoryStore(historyDir)
+        val blockedAfter = store.afterFile(1)
+        val job = TileFlusher.FlushJob.WriteEntry(
+            entry = strokeEntry(listOf(key)),
+            seq = 1,
+            ts = 10,
+            mirrorBefore = emptyMap(),
+            awaitReadback = {
+                blockedAfter.mkdirs()
+                TileFlusher.ReadbackResult.COMPLETE
+            },
+        )
+
+        flusher.enqueue(job)
+        flusher.runQueued()
+        assertFalse(job.result.isCompleted)
+        assertFalse(job.completion.isCompleted)
+        assertTrue(writer.events.isEmpty())
+
+        blockedAfter.deleteRecursively()
+        val checkpoint = TileFlusher.FlushJob.Checkpoint()
+        flusher.enqueue(checkpoint)
+        flusher.runQueued()
+
+        assertTrue(checkpoint.done.await())
+        assertNotNull(job.result.await())
+        assertEquals(TileFlusher.StepResult.COMPLETE, job.completion.await())
+        assertTrue(blockedAfter.isFile)
+        assertEquals(listOf("tile:0_0"), writer.events)
+        assertEquals(0L, flusher.pendingBytes)
     }
 
     @Test
@@ -215,7 +303,8 @@ class TileFlusherTest {
         flusher.enqueue(job)
         flusher.runQueued()
 
-        assertEquals(TileFlusher.StepResult.DEFERRED, job.completion.await())
+        assertFalse(job.result.isCompleted)
+        assertFalse(job.completion.isCompleted)
         assertEquals(TILE_BYTES.toLong(), flusher.pendingBytes)
     }
 
@@ -279,11 +368,13 @@ class TileFlusherTest {
     }
 
     @Test
-    fun `a failed entry write is storage-full, completes null, and flushes nothing`() = runBlocking {
+    fun `a failed entry write retains ownership until retry succeeds`() = runBlocking {
         historyDir.deleteRecursively()
         historyDir.writeText("not a directory")
+        val key = TileKey(0, 0)
+        flusher.markDirty(tile(key, revision = 1, fill = 9))
         val job = TileFlusher.FlushJob.WriteEntry(
-            entry = strokeEntry(listOf(TileKey(0, 0))), seq = 1, ts = 1,
+            entry = strokeEntry(listOf(key)), seq = 1, ts = 1,
             mirrorBefore = emptyMap(),
             awaitReadback = {
                 writer.events += "readback"
@@ -292,9 +383,20 @@ class TileFlusherTest {
         )
         flusher.enqueue(job)
         flusher.runQueued()
-        assertNull(job.result.await())
+
+        assertFalse(job.result.isCompleted)
+        assertFalse(job.completion.isCompleted)
         assertTrue(flusher.storageFull.value)
         assertTrue(writer.events.isEmpty(), "no readback wait, no tile flush")
+
+        historyDir.delete()
+        historyDir.mkdirs()
+        flusher.runQueued()
+
+        assertNotNull(job.result.await())
+        assertEquals(TileFlusher.StepResult.COMPLETE, job.completion.await())
+        assertFalse(flusher.storageFull.value)
+        assertEquals(listOf("readback", "tile:0_0"), writer.events)
     }
 
     @Test

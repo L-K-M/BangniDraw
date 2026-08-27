@@ -1695,14 +1695,13 @@ touchscreen hover too, not only a pen.
   first finding (Edit aliases Create's pencil glyph) was applied as `Tune`.
   Round 3 was empty.*
 
-## PR #23 — allocation-free visibleCanvasRect (2026-08-27)
+## PR #23 — visibleCanvasRect allocations (2026-08-27)
 
 - **R-098 🟢 Round 1, major: "cached `viewportCorners` duplicates
   `viewportWidth`/`viewportHeight` state."** Applied: the corners are now
-  derived from the viewport size at the call site. The zero-allocation
-  profile is unchanged either way, and a second copy of the one viewport
-  fact was exactly the kind of cache a future resize path forgets to
-  update. Recorded here because the same reasoning then moved the code
+  derived from the viewport size at the call site. A second copy of the one
+  viewport fact was exactly the kind of cache a future resize path forgets
+  to update. Recorded here because the same reasoning then moved the code
   twice more: round 2 applied a readability nit (walk the edges instead of
   decoding a linear corner index).
 
@@ -1713,6 +1712,9 @@ touchscreen hover too, not only a pen.
   reintroduces exactly the per-frame allocation this PR exists to remove;
   `for (right in 0..1)` compiles to index arithmetic with no allocation, and
   the readability the finding is about was already addressed in round 2.
+
+- **Post-v1 follow-up:** the returned `IntRect` and a captured layer resolver
+  still allocated. Caller-owned bounds and a stable resolver removed both.
 
 ## PR #35 — live zoom readout (2026-08-27)
 

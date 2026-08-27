@@ -56,6 +56,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.engine.core.ColorFieldSync
 import ch.lkmc.bangnidraw.engine.core.ColorText
 import ch.lkmc.bangnidraw.engine.core.ColorUiState
 import ch.lkmc.bangnidraw.engine.core.Composite
@@ -313,7 +314,7 @@ private fun ColorFields(
     // is still typing (a 3-char hex like "FFF" parses and commits mid-edit).
     // Only a color change from elsewhere (picker, swatch, eyedropper)
     // re-syncs the drafts.
-    var hex by remember { mutableStateOf(ColorText.hex(color)) }
+    var hexDrafts by remember { mutableStateOf(ColorFieldSync.fromColor(color)) }
     var red by remember { mutableStateOf(Composite.red(color).toString()) }
     var green by remember { mutableStateOf(Composite.green(color).toString()) }
     var blue by remember { mutableStateOf(Composite.blue(color).toString()) }
@@ -322,7 +323,7 @@ private fun ColorFields(
     LaunchedEffect(color) {
         if (color == lastReflected) return@LaunchedEffect
         lastReflected = color
-        hex = ColorText.hex(color)
+        hexDrafts = ColorFieldSync.syncParent(hexDrafts, color)
         red = Composite.red(color).toString()
         green = Composite.green(color).toString()
         blue = Composite.blue(color).toString()
@@ -347,15 +348,16 @@ private fun ColorFields(
         val g = ColorText.parseChannel(green) ?: return
         val b = ColorText.parseChannel(blue) ?: return
         val argb = Composite.argb(CHANNEL_MAX, r, g, b)
-        hex = ColorText.hex(argb)
+        hexDrafts = ColorFieldSync.fromColor(argb)
         emit(argb)
     }
 
     OutlinedTextField(
-        value = hex,
-        onValueChange = {
-            hex = it
-            ColorText.parseHex(it)?.let { argb ->
+        value = hexDrafts.hex,
+        onValueChange = { hex ->
+            val next = ColorFieldSync.editHex(hexDrafts, hex)
+            hexDrafts = next
+            next.selectedColor?.let { argb ->
                 syncSiblings(argb)
                 emit(argb)
             }

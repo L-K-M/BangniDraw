@@ -148,14 +148,19 @@ class HistoryJournalTest {
     }
 
     @Test
-    fun `redo sidecar bytes prune immediately`() {
+    fun `redo sidecar bytes prune after the transition`() {
         val j = journal(maxBytes = 100L)
         j.push(entry(1, bytes = 40))
         j.push(entry(2, bytes = 40))
         j.undo()
 
-        val pruned = j.noteRedoBytes(2, 30)
+        j.noteRedoBytes(2, 30)
 
+        assertEquals(listOf(1L, 2L), j.entries.map { it.seq })
+        assertEquals(1, j.cursor)
+        assertEquals(110L, j.bytes)
+
+        val pruned = j.pruneAfterRedoAccounting()
         assertEquals(listOf(1L), pruned)
         assertEquals(listOf(2L), j.entries.map { it.seq })
         assertEquals(70L, j.bytes)
@@ -163,7 +168,7 @@ class HistoryJournalTest {
         assertTrue(j.canRedo())
 
         // A sidecar landing for a seq that is gone is ignored, not an error.
-        assertEquals(emptyList(), j.noteRedoBytes(1, 15))
+        j.noteRedoBytes(1, 15)
         assertEquals(70L, j.bytes)
     }
 
@@ -174,10 +179,12 @@ class HistoryJournalTest {
         j.push(entry(2, bytes = 20))
         j.push(entry(3, bytes = 20))
         j.undo()
-        assertEquals(emptyList(), j.noteRedoBytes(3, 10))
+        j.noteRedoBytes(3, 10)
+        assertEquals(emptyList(), j.pruneAfterRedoAccounting())
         j.undo()
 
-        val pruned = j.noteRedoBytes(2, 100)
+        j.noteRedoBytes(2, 100)
+        val pruned = j.pruneAfterRedoAccounting()
 
         assertEquals(listOf(1L, 3L), pruned)
         assertEquals(listOf(2L), j.entries.map { it.seq })
@@ -194,7 +201,8 @@ class HistoryJournalTest {
         j.undo()
         j.redo()
 
-        val pruned = j.noteRedoBytes(2, 50)
+        j.noteRedoBytes(2, 50)
+        val pruned = j.pruneAfterRedoAccounting()
 
         assertEquals(listOf(1L), pruned)
         assertEquals(listOf(2L), j.entries.map { it.seq })

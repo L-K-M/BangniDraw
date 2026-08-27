@@ -25,6 +25,8 @@ import ch.lkmc.bangnidraw.engine.core.BlurParams
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushSizeScale
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.MixerChoice
+import ch.lkmc.bangnidraw.engine.core.RmwSettingsPolicy
 import ch.lkmc.bangnidraw.engine.core.SampleSource
 import ch.lkmc.bangnidraw.engine.core.SmudgeParams
 import kotlin.math.roundToInt
@@ -40,6 +42,7 @@ import kotlin.math.roundToInt
 @Composable
 internal fun SmudgeSettingsSheet(
     active: SmudgeParams,
+    mixerChoice: MixerChoice,
     onChanged: (SmudgeParams) -> Unit,
 ) {
     ToolSheetScaffold(title = stringResource(R.string.tool_smudge)) {
@@ -86,11 +89,13 @@ internal fun SmudgeSettingsSheet(
         )
 
         SettingsGroup(stringResource(R.string.brush_group_mixing))
-        ToggleRow(
-            label = stringResource(R.string.brush_pigment),
-            value = if (active.mixing) ToggleValue.On else ToggleValue.Off,
-            onChanged = { onChanged(active.copy(mixing = it.enabled)) },
-        )
+        if (RmwSettingsPolicy.showsPigmentControl(mixerChoice)) {
+            ToggleRow(
+                label = stringResource(R.string.brush_pigment),
+                value = if (active.mixing) ToggleValue.On else ToggleValue.Off,
+                onChanged = { onChanged(active.copy(mixing = it.enabled)) },
+            )
+        }
         SettingSlider(
             label = stringResource(R.string.smudge_strength),
             value = active.strength,

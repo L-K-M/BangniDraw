@@ -8,6 +8,7 @@ class EngineRenderPolicyTest {
     @Test
     fun `a completion during a stroke requests one cumulative recovery`() {
         val policy = EngineRenderPolicy()
+        policy.registerCommit()
         policy.beginStroke()
 
         assertEquals(
@@ -24,14 +25,34 @@ class EngineRenderPolicyTest {
     }
 
     @Test
-    fun `a completion before the stroke leaves incremental rendering`() {
+    fun `a commit completion before the stroke leaves incremental rendering`() {
         val policy = EngineRenderPolicy()
+        policy.registerCommit()
 
         assertEquals(MultiDrawCompletion.NONE, policy.onMultiDrawCompleted())
         policy.beginStroke()
 
         assertEquals(MultiDrawCompletion.NONE, policy.resumeFront())
         assertEquals(FrontFramePlan.INCREMENTAL, policy.frontFrame())
+    }
+
+    @Test
+    fun `a system completion protects the next stroke until pen up`() {
+        val policy = EngineRenderPolicy()
+
+        assertEquals(MultiDrawCompletion.NONE, policy.onMultiDrawCompleted())
+        policy.beginStroke()
+
+        assertEquals(FrontFramePlan.PROTECTED, policy.frontFrame())
+        val incremental = IntRect(10, 20, 30, 40)
+        val previous = IntRect(100, 120, 130, 140)
+        assertEquals(
+            FrontFrameDirty(
+                composite = incremental,
+                present = incremental.union(previous),
+            ),
+            policy.frontFrame().dirty(incremental, previous),
+        )
     }
 
     @Test
@@ -48,11 +69,16 @@ class EngineRenderPolicyTest {
             FrontFrameDirty(composite = cumulative, present = cumulative),
             FrontFramePlan.RECOVER.dirty(incremental, preview),
         )
+        assertEquals(
+            FrontFrameDirty(composite = incremental, present = cumulative),
+            FrontFramePlan.PROTECTED.dirty(incremental, preview),
+        )
     }
 
     @Test
     fun `failed recovery remains pending`() {
         val policy = EngineRenderPolicy()
+        policy.registerCommit()
         policy.beginStroke()
         policy.onMultiDrawCompleted()
 
@@ -100,8 +126,9 @@ class EngineRenderPolicyTest {
     }
 
     @Test
-    fun `an active completion does not change the next stroke`() {
+    fun `a commit completion does not change the next stroke`() {
         val policy = EngineRenderPolicy()
+        policy.registerCommit()
         policy.beginStroke()
         policy.onMultiDrawCompleted()
         policy.finishStroke(StrokeFinish.COMMIT)
@@ -117,8 +144,23 @@ class EngineRenderPolicyTest {
         policy.beginStroke()
 
         assertEquals(RedrawDecision.DEFER, policy.requestRedraw())
+        policy.sceneChanged()
+        assertEquals(FrontFramePlan.RECOVER, policy.frontFrame())
         assertEquals(RedrawDecision.COVERED, policy.finishStroke(StrokeFinish.COMMIT))
         assertEquals(RedrawDecision.DRAW, policy.requestRedraw())
+    }
+
+    @Test
+    fun `an earlier front frame cannot consume a queued scene change`() {
+        val policy = EngineRenderPolicy()
+        policy.beginStroke()
+
+        assertEquals(RedrawDecision.DEFER, policy.requestRedraw())
+        assertEquals(FrontFramePlan.INCREMENTAL, policy.frontFrame())
+
+        policy.sceneChanged()
+
+        assertEquals(FrontFramePlan.RECOVER, policy.frontFrame())
     }
 
     @Test

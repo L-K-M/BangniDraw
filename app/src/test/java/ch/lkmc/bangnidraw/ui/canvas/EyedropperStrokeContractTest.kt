@@ -50,7 +50,7 @@ class EyedropperStrokeContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasScreen.kt"
         const val STROKE_END_START = "override fun onStrokeEnd(pointerId: Int)"
         const val STROKE_CANCEL_START = "override fun onStrokeCancel()"
-        const val PICK_INVALIDATION = "strokeState.nextPickGeneration()"
+        const val PICK_INVALIDATION = "strokeState.requestFinalPick("
         const val PICK_COMMIT = "viewModel.commitPickedColor()"
         val PICK_BRANCH = Regex(
             """if \(strokeState\.pickParams != null\) \{[\s\S]*?\n\s+return\n\s+\}""",

@@ -18,6 +18,7 @@ class CanvasNavigationContractTest {
         assertEquals(DIRECT_LEAVE_ENTRY_POINTS, REQUEST_LEAVE.findAll(screen).count())
         assertFalse("viewModel.leave(" in screen)
         assertTrue("requestLeave(afterWrite)" in viewModel)
+        assertTrue("beforeLeave = ::finishOpenStrokeForLeave" in screen)
     }
 
     @Test
@@ -70,7 +71,7 @@ class CanvasNavigationContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasScreen.kt"
         const val CANVAS_VIEW_MODEL_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasViewModel.kt"
-        const val BACK_ENTRY_POINTS = 2
+        const val BACK_ENTRY_POINTS = 3
         const val DIRECT_LEAVE_ENTRY_POINTS = 2
         const val RELEASE_LEAVE_GATE = "private fun releaseLeaveGate()"
         const val NOTE_LEAVE_FAILURE = "private fun noteLeaveFailure()"
@@ -79,7 +80,7 @@ class CanvasNavigationContractTest {
         const val CLOSING_EARLY_RETURN = "return@LaunchedEffect"
         const val CLEAR_FOCUS = "focusManager.clearFocus()"
         const val SCRIM_DELAY = "delay(CLOSING_SCRIM_DELAY_MS)"
-        val HANDLE_BACK = Regex("""viewModel\.handleBack\(onBack\)""")
+        val HANDLE_BACK = Regex("""viewModel\.handleBack\(""")
         val REQUEST_LEAVE = Regex("""viewModel\.requestLeave\(""")
     }
 }

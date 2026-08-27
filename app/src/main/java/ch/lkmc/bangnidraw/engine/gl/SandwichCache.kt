@@ -1,7 +1,9 @@
 package ch.lkmc.bangnidraw.engine.gl
 
 import ch.lkmc.bangnidraw.engine.core.IntRect
+import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
+import ch.lkmc.bangnidraw.engine.core.MutableIntRect
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.PoolExhausted
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
@@ -47,6 +49,7 @@ class SandwichCache(
     private val fbo = GlFbo()
     private val pass = TileCompositePass(program, state, pool)
     private val excludedPages = IntArray(2)
+    private val keyScratch = IntArray(grid.tileCount)
 
     /** A whole half needs rebuilding; individual tiles are rebuilt as they are drawn. */
     private var belowStale = true
@@ -107,10 +110,11 @@ class SandwichCache(
      * every visible one.
      */
     fun invalidateTiles(rect: IntRect, below: Boolean, above: Boolean) {
-        val keys = grid.keysFor(rect)
-        for (k in keys) {
-            if (below) belowBuilt.remove(k.packed)
-            if (above) aboveBuilt.remove(k.packed)
+        val count = grid.keysFor(rect, keyScratch)
+        for (index in 0 until count) {
+            val key = keyScratch[index]
+            if (below) belowBuilt.remove(key)
+            if (above) aboveBuilt.remove(key)
         }
         if (below) belowStale = true
         if (above) aboveStale = true
@@ -134,7 +138,15 @@ class SandwichCache(
      * `SANDWICH_MARGIN_PX`), so a "rebuild all" costs one composite of what is
      * on screen and the rest arrives as it is scrolled into view.
      */
-    fun rebuild(rect: IntRect, stack: LayerStack, paper: Int, layerTextures: (Int) -> LayerTextures) {
+    internal fun hasPendingRebuild(): Boolean =
+        (belowStale && belowAvailable) || (aboveStale && aboveAvailable)
+
+    internal fun rebuild(
+        rect: MutableIntRect,
+        stack: LayerStack,
+        paper: Int,
+        layerTextures: (LayerId) -> LayerTextures?,
+    ) {
         // An unavailable half never fills its built set, so its stale flag can
         // never clear — without the availability terms this early return never
         // fires again and every frame pays a keysFor allocation and a walk for
@@ -144,9 +156,11 @@ class SandwichCache(
         val abovePending = aboveStale && aboveAvailable
         if (!belowPending && !abovePending) return
         val activeIndex = stack.activeIndex
-        val keys = grid.keysFor(rect)
-        for (key in keys) {
-            if (belowPending && key.packed !in belowBuilt) {
+        val count = grid.keysFor(rect, keyScratch)
+        for (index in 0 until count) {
+            val packed = keyScratch[index]
+            val key = TileKey(packed)
+            if (belowPending && packed !in belowBuilt) {
                 val built = buildTile(
                     key,
                     target = below,
@@ -156,9 +170,9 @@ class SandwichCache(
                     stack = stack,
                     layerTextures = layerTextures,
                 )
-                if (built) belowBuilt.add(key.packed)
+                if (built) belowBuilt.add(packed)
             }
-            if (abovePending && key.packed !in aboveBuilt) {
+            if (abovePending && packed !in aboveBuilt) {
                 val built = buildTile(
                     key,
                     target = above,
@@ -169,11 +183,31 @@ class SandwichCache(
                     stack = stack,
                     layerTextures = layerTextures,
                 )
-                if (built) aboveBuilt.add(key.packed)
+                if (built) aboveBuilt.add(packed)
             }
         }
         if (belowBuilt.size >= grid.tileCount) belowStale = false
         if (aboveBuilt.size >= grid.tileCount) aboveStale = false
+    }
+
+    /** A half-built cache is never selected; direct composition stays exact. */
+    fun isReady(rect: IntRect): Boolean {
+        if (!belowAvailable || !aboveAvailable) return false
+        return isReady(grid.keysFor(rect, keyScratch))
+    }
+
+    internal fun isReady(rect: MutableIntRect): Boolean {
+        if (!belowAvailable || !aboveAvailable) return false
+        return isReady(grid.keysFor(rect, keyScratch))
+    }
+
+    private fun isReady(count: Int): Boolean {
+        return SandwichPolicy.cacheReady(
+            requested = keyScratch,
+            count = count,
+            belowBuilt = belowBuilt,
+            aboveBuilt = aboveBuilt,
+        )
     }
 
     /**
@@ -190,7 +224,7 @@ class SandwichCache(
         paper: Int,
         indices: IntRange,
         stack: LayerStack,
-        layerTextures: (Int) -> LayerTextures,
+        layerTextures: (LayerId) -> LayerTextures?,
     ): Boolean {
         var current = try {
             pool.allocate()
@@ -210,7 +244,7 @@ class SandwichCache(
         for (i in indices) {
             val props = stack.layers[i].props
             if (!props.visible || props.opacity <= 0f) continue
-            val source = layerTextures(i).slice(key)
+            val source = layerTextures(props.id)?.slice(key) ?: return false
             if (source.isNone) continue
 
             excludedPages[0] = current.page

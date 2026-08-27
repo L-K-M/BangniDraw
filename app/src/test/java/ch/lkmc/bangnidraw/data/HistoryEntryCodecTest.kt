@@ -50,7 +50,9 @@ class HistoryEntryCodecTest {
         val stamped = store.append(entry, seq = seq, ts = 1000 + seq, payloads = payloads)
         // cursor 1: the entry is on the undo branch. On the redo branch the
         // pixel kinds would need their sidecar, which is its own test below.
-        val loaded = store.load(HistoryRecord(cursor = 1, nextSeq = seq + 1, oldestSeq = seq))
+        val loaded = store.load(
+            HistoryRecord(cursor = 1, nextSeq = seq + 1, oldestSeq = seq, entries = 1),
+        )
         assertEquals(1, loaded.entries.size, "entry $seq should load")
         val decoded = loaded.entries.single()
         assertEquals(stamped.seq, decoded.seq)
@@ -121,12 +123,12 @@ class HistoryEntryCodecTest {
         val file = store.entryFile(1)
         val text = file.readText()
         file.writeText(text.trimEnd('\n').removeSuffix("}") + ""","futureHint":true}""" + "\n")
-        val loaded = store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
+        val loaded = store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1, entries = 1))
         assertEquals(1, loaded.entries.size)
 
         // A major bump is refused: the entry (and everything after) drops.
         file.writeText(text.replace("\"v\":1", "\"v\":2"))
-        val refused = store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
+        val refused = store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1, entries = 1))
         assertEquals(0, refused.entries.size)
     }
 
@@ -143,7 +145,7 @@ class HistoryEntryCodecTest {
         // is a prefix or it is lies (06 §5.6).
         val file = store.entryFile(1)
         file.writeBytes(file.readBytes().copyOfRange(0, file.length().toInt() - 10))
-        val loaded = store.load(HistoryRecord(cursor = 2, nextSeq = 3, oldestSeq = 1))
+        val loaded = store.load(HistoryRecord(cursor = 2, nextSeq = 3, oldestSeq = 1, entries = 2))
         assertEquals(0, loaded.entries.size)
         assertNull(store.readPayloads(1, sidecar = false))
         // The unreadable file stays on disk — a support question, not an

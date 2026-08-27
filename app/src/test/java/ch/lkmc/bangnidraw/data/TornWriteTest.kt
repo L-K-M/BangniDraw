@@ -75,11 +75,16 @@ class TornWriteTest {
         // entry and its tile reached disk (§5.6's order guarantees entry
         // before tile) — and an entry 4 orphaned by an uncheckpointed
         // truncation.
+        val committedPixels = Random(2).nextBytes(TILE_BYTES)
         history.append(
             stroke(TileKey(1, 0)), seq = 2, ts = 2,
             payloads = listOf(HistoryStore.Payload(layerId, TileKey(1, 0), ByteArray(0))),
         )
-        tiles.write(TileKey(1, 0), Random(2).nextBytes(TILE_BYTES))
+        history.writeRecoveryAfter(
+            seq = 2,
+            payloads = listOf(HistoryStore.Payload(layerId, TileKey(1, 0), committedPixels)),
+        )
+        tiles.write(TileKey(1, 0), committedPixels)
         history.append(
             stroke(TileKey(2, 0)), seq = 4, ts = 4,
             payloads = listOf(HistoryStore.Payload(layerId, TileKey(2, 0), ByteArray(0))),

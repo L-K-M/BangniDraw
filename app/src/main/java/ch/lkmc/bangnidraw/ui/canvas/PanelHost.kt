@@ -44,9 +44,12 @@ internal fun BoxScope.PanelHost(
         else -> AbsoluteAlignment.CenterLeft
     }
     val panelWidth = when (layout.panelMode) {
-        PanelMode.FULL_HEIGHT_SHEET -> minOf(PANEL_MAX_WIDTH, windowWidth * COMPACT_WIDTH_FRACTION)
-        PanelMode.SIDE_SHEET -> PANEL_SIDE_WIDTH
-        PanelMode.FLOATING -> PANEL_MAX_WIDTH
+        PanelMode.FULL_HEIGHT_SHEET -> minOf(
+            LayoutSpec.PANEL_MAX_WIDTH_DP.dp,
+            windowWidth * LayoutSpec.PANEL_COMPACT_WIDTH_FRACTION,
+        )
+        PanelMode.SIDE_SHEET -> LayoutSpec.PANEL_SIDE_WIDTH_DP.dp
+        PanelMode.FLOATING -> LayoutSpec.PANEL_MAX_WIDTH_DP.dp
     }
     val insets = layout.panelInsets(
         windowWidthDp = windowWidth.value.roundToInt(),
@@ -59,7 +62,7 @@ internal fun BoxScope.PanelHost(
         bottom = insets.bottomDp.dp,
     )
     val height = if (layout.panelMode == PanelMode.FLOATING) {
-        Modifier.fillMaxHeight(FLOATING_HEIGHT_FRACTION)
+        Modifier.fillMaxHeight(LayoutSpec.PANEL_FLOATING_HEIGHT_FRACTION)
     } else {
         Modifier.fillMaxHeight()
     }
@@ -90,8 +93,4 @@ internal fun BoxScope.PanelHost(
     }
 }
 
-private val PANEL_SIDE_WIDTH = 300.dp
-private val PANEL_MAX_WIDTH = 320.dp
 private const val PANEL_ANIMATION_MS = 220
-private const val COMPACT_WIDTH_FRACTION = 0.85f
-private const val FLOATING_HEIGHT_FRACTION = 0.9f

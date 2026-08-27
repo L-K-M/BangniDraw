@@ -1,8 +1,10 @@
 package ch.lkmc.bangnidraw.input
 
 import android.os.Build
+import android.os.SystemClock
 import android.view.Choreographer
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import ch.lkmc.bangnidraw.engine.core.ButtonState
@@ -11,6 +13,11 @@ import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.GestureListener
 import ch.lkmc.bangnidraw.engine.core.LatencyTrace
+import ch.lkmc.bangnidraw.engine.core.MouseNavigationPolicy
+import ch.lkmc.bangnidraw.engine.core.MouseButton
+import ch.lkmc.bangnidraw.engine.core.MouseButtonPolicy
+import ch.lkmc.bangnidraw.engine.core.MouseGesture
+import ch.lkmc.bangnidraw.engine.core.MouseScrollMode
 import ch.lkmc.bangnidraw.engine.core.NavigationStep
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PredictionGate
@@ -21,6 +28,8 @@ import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StylusButtonPolicy
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.engine.core.ViewportResizePolicy
+import ch.lkmc.bangnidraw.engine.core.ViewportResizeState
 
 /**
  * What the canvas does with pointers — the callbacks a host implements.
@@ -46,11 +55,7 @@ interface CanvasInputHost {
     /** Coalesced to one callback per frame while hover state changes. */
     fun onHoverChanged() {}
 
-    /**
-     * A navigation gesture became live, or just ended — exactly once per
-     * transition, so a chrome readout can appear while the fingers move and
-     * disappear when they lift.
-     */
+    /** A navigation first changed the view, or its changed span ended. */
     fun onNavigateActive(active: Boolean) {}
 
     /** Roadmap 2.4b. A stroke began with [source] at this pointer. */
@@ -88,6 +93,28 @@ interface CanvasInputHost {
     fun onStrokePredicted(samples: StrokeInputBatch) {}
 }
 
+/** Main-thread timer seam; tests replace the View-backed scheduler. */
+internal interface GestureTickScheduler {
+    fun bind(view: View?)
+    fun postDelayed(callback: Runnable, delayMillis: Long): Boolean
+    fun removeCallbacks(callback: Runnable)
+}
+
+private class ViewGestureTickScheduler : GestureTickScheduler {
+    private var view: View? = null
+
+    override fun bind(view: View?) {
+        this.view = view
+    }
+
+    override fun postDelayed(callback: Runnable, delayMillis: Long): Boolean =
+        view?.postDelayed(callback, delayMillis) == true
+
+    override fun removeCallbacks(callback: Runnable) {
+        view?.removeCallbacks(callback)
+    }
+}
+
 /**
  * The **only** code that touches `MotionEvent`
  * (`docs/plan/07-input-and-stylus.md` §2, `02-architecture.md` §2.6).
@@ -105,10 +132,25 @@ interface CanvasInputHost {
  * test, so a handler that only had `onTouch` would be untestable, and its
  * wiring is exactly the part worth testing.
  */
-class CanvasTouchHandler(
+class CanvasTouchHandler private constructor(
     density: Float,
     private val host: CanvasInputHost,
-) : View.OnTouchListener, View.OnHoverListener {
+    private val tickScheduler: GestureTickScheduler,
+) : View.OnTouchListener, View.OnHoverListener, View.OnGenericMotionListener {
+
+    constructor(density: Float, host: CanvasInputHost) : this(
+        density,
+        host,
+        ViewGestureTickScheduler(),
+    )
+
+    internal object TestFactory {
+        fun create(
+            density: Float,
+            host: CanvasInputHost,
+            tickScheduler: GestureTickScheduler,
+        ): CanvasTouchHandler = CanvasTouchHandler(density, host, tickScheduler)
+    }
 
     val stylus = StylusState()
     val arbiter = GestureArbiter(density)
@@ -120,13 +162,17 @@ class CanvasTouchHandler(
 
     private var fit: FitTransform? = null
     private var screen: ScreenTransform? = null
+    private var viewportAvailable = false
 
     val canvasToScreenScale: Float
         get() = screen?.effectiveScale ?: view.scale
 
     var stylusOnly: Boolean
         get() = arbiter.stylusOnly
-        set(value) { arbiter.stylusOnly = value }
+        set(value) {
+            arbiter.stylusOnly = value
+            refreshGestureTick(uptimeNs())
+        }
 
     /** Device pressure normalization selected in Settings. */
     var pressureCurve: PressureCurve = PressureCurve.of()
@@ -185,6 +231,15 @@ class CanvasTouchHandler(
 
     private var navigating = false
 
+    /** True only after navigation changed the transform and reached the host. */
+    private var navigationActive = false
+
+    /** Generic mouse button events and mouse touch events share this drag. */
+    private var middleDragging = false
+    private var mouseTouchGesture = MouseGesture.NONE
+    private var previousMouseX = 0f
+    private var previousMouseY = 0f
+
     /** A move arrived and its event has not been closed by [handleMoveEnd] yet. */
     private var pendingMove = false
 
@@ -223,7 +278,6 @@ class CanvasTouchHandler(
 
         override fun onNavigate() {
             navigating = true
-            host.onNavigateActive(true)
             rawRotation = view.rotation
             snap.reset()
             captureNavPointers()
@@ -251,7 +305,7 @@ class CanvasTouchHandler(
         }
         override fun onNavigateEnd() {
             navigating = false
-            host.onNavigateActive(false)
+            endNavigationActivity()
             navIds[0] = NO_POINTER
             navIds[1] = NO_POINTER
         }
@@ -265,27 +319,56 @@ class CanvasTouchHandler(
     }
 
     fun setViewport(canvas: CanvasSize, width: Int, height: Int) {
-        val next = if (width > 0 && height > 0) {
-            FitTransform(
-                viewWidth = width.toFloat(),
-                viewHeight = height.toFloat(),
-                imageWidth = canvas.width.toFloat(),
-                imageHeight = canvas.height.toFloat(),
-            )
-        } else {
-            null
+        if (width <= 0 || height <= 0) {
+            handleCancel(uptimeNs())
+            viewportAvailable = false
+            updateScreen()
+            return
         }
+
+        val next = FitTransform(
+            viewWidth = width.toFloat(),
+            viewHeight = height.toFloat(),
+            imageWidth = canvas.width.toFloat(),
+            imageHeight = canvas.height.toFloat(),
+        )
         val previous = fit
-        if (previous != null && next != null && previous != next) {
-            view = view.rebase(previous, next)
-            host.onViewChanged(view)
+        if (previous != next) {
+            // A live driver cannot connect samples across two coordinate maps.
+            handleCancel(uptimeNs())
+        }
+        if (previous != null) {
+            val resized = ViewportResizePolicy.resize(
+                ViewportResizeState(view, previous),
+                next,
+            )
+            if (resized.view != view) host.onViewChanged(resized.view)
+            view = resized.view
         }
         fit = next
+        viewportAvailable = true
         updateScreen()
     }
 
+    /** Ends every input stream before this handler loses its view listeners. */
+    internal fun detach() {
+        val publishHoverExit = stylus.isHovering || hoverFramePosted
+        handleCancel(uptimeNs())
+        cancelGestureTick()
+        bindGestureTicks(null)
+        stopPredicting()
+        if (hoverFramePosted) {
+            hoverFramePosted = false
+            Choreographer.getInstance().removeFrameCallback(hoverFrameCallback)
+        }
+        predictor = null
+        predictorView = null
+        stylus.reset()
+        if (publishHoverExit) host.onHoverChanged()
+    }
+
     private fun updateScreen() {
-        screen = fit?.let { ScreenTransform.of(it, view) }
+        screen = fit?.takeIf { viewportAvailable }?.let { ScreenTransform.of(it, view) }
     }
 
     // ------------------------------------------------------- primitive path
@@ -307,6 +390,7 @@ class CanvasTouchHandler(
         }
         track(pointerId, x, y, pressure, tilt, orientation, timeNs)
         arbiter.down(pointerId, tool, x, y, timeNs, decisions)
+        refreshGestureTick(timeNs)
         if (navigating) captureNavPointers()
     }
 
@@ -378,8 +462,8 @@ class CanvasTouchHandler(
             canvasX(x, y),
             canvasY(x, y),
             pressureFor(drawingSource, pressure),
-            tilt,
-            canvasOrientation(orientation),
+            tiltFor(drawingSource, tilt),
+            orientationFor(drawingSource, orientation),
             timeNs,
         )
     }
@@ -439,11 +523,22 @@ class CanvasTouchHandler(
         StrokeSource.FINGER, StrokeSource.MOUSE, null -> 1f
     }
 
+    private fun tiltFor(source: StrokeSource?, raw: Float): Float = when (source) {
+        StrokeSource.STYLUS, StrokeSource.ERASER_END, StrokeSource.FINGER -> raw
+        StrokeSource.MOUSE, null -> 0f
+    }
+
+    private fun orientationFor(source: StrokeSource?, raw: Float): Float = when (source) {
+        StrokeSource.STYLUS, StrokeSource.ERASER_END, StrokeSource.FINGER -> canvasOrientation(raw)
+        StrokeSource.MOUSE, null -> 0f
+    }
+
     /** Applies one navigation step from every pointer's position in this event. */
     internal fun handleMoveEnd(timeNs: Long) {
         arbiter.tick(timeNs, decisions)
         if (pendingMove && navigating) applyNavigation()
         pendingMove = false
+        refreshGestureTick(timeNs)
     }
 
     internal fun handleUp(pointerId: Int, timeNs: Long) {
@@ -470,6 +565,7 @@ class CanvasTouchHandler(
         } else if (navIds[1] == pointerId) {
             navIds[1] = NO_POINTER
         }
+        refreshGestureTick(timeNs)
     }
 
     internal fun handleCancel(timeNs: Long) {
@@ -491,10 +587,16 @@ class CanvasTouchHandler(
         for (i in trackIds.indices) trackIds[i] = NO_POINTER
         navIds[0] = NO_POINTER
         navIds[1] = NO_POINTER
+        mouseTouchGesture = MouseGesture.NONE
+        endMiddleDrag()
+        cancelGestureTick()
     }
 
     /** Drives the pending window and the long press when no event arrives. */
-    internal fun handleTick(timeNs: Long) = arbiter.tick(timeNs, decisions)
+    internal fun handleTick(timeNs: Long) {
+        arbiter.tick(timeNs, decisions)
+        refreshGestureTick(timeNs)
+    }
 
     private fun applyNavigation() {
         val a = navIds[0]
@@ -523,10 +625,75 @@ class CanvasTouchHandler(
         val displayed = snap.update(rawRotation)
         val stepped = step.applyTo(view)
         // The snap only touches rotation; pan and zoom are the gesture's.
-        view = stepped.copy(rotation = displayed)
+        val next = stepped.copy(rotation = displayed)
+        if (next == view) return
+
+        view = next
         updateScreen()
+        beginNavigationActivity()
         if (snap.justEntered) host.onRotationSnapped()
         host.onViewChanged(view)
+    }
+
+    private fun beginNavigationActivity() {
+        if (navigationActive) return
+
+        navigationActive = true
+        host.onNavigateActive(true)
+    }
+
+    private fun endNavigationActivity() {
+        if (!navigationActive) return
+
+        navigationActive = false
+        host.onNavigateActive(false)
+    }
+
+    // A pending finger can be motionless, so MotionEvent cannot drive these deadlines.
+    private val gestureTick = Runnable {
+        val tickNs = maxOf(uptimeNs(), gestureTickDeadlineNs)
+        gestureTickPosted = false
+        gestureTickDeadlineNs = GestureArbiter.NO_TICK_NS
+        handleTick(tickNs)
+    }
+    private var gestureTickPosted = false
+    private var gestureTickDeadlineNs = GestureArbiter.NO_TICK_NS
+    private var tickView: View? = null
+
+    private fun bindGestureTicks(view: View?) {
+        if (tickView === view) return
+
+        cancelGestureTick()
+        tickView = view
+        tickScheduler.bind(view)
+    }
+
+    private fun refreshGestureTick(timeNs: Long) {
+        val deadlineNs = arbiter.nextTickDeadlineNs()
+        if (deadlineNs == GestureArbiter.NO_TICK_NS) {
+            cancelGestureTick()
+            return
+        }
+        if (gestureTickPosted && gestureTickDeadlineNs == deadlineNs) return
+
+        cancelGestureTick()
+        val remainingNs = deadlineNs - timeNs
+        val delayMillis = if (remainingNs <= 0L) {
+            0L
+        } else {
+            (remainingNs - 1L) / NANOS_PER_MILLISECOND + 1L
+        }
+        gestureTickDeadlineNs = deadlineNs
+        gestureTickPosted = tickScheduler.postDelayed(gestureTick, delayMillis)
+        if (gestureTickPosted) return
+
+        gestureTickDeadlineNs = GestureArbiter.NO_TICK_NS
+    }
+
+    private fun cancelGestureTick() {
+        if (gestureTickPosted) tickScheduler.removeCallbacks(gestureTick)
+        gestureTickPosted = false
+        gestureTickDeadlineNs = GestureArbiter.NO_TICK_NS
     }
 
     private fun captureNavPointers() {
@@ -850,9 +1017,9 @@ class CanvasTouchHandler(
                 },
             ),
             timeNs = if (current) {
-                e.eventTime * 1_000_000L
+                e.eventTime * NANOS_PER_MILLISECOND
             } else {
-                e.getHistoricalEventTime(history) * 1_000_000L
+                e.getHistoricalEventTime(history) * NANOS_PER_MILLISECOND
             },
             source = predictedSource,
             predicted = true,
@@ -870,9 +1037,19 @@ class CanvasTouchHandler(
      */
     override fun onTouch(v: View?, event: MotionEvent?): Boolean {
         val e = event ?: return false
+        bindGestureTicks(v)
+        val timeNs = e.eventTime * NANOS_PER_MILLISECOND
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            e.flags and MotionEvent.FLAG_CANCELED != 0
+        ) {
+            handleCancel(timeNs)
+            return true
+        }
+        if (handleMouseTouch(e)) return true
+
         val index = e.actionIndex
         val id = e.getPointerId(index)
-        val timeNs = e.eventTime * 1_000_000L
         // §8: one predictor per surface, recreated with it. `v` is the
         // SurfaceView the session draws into, so building it from here means
         // nothing has to be plumbed through the composable that owns both.
@@ -897,7 +1074,7 @@ class CanvasTouchHandler(
 
             MotionEvent.ACTION_MOVE -> {
                 for (h in 0 until e.historySize) {
-                    val hNs = e.getHistoricalEventTime(h) * 1_000_000L
+                    val hNs = e.getHistoricalEventTime(h) * NANOS_PER_MILLISECOND
                     for (p in 0 until e.pointerCount) {
                         // Axes read at index `p`, the same pointer handleMove
                         // is given. For ACTION_MOVE the action's pointer-index
@@ -960,6 +1137,167 @@ class CanvasTouchHandler(
         }
         return true
     }
+
+    override fun onGenericMotion(v: View?, event: MotionEvent?): Boolean {
+        val e = event ?: return false
+        if (!e.isFromSource(InputDevice.SOURCE_MOUSE)) return false
+        if (e.actionMasked == MotionEvent.ACTION_SCROLL) return handleMouseScroll(e)
+
+        return handleMiddleMouse(e)
+    }
+
+    private fun handleMouseScroll(event: MotionEvent): Boolean {
+        if (strokeLive) return false
+
+        val ticks = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+        if (ticks == 0f) return false
+
+        val ctrlPressed = event.metaState and KeyEvent.META_CTRL_MASK != 0
+        val mode = if (ctrlPressed) MouseScrollMode.ROTATE else MouseScrollMode.ZOOM
+        view = MouseNavigationPolicy.scroll(
+            view = view,
+            pivotX = event.x,
+            pivotY = event.y,
+            ticks = ticks,
+            mode = mode,
+        )
+        publishMouseView()
+        return true
+    }
+
+    private fun handleMiddleMouse(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_BUTTON_PRESS -> {
+                return when (MouseButtonPolicy.begin(event.actionMouseButton())) {
+                    MouseGesture.PAN -> {
+                        if (!strokeLive) beginMiddleDrag(event.x, event.y)
+                        true
+                    }
+                    MouseGesture.IGNORE -> true
+                    MouseGesture.DRAW, MouseGesture.NONE -> false
+                }
+            }
+            MotionEvent.ACTION_MOVE, MotionEvent.ACTION_HOVER_MOVE -> {
+                if (event.hasSecondaryButton()) return true
+                if (!event.hasMiddleButton()) {
+                    endMiddleDrag()
+                    return false
+                }
+                if (strokeLive) return true
+
+                moveMiddleDrag(event.x, event.y)
+                return true
+            }
+            MotionEvent.ACTION_BUTTON_RELEASE -> {
+                return when (MouseButtonPolicy.begin(event.actionMouseButton())) {
+                    MouseGesture.PAN -> {
+                        endMiddleDrag()
+                        true
+                    }
+                    MouseGesture.IGNORE -> true
+                    MouseGesture.DRAW, MouseGesture.NONE -> false
+                }
+            }
+            else -> return false
+        }
+    }
+
+    private fun handleMouseTouch(event: MotionEvent): Boolean {
+        if (event.getToolType(event.actionIndex) != MotionEvent.TOOL_TYPE_MOUSE) return false
+
+        return when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                mouseTouchGesture = MouseButtonPolicy.begin(event.stateMouseButton())
+                when (mouseTouchGesture) {
+                    MouseGesture.DRAW -> false
+                    MouseGesture.PAN -> {
+                        if (!strokeLive) beginMiddleDrag(event.x, event.y)
+                        true
+                    }
+                    MouseGesture.IGNORE, MouseGesture.NONE -> true
+                }
+            }
+            MotionEvent.ACTION_MOVE -> when (mouseTouchGesture) {
+                MouseGesture.DRAW -> false
+                MouseGesture.PAN -> {
+                    if (!strokeLive) moveMiddleDrag(event.x, event.y)
+                    true
+                }
+                MouseGesture.IGNORE -> true
+                MouseGesture.NONE -> false
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val completed = mouseTouchGesture
+                mouseTouchGesture = MouseGesture.NONE
+                if (completed == MouseGesture.PAN) endMiddleDrag()
+
+                completed == MouseGesture.PAN || completed == MouseGesture.IGNORE
+            }
+            else -> false
+        }
+    }
+
+    private fun MotionEvent.actionMouseButton(): MouseButton = when (actionButton) {
+        MotionEvent.BUTTON_PRIMARY -> MouseButton.PRIMARY
+        MotionEvent.BUTTON_TERTIARY -> MouseButton.MIDDLE
+        MotionEvent.BUTTON_SECONDARY -> MouseButton.SECONDARY
+        else -> MouseButton.NONE
+    }
+
+    private fun MotionEvent.stateMouseButton(): MouseButton = when {
+        hasMiddleButton() -> MouseButton.MIDDLE
+        hasSecondaryButton() -> MouseButton.SECONDARY
+        buttonState and MotionEvent.BUTTON_PRIMARY != 0 -> MouseButton.PRIMARY
+        else -> MouseButton.NONE
+    }
+
+    private fun MotionEvent.hasSecondaryButton(): Boolean =
+        buttonState and MotionEvent.BUTTON_SECONDARY != 0
+
+    private fun beginMiddleDrag(x: Float, y: Float) {
+        endMiddleDrag()
+        middleDragging = true
+        previousMouseX = x
+        previousMouseY = y
+    }
+
+    private fun moveMiddleDrag(x: Float, y: Float) {
+        if (!middleDragging) {
+            beginMiddleDrag(x, y)
+            return
+        }
+
+        val deltaX = x - previousMouseX
+        val deltaY = y - previousMouseY
+        previousMouseX = x
+        previousMouseY = y
+        if (deltaX == 0f && deltaY == 0f) return
+
+        view = MouseNavigationPolicy.middleDrag(
+            view,
+            deltaX = deltaX,
+            deltaY = deltaY,
+        )
+        beginNavigationActivity()
+        publishMouseView()
+    }
+
+    private fun endMiddleDrag() {
+        if (!middleDragging) return
+
+        middleDragging = false
+        endNavigationActivity()
+    }
+
+    private fun publishMouseView() {
+        rawRotation = view.rotation
+        snap.reset()
+        updateScreen()
+        host.onViewChanged(view)
+    }
+
+    private fun MotionEvent.hasMiddleButton(): Boolean =
+        buttonState and MotionEvent.BUTTON_TERTIARY != 0
 
     override fun onHover(v: View?, event: MotionEvent?): Boolean {
         val e = event ?: return false
@@ -1124,8 +1462,11 @@ class CanvasTouchHandler(
 
     private companion object {
         const val NO_POINTER = -1
+        const val NANOS_PER_MILLISECOND = 1_000_000L
 
         /** [fill]'s "not a historical sample, the event's own". */
         const val CURRENT = -1
     }
+
+    private fun uptimeNs(): Long = SystemClock.uptimeMillis() * NANOS_PER_MILLISECOND
 }

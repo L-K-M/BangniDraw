@@ -107,6 +107,18 @@ class GestureArbiterTest {
     }
 
     @Test
+    fun `a mouse draws immediately with its own source`() {
+        val r = Recorder()
+        val a = arbiter(stylusOnly = true)
+        a.stylusNear = true
+
+        a.down(1, PointerTool.MOUSE, 10f, 10f, ms(0), r)
+        a.up(1, ms(20), r)
+
+        assertEquals(listOf("draw(1,MOUSE)", "end(1)"), r.events)
+    }
+
+    @Test
     fun `the eraser end is a stroke with its own source`() {
         // The ViewModel swaps to the eraser preset off this, so the source has
         // to survive rather than collapsing to STYLUS.
@@ -125,6 +137,47 @@ class GestureArbiterTest {
         assertEquals(emptyList(), r.events, "one ms early is still pending")
         a.tick(ms(GestureArbiter.PENDING_MS), r)
         assertEquals(listOf("draw(1,FINGER)"), r.events)
+    }
+
+    @Test
+    fun `a quick single finger up draws one dot`() {
+        val r = Recorder()
+        val a = arbiter()
+
+        a.down(1, PointerTool.FINGER, 10f, 10f, ms(0), r)
+        a.up(1, ms(GestureArbiter.PENDING_MS - 1), r)
+
+        assertEquals(listOf("draw(1,FINGER)", "end(1)"), r.events)
+    }
+
+    @Test
+    fun `a quick finger up stays idle in stylus-only mode`() {
+        val r = Recorder()
+        val a = arbiter(stylusOnly = true)
+
+        a.down(1, PointerTool.FINGER, 10f, 10f, ms(0), r)
+        a.up(1, ms(GestureArbiter.PENDING_MS - 1), r)
+
+        assertEquals(emptyList(), r.events)
+    }
+
+    @Test
+    fun `pending deadlines distinguish drawing from stylus-only picking`() {
+        val downNs = ms(7)
+        val draw = arbiter()
+        val pick = arbiter(stylusOnly = true)
+        val r = Recorder()
+
+        draw.down(1, PointerTool.FINGER, 10f, 10f, downNs, r)
+        pick.down(1, PointerTool.FINGER, 10f, 10f, downNs, r)
+
+        assertEquals(ms(7 + GestureArbiter.PENDING_MS), draw.nextTickDeadlineNs())
+        assertEquals(ms(7 + GestureArbiter.LONG_PRESS_MS), pick.nextTickDeadlineNs())
+
+        draw.tick(draw.nextTickDeadlineNs(), r)
+        pick.tick(pick.nextTickDeadlineNs(), r)
+        assertEquals(GestureArbiter.NO_TICK_NS, draw.nextTickDeadlineNs())
+        assertEquals(GestureArbiter.NO_TICK_NS, pick.nextTickDeadlineNs())
     }
 
     @Test

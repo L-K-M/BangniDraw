@@ -217,8 +217,9 @@ entries with a cursor, capped by steps and bytes (`Limits`).
 - `` `prune by step count drops the oldest entries` ``
 - `` `prune by bytes drops oldest until under budget` ``
 - `` `redo accounting preserves one applicable entry when its sidecar exceeds the cap` `` —
-  applied entries prune oldest-first, then the far redo tail; the nearest
-  redo transition survives and remains applicable from the cursor
+  accounting leaves the active transition's cursor unchanged; after its
+  checkpoint, applied entries prune oldest-first, then the far redo tail, and
+  a second checkpoint commits the resulting exact membership
 - `` `prune of a journal whose cursor is at zero keeps the cursor at zero` ``
 - `` `the journal reports counts and bytes for the UI` `` (`stats()` matches the sum)
 - Codec: `` `every entry kind round-trips through the on-disk encoding` ``
@@ -276,7 +277,7 @@ cache)`; the pinned worked table is 10 §4's (`05-layers.md` §6).
 - `` `the layer cap is monotone non-decreasing in totalMem` `` (property over sorted random memory sizes, fixed canvas)
 - `` `the layer cap is monotone non-increasing in canvas area` ``
 - `` `a low-RAM device gets the flat 256 MiB tile budget` ``
-- `` `maxLayers is clamped to MIN_LAYERS..MAX_LAYERS` `` — 1..16 (`10-performance.md` §4); `maxCanvasEdge` only admits sizes at which `MIN_USEFUL_LAYERS` (4) plus the stroke-buffer reserve fit, so the New Canvas dialog never offers a size that cannot be painted
+- `` `maxLayers is clamped to MIN_LAYERS..MAX_LAYERS` `` — 1..16 (`10-performance.md` §4); `maxCanvasEdge` only admits sizes at which `MIN_USEFUL_LAYERS` (4) plus the four-layer transient reserve fit, so the New Canvas dialog never offers a size that cannot be painted
 - `` `the pool spans enough arrays for every layer` `` — `maxLayers · tilesPerLayer ≤ poolArraySlices · poolArrayCount`, `poolArraySlices ≤ glMaxArrayLayers` when queried, and `maxCanvasEdge ≤ glMaxTextureSize` (the pool spans several texture arrays precisely because the ES 3.0 minimum of 256 slices holds only one 4096² layer)
 - `` `the presets a device is offered all fit within its own budget` `` (cross-check with `CanvasPresets`)
 - `` `refusals are values of a pure enum, never text or resource ids` `` — `engine/core` is java.*/kotlin.* only, so no `@StringRes`; the enum → string-resource mapping lives in `ui/` and is not unit-tested
@@ -399,7 +400,7 @@ use `kotlin.io.path.createTempDirectory("bangni-…")` as Meltorama's
 
 `ProjectStoreTest`:
 - `` `a full document round-trips through project.json` `` — size, paper, layer stack with all properties, cursor, gallery URI as an opaque string, timestamps
-- `` `a file from an older version loads on its defaults` `` and `` `unknown fields from a newer version are ignored` `` (kotlinx-serialization `ignoreUnknownKeys`)
+- `` `a version one fixture migrates on its defaults` `` and `` `unknown fields from a newer version are ignored` `` (kotlinx-serialization `ignoreUnknownKeys`)
 - `` `project ids are the only thing that names a folder` `` — a document whose id disagrees with its folder is refused
 - `` `list orders by last-edited, newest first` ``
 - `` `delete removes the folder and nothing else` ``
@@ -415,10 +416,13 @@ use `kotlin.io.path.createTempDirectory("bangni-…")` as Meltorama's
 `HistoryStoreTest`:
 - `` `entries are named by sequence and load in order` ``
 - `` `a gap in the sequence stops loading at the gap` `` — everything before it is usable
+- `` `a committed entry replaces the checkpoint redo branch` `` — crash recovery cannot retain the abandoned tail
+- `` `legacy checkpoint infers a complete gapped membership` `` — a v1 divergent branch survives migration
+- `` `an exact membership count mismatch preserves omitted files` `` — corrupt metadata cannot trigger destructive cleanup
 - `` `prune deletes the files it drops` ``
 
 `TileFlusherTest` (fake clock and dispatcher, §7; a `TileStore` over a temp dir whose writes can be made to fail):
-- `` `storage full lifts the mirror cap and keeps committing` `` — writes fail with `err_storage_full`; a commit that would exceed `CPU_MIRROR_CAP_BYTES` is still accepted, the storage-full state is reported, the pending writes are retried on the next autosave tick, and they drain once writes succeed (`06-document-and-persistence.md` §6.3)
+- `` `storage full retains every mirror tile until writes recover` `` — writes fail with `err_storage_full`; already-issued readbacks remain accepted, the durable FIFO head retains action ownership, and its internal retry drains once writes succeed (`06-document-and-persistence.md` §6.3)
 
 `TornWriteTest` — the crash-mid-write simulation, the reason the format is
 what it is (`06-document-and-persistence.md` §5.6):

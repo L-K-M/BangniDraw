@@ -199,6 +199,11 @@ Constants live in `GestureArbiter.Companion` (`PENDING_MS`, `TAP_MS`,
 `TAP_SLOP_DP`, `LONG_PRESS_MS`) and the tests reference them by name, so
 tuning on device is a one-line change with tests still meaningful.
 
+The handler posts one preallocated `Runnable` for the active pending
+deadline. Touch drawing schedules 120 ms; stylus-only schedules 500 ms.
+Pointer transitions, up, cancel, listener replacement, and detach remove it.
+This timer is required: a stationary finger produces no `ACTION_MOVE`.
+
 ### State machine
 
 ```
@@ -236,13 +241,14 @@ one finger goes straight to NAVIGATE (pan only) after slop, or to TAP_WAIT
 | --- | --- |
 | `ACTION_DOWN`, stylus | `requestUnbufferedDispatch`; `predictor.record`; arbiter `down` → `Draw`; `onStrokeBegin`; read button state (§6) |
 | `ACTION_DOWN`, eraser | as stylus, with `source = ERASER_END` → ViewModel swaps to eraser preset |
-| `ACTION_DOWN`, finger | `requestUnbufferedDispatch`; arbiter `down` → pending (buffer sample) or `Ignore` (stylus active / palm) |
+| `ACTION_DOWN`, mouse | classify first: primary → immediate `Draw(MOUSE)`, middle → pan, secondary → consume |
+| `ACTION_DOWN`, finger | `requestUnbufferedDispatch`; arbiter `down` → pending (buffer sample) or `Ignore` (stylus active / palm); schedule its pending deadline |
 | `ACTION_POINTER_DOWN` | arbiter `down` for the new pointer → `Navigate` / `Ignore` |
 | `ACTION_MOVE` | for each pointer: historical + current samples → arbiter `move`; drawing pointer → `onStrokeSamples` (+ `predictor.record`); navigating pointers → `NavigationStep` (§7) |
 | `ACTION_POINTER_UP` | arbiter `up`; navigation continues with the remaining pointer as pan-only until it lifts (no zoom from one finger) |
-| `ACTION_UP` | arbiter `up` → `onStrokeEnd` / `TapUndo` / `TapRedo` / `onNavigateEnd` |
+| `ACTION_UP` | remove the pending deadline; arbiter `up` → `onStrokeEnd` / `TapUndo` / `TapRedo` / `onNavigateEnd`. A lone touch-drawing finger still pending resolves `Draw` + end before its buffered down is removed. |
 | `ACTION_CANCEL`, or any event with `FLAG_CANCELED` (API 33+) | `onStrokeCancel` (front buffer `cancel()`, stroke buffer discarded, no `HistoryEntry`), arbiter reset, navigation ended without a step |
-| `ACTION_HOVER_ENTER/MOVE` (generic motion) | `HoverState(x, y, distance?, source)` → `onHover`; palm-rejection "stylus near" flag set |
+| `ACTION_HOVER_ENTER/MOVE` (generic motion) | `HoverState(x, y, distance?, source)` → `onHover`; only stylus/eraser sets pen proximity |
 | `ACTION_HOVER_EXIT` | `onHover(NONE)`; start the `HOVER_GRACE_MS` timer (§5) |
 | `ACTION_BUTTON_PRESS/RELEASE` (generic motion, API 23+) | `onStylusButton` (§6) |
 | `ACTION_SCROLL` (mouse wheel) | zoom step about the pointer (§9) |
@@ -252,8 +258,7 @@ one finger goes straight to NAVIGATE (pan only) after slop, or to TAP_WAIT
 
 A cancelled stroke leaves **no trace**: `GLFrontBufferedRenderer.cancel()`
 drops the front-buffered content, the `StrokeBuffer` is discarded without
-merging, and no `HistoryEntry` is written. This is the same path for all
-three causes:
+merging, and no `HistoryEntry` is written. The same path handles:
 
 - the platform's `ACTION_CANCEL` (the window lost the gesture, e.g. a
   system back-swipe took over — see §10);
@@ -261,7 +266,9 @@ three causes:
   rejects the pointer — "handle by rolling back the stroke since
   ACTION_DOWN", which for us is exactly `cancel()`);
 - the arbiter's own `CancelStroke` (a second finger arriving inside the
-  pending window; a stylus landing while a finger stroke is pending).
+  pending window; a stylus landing while a finger stroke is pending);
+- a listener replacement or viewport resize, so no active stream or stroke
+  spans two handlers or two screen-to-canvas transforms.
 
 Because `Draw` for fingers is only issued after the pending window or after
 slop, and the stroke buffer is separate from the layer until pen-up
@@ -326,6 +333,11 @@ the swap applies from the next `ACTION_DOWN`. A press while hovering with no
 contact is a **quick action** (post-v1: e.g. toggle focus mode, open the
 color panel); in v1 it is recorded and only affects the next contact.
 
+Eyedropper previews are asynchronous and capped to one per frame. Pen-up
+invalidates those queued previews and owns one final read at the last input
+position; its callback previews, commits, and releases the stroke gate. Cancel
+invalidates that owner, so a late GL result cannot mutate committed color.
+
 **Hover.** `ACTION_HOVER_MOVE` drives `HoverCursor` (a Compose overlay,
 `ui/canvas/`): a ring whose radius is the brush's current size in *screen*
 pixels (`radius_canvas × view.scale`); its exact looks (crosshair under
@@ -374,6 +386,12 @@ The point under the fingers stays under the fingers by construction of
 `gesture`, and similarities compose exactly, so a long session of pinches
 does not drift. In stylus-only mode with one finger, `zoom = 1`,
 `rotation = 0`.
+
+`onNavigateActive(true)` is published only after the first step changes the
+`ViewTransform`; entering the arbiter's internal `Navigate` state is not
+enough. This prevents a motionless 150–199 ms two-finger tap from flashing
+navigation chrome before undo resolves. The matching `false` is emitted only
+when a start was published. Middle-button drags use the same start/end rule.
 
 **Rotation snap.** The ViewModel keeps `rawRotation` (the un-snapped
 angle the gesture math accumulates into) separately from the displayed
@@ -562,8 +580,9 @@ timestamps and asserts the decision sequence:
 - stylus down → `Draw` at t=0; finger down at t=50 ms → `Ignore`;
 - finger down; second finger at 100 ms → `CancelStroke` (if issued) then
   `Navigate`; at 150 ms → ignored;
-- finger down/up at 150 ms, 3 dp movement → `Draw` + end (a dot), not a
-  tap; two fingers down/up at 150 ms → `TapUndo`; same with 12 dp drift →
+- finger down/up before 120 ms → `Draw` + end (a dot); at 150 ms, 3 dp
+  movement → the same, not a tap; two fingers down/up at 150 ms →
+  `TapUndo`; same with 12 dp drift →
   `Navigate`, no undo;
 - stylus hover exit at t, finger down at t+300 ms → `Ignore`; at t+700 ms
   → pending;

@@ -185,16 +185,18 @@ RAM but not the Java heap.
 | **Fixed GPU total** | **≈ 115 MiB** | **≈ 83 MiB** | independent of canvas size |
 
 Not in the fixed total, because they live in the tile pool and are paid
-from `gpuTileBudgetBytes`: the **stroke buffer** (tiles allocated on
-first dab, worst case one layer-equivalent — this is the
-`STROKE_BUFFER_RESERVE_LAYERS` = 1 in the cap math below, and nowhere
-else) and the two **sandwich caches** (canvas-space, sparse: only the
-keys present in a contributing layer, `03-canvas-engine.md` §4 — so
-`SANDWICH_MARGIN_PX` is not a texture border but the canvas-space
-margin around the viewport that the rebuild fills first). The cap math
-does not reserve pages for the sandwich; it rides on the tiles no layer
-has painted, and on a fully painted canvas at the cap the lazy page
-allocation in §4 is the backstop ("layer limit reached early").
+from `gpuTileBudgetBytes`: two **sandwich cache** halves, one
+**stroke/structural output**, and one **merge scratch**. The cap reserves
+four full-canvas layer-equivalents for these transients. The caches stay
+sparse in ordinary use, but a fully painted document at its advertised
+layer cap must still build both halves and merge a full-canvas fill.
+`SANDWICH_MARGIN_PX` remains the canvas-space margin around the viewport
+that a rebuild fills first, not a texture border.
+
+Documents saved under a higher cap still open. While their stack exceeds the
+current `maxLayers`, the renderer releases the sandwich halves and uses direct
+composition; deleting back to the cap restores the cache. This avoids adding
+two full-canvas cache allocations to an already over-budget stack.
 
 **Per-layer costs**: `tiles(canvas) × 256 KiB` GPU worst case (all tiles
 painted), plus the CPU mirror — only the tiles dirtied since the last
@@ -209,10 +211,10 @@ most to `CPU_MIRROR_CAP_BYTES`).
 | Input | Class A (8 GB) | Class A / C (12–16 GB) | Class B (4 GB) | Class B, `isLowRamDevice` |
 | --- | --- | --- | --- | --- |
 | `gpuTileBudgetBytes` = `totalMem × GPU_TILE_FRACTION` (1/8), clamped to 256 MiB..1.5 GiB | 1 GiB | 1.5 GiB | 512 MiB | 256 MiB |
-| layer cap at 4096² (64 MiB/layer, 1 reserved for the stroke buffer) | 16 − 1 = **15** | 24 − 1 → **16** (MAX_LAYERS) | 8 − 1 = **7** | 4 − 1 = **3** |
-| layer cap at 2048² (16 MiB/layer) | 16 | 16 | 32 − 1 → **16** | 16 − 1 = **15** |
+| layer cap at 4096² (64 MiB/layer, 4 transient equivalents reserved) | 16 − 4 = **12** | 24 − 4 → **16** (MAX_LAYERS) | 8 − 4 = **4** | 4 − 4 → **1** (floor; size not offered) |
+| layer cap at 2048² (16 MiB/layer) | 16 | 16 | 32 − 4 → **16** | 16 − 4 = **12** |
 | layer cap at 1024² | 16 | 16 | 16 | 16 |
-| largest preset offered (`maxCanvasEdge`: ≤ `MAX_CANVAS_EDGE_V1` and `MIN_USEFUL_LAYERS` + reserve must fit) | 4096² (8192×4096 is post-v1 with eviction) | 4096² | 4096² (with the cap shown: "7 layers at this size") | 2560×1600 and below, Custom up to 3584² (4096² is not offered: 5 × 64 MiB > 256 MiB; the 4096² "3 layers" cap row above is what a Custom 3584² still nearly gets) |
+| largest preset offered (`maxCanvasEdge`: ≤ `MAX_CANVAS_EDGE_V1` and `MIN_USEFUL_LAYERS` + reserve must fit) | 4096² (8192×4096 is post-v1 with eviction) | 4096² | 4096² (with the cap shown: "4 layers at this size") | 2560×1600 and below, Custom up to 2816² (3072² needs 8 × 36 MiB > 256 MiB) |
 | history journal cap (`HistoryStore`) | 200 steps / 256 MiB on disk | same | 100 steps / 128 MiB | 100 / 128 MiB |
 | thumbnails resident in Studio | ≤ 24 decoded at ≤ 512 px longest edge ≈ 24 × 1 MiB | same | ≤ 12 | ≤ 8 |
 | Compose + ViewModel + misc Java heap | ≤ 64 MiB | same | ≤ 48 MiB | ≤ 48 MiB |
@@ -299,7 +301,7 @@ object PerfConstants {
     const val GPU_TILE_MIN_BYTES = 256L shl 20
     const val GPU_TILE_MAX_BYTES = 1536L shl 20
     const val LOW_RAM_GPU_TILE_BYTES = 256L shl 20
-    const val STROKE_BUFFER_RESERVE_LAYERS = 1
+    const val TRANSIENT_TILE_RESERVE_LAYERS = 4  // sandwich halves + output + scratch
 }
 ```
 
@@ -338,14 +340,14 @@ object MemoryBudget {
             else -> (device.totalMemBytes * GPU_TILE_FRACTION).toLong()
                         .coerceIn(GPU_TILE_MIN_BYTES, GPU_TILE_MAX_BYTES)
         }
-        val layersThatFit = (gpu / canvas.layerBytesWorstCase).toInt() - STROKE_BUFFER_RESERVE_LAYERS
+        val layersThatFit = (gpu / canvas.layerBytesWorstCase).toInt() - TRANSIENT_TILE_RESERVE_LAYERS
         val maxLayers = layersThatFit.coerceIn(MIN_LAYERS, MAX_LAYERS)
         val slices = if (device.glMaxArrayLayers > 0) minOf(device.glMaxArrayLayers, 256) else 256
         val arrays = maxOf(1, (gpu / (slices.toLong() * TILE_BYTES)).toInt())
         // maxCanvasEdge: bounded by memory and by the v1 ceiling, never by glMaxTextureSize
         // (tiles are 256). Largest multiple of TILE_SIZE whose square, fully painted, fits
-        // MIN_USEFUL_LAYERS + the stroke-buffer reserve in the tile budget.
-        val perLayerLimit = gpu / (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)
+        // MIN_USEFUL_LAYERS + the transient reserve in the tile budget.
+        val perLayerLimit = gpu / (MIN_USEFUL_LAYERS + TRANSIENT_TILE_RESERVE_LAYERS)
         var maxCanvasEdge = TILE_SIZE
         while (maxCanvasEdge + TILE_SIZE <= MAX_CANVAS_EDGE_V1 &&
                CanvasSize(maxCanvasEdge + TILE_SIZE, maxCanvasEdge + TILE_SIZE).layerBytesWorstCase <= perLayerLimit) {
@@ -369,10 +371,10 @@ Worked values the tests pin (so a constant change is a visible diff):
 
 | `totalMem` | canvas | `gpuTileBudgetBytes` | `maxLayers` | `maxCanvasEdge` | history | thumbs | `poolArraySlices × poolArrayCount` |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 8 GiB | 4096² | 1 GiB | 15 | 4096 (v1 ceiling) | 200 / 256 MiB | 24 MiB | 256 × 16 |
+| 8 GiB | 4096² | 1 GiB | 12 | 4096 (v1 ceiling) | 200 / 256 MiB | 24 MiB | 256 × 16 |
 | 8 GiB | 2048² | 1 GiB | 16 | 4096 | 200 / 256 MiB | 24 MiB | 256 × 16 |
-| 4 GiB | 4096² | 512 MiB | 7 | 4096 (5 × 64 MiB = 320 MiB ≤ 512 MiB) | 100 / 128 MiB | 12 MiB | 256 × 8 |
-| 4 GiB, `isLowRamDevice` | 4096² | 256 MiB | 3 | 3584 (5 × 49 MiB = 245 MiB ≤ 256 MiB; 3840² would need 5 × 56.3 MiB) | 100 / 128 MiB | 8 MiB | 256 × 4 |
+| 4 GiB | 4096² | 512 MiB | 4 | 4096 (8 × 64 MiB = 512 MiB) | 100 / 128 MiB | 12 MiB | 256 × 8 |
+| 4 GiB, `isLowRamDevice` | 4096² | 256 MiB | 1 | 2816 (8 × 30.25 MiB = 242 MiB; 3072² would need 288 MiB) | 100 / 128 MiB | 8 MiB | 256 × 4 |
 | 12 GiB | 4096² | 1.5 GiB | 16 | 4096 (v1 ceiling) | 200 / 256 MiB | 24 MiB | 256 × 24 |
 
 Whether a real Tab S6 Lite reports `isLowRamDevice` is "to verify" on the
@@ -380,12 +382,12 @@ device; the class-B manual run (§8) decides whether 512 MiB is survivable
 there or `GPU_TILE_FRACTION` needs a 4 GB step. Either way the constant
 changes, not the interface.
 
-`TilePool` allocates its texture arrays lazily, one at a time, up to
-`poolArrayCount`; a slice is 256 KiB, an array of 256 slices is 64 MiB.
-Allocating lazily means an empty 4096² painting costs one array, not the
-whole budget, and that a budget the device cannot actually honour fails at
-the *N*th array (caught, reported as "layer limit reached early", the
-cap lowered for the session) instead of at startup.
+The pre-context table assumes 256 slices per array. `TilePool` probes the real
+depth, then recomputes how many whole pages fit `gpuTileBudgetBytes`; runtime
+transient admission uses that exact slice capacity. Arrays are allocated
+lazily, so an empty 4096² painting costs one page rather than the whole budget.
+A budget the device cannot honour fails at the *N*th page (caught and reported
+as "layer limit reached early") instead of at startup.
 
 `CanvasPresets.forDevice(result)` returns the presets the New Canvas
 dialog offers: `Phone sketch 1080×1920`, `Square 2048²`, `Tablet 2560×1600

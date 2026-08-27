@@ -6,6 +6,7 @@ import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -23,6 +24,44 @@ class CanvasActionGateTest {
         ).stamp(seq = seq, timestamp = seq, bytes = 10L)
 
     @Test
+    fun `committed checkpoint can run during a live stroke`() {
+        val gate = CanvasActionGate()
+        gate.beginStroke()
+
+        assertTrue(gate.beginCommittedCheckpoint())
+        assertTrue(gate.busy)
+    }
+
+    @Test
+    fun `committed checkpoint waits for history and document work`() {
+        val historyGate = CanvasActionGate()
+        historyGate.beginStroke()
+        historyGate.endStrokeInput()
+
+        assertFalse(historyGate.beginCommittedCheckpoint())
+
+        val busyGate = CanvasActionGate()
+        busyGate.beginWork()
+
+        assertFalse(busyGate.beginCommittedCheckpoint())
+    }
+
+    @Test
+    fun `idle work waits for stroke history completion`() {
+        val gate = CanvasActionGate()
+
+        assertTrue(gate.idleWorkReady)
+        gate.beginStroke()
+        assertFalse(gate.idleWorkReady)
+
+        gate.endStrokeInput()
+        assertFalse(gate.idleWorkReady, "pen-up has not made the new stroke undoable")
+
+        gate.completeStroke()
+        assertTrue(gate.idleWorkReady)
+    }
+
+    @Test
     fun `actions during a stroke wait and retain FIFO order`() {
         val gate = CanvasActionGate()
         gate.beginStroke()
@@ -32,9 +71,24 @@ class CanvasActionGateTest {
         assertEquals(2, gate.pendingCount)
 
         assertNull(gate.endStrokeInput())
+        assertNull(gate.next(), "pen-up is not history completion")
+        assertFalse(gate.beginStroke(), "the committing stroke still owns the gate")
+
         assertEquals(CanvasDocumentAction.Undo, gate.completeStroke())
         assertEquals(CanvasDocumentAction.Redo, gate.next())
         assertNull(gate.next())
+    }
+
+    @Test
+    fun `an empty stroke completion still releases parked actions`() {
+        val gate = CanvasActionGate()
+        gate.beginStroke()
+        gate.request(CanvasDocumentAction.Undo)
+
+        assertNull(gate.endStrokeInput())
+
+        // A no-op merge still reports terminal completion.
+        assertEquals(CanvasDocumentAction.Undo, gate.completeStroke())
     }
 
     @Test
@@ -56,8 +110,19 @@ class CanvasActionGateTest {
         val gate = CanvasActionGate()
         gate.beginWork()
 
-        assertEquals(false, gate.beginStroke())
-        assertEquals(false, gate.strokeInFlight)
+        assertFalse(gate.beginStroke())
+        assertFalse(gate.strokeInFlight)
+    }
+
+    @Test
+    fun `session streaming blocks input and document actions`() {
+        val gate = CanvasActionGate()
+        gate.beginSessionSync()
+
+        assertTrue(gate.busy)
+        assertFalse(gate.beginStroke())
+        assertEquals(CanvasActionDecision.Parked, gate.request(CanvasDocumentAction.Undo))
+        assertEquals(CanvasDocumentAction.Undo, gate.finishSessionSync())
     }
 
     @Test
@@ -65,12 +130,11 @@ class CanvasActionGateTest {
         val gate = CanvasActionGate()
         gate.beginStroke()
         gate.request(CanvasDocumentAction.Undo)
-
         gate.beginWork()
 
         assertNull(gate.endStrokeInput())
         assertNull(gate.completeStroke())
-        assertEquals(false, gate.beginStroke())
+        assertFalse(gate.beginStroke())
         assertEquals(CanvasDocumentAction.Undo, gate.finishWork())
     }
 
@@ -83,7 +147,7 @@ class CanvasActionGateTest {
 
         assertNull(gate.endStrokeInput())
         assertEquals(CanvasActionDecision.Parked, gate.request(CanvasDocumentAction.Undo))
-        assertEquals(false, gate.beginStroke())
+        assertFalse(gate.beginStroke())
         journal.push(entry(2))
         assertEquals(CanvasDocumentAction.Undo, gate.completeStroke())
         journal.undo()
@@ -147,5 +211,37 @@ class CanvasActionGateTest {
         gate.finishLeave()
 
         assertTrue(gate.beginStroke())
+    }
+
+    @Test
+    fun `leave during a stroke waits for history and earlier actions`() {
+        val gate = CanvasActionGate()
+        gate.beginStroke()
+        gate.request(CanvasDocumentAction.Undo)
+        gate.request(CanvasDocumentAction.Leave)
+
+        assertNull(gate.endStrokeInput())
+        assertFalse(gate.beginStroke(), "pending leave forbids another stroke")
+
+        assertEquals(CanvasDocumentAction.Undo, gate.completeStroke())
+        assertFalse(gate.beginStroke(), "queued leave forbids another stroke")
+        gate.beginWork()
+        assertNull(gate.next(), "leave remains behind the running undo")
+        assertEquals(CanvasDocumentAction.Leave, gate.finishWork())
+    }
+
+    @Test
+    fun `leave during document work waits and prevents another stroke`() {
+        val gate = CanvasActionGate()
+        gate.beginWork()
+        gate.request(CanvasDocumentAction.Undo)
+        gate.request(CanvasDocumentAction.Leave)
+
+        assertFalse(gate.beginStroke())
+        assertEquals(CanvasDocumentAction.Undo, gate.finishWork())
+
+        assertFalse(gate.beginStroke(), "queued leave keeps the canvas closed to input")
+        gate.beginWork()
+        assertEquals(CanvasDocumentAction.Leave, gate.finishWork())
     }
 }

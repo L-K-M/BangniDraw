@@ -99,6 +99,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   normal `Above` layers can differ from the direct RGBA8 path because the two
   paths quantize at different grouping boundaries; the CPU oracle pins the
   conservative bound of one LSB per grouped layer.
+- Sandwich viewport bounds use caller-owned scratch, and cache rebuilds reuse
+  one resolver. Returning an `IntRect` or capturing a lambda there allocates on
+  every front and committed frame.
 - `engine/core/ViewTransform` and `FitTransform` are Meltorama's, ported
   verbatim — except the scale limits: `MIN_SCALE = 0.25f`, `MAX_SCALE = 64f`
   (Meltorama: 0.5 / 8), because pixel work on a 4096² canvas needs to zoom
@@ -137,6 +140,8 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   hardcode "帮你Draw" in a composable (rename checklist: PLAN.md "Renaming").
 - Colors come from `ui/theme/Color.kt` — no ad-hoc `Color(0x…)` in
   screens. The theme follows the system (light and dark), no dynamic color.
+- Brush rail glyphs come from `BrushPreset.icon`, never its id. User copies
+  have UUID ids but retain a serialized glyph key; unknown keys use Tune.
 - Scripts follow the family house style: header comment doubles as
   `--help` via the awk one-liner; `==>` / `--` / `!!` log prefixes;
   `set -euo pipefail`.
@@ -279,8 +284,10 @@ and the contradiction is noted here.
 
 - **`GlErrors.checkAllocation` owns the GL call it checks.** Release passes do
   not drain `glGetError`, so a stale pass flag may remain queued. The wrapper
-  clears that flag before its operation and checks again after it; issuing the
-  allocation first can misattribute the stale error and refuse valid GPU work.
+  clears that flag before its operation and checks again after it. Strict mode
+  throws on the stale flag before the operation; release mode discards it.
+  Issuing the allocation first can misattribute the stale error and refuse
+  valid GPU work.
 
 - **graphics-core 1.0.4's callback is not the one `03-canvas-engine.md` §8.2
   names.** The plan writes `onDrawMultiDoubleBufferedLayer(eglManager,
@@ -358,8 +365,9 @@ and the contradiction is noted here.
   nonzero. Release marks the front buffer dirty; the next front callback clears
   it before app drawing. `EngineRenderPolicy` therefore rebuilds the cumulative
   live preview once after an active completion, then returns to incremental
-  front-buffer drawing. Re-presenting the cumulative stroke every frame defeats
-  scan-line racing and produces a moving horizontal cutoff.
+  front-buffer drawing. View/background changes and surface resizes also force
+  that rebuild before the next dab. Re-presenting the cumulative stroke every
+  frame defeats scan-line racing and produces a moving horizontal cutoff.
 - **graphics-core 1.0.4 holds `ParamQueue.mLock` while the app draws a front
   frame.** A raw front request per input batch therefore blocks the input
   thread behind GL work. `EngineSession` keeps one raw request outstanding;
@@ -367,6 +375,10 @@ and the contradiction is noted here.
   completion after a GL FIFO marker. Each live callback snapshots its queue
   depth before returning ring slots, so a producer cannot keep that frame
   draining indefinitely. Pen-up and cancel still drain exhaustively.
+- **SurfaceHolder redraws bypass that commit count.** Their later buffer release
+  can clear a stroke that starts after the completion callback. Every app
+  `commit()` is registered with `EngineRenderPolicy`; only an unregistered
+  completion keeps cumulative presentation protected through pen-up.
 - **`execute` blocks and render requests ARE FIFO on the GL thread.**
   `03-canvas-engine.md` §8.3 flags this as an assumption "to verify against
   graphics-core", with a prepared fallback (do the merge at the top of the
@@ -479,6 +491,81 @@ and the contradiction is noted here.
 
 ## Conventions the plan leaves open
 
+- **The tile cap reserves four full-canvas transient equivalents.** Two are
+  sandwich halves, one is a stroke or structural output, and one is merge
+  scratch. A half-built sandwich is unavailable; rendering falls back to the
+  direct per-layer path for that rect. A reopened stack above the current
+  device cap releases and disables the sandwich until the stack shrinks back
+  to the cap, avoiding two more full-canvas allocations on an already
+  over-budget stack. Before a renderer is published, every relisted resident
+  tile must fit the pool; a sparse over-cap stack may still open for deletion.
+  Drivers below ES 3.0's 256-array-layer minimum are rejected, so the
+  pre-context budget and live pool cannot disagree on page depth.
+- **Pen-up owns the action gate through journal admission.** `endStroke` is
+  asynchronous. Undo, leave, share, export, and later edits wait until the
+  merged step is pushed (or explicitly completes empty/failed).
+- **History readbacks pin their originating `EngineSession`.** Compose detaches
+  the active session before its asynchronous release maps pending PBOs. A
+  release gate reports the renderer cleanup result before the final snapshot;
+  a release-time fence timeout stays pending, never a synthetic success.
+- **Replacement sessions stream only durable detached pixels.** Their disk
+  upload waits for earlier document/history work, every renderer release, and
+  the flusher FIFO. Transient flush refusal retries while the replacement stays
+  attached. The current document is then relisted and published because its
+  sparse model may predate final readback. The document gate blocks input and
+  chrome mutations until those uploads have joined the new GL queue.
+- **Input-listener replacement is a cancellation boundary.** Before a new
+  `CanvasTouchHandler` is attached, the old handler cancels its gesture and
+  removes prediction/hover callbacks. The replacement is seeded with view and
+  input preferences synchronously; a surface resize likewise cancels before
+  rebasing so one stroke never spans two coordinate maps.
+- **Stroke admission snapshots the active layer.** A layer selection updates
+  the ViewModel document before Compose observes the new stack. The admitted
+  tool and current `Layer` therefore travel together; input handlers never
+  capture Compose's stack for pen-down decisions.
+- **Mouse buttons are classified before the finger arbiter.** Primary draws
+  immediately as `StrokeSource.MOUSE`, middle pans, and secondary is consumed.
+  Mouse hover still drives the cursor but never counts as pen proximity for
+  palm rejection.
+- **Pending finger deadlines are real handler callbacks.** One reusable
+  `Runnable` opens a stationary touch stroke at 120 ms or fires the
+  stylus-only pick at 500 ms. Up, cancel, transition, and detach remove it. A
+  lone quick touch resolves `Draw` + end before its buffered down is removed.
+- **Navigation activity starts with a transform delta.** The arbiter enters
+  navigation on the second finger, but chrome stays inactive until the view
+  changes. Middle-button drags report the same paired start/end.
+- **Eyedropper pen-up owns one final read.** It invalidates throttled preview
+  callbacks, samples the last input position, then commits and releases the
+  stroke gate from that callback. Cancel invalidates the final owner, so a
+  delayed result cannot mutate color or release the gate twice.
+- **Undo/redo holds the action gate through post-apply readback.** Restored tile
+  membership is folded into the stack sent by the same GL transaction; only
+  after composite output reaches the CPU may `FlushKeys` join the IO queue.
+- **Undo/redo uses a durable transition marker.** `history/transition.json`
+  lands before GL mutation and remains through restored-tile flush. The action
+  gate releases only after `project.json` checkpoints its target cursor and
+  model; reopen reapplies a pending target before sparse tiles are relisted.
+- **Post-checkpoint pixel entries require `<seq>.after`.** `WriteEntry` writes
+  this recovery after-image after readback and before tile flush. Reopen rolls
+  it forward before relisting tiles; a successful `project.json` checkpoint
+  removes covered files. A corrupt payload degrades only that tile to empty;
+  the durable entry still replays its structural edit.
+- **A failed `WriteEntry` remains the durable FIFO head.** Its result and
+  action ownership stay pending while the worker retries; later edits and
+  checkpoints cannot pass it. Once readback completes, its after-image bytes
+  are frozen so a retry cannot capture a newer revision.
+- **Project format 2 records exact history membership.** Undo followed by a
+  divergent edit leaves gaps because sequence numbers are never reused.
+  `HistoryRecord.seqs` is authoritative. A format-1 null accepts the legacy
+  contiguous range only when its length matches the saved count, then infers a
+  gap only when the saved count matches every readable in-range entry (and
+  saved bytes, when nonzero). Failed proof exposes no speculative prefix.
+  Malformed bounds or exact membership never authorize deletion; a degraded
+  load allocates above every preserved `.entry`, `.redo`, or `.after` sequence
+  when representable. `Long.MAX_VALUE` is the exhaustion sentinel; append
+  refuses it and any sequence with one of those artifacts. A missing history
+  directory retains any positive checkpointed `nextSeq`.
+
 - **Redo sidecars use post-edit tile owners.** A merge entry's before payload
   names upper and lower layers, but its redo payload names only the merged
   lower layer. A flatten redo payload names only the flattened result. Never
@@ -547,17 +634,25 @@ and the contradiction is noted here.
   `capacityWidth`/`capacityHeight`, and `bytes` reports the capacity. Mixing
   those dimensions stretches samples or under-reports GPU memory without
   producing a GL error.
+- **`ON_STOP` checkpoints snapshot the last committed generation.** They may
+  run while a stroke is open, but wait for document work and history pushes.
+  A generation check keeps a pen-up or late tile readback from being cleared
+  as saved by the older snapshot.
+- **Gallery sync is part of checkpoint ownership.** An idle Canvas flushes,
+  flattens, updates MediaStore, and writes the returned URI in that order
+  before releasing the action gate. A live-stroke snapshot defers flattening.
+  Studio serializes each painting's background sync with open and mutations;
+  once MediaStore changes, its matching metadata write is non-cancellable.
 - **Generated palette names use a closed token grammar.** Only the four exact
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.
   User names are literal; never resolve arbitrary stored `@string/` values.
 
 - **Redo-sidecar accounting can prune both sides of the history cursor.** A
-  first undo adds bytes after the original push, so `noteRedoBytes` enforces
-  the cap immediately. It drops the oldest applied entries first, then the
-  far redo tail if needed; keeping the nearest redo entry preserves a valid
-  transition from the current pixels. The returned seqs join `pendingDeletes`
-  and remain on disk until the next checkpoint commits their absence.
+  first undo adds bytes after the original push. Account those bytes before
+  the transition marker, but defer pruning until its target checkpoint lands:
+  pruning can move the cursor the marker records. A second checkpoint commits
+  the exact pruned membership before its seqs leave `pendingDeletes`.
 
 - **What "`engine/core` is pure JVM" actually forbids.**
   `docs/plan/02-architecture.md` §1 writes the rule as "`kotlin.*` and

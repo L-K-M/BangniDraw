@@ -203,6 +203,29 @@ class LayoutSpecTest {
         )
     }
 
+    @Test
+    fun `fill progress bottom inset clears dock chrome by its existing margin`() {
+        val windowWidthDp = 360
+        val windowHeightDp = 800
+        val railHeightDp = windowHeightDp - LayoutSpec.TOP_STRIP_DP
+        val dock = LayoutSpec.forWindow(WidthClass.COMPACT, railHeightDp, Hand.RIGHT)
+        val bottomChromeTop = dock.persistentChrome(windowWidthDp, windowHeightDp)
+            .drop(1)
+            .minOf(LayoutRect::top)
+        val expectedInset = windowHeightDp - bottomChromeTop.toInt() + FILL_PROGRESS_MARGIN_DP
+
+        assertEquals(
+            expectedInset,
+            dock.bottomChromeInsetDp(FILL_PROGRESS_MARGIN_DP),
+        )
+
+        for ((width, height) in NON_DOCK_WINDOWS) {
+            val spec = LayoutSpec.forWindow(width, height, Hand.RIGHT)
+
+            assertEquals(FILL_PROGRESS_MARGIN_DP, spec.bottomChromeInsetDp(FILL_PROGRESS_MARGIN_DP))
+        }
+    }
+
     private fun assertMode(width: WidthClass, height: Int, expected: RailMode) {
         assertEquals(expected, LayoutSpec.forWindow(width, height, Hand.RIGHT).railMode)
     }
@@ -223,5 +246,12 @@ class LayoutSpecTest {
         const val DOCK_AND_LEDGE_DP = 112
         const val SHORT_LEDGE_DP = 48
         const val SHORT_RAIL_WIDTH_DP = 56
+        const val FILL_PROGRESS_MARGIN_DP = 24
+
+        val NON_DOCK_WINDOWS = listOf(
+            WidthClass.MEDIUM to 288,
+            WidthClass.MEDIUM to 461,
+            WidthClass.MEDIUM to 718,
+        )
     }
 }

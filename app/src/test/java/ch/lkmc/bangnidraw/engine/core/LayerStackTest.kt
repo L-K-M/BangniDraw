@@ -115,7 +115,7 @@ class LayerStackTest {
             DeviceMemory(4L shl 30, false, 512, 256, 4096),
             CanvasSize(4096, 4096),
         )
-        assertEquals(7, budget.maxLayers, "the pinned value of docs/plan/10-performance.md §4")
+        assertEquals(4, budget.maxLayers, "four full-canvas transient layers stay reserved")
         var stack = stackOf("layer 1")
         val ids = Ids()
         while (stack.size < budget.maxLayers) {

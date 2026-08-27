@@ -101,6 +101,47 @@ data class ScreenTransform(
         return (-b * (x - tx) + a * (y - ty)) / det
     }
 
+    /** Inverse-maps a viewport into caller-owned canvas bounds. */
+    internal fun canvasBoundsOfViewport(
+        viewportWidth: Int,
+        viewportHeight: Int,
+        canvasWidth: Int,
+        canvasHeight: Int,
+        margin: Int,
+        out: MutableIntRect,
+    ): MutableIntRect {
+        val width = viewportWidth.toFloat()
+        val height = viewportHeight.toFloat()
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+
+        for (right in 0..1) {
+            for (bottom in 0..1) {
+                val screenX = if (right == 1) width else 0f
+                val screenY = if (bottom == 1) height else 0f
+                val canvasX = invertX(screenX, screenY)
+                val canvasY = invertY(screenX, screenY)
+                if (!canvasX.isFinite() || !canvasY.isFinite()) {
+                    return out.set(0, 0, canvasWidth, canvasHeight)
+                }
+
+                minX = min(minX, canvasX)
+                minY = min(minY, canvasY)
+                maxX = max(maxX, canvasX)
+                maxY = max(maxY, canvasY)
+            }
+        }
+
+        return out.set(
+            (minX.toInt() - margin).coerceIn(0, canvasWidth),
+            (minY.toInt() - margin).coerceIn(0, canvasHeight),
+            (maxX.toInt() + margin).coerceIn(0, canvasWidth),
+            (maxY.toInt() + margin).coerceIn(0, canvasHeight),
+        )
+    }
+
     /**
      * The screen-space bounding box of a canvas-space rect, inflated by one
      * pixel and clipped to a [viewportWidth] × [viewportHeight] viewport —

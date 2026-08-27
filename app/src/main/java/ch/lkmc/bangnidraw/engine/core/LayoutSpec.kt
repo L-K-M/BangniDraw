@@ -102,6 +102,69 @@ internal data class LayoutSpec(
     val sliderLengthDp: Int,
     val railContentHeightDp: Int,
 ) {
+    /** Bottom padding that keeps transient chrome above the compact dock. */
+    fun bottomChromeInsetDp(marginDp: Int): Int {
+        require(marginDp >= 0) { "marginDp must not be negative" }
+        if (railMode != RailMode.DOCK) return marginDp
+
+        return DOCK_HEIGHT_DP + LEDGE_GAP_DP.toInt() + LEDGE_HEIGHT_DP + marginDp
+    }
+
+    /** Side clearance keeps panel controls outside the persistent rail. */
+    fun panelSideInsetDp(): Int {
+        if (railMode == RailMode.DOCK) return 0
+
+        return railWidthDp + PANEL_RAIL_GAP_DP
+    }
+
+    /** Bottom clearance keeps panel controls above a live slider ledge or dock. */
+    fun panelBottomInsetDp(): Int = when (railMode) {
+        RailMode.SHORT -> LEDGE_HEIGHT_DP
+        RailMode.DOCK -> bottomChromeInsetDp(0)
+        RailMode.FULL, RailMode.GROUPED -> 0
+    }
+
+    /** Bounds occupied by interactive panel content, excluding its padding. */
+    fun panelInteractiveBounds(windowWidthDp: Int, windowHeightDp: Int): LayoutRect {
+        require(windowWidthDp >= 0 && windowHeightDp >= 0) {
+            "window dimensions must not be negative"
+        }
+
+        val panelWidth = when (panelMode) {
+            PanelMode.FULL_HEIGHT_SHEET -> minOf(
+                PANEL_MAX_WIDTH_DP.toFloat(),
+                windowWidthDp * PANEL_COMPACT_WIDTH_FRACTION,
+            )
+            PanelMode.SIDE_SHEET -> PANEL_SIDE_WIDTH_DP.toFloat()
+            PanelMode.FLOATING -> PANEL_MAX_WIDTH_DP.toFloat()
+        }.coerceAtMost(windowWidthDp.toFloat())
+        val sideInset = panelSideInsetDp().toFloat().coerceAtMost(windowWidthDp.toFloat())
+        val left = if (panelSide == Hand.LEFT) {
+            sideInset
+        } else {
+            maxOf(0f, windowWidthDp - sideInset - panelWidth)
+        }
+        val right = if (panelSide == Hand.LEFT) {
+            minOf(windowWidthDp.toFloat(), left + panelWidth)
+        } else {
+            windowWidthDp - sideInset
+        }
+        val stripBottom = minOf(TOP_STRIP_DP, windowHeightDp).toFloat()
+        val availableHeight = windowHeightDp - stripBottom
+        val top = if (panelMode == PanelMode.FLOATING) {
+            stripBottom + availableHeight * (1f - PANEL_FLOATING_HEIGHT_FRACTION) / 2f
+        } else {
+            stripBottom
+        }
+        val bottom = if (panelMode == PanelMode.FLOATING) {
+            top + availableHeight * PANEL_FLOATING_HEIGHT_FRACTION
+        } else {
+            maxOf(top, windowHeightDp - panelBottomInsetDp().toFloat())
+        }
+
+        return LayoutRect(left, top, right, bottom)
+    }
+
     /** Persistent chrome only; transient panels and the first-run hint are excluded. */
     fun persistentChrome(windowWidthDp: Int, windowHeightDp: Int): List<LayoutRect> {
         require(windowWidthDp >= 0 && windowHeightDp >= 0) {
@@ -303,6 +366,11 @@ internal data class LayoutSpec(
         const val MEDIUM_GRID_CELL_DP = 180
         const val EXPANDED_GRID_CELL_DP = 220
         const val FLOATING_PANEL_GAP_DP = 8
+        const val PANEL_SIDE_WIDTH_DP = 300
+        const val PANEL_MAX_WIDTH_DP = 320
+        const val PANEL_RAIL_GAP_DP = 8
+        const val PANEL_COMPACT_WIDTH_FRACTION = 0.85f
+        const val PANEL_FLOATING_HEIGHT_FRACTION = 0.9f
 
         private const val SHORT_MIN_DP = 288
         private const val MEDIUM_GROUPED_MIN_DP = 461

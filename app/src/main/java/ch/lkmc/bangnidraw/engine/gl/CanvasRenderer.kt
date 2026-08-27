@@ -25,6 +25,7 @@ import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.LayerVisibilityPolicy
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
+import ch.lkmc.bangnidraw.engine.core.MutableIntRect
 import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.PoolExhausted
 import ch.lkmc.bangnidraw.engine.core.PerfStats
@@ -33,6 +34,7 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.SANDWICH_MARGIN_PX
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.SampleSource
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
+import ch.lkmc.bangnidraw.engine.core.TileCapacityPolicy
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.RmwTouchTracker
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
@@ -150,6 +152,9 @@ class CanvasRenderer(
      */
     private val fullCanvasRect = IntRect(0, 0, canvas.width, canvas.height)
 
+    /** Reused by the sandwich's viewport query on every frame. */
+    private val visibleCanvasBounds = MutableIntRect()
+
     private val projection = FloatArray(Mat4.SIZE)
     private val identity = Mat4.identity()
 
@@ -245,6 +250,7 @@ class CanvasRenderer(
     private var sandwich: SandwichCache? = null
 
     private val layers = LinkedHashMap<LayerId, LayerTextures>()
+    private val sandwichLayers: (LayerId) -> LayerTextures? = { layers[it] }
     private val transparentTile = java.nio.ByteBuffer.allocate(TILE_BYTES)
 
     private data class ThumbnailRequest(
@@ -413,7 +419,8 @@ class CanvasRenderer(
         thumbnailPass = LayerThumbnailPass(canvas, state, canvasCompositePass)
         val tiles = TilePool(probed, budget)
         pool = tiles
-        sandwich = SandwichCache(grid, tiles, tileCompositeProgram, state)
+        sandwich = null
+        syncSandwichCache(stack)
         layerPixelPass = LayerPixelPass(tiles, tileCompositeProgram, state)
         dab = dabProgram
         smudgeDeposit = smudgeDepositProgram
@@ -708,9 +715,10 @@ class CanvasRenderer(
         get() = strokeDirty.union(previousTailRect)
 
     /** A new surface, or a resize: `Accum` and `Scratch` are the only casualties. */
-    fun onSurfaceChanged(width: Int, height: Int) {
-        if (width <= 0 || height <= 0) return
-        val previous = fit
+    fun onSurfaceChanged(width: Int, height: Int): Boolean {
+        if (width <= 0 || height <= 0) return false
+
+        val changed = width != viewportWidth || height != viewportHeight
         viewportWidth = width
         viewportHeight = height
         val next = FitTransform(
@@ -719,14 +727,14 @@ class CanvasRenderer(
             imageWidth = canvas.width.toFloat(),
             imageHeight = canvas.height.toFloat(),
         )
-        // Keeps the canvas point under the viewport centre across rotation,
-        // fold and multi-window (§8.6), rather than leaving a stale pixel pan.
-        if (previous != null) view = view.rebase(previous, next)
+        // Input owns resize rebasing; duplicating it here applies one resize
+        // twice when Compose publishes the rebased view before this callback.
         fit = next
         state.invalidate()
         accum.ensure(width, height, state)
         scratch.ensure(width, height, state)
         Mat4.orthoYDown(width.toFloat(), height.toFloat(), projection)
+        return changed
     }
 
     // ------------------------------------------------------------- document
@@ -734,10 +742,8 @@ class CanvasRenderer(
     fun setStack(next: LayerStack, invalidation: SandwichPolicy.Op? = null) {
         val previous = stack
         stack = next
-        // A `return` inside the getOrPut lambda is a NON-LOCAL return: with a
-        // null pool it abandoned setStack after `stack` was already assigned,
-        // skipping the stale-layer release, `observe` and the invalidate below.
-        // Benign only because pool and sandwich are created together today.
+        // Keep lifecycle work below running when the context has no pool or a
+        // legacy stack intentionally has no sandwich cache.
         val tiles = pool
         if (tiles != null) {
             for (layer in next.layers) {
@@ -749,13 +755,35 @@ class CanvasRenderer(
         val live = next.layers.map { it.id }.toSet()
         val gone = layers.keys.filterNot { it in live }
         for (id in gone) layers.remove(id)?.release()
-        sandwich?.observe(next)
+        syncSandwichCache(next)
         when {
             previous == null -> sandwich?.invalidate(SandwichPolicy.Op.Select(next.activeIndex), next.activeIndex)
             invalidation != null -> sandwich?.invalidate(invalidation, previous.activeIndex)
             previous.active.id != next.active.id ->
                 sandwich?.invalidate(SandwichPolicy.Op.Select(next.activeIndex), previous.activeIndex)
         }
+    }
+
+    /** Legacy stacks over today's cap use the exact direct path until they shrink. */
+    private fun syncSandwichCache(current: LayerStack?) {
+        val tiles = pool
+        val hasReserve = current == null || tiles == null || TileCapacityPolicy.hasTransientReserve(
+            layerCount = current.size,
+            canvas = canvas,
+            poolSliceCapacity = tiles.sliceCapacity.toLong(),
+        )
+        if (!hasReserve) {
+            sandwich?.release()
+            sandwich = null
+            return
+        }
+
+        val cache = sandwich ?: run {
+            tiles ?: return
+            val program = tileComposite ?: return
+            SandwichCache(grid, tiles, program, state).also { sandwich = it }
+        }
+        if (current != null) cache.observe(current)
     }
 
     /** Queues isolated layer renders; [pollLayerThumbnails] drains their PBOs. */
@@ -1421,7 +1449,7 @@ class CanvasRenderer(
         accumScissor: IntRect?,
         previewSpec: StrokeSpec?,
     ): Boolean {
-        rebuildSandwichIfNeeded(current, screenTransform)
+        val readyCache = readySandwichForFrame(current, screenTransform, rect)
 
         if (!fbo.bindTexture2d(accum.texture)) return false
         state.viewport(0, 0, accum.width, accum.height)
@@ -1439,9 +1467,6 @@ class CanvasRenderer(
             )
         }
 
-        // Above becomes unavailable when its modes are not associative. Below
-        // owns a real backdrop and remains available for every blend mode.
-        val readyCache = sandwich?.takeIf { it.aboveAvailable && it.belowAvailable }
         val useSandwich = readyCache != null
 
         drawPaper(screenTransform, bakedIntoBelow = useSandwich)
@@ -1727,18 +1752,28 @@ class CanvasRenderer(
         return true
     }
 
-    private fun rebuildSandwichIfNeeded(current: LayerStack, screenTransform: ScreenTransform) {
-        val cache = sandwich ?: return
-        // onContextLost() nulls the pool while leaving the cache in place, so
-        // this window is reachable — and `!!` there would throw from inside a
-        // render callback on surface recreation.
-        val tiles = pool ?: return
-        // Viewport-first, plus a margin so a small pan does not stall on a
-        // rebuild (`docs/plan/10-performance.md` §2.6).
-        val visible = visibleCanvasRect(screenTransform)
-        cache.rebuild(visible, current, paperColor) { index ->
-            textures(current.layers[index].id) ?: LayerTextures(grid, tiles)
+    private fun readySandwichForFrame(
+        current: LayerStack,
+        screenTransform: ScreenTransform,
+        requested: IntRect,
+    ): SandwichCache? {
+        val cache = sandwich ?: return null
+        val rebuildPending = cache.hasPendingRebuild()
+        val fullFrame = requested == fullCanvasRect
+
+        if (rebuildPending || fullFrame) {
+            updateVisibleCanvasBounds(screenTransform)
         }
+        if (rebuildPending) {
+            cache.rebuild(visibleCanvasBounds, current, paperColor, sandwichLayers)
+        }
+
+        val ready = if (fullFrame) {
+            cache.isReady(visibleCanvasBounds)
+        } else {
+            cache.isReady(requested)
+        }
+        return if (ready) cache else null
     }
 
     /**
@@ -1755,41 +1790,17 @@ class CanvasRenderer(
      * copy of the one viewport fact is exactly the kind of cache a future
      * resize path forgets to update.
      *
-     * Through the scalar `invertX`/`invertY` pair rather than `invert`, whose
-     * `Pair` would allocate four times on every frame — this runs inside
-     * `compositeIntoAccum`, on the §2.4 render path. The one allocation that
-     * remains is the returned `IntRect`, unchanged from before; "nothing may
-     * allocate" is the direction this walks, not a state it reaches.
+     * [visibleCanvasBounds] is caller-owned, so neither inverse mapping nor the
+     * cache lookup allocates on the frame path.
      */
-    private fun visibleCanvasRect(screenTransform: ScreenTransform): IntRect {
-        val vw = viewportWidth.toFloat()
-        val vh = viewportHeight.toFloat()
-        var minX = Float.MAX_VALUE
-        var minY = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE
-        var maxY = -Float.MAX_VALUE
-        // The four corners as a 2×2 walk over the viewport's edges; the
-        // min/max accumulation below is order-independent, so no ordering
-        // comment has to stay in sync with index arithmetic.
-        for (right in 0..1) {
-            for (bottom in 0..1) {
-                val sx = if (right == 1) vw else 0f
-                val sy = if (bottom == 1) vh else 0f
-                val x = screenTransform.invertX(sx, sy)
-                val y = screenTransform.invertY(sx, sy)
-                if (!x.isFinite() || !y.isFinite()) {
-                    return IntRect(0, 0, canvas.width, canvas.height)
-                }
-                minX = minOf(minX, x); maxX = maxOf(maxX, x)
-                minY = minOf(minY, y); maxY = maxOf(maxY, y)
-            }
-        }
-        val margin = SANDWICH_MARGIN_PX
-        return IntRect(
-            (minX.toInt() - margin).coerceIn(0, canvas.width),
-            (minY.toInt() - margin).coerceIn(0, canvas.height),
-            (maxX.toInt() + margin).coerceIn(0, canvas.width),
-            (maxY.toInt() + margin).coerceIn(0, canvas.height),
+    private fun updateVisibleCanvasBounds(screenTransform: ScreenTransform) {
+        screenTransform.canvasBoundsOfViewport(
+            viewportWidth = viewportWidth,
+            viewportHeight = viewportHeight,
+            canvasWidth = canvas.width,
+            canvasHeight = canvas.height,
+            margin = SANDWICH_MARGIN_PX,
+            out = visibleCanvasBounds,
         )
     }
 
@@ -1857,12 +1868,13 @@ class CanvasRenderer(
     }
 
     /** Ordinary teardown, with a live context: everything is deleted. */
-    fun release() {
+    fun release(): Int {
         // First, before anything is torn down: map what is still in flight and
         // hand it over — these are the last stroke's tiles, and dropping them
         // here would lose exactly the pixels a leave-checkpoint is about to
         // save. Then delete the PBOs with the rest of the GL objects.
         readback?.finish()
+        val pendingReadback = readbackPending
         readback?.release()
         for (textures in layers.values) textures.release()
         layers.clear()
@@ -1918,6 +1930,7 @@ class CanvasRenderer(
         layerPixelPass = null
         thumbnailPass = null
         isReady = false
+        return pendingReadback
     }
 
     private fun failQueuedThumbnails() {

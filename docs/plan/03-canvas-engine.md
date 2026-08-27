@@ -94,13 +94,15 @@ every layer, the two sandwich caches, the stroke buffer and the RMW scratch
 slices come from the same pool.
 
 `slicesPerPage = min(GL_MAX_ARRAY_TEXTURE_LAYERS, 256)`. The spec minimum
-is 256 and we query at startup (§13); we do not use more than 256 even
+is 256 and we reject a lower report at startup (§13); we do not use more than 256 even
 where the driver allows 2048 because a page is the allocation granule
 (64 MiB at 256 slices) and the first page must not be bigger than a
 phone-sized painting needs. Pages are created lazily when the free list
 runs dry and never destroyed while the document is open (freeing a page
 while the driver may still be defragmenting is a known source of jank;
-destroying happens on document close).
+destroying happens on document close). Because `MemoryBudget` is computed
+before this probe, `TilePool` recomputes the whole-page count from the raw byte
+budget and uses its resulting slice capacity for runtime transient admission.
 
 ```kotlin
 @JvmInline value class SliceHandle(val packed: Int) {      // (page << 16) | slice, -1 = none
@@ -448,6 +450,12 @@ A frame while a stroke is live is therefore `Below (paper baked in) →
 not grow with the layer count, and layer count is what large paintings
 have.
 
+A saved stack can exceed this device's current `MemoryBudget.maxLayers`
+(for example after reopening on a lower-memory device). In that state the
+renderer releases and disables both cache halves and uses direct per-layer
+composition. Deleting back to the cap recreates the empty cache lazily. This
+protects the remaining transient capacity without rejecting a legacy document.
+
 **Building a cache** is canvas-space, tile by tile: for each key present
 in any contributing layer (for Below: every key of the canvas, since the
 paper covers it all — an opaque paper makes every Below tile present),
@@ -576,9 +584,9 @@ that many overlapping dabs cannot exceed — dabs accumulate flow in the
 buffer, the buffer is capped by opacity at merge — and why a stroke can be
 cancelled by palm rejection without touching the layer.
 
-A stroke buffer is the one place where memory temporarily exceeds the
-layer budget: a wild stroke across a 4096² canvas can touch all 256 keys
-(64 MiB). `MemoryBudget` reserves one full layer's worth for it.
+A wild stroke across a 4096² canvas can touch all 256 keys (64 MiB).
+`MemoryBudget` reserves four full-layer equivalents for both sandwich
+halves, a stroke or structural output, and merge scratch.
 
 ### 7.2 DabPass
 
@@ -906,11 +914,12 @@ buffer to release, so its commit count otherwise never falls. An active
 completion recomposites and presents the cumulative preview once; later frames
 return to incremental damage. Re-presenting the growing cumulative preview on
 every sample defeats scan-line racing and produces a moving cutoff. Redraws
-during a stroke are deferred, and equal Compose inputs are filtered before they
-request one. A target-generation gate prevents front renders and commits before
-the baseline completes. Surface changes replace only the
-`GLFrontBufferedRenderer`; the shared `GLRenderer`, EGL context, and canvas
-textures remain alive.
+during a stroke are deferred; view/background changes and surface resizes
+force the next front frame to rebuild the cumulative preview. Equal Compose
+inputs are filtered before they request one. A target-generation gate prevents
+front renders and commits before the baseline completes. Surface changes
+replace only the `GLFrontBufferedRenderer`; the shared `GLRenderer`, EGL
+context, and canvas textures remain alive.
 
 ### 8.2 `onDrawMultiDoubleBufferedLayer(eglManager, bufferInfo, transform, params)`
 
@@ -919,9 +928,9 @@ merged, caches valid): Below (paper baked in) → active → Above into
 `Accum`, then the full-rect `Accum` quad into `bufferInfo.frameBufferId`
 (§3.2 step 3). The quad starts at the logical `Accum` dimensions; `transform`
 maps it into a pre-rotated buffer whose dimensions may be swapped. `params` is
-only iterated to release the ring slots
-(`docs/plan/02-architecture.md` §3.2); the current `ScreenTransform` is
-always used. This callback also serves every non-stroke redraw (§5).
+the library's replay of already-consumed batches and is deliberately ignored
+(`docs/plan/02-architecture.md` §3.2); the current `ScreenTransform` is always
+used. This callback also serves every non-stroke redraw (§5).
 
 ### 8.3 Pen-up: `commit()`
 
@@ -1180,7 +1189,7 @@ allocation:
 | Query | Use | Degrade |
 | --- | --- | --- |
 | `GL_VERSION` / EGL client version 3 | ES 3.0 is required (texture arrays, PBO, `glTexStorage3D`, instancing) | No ES 3.0 (does not exist on API 29 hardware in practice): show the "unsupported device" screen; the Studio still works, the Canvas refuses to open. |
-| `GL_MAX_ARRAY_TEXTURE_LAYERS` | `slicesPerPage = min(v, 256)` | `< 256` would violate the spec; if it ever happens pages are just smaller. |
+| `GL_MAX_ARRAY_TEXTURE_LAYERS` | `slicesPerPage = min(v, 256)` | `< 256` violates the ES 3.0 minimum: show the unsupported-device screen. |
 | `GL_MAX_TEXTURE_SIZE` | must be ≥ 256 for tiles (always) and ≥ viewport size for `Accum` | Below viewport size: `Accum` is tiled into two halves (never seen on a real device; guard only). |
 | `GL_MAX_RENDERBUFFER_SIZE`, `GL_MAX_VIEWPORT_DIMS` | same as above | same |
 | Extensions: `EXT_shader_framebuffer_fetch`, `EXT_color_buffer_half_float` | optional fast paths (§3.2), recorded, unused in v1 | nothing |
@@ -1228,21 +1237,20 @@ Per layer, worst case (every tile painted), for the size presets
 `CanvasPresets` offers (`docs/plan/10-performance.md` §4; the dialog shows
 only those the budget admits — these rows are the arithmetic):
 
-| Preset | Tiles (tx × ty) | Per layer, full | 8 layers + sandwich (2) + stroke buffer (1) |
+| Preset | Tiles (tx × ty) | Per layer, full | 8 layers + transient reserve (4) |
 | --- | --- | --- | --- |
-| Phone sketch 1080×1920 | 5 × 8 = 40 | 10 MiB | 110 MiB |
-| Square 2048² | 8 × 8 = 64 | 16 MiB | 176 MiB |
-| Tablet 2560×1600 | 10 × 7 = 70 | 17.5 MiB | 192.5 MiB |
-| Large 4096² | 16 × 16 = 256 | 64 MiB | 704 MiB |
-| Format ceiling 8192² (post-v1) | 32 × 32 = 1024 | 256 MiB | 2.75 GiB (the budget will not admit 8 layers here on any current device) |
+| Phone sketch 1080×1920 | 5 × 8 = 40 | 10 MiB | 120 MiB |
+| Square 2048² | 8 × 8 = 64 | 16 MiB | 192 MiB |
+| Tablet 2560×1600 | 10 × 7 = 70 | 17.5 MiB | 210 MiB |
+| Large 4096² | 16 × 16 = 256 | 64 MiB | 768 MiB |
+| Format ceiling 8192² (post-v1) | 32 × 32 = 1024 | 256 MiB | 3 GiB (the budget will not admit 8 layers here on any current device) |
 
 `MemoryBudget.compute(device, canvas).maxLayers` is
 `docs/plan/10-performance.md` §4's: `gpuTileBudgetBytes / layerBytes −
-STROKE_BUFFER_RESERVE_LAYERS (1)`, clamped to `1..MAX_LAYERS (16)`, where
+TRANSIENT_TILE_RESERVE_LAYERS (4)`, clamped to `1..MAX_LAYERS (16)`, where
 `gpuTileBudgetBytes` is `totalMem / 8` clamped to 256 MiB..1.5 GiB (a flat
-256 MiB on `isLowRamDevice`). The sandwich halves are not reserved: they
-are sparse canvas-space grids that ride on the tiles no layer has painted
-(10 §2.6), and the lazy page allocation is the backstop. It assumes fully
+256 MiB on `isLowRamDevice`). The reserve covers both sandwich halves, a
+stroke or structural output, and merge scratch. It assumes fully
 painted layers — pessimistic on purpose (decision 4: honest, not clever).
 Because memory grows with painted tiles, the cap is a guarantee, not an
 estimate: if the budget admits 8 layers, all 8 can be painted edge to

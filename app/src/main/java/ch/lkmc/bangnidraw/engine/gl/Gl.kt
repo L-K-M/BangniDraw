@@ -86,14 +86,17 @@ object GlErrors {
     /**
      * Runs an allocation, link, or upload with an attributable error check.
      *
-     * The first drain discards flags left by unchecked release passes. The
-     * second therefore belongs to [operation], so a stale pass error cannot
-     * refuse a valid allocation. Returns the fresh error for callers that turn
-     * `GL_OUT_OF_MEMORY` into a refusal (§2.1); never throws by itself because
-     * those are device conditions, not bugs.
+     * Release builds discard flags left by unchecked passes. Strict builds
+     * report one before [operation], preserving the pass failure instead of
+     * blaming the allocation. Returns the fresh error for callers that turn
+     * `GL_OUT_OF_MEMORY` into a refusal (§2.1).
      */
     fun checkAllocation(what: String, operation: () -> Unit): Int {
-        drain()
+        val stale = drain()
+        if (strict && stale != GLES30.GL_NO_ERROR) {
+            throw IllegalStateException("$what precondition: ${name(stale)}")
+        }
+
         operation()
         val e = drain()
         if (e != GLES30.GL_NO_ERROR) Log.w(GL_TAG, "$what: ${name(e)}")

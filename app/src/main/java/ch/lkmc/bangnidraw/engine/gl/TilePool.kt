@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.engine.gl
 import android.opengl.GLES30
 import android.util.Log
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.PoolExhausted
 import ch.lkmc.bangnidraw.engine.core.SliceAllocator
@@ -36,18 +37,17 @@ class TilePool(
     val slicesPerPage: Int = caps.slicesPerPage
 
     /**
-     * The page cap comes from [MemoryBudget], not from the raw tile budget:
-     * `poolArrayCount` is whole arrays only, which is exactly what this class
-     * allocates. Sizing from `gpuTileBudgetBytes` instead would let the pool
-     * over-commit by up to one page against the layer cap the New Canvas
-     * dialog advertises — the disagreement `MemoryBudget`'s KDoc promises
-     * cannot happen.
-     *
-     * `coerceAtLeast(1)` because a pool that can hold no page at all could not
-     * open any document, and `MemoryBudget.compute` already `check`s that its
-     * budget holds at least one array; this is the belt to that brace.
+     * [MemoryBudget] runs before a GL context exists and therefore assumes
+     * 256-slice pages. Recompute the page count from the probed page size;
+     * retaining the assumed count gives a 64-slice driver one quarter of the
+     * budgeted capacity.
      */
-    private val maxPages: Int = budget.poolArrayCount.coerceAtLeast(1)
+    private val bytesPerPage = slicesPerPage.toLong() * TILE_BYTES
+    private val maxPages: Int =
+        (budget.gpuTileBudgetBytes / bytesPerPage)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
+            .also { check(it > 0) { "tile budget cannot hold one $slicesPerPage-slice page" } }
 
     private val allocator = SliceAllocator(slicesPerPage, maxPages)
 
@@ -73,10 +73,8 @@ class TilePool(
      * Every slice this pool can ever hold — the denominator the debug overlay
      * shows [usedSlices] against.
      *
-     * From [maxPages], which is `budget.poolArrayCount` **coerced to at least
-     * 1**. Computing it at the call site from `poolArrayCount` would drop that
-     * coercion and report a capacity of 0 for a pool that can hold a page,
-     * which reads as an exhausted pool rather than a tiny one.
+     * From [maxPages], after the context's page size has replaced the
+     * pre-context assumption in [MemoryBudget].
      */
     val sliceCapacity: Int get() = slicesPerPage * maxPages
     val residentBytes: Long get() = allocator.residentBytes
@@ -249,7 +247,7 @@ class TilePool(
         Log.i(
             GL_TAG,
             "tile pool grew to ${page + 1} page(s), $residentBytes B of " +
-                "${budget.poolCapacityBytes} B",
+                "${budget.gpuTileBudgetBytes} B",
         )
     }
 

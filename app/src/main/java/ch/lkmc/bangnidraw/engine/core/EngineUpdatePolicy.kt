@@ -10,3 +10,15 @@ internal object EngineUpdatePolicy {
         return EngineUpdate.APPLY
     }
 }
+
+/** Main-thread gate for duplicate view callbacks entering one engine session. */
+internal class EngineViewUpdateGate {
+    private var previous: ViewTransform? = null
+
+    fun update(next: ViewTransform, onChanged: () -> Unit) {
+        if (EngineUpdatePolicy.decide(previous, next) == EngineUpdate.KEEP) return
+        previous = next
+
+        onChanged()
+    }
+}

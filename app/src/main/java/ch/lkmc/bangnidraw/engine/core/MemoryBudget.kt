@@ -14,7 +14,7 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.MAX_LAYERS
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.MIN_LAYERS
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.MIN_USEFUL_LAYERS
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.SLICES_PER_PAGE
-import ch.lkmc.bangnidraw.engine.core.PerfConstants.STROKE_BUFFER_RESERVE_LAYERS
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.TRANSIENT_TILE_RESERVE_LAYERS
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.THUMB_MIB_LARGE
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.THUMB_MIB_LOW_RAM
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.THUMB_MIB_SMALL
@@ -108,13 +108,13 @@ data class CanvasSize(val width: Int, val height: Int) {
  */
 object MemoryBudget {
     data class Result(
-        /** The raw tile budget. What the pool can *allocate* is [poolCapacityBytes]. */
+        /** Raw tile budget; `TilePool` fits whole pages after probing their depth. */
         val gpuTileBudgetBytes: Long,
         /**
          * `poolArrayCount × poolArraySlices × TILE_BYTES` — whole arrays only,
-         * so up to one array below [gpuTileBudgetBytes]. Every cap here is
-         * derived from this, not from the raw budget; a caller asking "do N
-         * bytes of tiles fit?" must ask this one or it can over-commit.
+         * so up to one assumed array below [gpuTileBudgetBytes]. Device-facing
+         * caps use this conservative pre-context capacity. Runtime GL admission
+         * instead uses `TilePool.sliceCapacity` after the array depth is known.
          */
         val poolCapacityBytes: Long,
         /** For THIS canvas size, `MIN_LAYERS..MAX_LAYERS`. */
@@ -124,9 +124,9 @@ object MemoryBudget {
         val historyMaxSteps: Int,
         val historyMaxBytes: Long,
         val thumbnailCacheBytes: Long,
-        /** Slices per texture array `TilePool` creates; never above `glMaxArrayLayers`. */
+        /** Slices assumed per array; runtime may replace the pre-context default. */
         val poolArraySlices: Int,
-        /** How many texture arrays fit the budget. */
+        /** How many arrays fit at [poolArraySlices]. */
         val poolArrayCount: Int,
     )
 
@@ -182,7 +182,7 @@ object MemoryBudget {
         val layersThatFit =
             (poolCapacityBytes / canvas.layerBytesWorstCase)
                 .coerceAtMost(Int.MAX_VALUE.toLong())
-                .toInt() - STROKE_BUFFER_RESERVE_LAYERS
+                .toInt() - TRANSIENT_TILE_RESERVE_LAYERS
         // The upward half of this clamp is a documented contract, not an
         // accident — see the KDoc. For a canvas that clears maxCanvasEdge, the
         // honest cap is enforced where it can be: the pool allocates pages
@@ -205,11 +205,10 @@ object MemoryBudget {
             else -> (device.totalMemBytes * GPU_TILE_FRACTION).toLong()
                 .coerceIn(GPU_TILE_MIN_BYTES, GPU_TILE_MAX_BYTES)
         }
-        // A driver reporting fewer slices than the ES 3.0 minimum of 256 is
-        // trusted as-is rather than refused: the capacity arithmetic stays
-        // self-consistent (smaller arrays, more of them), so no cap comes out
-        // wrong — the pool just degenerates toward many near-empty arrays.
-        // Zero or negative means "no GL context yet", which takes the page size.
+        // Zero or negative means "no GL context yet", which takes the ES 3.0
+        // minimum. GlCaps rejects a later report below that minimum before a
+        // pool is allocated; positive synthetic values remain useful for
+        // testing this arithmetic in isolation.
         val slices =
             if (device.glMaxArrayLayers > 0) minOf(device.glMaxArrayLayers, SLICES_PER_PAGE)
             else SLICES_PER_PAGE
@@ -241,7 +240,7 @@ object MemoryBudget {
         // big texture. The largest multiple of TILE_SIZE whose square, fully
         // painted, still holds MIN_USEFUL_LAYERS plus the stroke-buffer
         // reserve — so a size the dialog offers can always be painted on.
-        val perLayerLimit = poolCapacityBytes / (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)
+        val perLayerLimit = poolCapacityBytes / (MIN_USEFUL_LAYERS + TRANSIENT_TILE_RESERVE_LAYERS)
         // The loop tests TILE_SIZE + TILE_SIZE and up; the starting value is
         // returned untested, so the "always paintable" promise holds at the
         // floor only through a coupling between the minimum tile budget,
@@ -251,9 +250,9 @@ object MemoryBudget {
         // floor budget in the hundreds), and that is the point — if someone
         // lowers the budget or raises MIN_USEFUL_LAYERS it fails here rather
         // than offering a 256 px canvas that cannot hold the minimum stack.
-        check(TILE_BYTES.toLong() * (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS) <= poolCapacityBytes) {
+        check(TILE_BYTES.toLong() * (MIN_USEFUL_LAYERS + TRANSIENT_TILE_RESERVE_LAYERS) <= poolCapacityBytes) {
             "a pool capacity of $poolCapacityBytes B cannot hold " +
-                "${MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS} layers of a ${TILE_SIZE}px canvas"
+                "${MIN_USEFUL_LAYERS + TRANSIENT_TILE_RESERVE_LAYERS} layers of a ${TILE_SIZE}px canvas"
         }
         var maxCanvasEdge = TILE_SIZE
         while (maxCanvasEdge + TILE_SIZE <= MAX_CANVAS_EDGE_V1 &&

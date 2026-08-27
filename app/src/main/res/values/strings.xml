@@ -261,11 +261,13 @@
     </plurals>
     <string name="layer_flatten_body">Hidden layers are discarded. You can undo this.</string>
     <plurals name="layer_limit">
-        <item quantity="one">This %1$d×%2$d canvas allows %3$d layer on this device. Delete it to add another.</item>
+        <item quantity="one">This %1$d×%2$d canvas allows one layer on this device.</item>
         <item quantity="other">This %1$d×%2$d canvas allows %3$d layers on this device. Merge or delete a layer to add one.</item>
     </plurals>
+    <string name="layer_over_capacity">This older painting exceeds this device’s safe layer limit. Delete layers before painting, merging, or flattening.</string>
     <string name="layer_only">Can’t delete the only layer — clear it instead.</string>
     <string name="layer_locked">Layer is locked.</string>
+    <string name="layer_alpha_locked">Alpha lock is on.</string>
     <string name="layer_hidden">Layer is hidden. Your stroke is still added.</string>
     <string name="layer_hidden_partner">Show both layers to merge.</string>
     <string name="layer_no_below">There is no layer below.</string>
@@ -279,6 +281,7 @@
     <string name="blend_add">Add</string>
     <string name="blend_difference">Difference</string>
     <string name="canvas_open_failed">This painting could not be opened. Its files are left untouched.</string>
+    <string name="canvas_over_capacity">This painting uses more graphics memory than this device can provide.</string>
     <string name="canvas_newer_version">This painting was made by a newer version of 帮你Draw.</string>
 
     <!-- Persistence errors (docs/plan/06-document-and-persistence.md §4, §6.3;

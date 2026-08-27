@@ -8,7 +8,7 @@ internal data class RgbFieldLayout(
     val gapDp: Float,
     val fieldCount: Int,
 ) {
-    val hasUsableWidth: Boolean get() = fieldWidthDp > 0f
+    val hasUsableWidth: Boolean get() = fieldWidthDp >= MINIMUM_TARGET_WIDTH_DP
 
     val occupiedWidthDp: Float
         get() = when (arrangement) {
@@ -16,6 +16,11 @@ internal data class RgbFieldLayout(
                 fieldCount * fieldWidthDp + (fieldCount - 1) * gapDp
             RgbFieldArrangement.COLUMN -> fieldWidthDp
         }
+
+    private companion object {
+        // Hiding a field is safer than composing an undersized touch target.
+        const val MINIMUM_TARGET_WIDTH_DP = 48f
+    }
 }
 
 /** Keeps channel values readable as panel width and system text scale change. */

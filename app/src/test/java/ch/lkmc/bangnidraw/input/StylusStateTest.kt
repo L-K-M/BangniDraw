@@ -81,6 +81,7 @@ class StylusStateTest {
         // Rejecting a palm for too long is recoverable; letting one through is
         // a mark on the painting. A caller mixing time bases must fail safe.
         val s = StylusState()
+        s.onHoverEnter(0f, 0f, 0f, PointerTool.STYLUS)
         s.onHoverExit(ms(5000))
         assertTrue(s.isNear(ms(0)), "a negative elapsed time must not expire the grace")
     }

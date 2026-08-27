@@ -436,7 +436,7 @@ visibly, nothing is refused.
 
 `MemoryBudget` is pure JVM and **owned by `10-performance.md` §4**:
 `MemoryBudget.compute(DeviceMemory, CanvasSize): Result`, with the
-constants (`GPU_TILE_FRACTION`, `MAX_LAYERS`, `STROKE_BUFFER_RESERVE_LAYERS`,
+constants (`GPU_TILE_FRACTION`, `MAX_LAYERS`, `TRANSIENT_TILE_RESERVE_LAYERS`,
 …) and the pinned worked table living there and in `MemoryBudgetTest`.
 This document consumes `Result.maxLayers` and `Result.maxCanvasEdge`; it
 does not recompute them. `DeviceMemory` is gathered once (`totalMem`,
@@ -468,7 +468,7 @@ In `10-performance.md` §4's terms, with `L = CanvasSize.layerBytesWorstCase`:
 ```
 gpuTileBudgetBytes = isLowRamDevice ? LOW_RAM_GPU_TILE_BYTES (256 MiB)
                                     : (totalMem · GPU_TILE_FRACTION (1/8)).coerceIn(256 MiB, 1.5 GiB)
-maxLayers          = (gpuTileBudgetBytes / L − STROKE_BUFFER_RESERVE_LAYERS (1)).coerceIn(MIN_LAYERS (1), MAX_LAYERS (16))
+maxLayers          = (gpuTileBudgetBytes / L − TRANSIENT_TILE_RESERVE_LAYERS (4)).coerceIn(MIN_LAYERS (1), MAX_LAYERS (16))
 maxCanvasEdge      = largest power-of-two edge whose square still admits MIN_LAYERS + the reserve
 ```
 
@@ -479,13 +479,12 @@ What this document relies on, and why the shape is right:
   quarter of RAM is what a foreground app can touch before the killer
   gets interested (10 §3), and the tile budget is half of that so the
   fixed costs (surfaces, sandwich, scratch) and the OS keep their share.
-  The figure is a worst case: real layers are sparse, so a "15 layer"
+  The figure is a worst case: real layers are sparse, so a "12 layer"
   4096² document usually uses a fraction of it.
-- **Reserve**: the stroke buffer is reserved as one layer-equivalent
-  because it can in principle cover the whole canvas (a fill, a stroke
-  across everything). The sandwich halves are not reserved per layer:
-  they are sparse canvas-tile grids (`03-canvas-engine.md` §4, 10 §2.6)
-  that ride on the tiles no layer has painted; §8 follows 03.
+- **Reserve**: four full-canvas layer-equivalents cover both sandwich
+  halves, a stroke or structural output, and merge scratch. They remain
+  sparse in ordinary use, but the advertised cap must also survive the
+  fully dense case (`03-canvas-engine.md` §4, 10 §2.6).
 - **Floor of 1**: if even one layer does not fit, the *canvas* is too big
   and the New Canvas dialog refuses that size instead — the layer cap is
   never the thing that says no to a canvas.
@@ -508,39 +507,39 @@ Nominal RAM; devices report `totalMem` a few hundred MB below nominal
 (4 GB devices report ≈3.6 GiB), which can lower a count by one at the
 edges — the table is for reasoning, the code is the truth. `L` includes
 tile rounding. Values follow 10 §4's constants (its pinned rows are the
-4096² column entries: 7 / 15 / 16 / 3).
+4096² column entries: 4 / 12 / 16 / 1).
 
 | Canvas preset | Tiles | L | 4 GB (G = 512 MiB) | 8 GB (1 GiB) | 12 GB (1.5 GiB) | low-RAM (256 MiB) |
 | --- | --- | --- | --- | --- | --- | --- |
-| Phone sketch 1080×1920 | 5×8 = 40 | 10 MiB | 16 (50) | 16 (101) | 16 (152) | 16 (24) |
-| Square 2048×2048 | 8×8 = 64 | 16 MiB | 16 (31) | 16 (63) | 16 (95) | 15 |
-| Tablet 2560×1600 | 10×7 = 70 | 17.5 MiB | 16 (28) | 16 (57) | 16 (86) | 13 |
-| Large 4096×4096 | 16×16 = 256 | 64 MiB | 7 | 15 | 16 (23) | 3 |
+| Phone sketch 1080×1920 | 5×8 = 40 | 10 MiB | 16 (47) | 16 (98) | 16 (149) | 16 (21) |
+| Square 2048×2048 | 8×8 = 64 | 16 MiB | 16 (28) | 16 (60) | 16 (92) | 12 |
+| Tablet 2560×1600 | 10×7 = 70 | 17.5 MiB | 16 (25) | 16 (54) | 16 (83) | 10 |
+| Large 4096×4096 | 16×16 = 256 | 64 MiB | 4 | 12 | 16 (20) | 1 (floor; raw 0) |
 
 Parenthesised values are the pre-cap results. The preset list is
 `CanvasPresets`' (`10-performance.md` §4, shown in `08-ui-and-layout.md` §2.1) — if that list
 changes, this table is regenerated from `MemoryBudgetTest`'s printed
 output, not edited by hand. Roadmap step 6's acceptance ("8 layers on a
-4096² canvas on an 8 GB tablet") sits inside the 15 the formula allows;
+4096² canvas on an 8 GB tablet") sits inside the 12 the formula allows;
 the jank criterion is `10-performance.md`'s.
 
 ### 6.4 What the user sees
 
-- The layer panel header reads **"6 of 15 layers"** (`count of
+- The layer panel header reads **"6 of 12 layers"** (`count of
   Result.maxLayers`, the one string, also 10 §2.6's) — always, not only
   near the cap, so the number is familiar before it matters.
 - At the cap the **+** and **Duplicate** controls stay enabled and
   tappable; tapping shows a one-line explanation with the numbers:
-  "This 4096×4096 canvas allows 15 layers on this device. Merge or delete
+  "This 4096×4096 canvas allows 12 layers on this device. Merge or delete
   a layer to add one." Nothing dims silently, nothing fails silently.
 - The New Canvas dialog shows, per preset, the layer count that size
-  affords ("4096×4096 · up to 15 layers" — `MemoryBudget.compute(device,
+  affords ("4096×4096 · up to 12 layers" — `MemoryBudget.compute(device,
   size).maxLayers`) and refuses custom sizes beyond `Result.maxCanvasEdge`
   with the same kind of sentence.
 - The cap is enforced **only** by `add` and `duplicate`. Undo, redo and
   document load never refuse: a document that is over the cap (an app
   update that changed the fraction, or a low-RAM flag that differs
-  between boots) loads fully and the header reads "16 of 15 layers", with
+  between boots) loads fully and the header reads "16 of 12 layers", with
   **+** explaining. Refusing to open a painting because of a number we
   chose would violate "nothing is ever lost".
 - Post-v1 tile residency/eviction (PLAN.md roadmap) lifts `maxLayers`;

@@ -61,6 +61,26 @@ internal object DabBounds {
         kotlin.math.ceil(y + radius + ANTIALIAS_MARGIN_PX).toInt()
 }
 
+/** Caller-owned bounds scratch for allocation-free frame calculations. */
+internal class MutableIntRect {
+    var left: Int = 0
+        private set
+    var top: Int = 0
+        private set
+    var right: Int = 0
+        private set
+    var bottom: Int = 0
+        private set
+
+    fun set(left: Int, top: Int, right: Int, bottom: Int): MutableIntRect {
+        this.left = left
+        this.top = top
+        this.right = right
+        this.bottom = bottom
+        return this
+    }
+}
+
 /**
  * Half-open integer rect in canvas pixels: `right` and `bottom` are exclusive.
  *
@@ -276,6 +296,11 @@ data class TileGrid(val width: Int, val height: Int) {
      * `n = keysFor(a, buf, keysFor(b, buf, 0))` read correctly.
      */
     fun keysFor(r: IntRect, out: IntArray, from: Int = 0): Int {
+        return keysForBounds(r.left, r.top, r.right, r.bottom, out, from)
+    }
+
+    /** Mutable-scratch form for the frame path. */
+    internal fun keysFor(r: MutableIntRect, out: IntArray, from: Int = 0): Int {
         return keysForBounds(r.left, r.top, r.right, r.bottom, out, from)
     }
 

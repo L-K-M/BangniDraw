@@ -13,7 +13,7 @@ first, write the failing test before the fix, keep decision logic in
 ## Cleared (do not re-open)
 
 - Tool-rail icon collisions + divider indices — PR #22.
-- Zero per-frame allocation in `CanvasRenderer.visibleCanvasRect` — PR #23.
+- Zero per-frame allocation in the sandwich viewport query — post-v1 audit.
 - Eyedropper read throttling (`EyedropperSampleGate`) — PR #30.
 - Live zoom/angle readout during navigation (`onNavigateActive`) — PR #35.
 - Studio empty state on every width — PR #33 (parallel work).

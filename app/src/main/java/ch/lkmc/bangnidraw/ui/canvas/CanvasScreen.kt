@@ -119,9 +119,12 @@ import ch.lkmc.bangnidraw.data.GalleryExportOutcome
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasDialog
+import ch.lkmc.bangnidraw.engine.core.CanvasIdleDecision
+import ch.lkmc.bangnidraw.engine.core.CanvasIdleOperation
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
 import ch.lkmc.bangnidraw.engine.core.ColorText
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
+import ch.lkmc.bangnidraw.engine.core.CanvasUiPolicy
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.EyedropperSampleGate
@@ -137,11 +140,13 @@ import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
 import ch.lkmc.bangnidraw.engine.core.ShortcutContext
 import ch.lkmc.bangnidraw.engine.core.SizeAdjustment
+import ch.lkmc.bangnidraw.engine.core.StrokeActivity
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeLayerDecision
 import ch.lkmc.bangnidraw.engine.core.StrokeLayerPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeMode
+import ch.lkmc.bangnidraw.engine.core.StrokeOperation
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TemporaryReason
@@ -179,7 +184,9 @@ fun CanvasScreen(
     viewModel: CanvasViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    BackHandler { viewModel.handleBack(onBack) }
+    BackHandler(enabled = state !is CanvasViewModel.UiState.Ready) {
+        viewModel.handleBack(onBack)
+    }
 
     // §6.2's ON_STOP row: the last callback before the process may be
     // reclaimed. Fire-and-forget — the write survives on the app scope.
@@ -221,8 +228,8 @@ fun CanvasScreen(
         is CanvasViewModel.UiState.Ready -> CanvasContent(
             state = current,
             viewModel = viewModel,
-            onBack = onBack,
-            onSettings = { viewModel.requestLeave(onSettings) },
+            onLeave = onBack,
+            onSettings = onSettings,
         )
     }
 }
@@ -231,7 +238,7 @@ fun CanvasScreen(
 private fun CanvasContent(
     state: CanvasViewModel.UiState.Ready,
     viewModel: CanvasViewModel,
-    onBack: () -> Unit,
+    onLeave: () -> Unit,
     onSettings: () -> Unit,
 ) {
     var view by rememberSaveable(stateSaver = VIEW_TRANSFORM_SAVER) {
@@ -272,6 +279,64 @@ private fun CanvasContent(
         runCatching { recentPaletteFocusRequester.requestFocus() }
     }
 
+    /** Chrome exits commit the front buffer before queuing their checkpoint. */
+    fun finishOpenStrokeForLeave() {
+        val reason = strokeState.temporaryReason
+        strokeState.temporaryReason = null
+        if (strokeState.cancelPick()) {
+            viewModel.cancelPickedColor()
+            strokeState.engine = null
+            viewModel.endStrokeTool(reason)
+            return
+        }
+
+        val wasFill = strokeState.fillTouch
+        strokeState.fillParams = null
+        strokeState.fillTouch = false
+        if (wasFill) {
+            strokeState.engine = null
+            viewModel.cancelFill()
+            viewModel.endStrokeTool(reason)
+            return
+        }
+
+        val driver = strokeState.driver
+        strokeState.driver = null
+        strokeState.readModifyWrite = false
+        val engine = strokeState.engine
+        strokeState.engine = null
+        if (driver == null || engine == null) {
+            driver?.cancel()
+            viewModel.endStrokeTool(reason)
+            return
+        }
+
+        val batch = engine.acquireDabBatch()
+        if (batch == null) {
+            driver.cancel()
+        } else if (driver.end(batch) == 0) {
+            engine.releaseDabBatch(batch)
+        } else {
+            engine.stampDabs(batch)
+        }
+        viewModel.onStrokeCommitted(strokeState.colorUsage, strokeState.colorArgb)
+        strokeState.colorUsage = StrokeColorUsage.IGNORE
+        engine.endStroke(driver.opacityCeiling, viewModel::finishStrokeTransaction)
+        viewModel.endStrokeTool(reason, StrokeEndDisposition.AWAIT_COMMIT)
+    }
+
+    fun requestLeave(callback: () -> Unit) {
+        finishOpenStrokeForLeave()
+        viewModel.requestLeave(callback)
+    }
+
+    BackHandler {
+        viewModel.handleBack(
+            beforeLeave = ::finishOpenStrokeForLeave,
+            afterWrite = onLeave,
+        )
+    }
+
     // 06 §4's one honest toast per open, when something could not be read.
     LaunchedEffect(state.warning) {
         state.warning?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
@@ -288,10 +353,13 @@ private fun CanvasContent(
         val notice = state.strokeLayerNotice ?: return@LaunchedEffect
         Toast.makeText(context, notice, Toast.LENGTH_SHORT).show()
         if (state.hapticsMode == HapticsMode.DISABLED) return@LaunchedEffect
+        val refused = notice == R.string.layer_locked ||
+            notice == R.string.layer_alpha_locked ||
+            notice == R.string.layer_over_capacity
         val haptic = when {
-            notice == R.string.layer_locked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+            refused && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
                 HapticFeedbackConstants.REJECT
-            notice == R.string.layer_locked -> HapticFeedbackConstants.LONG_PRESS
+            refused -> HapticFeedbackConstants.LONG_PRESS
             else -> HapticFeedbackConstants.CLOCK_TICK
         }
         view0.performHapticFeedback(haptic)
@@ -302,15 +370,15 @@ private fun CanvasContent(
     // view0 is in the key because the host below captures it for the snap
     // haptic: a composition that moved to a different View would otherwise keep
     // ticking the old one. Safe now that CanvasSurface re-attaches on update.
-    // `stack` is in the key for the same capture reason: the host reads the
-    // active layer at pen-down, and 3a's stack is fixed per open, so a changed
-    // stack means a different painting.
-    val touch = remember(density, view0, stack, state.hapticsMode) {
+    val touch = remember(density, view0, state.hapticsMode) {
         lateinit var handler: CanvasTouchHandler
         handler = CanvasTouchHandler(
             density = density.density,
             host = object : CanvasInputHost {
-                override fun onViewChanged(view: ViewTransform) { updateView(view) }
+                override fun onViewChanged(view: ViewTransform) {
+                    session?.setView(view)
+                    updateView(view)
+                }
                 override fun onRotationSnapped() {
                     // A single tick as the canvas clicks to straight (§7).
                     if (state.hapticsMode == HapticsMode.ENABLED) {
@@ -358,10 +426,9 @@ private fun CanvasContent(
                     // still live (§4: a cancelled stroke leaves no trace).
                     val staleReason = strokeState.temporaryReason
                     strokeState.temporaryReason = null
-                    if (strokeState.pickParams != null) {
+                    if (strokeState.cancelPick()) {
                         viewModel.cancelPickedColor()
                     }
-                    strokeState.pickParams = null
                     strokeState.fillParams = null
                     strokeState.fillTouch = false
                     strokeState.fillStarted = false
@@ -382,23 +449,22 @@ private fun CanvasContent(
                         StrokeEndDisposition.COMPLETE
                     }
                     viewModel.endStrokeTool(staleReason, staleDisposition)
-                    val pickGeneration = strokeState.nextPickGeneration()
 
                     val engine = session ?: return
-                    val active = stack.layers.getOrNull(stack.activeIndex) ?: return
                     val button = if (handler.stylus.buttonPressed) {
                         ButtonState.Pressed
                     } else {
                         ButtonState.Released
                     }
-                    val selection = viewModel.beginStrokeTool(source, button) ?: return
+                    val admission = viewModel.beginStrokeTool(source, button) ?: return
+                    val selection = admission.selection
+                    val active = admission.activeLayer
                     strokeState.temporaryReason = selection.temporaryReason
                     val kind = selection.kind
                     if (kind is ToolKind.Eyedropper) {
                         viewModel.prepareColorPick()
                         strokeState.engine = engine
-                        strokeState.pickParams = kind.params
-                        strokeState.pickGeneration = pickGeneration
+                        strokeState.beginPick(kind.params)
                         // A fresh gate per stroke: the first sample must read,
                         // wherever the previous drag's timing left it.
                         strokeState.pickGate.reset()
@@ -406,11 +472,11 @@ private fun CanvasContent(
                     }
                     if (kind is ToolKind.Fill) {
                         val layerDecision = StrokeLayerPolicy.decide(
-                            visible = active.props.visible,
-                            locked = active.props.locked,
+                            active.props,
+                            StrokeOperation.PAINT,
                         )
                         viewModel.noteStrokeLayerDecision(layerDecision)
-                        if (layerDecision == StrokeLayerDecision.REFUSE_LOCKED) {
+                        if (layerDecision.isRefusal()) {
                             viewModel.endStrokeTool(
                                 strokeState.temporaryReason,
                                 StrokeEndDisposition.COMPLETE,
@@ -441,11 +507,15 @@ private fun CanvasContent(
                     }
 
                     val layerDecision = StrokeLayerPolicy.decide(
-                        visible = active.props.visible,
-                        locked = active.props.locked,
+                        active.props,
+                        if (kind is ToolKind.Brush && preset.eraseMode) {
+                            StrokeOperation.ERASE
+                        } else {
+                            StrokeOperation.PAINT
+                        },
                     )
                     viewModel.noteStrokeLayerDecision(layerDecision)
-                    if (layerDecision == StrokeLayerDecision.REFUSE_LOCKED) {
+                    if (layerDecision.isRefusal()) {
                         viewModel.endStrokeTool(
                             strokeState.temporaryReason,
                             StrokeEndDisposition.COMPLETE,
@@ -519,6 +589,7 @@ private fun CanvasContent(
                     val engine = strokeState.engine ?: return
                     val pick = strokeState.pickParams
                     if (pick != null) {
+                        strokeState.recordPickPosition(x, y)
                         // Each read is a synchronous glReadPixels (a pipeline
                         // sync), and unbuffered dispatch delivers hundreds of
                         // samples a second — so intermediate samples are
@@ -528,9 +599,11 @@ private fun CanvasContent(
                         if (strokeState.pickGate.shouldRead(SystemClock.uptimeMillis())) {
                             val generation = strokeState.pickGeneration
                             engine.sampleColor(x, y, pick) { color ->
-                                if (strokeState.pickGeneration == generation) {
-                                    color?.let(viewModel::previewPickedColor)
-                                }
+                                strokeState.deliverPickPreview(
+                                    generation,
+                                    color,
+                                    viewModel::previewPickedColor,
+                                )
                             }
                         }
                         return
@@ -560,18 +633,41 @@ private fun CanvasContent(
 
                 override fun onStrokeEnd(pointerId: Int) {
                     val reason = strokeState.temporaryReason
-                    strokeState.temporaryReason = null
                     if (strokeState.pickParams != null) {
-                        strokeState.nextPickGeneration()
-                        viewModel.commitPickedColor()
-                        strokeState.pickParams = null
+                        val engine = strokeState.engine
+                        val queued = engine != null && strokeState.requestFinalPick(
+                            sample = { request, onColor ->
+                                engine.sampleColor(
+                                    request.x,
+                                    request.y,
+                                    request.params,
+                                    onColor,
+                                )
+                            },
+                            onComplete = { color ->
+                                strokeState.engine = null
+                                strokeState.temporaryReason = null
+                                color?.let(viewModel::previewPickedColor)
+                                viewModel.commitPickedColor()
+                                if (
+                                    color != null &&
+                                    state.hapticsMode == HapticsMode.ENABLED
+                                ) {
+                                    view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                                viewModel.endStrokeTool(reason)
+                            },
+                        )
+                        if (queued) return
+
+                        strokeState.cancelPick()
                         strokeState.engine = null
+                        strokeState.temporaryReason = null
+                        viewModel.cancelPickedColor()
                         viewModel.endStrokeTool(reason, StrokeEndDisposition.COMPLETE)
-                        if (state.hapticsMode == HapticsMode.ENABLED) {
-                            view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                        }
                         return
                     }
+                    strokeState.temporaryReason = null
 
                     val fillStarted = strokeState.fillStarted
                     strokeState.fillParams = null
@@ -611,24 +707,23 @@ private fun CanvasContent(
                     } else {
                         driver.cancel()
                     }
-                    engine.endStroke(driver.opacityCeiling)
                     // The commit's pixels reach disk through the readback; the
                     // ViewModel only needs to know the document changed.
                     viewModel.onStrokeCommitted(colorUsage, strokeColor)
+                    engine.endStroke(driver.opacityCeiling, viewModel::finishStrokeTransaction)
                     viewModel.endStrokeTool(reason, StrokeEndDisposition.AWAIT_COMMIT)
                 }
 
                 override fun onStrokeCancel() {
                     val reason = strokeState.temporaryReason
                     strokeState.temporaryReason = null
-                    if (strokeState.pickParams != null) {
-                        strokeState.nextPickGeneration()
+                    if (strokeState.cancelPick()) {
                         viewModel.cancelPickedColor()
-                        strokeState.pickParams = null
                         strokeState.engine = null
                         viewModel.endStrokeTool(reason, StrokeEndDisposition.COMPLETE)
                         return
                     }
+
                     val wasFill = strokeState.fillTouch
                     val fillStarted = strokeState.fillStarted
                     strokeState.fillParams = null
@@ -666,6 +761,10 @@ private fun CanvasContent(
                 }
             },
         )
+        handler.setView(view)
+        handler.stylusOnly = state.touchDrawingMode == TouchDrawingMode.STYLUS_ONLY
+        handler.pressureCurve = PressureCurve.of(preference = state.pressurePreference)
+        handler.snapRightAngles = state.snapRightAngles
         handler
     }
     val checkerA = MaterialTheme.colorScheme.surface.toArgb()
@@ -706,8 +805,19 @@ private fun CanvasContent(
             CanvasShortcut.BEGIN_EYEDROPPER -> viewModel.beginKeyboardEyedropper()
             CanvasShortcut.END_EYEDROPPER -> viewModel.endKeyboardEyedropper()
             CanvasShortcut.RESET_VIEW -> {
-                view = ViewTransform()
-                touch.setView(view)
+                val strokeActivity = if (strokeState.engine != null) {
+                    StrokeActivity.ACTIVE
+                } else {
+                    state.chrome.strokeActivity
+                }
+                val decision = CanvasUiPolicy.idleOperation(
+                    strokeActivity,
+                    CanvasIdleOperation.RESET_VIEW,
+                )
+                if (decision == CanvasIdleDecision.RUN) {
+                    view = ViewTransform()
+                    touch.setView(view)
+                }
             }
             CanvasShortcut.TOGGLE_FOCUS -> viewModel.toggleFocus()
             CanvasShortcut.TOGGLE_LAYERS -> viewModel.togglePanel(CanvasPanel.LAYERS)
@@ -735,13 +845,14 @@ private fun CanvasContent(
 
     val animationScope = rememberCoroutineScope()
     val resetJob = remember { arrayOfNulls<Job>(1) }
+    val currentTouch = rememberUpdatedState(touch)
     val resetView = {
         resetJob[0]?.cancel()
         val start = view
         val reset = ViewTransform()
         if (!ValueAnimator.areAnimatorsEnabled()) {
             updateView(reset)
-            touch.setView(reset)
+            currentTouch.value.setView(reset)
             if (state.hapticsMode == HapticsMode.ENABLED) {
                 view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             }
@@ -756,10 +867,10 @@ private fun CanvasContent(
                 ) {
                     val next = start.lerp(reset, value)
                     updateView(next)
-                    touch.setView(next)
+                    currentTouch.value.setView(next)
                 }
                 updateView(reset)
-                touch.setView(reset)
+                currentTouch.value.setView(reset)
                 if (state.hapticsMode == HapticsMode.ENABLED) {
                     view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
@@ -854,11 +965,9 @@ private fun CanvasContent(
                 // already gone.
                 val stale = strokeState.driver
                 val fillStarted = strokeState.fillStarted
-                if (strokeState.pickParams != null) {
-                    strokeState.nextPickGeneration()
+                if (strokeState.cancelPick()) {
                     viewModel.cancelPickedColor()
                 }
-                strokeState.pickParams = null
                 strokeState.fillParams = null
                 strokeState.fillTouch = false
                 strokeState.fillStarted = false
@@ -1032,7 +1141,12 @@ private fun CanvasContent(
                 brushColor = state.color.current,
                 openPanel = state.chrome.openPanel,
                 hapticsMode = state.hapticsMode,
-                onBack = { viewModel.handleBack(onBack) },
+                onBack = {
+                    viewModel.handleBack(
+                        beforeLeave = ::finishOpenStrokeForLeave,
+                        afterWrite = onLeave,
+                    )
+                },
                 onUndo = viewModel::undo,
                 onRedo = viewModel::redo,
                 onUndoLongPress = { historyReadout++ },
@@ -1058,7 +1172,7 @@ private fun CanvasContent(
                 },
                 onFocus = viewModel::toggleFocus,
                 onRename = viewModel::requestRename,
-                onSettings = onSettings,
+                onSettings = { requestLeave(onSettings) },
                 )
             }
 
@@ -1519,6 +1633,7 @@ private fun CanvasPanelContent(
             )
             is ToolKind.Smudge -> SmudgeSettingsSheet(
                 active = kind.params,
+                mixerChoice = state.color.mixerChoice,
                 onChanged = viewModel::updateSmudgeParams,
             )
             is ToolKind.Blur -> BlurSettingsSheet(
@@ -1661,7 +1776,7 @@ private fun CanvasDialogHost(
             initialValue = dialog.currentName,
             onConfirm = {
                 viewModel.dismissDialog()
-                viewModel.renameLayer(dialog.index, it)
+                viewModel.renameLayer(dialog.layer, it)
             },
             onDismiss = viewModel::dismissDialog,
         )
@@ -1670,7 +1785,7 @@ private fun CanvasDialogHost(
             body = stringResource(R.string.layer_merge_body),
             onConfirm = {
                 viewModel.dismissDialog()
-                viewModel.mergeLayerDown(dialog.index)
+                viewModel.mergeLayerDown(dialog.upper, dialog.lower)
             },
             onDismiss = viewModel::dismissDialog,
         )
@@ -1819,6 +1934,15 @@ private fun android.content.Context.findActivity(): Activity? {
     return current as? Activity
 }
 
+private fun StrokeLayerDecision.isRefusal(): Boolean = when (this) {
+    StrokeLayerDecision.REFUSE_LOCKED,
+    StrokeLayerDecision.REFUSE_ALPHA_LOCKED,
+    -> true
+    StrokeLayerDecision.DRAW,
+    StrokeLayerDecision.DRAW_HIDDEN,
+    -> false
+}
+
 @Composable
 private fun toolName(tool: ToolKind): String = when (tool) {
     is ToolKind.Brush -> if (tool.preset.eraseMode) {
@@ -1895,11 +2019,17 @@ internal class StrokeUiState {
     var colorUsage = StrokeColorUsage.IGNORE
 
     var pickParams: EyedropperParams? = null
+        private set
     var fillParams: FillParams? = null
     var fillTouch = false
     var fillStarted = false
     var temporaryReason: TemporaryReason? = null
     var pickGeneration: Long = 0
+        private set
+    private var pickX = 0f
+    private var pickY = 0f
+    private var pickPositionRecorded = false
+    private var finalPickPending = false
 
     /** Caps the eyedropper's per-sample GL reads; reset at every pen-down. */
     val pickGate = EyedropperSampleGate(DEFAULT_PICK_INTERVAL_MS)
@@ -1957,6 +2087,74 @@ internal class StrokeUiState {
     /** Invalidates eyedropper callbacks already queued on the GL thread. */
     fun nextPickGeneration(): Long = ++pickGeneration
 
+    fun beginPick(params: EyedropperParams) {
+        nextPickGeneration()
+        pickParams = params
+        pickPositionRecorded = false
+        finalPickPending = false
+    }
+
+    fun recordPickPosition(x: Float, y: Float) {
+        if (pickParams == null || finalPickPending) return
+
+        pickX = x
+        pickY = y
+        pickPositionRecorded = true
+    }
+
+    fun deliverPickPreview(
+        generation: Long,
+        color: Int?,
+        preview: (Int) -> Unit,
+    ) {
+        if (color == null || generation != pickGeneration || finalPickPending) return
+
+        preview(color)
+    }
+
+    fun requestFinalPick(
+        sample: (FinalPickRequest, (Int?) -> Unit) -> Unit,
+        onComplete: (Int?) -> Unit,
+    ): Boolean {
+        val params = pickParams ?: return false
+        if (!pickPositionRecorded || finalPickPending) return false
+
+        val request = FinalPickRequest(
+            x = pickX,
+            y = pickY,
+            params = params,
+            generation = nextPickGeneration(),
+        )
+        finalPickPending = true
+        sample(request) completion@{ color ->
+            if (!acceptFinalPick(request.generation)) return@completion
+
+            onComplete(color)
+        }
+        return true
+    }
+
+    fun cancelPick(): Boolean {
+        if (pickParams == null) return false
+
+        nextPickGeneration()
+        clearPick()
+        return true
+    }
+
+    private fun acceptFinalPick(generation: Long): Boolean {
+        if (!finalPickPending || generation != pickGeneration) return false
+
+        clearPick()
+        return true
+    }
+
+    private fun clearPick() {
+        pickParams = null
+        pickPositionRecorded = false
+        finalPickPending = false
+    }
+
     private companion object {
         const val RED_SHIFT = 16
         const val GREEN_SHIFT = 8
@@ -1968,3 +2166,10 @@ internal class StrokeUiState {
         const val DEFAULT_PICK_INTERVAL_MS = EyedropperSampleGate.DEFAULT_INTERVAL_MS
     }
 }
+
+internal data class FinalPickRequest(
+    val x: Float,
+    val y: Float,
+    val params: EyedropperParams,
+    val generation: Long,
+)

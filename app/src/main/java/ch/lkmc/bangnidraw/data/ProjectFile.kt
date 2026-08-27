@@ -47,7 +47,7 @@ internal data class ProjectFile(
     val lastTool: ToolRecord? = null,
 ) {
     companion object {
-        const val FORMAT_VERSION = 1
+        const val FORMAT_VERSION = 2
         const val FILE_NAME = "project.json"
     }
 }
@@ -55,7 +55,7 @@ internal data class ProjectFile(
 /** The journal's checkpoint state (§3). All defaults until roadmap 3b writes it. */
 @Serializable
 internal data class HistoryRecord(
-    /** Entries `[oldestSeq, oldestSeq + cursor)` are applied; the rest are redo. */
+    /** The first [cursor] recovered entries are applied; the rest are redo. */
     val cursor: Int = 0,
     /** Next `<seq>` to allocate; never reused within a project. */
     val nextSeq: Long = 1L,
@@ -65,6 +65,8 @@ internal data class HistoryRecord(
     val entries: Int = 0,
     /** Sum of `.entry` + `.redo` sizes, same purpose. */
     val bytes: Long = 0L,
+    /** Exact membership; null identifies a project written before this field. */
+    val seqs: List<Long>? = null,
 )
 
 /** Zoom/rotation to restore on reopen; null = fit (§3). Written from step 3c on. */

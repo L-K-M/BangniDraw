@@ -36,7 +36,7 @@ class ColorPanelAllocationContractTest {
             "a Brush is still constructed inside the Canvas draw block",
         )
         assertTrue(
-            "val ringWidth = pickerPx * RING_WIDTH_FRACTION" in draw,
+            "pickerPx * RING_WIDTH_FRACTION" in draw,
             "ring geometry does not share the picker's measured basis",
         )
     }

@@ -67,9 +67,19 @@ class LayoutSpecTest {
         // at the minimum height the budget is exactly five, and it grows by
         // one slot per slot-plus-gap of extra height.
         assertEquals(5, LayoutSpec.forWindow(WidthClass.MEDIUM, 718, Hand.RIGHT).paintSlotBudget)
+        assertEquals(5, LayoutSpec.forWindow(WidthClass.MEDIUM, 769, Hand.RIGHT).paintSlotBudget)
         assertEquals(5, LayoutSpec.forWindow(WidthClass.EXPANDED, 798, Hand.RIGHT).paintSlotBudget)
+        assertEquals(5, LayoutSpec.forWindow(WidthClass.EXPANDED, 857, Hand.RIGHT).paintSlotBudget)
         assertEquals(6, LayoutSpec.forWindow(WidthClass.MEDIUM, 770, Hand.RIGHT).paintSlotBudget)
         assertEquals(6, LayoutSpec.forWindow(WidthClass.EXPANDED, 858, Hand.RIGHT).paintSlotBudget)
+    }
+
+    @Test
+    fun `the full rail content height follows its paint budget`() {
+        assertEquals(718, LayoutSpec.forWindow(WidthClass.MEDIUM, 769, Hand.RIGHT).railContentHeightDp)
+        assertEquals(770, LayoutSpec.forWindow(WidthClass.MEDIUM, 770, Hand.RIGHT).railContentHeightDp)
+        assertEquals(798, LayoutSpec.forWindow(WidthClass.EXPANDED, 857, Hand.RIGHT).railContentHeightDp)
+        assertEquals(858, LayoutSpec.forWindow(WidthClass.EXPANDED, 858, Hand.RIGHT).railContentHeightDp)
     }
 
     @Test

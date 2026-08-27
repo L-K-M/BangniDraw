@@ -231,6 +231,8 @@ internal data class LayoutSpec(
             } else {
                 SliderPlacement.LEDGE
             }
+            val paintSlotBudget = paintSlotBudget(railMode, slot, heightDp)
+
             return LayoutSpec(
                 widthClass = width,
                 railMode = railMode,
@@ -254,8 +256,8 @@ internal data class LayoutSpec(
                     slot + RAIL_EXTRA_WIDTH_DP
                 },
                 sliderLengthDp = sliderLength,
-                railContentHeightDp = contentHeight(railMode, slot),
-                paintSlotBudget = paintSlotBudget(railMode, slot, heightDp),
+                railContentHeightDp = contentHeight(railMode, slot, paintSlotBudget),
+                paintSlotBudget = paintSlotBudget,
             )
         }
 
@@ -286,7 +288,11 @@ internal data class LayoutSpec(
             return MIN_TARGET_DP
         }
 
-        private fun contentHeight(mode: RailMode, slotDp: Int): Int = when (mode) {
+        private fun contentHeight(
+            mode: RailMode,
+            slotDp: Int,
+            paintSlotBudget: Int,
+        ): Int = when (mode) {
             RailMode.DOCK -> DOCK_HEIGHT_DP
             RailMode.SHORT -> shortContentHeightDp()
             RailMode.GROUPED ->
@@ -295,12 +301,15 @@ internal data class LayoutSpec(
                     DIVIDER_HEIGHT_DP +
                     GROUPED_SLIDER_DP +
                     RAIL_PADDING_DP
-            RailMode.FULL ->
-                FULL_TOOL_COUNT * slotDp +
-                    FULL_GAP_COUNT * TOOL_GAP_DP +
+            RailMode.FULL -> {
+                val toolCount = paintSlotBudget + FULL_NON_PAINT_SLOTS
+
+                toolCount * slotDp +
+                    (toolCount - 1) * TOOL_GAP_DP +
                     FULL_DIVIDER_COUNT * DIVIDER_HEIGHT_DP +
                     FULL_SLIDER_DP +
                     RAIL_PADDING_DP
+            }
         }
 
         /**
@@ -335,11 +344,9 @@ internal data class LayoutSpec(
         private const val EXPANDED_FULL_MIN_DP = 798
         private const val SHORT_TOOL_COUNT = 6
         private const val GROUPED_TOOL_COUNT = 6
-        private const val FULL_TOOL_COUNT = 10
         private const val FULL_NON_PAINT_SLOTS = 5
         private const val FULL_NON_PAINT_GAPS = 4
         private const val GROUPED_GAP_COUNT = 5
-        private const val FULL_GAP_COUNT = 9
         private const val FULL_DIVIDER_COUNT = 2
         private const val TOOL_GAP_DP = 4
         private const val DIVIDER_HEIGHT_DP = 9

@@ -109,7 +109,7 @@ internal fun ToolRail(
     val railPaints = if (layout.railMode == RailMode.FULL) {
         RailSlotPolicy.visible(
             paints,
-            activePaintId = (selection.kind as? ToolKind.Brush)?.preset?.id,
+            activePaintId = currentPaint?.id,
             budget = layout.paintSlotBudget,
         )
     } else {

@@ -24,6 +24,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -222,6 +223,7 @@ private fun CanvasContent(
         .firstOrNull { it.id == PaletteCatalog.RECENT_ID }
         ?.swatches
         .orEmpty()
+    val recentScroll = rememberScrollState()
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
 
     // The stroke in flight. Plain vars, not Compose state: they change several
@@ -958,9 +960,13 @@ private fun CanvasContent(
             // dismissing tap so it never draws (the panel rule, §4.1).
             if (showRecentSwatches) {
                 BackHandler { showRecentSwatches = false }
-                LaunchedEffect(showRecentSwatches) {
-                    delay(RECENT_POPOVER_MS)
-                    showRecentSwatches = false
+                // The auto-dismiss pauses while the user is scrolling the
+                // swatch list; the countdown restarts once the scroll settles.
+                LaunchedEffect(showRecentSwatches, recentScroll.isScrollInProgress) {
+                    if (!recentScroll.isScrollInProgress) {
+                        delay(RECENT_POPOVER_MS)
+                        showRecentSwatches = false
+                    }
                 }
                 val interaction = remember { MutableInteractionSource() }
                 Box(
@@ -977,6 +983,7 @@ private fun CanvasContent(
                 RecentPopover(
                     colors = recentColors,
                     current = state.color.current,
+                    scrollState = recentScroll,
                     onSelected = { color ->
                         viewModel.selectBrushColor(color)
                         showRecentSwatches = false
@@ -1246,6 +1253,7 @@ private fun CanvasPanelContent(
 private fun BoxScope.RecentPopover(
     colors: List<Int>,
     current: Int,
+    scrollState: ScrollState,
     onSelected: (Int) -> Unit,
 ) {
     Surface(
@@ -1269,7 +1277,7 @@ private fun BoxScope.RecentPopover(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier
                     .heightIn(max = RECENT_POPOVER_MAX_HEIGHT.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(scrollState),
             ) {
                 for (color in colors) {
                     val selected = color == current

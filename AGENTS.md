@@ -268,8 +268,10 @@ and the contradiction is noted here.
 
 - **`GlErrors.checkAllocation` owns the GL call it checks.** Release passes do
   not drain `glGetError`, so a stale pass flag may remain queued. The wrapper
-  clears that flag before its operation and checks again after it; issuing the
-  allocation first can misattribute the stale error and refuse valid GPU work.
+  clears that flag before its operation and checks again after it. Strict mode
+  throws on the stale flag before the operation; release mode discards it.
+  Issuing the allocation first can misattribute the stale error and refuse
+  valid GPU work.
 
 - **graphics-core 1.0.4's callback is not the one `03-canvas-engine.md` §8.2
   names.** The plan writes `onDrawMultiDoubleBufferedLayer(eglManager,

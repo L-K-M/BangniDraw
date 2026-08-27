@@ -21,15 +21,21 @@ class GlErrorPolicyContractTest {
     }
 
     @Test
-    fun `targeted checks clear stale errors before the guarded operation`() {
+    fun `targeted checks report stale errors in strict mode before the operation`() {
         val source = File(repositoryRoot(), GL_PATH).readText()
         val body = section(source, ALLOCATION_START, ALLOCATION_END)
 
-        val clearIndex = body.indexOf(DRAIN_CALL)
+        val clearIndex = body.indexOf(STALE_DRAIN)
+        val strictIndex = body.indexOf(STRICT_STALE_GUARD)
+        val throwIndex = body.indexOf(THROW_CALL, strictIndex)
         val operationIndex = body.indexOf(OPERATION_CALL)
-        val checkIndex = body.indexOf(DRAIN_CALL, clearIndex + DRAIN_CALL.length)
+        val checkIndex = body.indexOf(DRAIN_CALL, operationIndex)
 
         assertTrue(clearIndex >= 0, "targeted check does not clear stale errors")
+        assertTrue(strictIndex > clearIndex, "strict mode must inspect the stale error")
+        assertTrue(throwIndex > strictIndex, "strict mode must report the stale error")
+        assertTrue(body.contains(STALE_ERROR_NAME), "the failure must name the stale error")
+        assertTrue(throwIndex < operationIndex, "a stale strict error must stop the operation")
         assertTrue(operationIndex > clearIndex, "guarded operation must follow the stale-error drain")
         assertTrue(checkIndex > operationIndex, "fresh errors must be read after the guarded operation")
     }
@@ -67,6 +73,10 @@ class GlErrorPolicyContractTest {
         const val ALLOCATION_END = "fun checkGlDebug(pass: String) {"
         const val RELEASE_GUARD = "if (!strict) return"
         const val DRAIN_CALL = "drain()"
+        const val STALE_DRAIN = "val stale = drain()"
+        const val STRICT_STALE_GUARD = "if (strict && stale != GLES30.GL_NO_ERROR)"
+        const val THROW_CALL = "throw IllegalStateException("
+        const val STALE_ERROR_NAME = "name(stale)"
         const val OPERATION_CALL = "operation()"
     }
 }

@@ -14,6 +14,7 @@ import ch.lkmc.bangnidraw.engine.core.Coverage
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.DabRing
 import ch.lkmc.bangnidraw.engine.core.EngineRenderPolicy
+import ch.lkmc.bangnidraw.engine.core.EngineViewUpdateGate
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.FillReference
 import ch.lkmc.bangnidraw.engine.core.IntRect
@@ -82,6 +83,7 @@ class EngineSession(
 
     val renderer = CanvasRenderer(canvas, budget, assets, onTile = onTile)
     private val renderPolicy = EngineRenderPolicy()
+    private val viewUpdateGate = EngineViewUpdateGate()
     private val frontResumeSignal = DabBatch(capacity = 1)
     private val pollHandler = Handler(Looper.getMainLooper())
     private val frontResumeTick = Runnable {
@@ -212,9 +214,9 @@ class EngineSession(
             drainPending(stamp = false)
             return
         }
+        val surfaceChanged = renderer.onSurfaceChanged(width, height)
+        if (surfaceChanged) renderPolicy.requestRedraw()
         val framePlan = renderPolicy.frontFrame()
-
-        renderer.onSurfaceChanged(width, height)
         // [param] is deliberately NOT consumed here: it is also in
         // [pendingBatches], which is the authoritative list, and stamping it
         // both ways would lay its dabs down twice and release its ring slot
@@ -360,8 +362,10 @@ class EngineSession(
      * shows up as one torn frame every few hundred and never reproduces.
      */
     fun setView(view: ViewTransform) {
-        frontBuffered.execute { renderer.setView(view) }
-        redraw()
+        viewUpdateGate.update(view) {
+            frontBuffered.execute { renderer.setView(view) }
+            redraw()
+        }
     }
 
     fun setStack(stack: LayerStack) {

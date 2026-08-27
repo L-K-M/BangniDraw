@@ -104,7 +104,7 @@ internal data class LayoutSpec(
     fun panelSideInsetDp(): Int {
         if (railMode == RailMode.DOCK) return 0
 
-        return toolSlotDp + RAIL_EXTRA_WIDTH_DP + PANEL_RAIL_GAP_DP
+        return railWidthDp + PANEL_RAIL_GAP_DP
     }
 
     /** Bottom clearance keeps panel controls above a live slider ledge or dock. */
@@ -139,13 +139,15 @@ internal data class LayoutSpec(
         } else {
             windowWidthDp - sideInset
         }
+        val stripBottom = minOf(TOP_STRIP_DP, windowHeightDp).toFloat()
+        val availableHeight = windowHeightDp - stripBottom
         val top = if (panelMode == PanelMode.FLOATING) {
-            windowHeightDp * (1f - PANEL_FLOATING_HEIGHT_FRACTION) / 2f
+            stripBottom + availableHeight * (1f - PANEL_FLOATING_HEIGHT_FRACTION) / 2f
         } else {
-            minOf(TOP_STRIP_DP, windowHeightDp).toFloat()
+            stripBottom
         }
         val bottom = if (panelMode == PanelMode.FLOATING) {
-            top + windowHeightDp * PANEL_FLOATING_HEIGHT_FRACTION
+            top + availableHeight * PANEL_FLOATING_HEIGHT_FRACTION
         } else {
             maxOf(top, windowHeightDp - panelBottomInsetDp().toFloat())
         }

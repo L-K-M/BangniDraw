@@ -333,13 +333,14 @@ Content is identical in every mode; only the container differs.
 - **＋** adds an empty layer above the selected one and selects it. At the
   cap ＋ (and Duplicate) stay enabled; tapping shows the one-line
   explanation with the numbers from `05-layers.md` §6.4 ("This 4096×4096
-  canvas allows 15 layers on this device. Merge or delete a layer to add
+  canvas allows 12 layers on this device. Merge or delete a layer to add
   one.") as a `TransientToast`. Nothing dims silently (decision 4).
 - Thumbnails come from the GPU `Thumbnail` pass (`05-layers.md` §7),
   refreshed at most every 500 ms per layer while the panel is open.
 - The panel is 300–320 dp wide; on compact it is a full-height sheet of
   `min(320dp, 85 %)` width so a strip of canvas always remains tappable.
-  Interactive content clears the SHORT ledge and the DOCK ledge plus dock.
+  Interactive content clears the full side rail, the SHORT ledge, and the
+  DOCK ledge plus dock.
 
 ### 3.4 Color panel
 

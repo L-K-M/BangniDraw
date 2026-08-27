@@ -62,6 +62,8 @@ internal class EngineRenderPolicy {
         if (!strokeActive && !rmwCancelPending) return RedrawDecision.DRAW
 
         deferredRedraw = true
+        // View/background state changes invalidate the cumulative preview.
+        if (strokeActive) recoverCumulative = true
         return RedrawDecision.DEFER
     }
 

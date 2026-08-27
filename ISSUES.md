@@ -4,6 +4,89 @@ Findings from full security/bug reviews of `main`. Each entry states
 what was found, the impact, and what was done about it — a declined fix
 says why, so a later reader does not re-litigate it blind.
 
+## Review 3 — 2026-08-27, `0edf7e9`
+
+Scope: every commit after step 5 through v1.0.1 (`e8d30a8`…`0edf7e9`),
+including the fixes merged after Review 2. Method: commit-by-commit plan
+comparison, close read, then failing JVM tests before each fix.
+
+### Fixed
+
+- **Pen-up released queued actions before the stroke was journaled.** Undo,
+  redo, leave, share, export, opacity previews, and later edits could run
+  against the preceding cursor while the merged stroke still waited for
+  readback. The eventual push could truncate the wrong branch or reuse its
+  sequence. Stroke/fill completion now transfers explicit engine ownership to
+  history, and the document gate opens only after the entry is durable.
+- **History writes were not crash-safe.** A crash after `.entry` but before
+  tile flush reopened metadata over old pixels; deferred append/readback/disk
+  failures were dropped, letting checkpoints pass incomplete edits. Each
+  pixel edit now writes a temporary `<seq>.after` roll-forward image before
+  tiles, and a failed `WriteEntry` remains the FIFO head with action ownership
+  until every stage succeeds.
+- **Undo/redo could persist pixels without its cursor or model.** A crash
+  after restored tiles flushed but before `project.json` reopened the old
+  history state over new pixels. `history/transition.json` records the exact
+  target before GL mutation; recovery reapplies it idempotently and removes
+  the marker only after the target checkpoint lands.
+- **Divergent history gaps were treated as corruption.** Undo followed by a
+  new edit never reuses sequence numbers, but load required a contiguous
+  range and discarded the new branch. Project format 2 records exact `seqs`;
+  the v1 reader path conservatively infers already-shipped gapped records.
+- **Checkpoint outcomes and generations were ignored.** Readback, tile-flush,
+  and `project.json` failures could still navigate, clear dirty state, or
+  delete recovery files; a concurrent edit could be folded out of the model.
+  Checkpoints now snapshot exact document/history/pixel revisions, serialize
+  through the gate, retry pending results, and commit cleanup only for the
+  generation written. Gallery sync uses that captured pixel revision.
+- **Renderer teardown raced history and replacement streaming.** Release
+  could open the gate after GL merge but before journal push, while a new
+  renderer uploaded stale disk tiles before the old PBO landed. Readbacks pin
+  their originating session; release returns its real drain result; new
+  sessions wait for release plus the flusher FIFO and block input until their
+  uploads are queued.
+- **Queued layer commands targeted mutable indices.** A delayed delete,
+  clear, move, merge, rename, or opacity change could hit a different layer
+  after earlier queued work reordered the stack. Actions and dialogs now
+  capture stable layer IDs; moves capture an anchor and merges both partners.
+- **Advertised layer caps left no transient GPU capacity.** Dense max-layer
+  canvases exhausted the pool during fill, sandwich construction, or
+  merge/flatten scratch passes; partial caches could also hide paper or
+  layers. The cap reserves four full-canvas transient equivalents, cache use
+  requires every requested tile, and over-cap legacy stacks use the exact
+  direct path until reduced.
+- **Live front-buffer ink reused stale accumulation state.** A view,
+  background, or surface-size change during contact deferred the committed
+  redraw but left the next dab incremental, so existing ink could jump,
+  disappear, or present uninitialized pixels. Such changes now force one
+  cumulative preview rebuild before incremental rendering resumes.
+- **Several tool lifecycle edges were unwired.** Zero-write smudge cancel
+  never completed its restore gate; pigment fill used RGB source-over; erasing
+  an alpha-locked layer silently ran a no-op history step; and normal six-digit
+  hex typing replaced the draft after digit three. Each path now has an
+  explicit policy and regression test.
+- **Adaptive chrome covered interactive controls.** Side rails overlapped
+  sheet controls, compact dock/ledge chrome covered panel and fill-cancel
+  controls, and the post-v1 wider grouped rail reopened the overlap. Panel and
+  progress bounds now derive from the full live chrome geometry.
+- **Desktop and focus-mode input contracts were incomplete.** Mouse wheel,
+  Ctrl-wheel, and middle drag were unwired; panel shortcuts opened chrome
+  while focus mode remained set; Reset View could remap a live stroke; and
+  resize rebasing had two owners. The input handler now owns one canonical
+  transform, publishes it synchronously to GL, and gates conflicting commands.
+- **Idle thumbnail fences could remain unsubmitted.** Their zero-time polls
+  never flushed the producer, so an idle layer panel could stay blank on a
+  deferred driver. The first fence wait now requests command submission.
+
+### Validation
+
+Regression coverage includes journal admission and sequence gaps, crash
+roll-forward and undo/redo transitions, fail-once storage retries, session
+release/reattach ordering, transient tile capacity, cache readiness, live
+preview recovery, stable layer targets, fill mixing, color drafts, mouse
+navigation, and adaptive panel intersections. The normal and Mixbox-disabled
+JVM suites pass.
+
 ## Review 2 — 2026-08-27, `9f4ad22`
 
 Scope: every direct push after step 5's first commit (`c649855`, the

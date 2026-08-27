@@ -391,6 +391,56 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun `metadata writers migrate an older project format`() {
+        val renameFile = legacyProject("legacy-rename")
+        assertTrue(store.rename("legacy-rename", "new title", now = 200))
+        assertCurrentFormat(renameFile)
+
+        val galleryFile = legacyProject("legacy-gallery")
+        assertTrue(
+            store.updateGalleryFields(
+                "legacy-gallery",
+                galleryUri = "content://media/legacy",
+                lastGallerySyncAt = 300,
+                galleryModifiedAt = 3,
+                galleryBytes = 30,
+            ),
+        )
+        assertCurrentFormat(galleryFile)
+
+        legacyProject("legacy-duplicate")
+        val duplicateId = store.duplicate("legacy-duplicate", titleTransform = { it })
+        kotlin.test.assertNotNull(duplicateId)
+        assertCurrentFormat(File(store.projectDir(duplicateId), ProjectFile.FILE_NAME))
+    }
+
+    @Test
+    fun `metadata writers refuse a newer project without rewriting it`() {
+        val renameFile = futureProject("future-rename")
+        val renameBytes = renameFile.readBytes()
+        assertTrue(!store.rename("future-rename", "new title", now = 200))
+        assertTrue(renameBytes.contentEquals(renameFile.readBytes()))
+
+        val galleryFile = futureProject("future-gallery")
+        val galleryBytes = galleryFile.readBytes()
+        assertTrue(
+            !store.updateGalleryFields(
+                "future-gallery",
+                galleryUri = "content://media/future",
+                lastGallerySyncAt = 300,
+                galleryModifiedAt = 3,
+                galleryBytes = 30,
+            ),
+        )
+        assertTrue(galleryBytes.contentEquals(galleryFile.readBytes()))
+
+        val duplicateFile = futureProject("future-duplicate")
+        val duplicateBytes = duplicateFile.readBytes()
+        assertEquals(null, store.duplicate("future-duplicate", titleTransform = { it }))
+        assertTrue(duplicateBytes.contentEquals(duplicateFile.readBytes()))
+    }
+
+    @Test
     fun `rename of an unreadable painting is refused, not a rewrite`() {
         val dir = store.projectDir("r-2").also { it.mkdirs() }
         val file = File(dir, "project.json")
@@ -470,5 +520,35 @@ class ProjectStoreTest {
         assertTrue(!store.projectDir("kill").exists())
         assertTrue(root.listFiles()!!.none { it.name.endsWith(".deleting") })
         assertIs<ProjectStore.LoadResult.Loaded>(store.load("keep"))
+    }
+
+    private fun legacyProject(id: String): File {
+        store.checkpoint(document(id = id))
+        val file = File(store.projectDir(id), ProjectFile.FILE_NAME)
+        file.writeText(
+            file.readText().replace(
+                "\"formatVersion\":${ProjectFile.FORMAT_VERSION}",
+                "\"formatVersion\":${ProjectFile.FORMAT_VERSION - 1}",
+            ),
+        )
+
+        return file
+    }
+
+    private fun futureProject(id: String): File {
+        store.checkpoint(document(id = id))
+        val file = File(store.projectDir(id), ProjectFile.FILE_NAME)
+        file.writeText(
+            file.readText().replace(
+                "\"formatVersion\":${ProjectFile.FORMAT_VERSION}",
+                "\"formatVersion\":${ProjectFile.FORMAT_VERSION + 1}",
+            ) + "\n",
+        )
+
+        return file
+    }
+
+    private fun assertCurrentFormat(file: File) {
+        assertTrue(file.readText().contains("\"formatVersion\":${ProjectFile.FORMAT_VERSION}"))
     }
 }

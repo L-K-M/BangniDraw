@@ -59,4 +59,21 @@ class PanelInteractiveBoundsTest {
 
         assertFalse(panel.intersects(ledge), "panel $panel intersects ledge $ledge")
     }
+
+    @Test
+    fun `floating panel controls clear the top strip`() {
+        val widthDp = 1_200
+        val heightDp = 846
+        val spec = LayoutSpec.forWindow(
+            WidthClass.EXPANDED,
+            heightDp - LayoutSpec.TOP_STRIP_DP,
+            Hand.RIGHT,
+        )
+        assertEquals(PanelMode.FLOATING, spec.panelMode)
+
+        val panel = spec.panelInteractiveBounds(widthDp, heightDp)
+        val topStrip = spec.persistentChrome(widthDp, heightDp).first()
+
+        assertFalse(panel.intersects(topStrip), "panel $panel intersects strip $topStrip")
+    }
 }

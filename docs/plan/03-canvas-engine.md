@@ -579,9 +579,9 @@ that many overlapping dabs cannot exceed — dabs accumulate flow in the
 buffer, the buffer is capped by opacity at merge — and why a stroke can be
 cancelled by palm rejection without touching the layer.
 
-A stroke buffer is the one place where memory temporarily exceeds the
-layer budget: a wild stroke across a 4096² canvas can touch all 256 keys
-(64 MiB). `MemoryBudget` reserves one full layer's worth for it.
+A wild stroke across a 4096² canvas can touch all 256 keys (64 MiB).
+`MemoryBudget` reserves four full-layer equivalents for both sandwich
+halves, a stroke or structural output, and merge scratch.
 
 ### 7.2 DabPass
 
@@ -893,8 +893,9 @@ requests until the multi-buffer release has cleared the front buffer. An active
 completion recomposites and presents the cumulative preview once; later frames
 return to incremental damage. Re-presenting the growing cumulative preview on
 every sample defeats scan-line racing and produces a moving cutoff. Redraws
-during a stroke are deferred, and equal Compose inputs are filtered before they
-request one.
+during a stroke are deferred; view/background changes and surface resizes
+force the next front frame to rebuild the cumulative preview. Equal Compose
+inputs are filtered before they request one.
 
 ### 8.2 `onDrawMultiDoubleBufferedLayer(eglManager, bufferInfo, transform, params)`
 

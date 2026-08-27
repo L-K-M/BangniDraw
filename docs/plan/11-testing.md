@@ -276,7 +276,7 @@ cache)`; the pinned worked table is 10 §4's (`05-layers.md` §6).
 - `` `the layer cap is monotone non-decreasing in totalMem` `` (property over sorted random memory sizes, fixed canvas)
 - `` `the layer cap is monotone non-increasing in canvas area` ``
 - `` `a low-RAM device gets the flat 256 MiB tile budget` ``
-- `` `maxLayers is clamped to MIN_LAYERS..MAX_LAYERS` `` — 1..16 (`10-performance.md` §4); `maxCanvasEdge` only admits sizes at which `MIN_USEFUL_LAYERS` (4) plus the stroke-buffer reserve fit, so the New Canvas dialog never offers a size that cannot be painted
+- `` `maxLayers is clamped to MIN_LAYERS..MAX_LAYERS` `` — 1..16 (`10-performance.md` §4); `maxCanvasEdge` only admits sizes at which `MIN_USEFUL_LAYERS` (4) plus the four-layer transient reserve fit, so the New Canvas dialog never offers a size that cannot be painted
 - `` `the pool spans enough arrays for every layer` `` — `maxLayers · tilesPerLayer ≤ poolArraySlices · poolArrayCount`, `poolArraySlices ≤ glMaxArrayLayers` when queried, and `maxCanvasEdge ≤ glMaxTextureSize` (the pool spans several texture arrays precisely because the ES 3.0 minimum of 256 slices holds only one 4096² layer)
 - `` `the presets a device is offered all fit within its own budget` `` (cross-check with `CanvasPresets`)
 - `` `refusals are values of a pure enum, never text or resource ids` `` — `engine/core` is java.*/kotlin.* only, so no `@StringRes`; the enum → string-resource mapping lives in `ui/` and is not unit-tested

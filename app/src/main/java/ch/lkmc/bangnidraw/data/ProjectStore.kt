@@ -143,7 +143,7 @@ class ProjectStore(private val root: File) {
             val file = json.decodeFromString(
                 ProjectFile.serializer(),
                 jsonFile.readText(Charsets.UTF_8),
-            )
+            ).currentForWrite(id) ?: return false
             val bytes = json
                 .encodeToString(ProjectFile.serializer(), file.copy(title = title, updatedAt = now))
                 .toByteArray(Charsets.UTF_8)
@@ -188,7 +188,7 @@ class ProjectStore(private val root: File) {
             val source = json.decodeFromString(
                 ProjectFile.serializer(),
                 sourceJson.readText(Charsets.UTF_8),
-            )
+            ).currentForWrite(sourceId) ?: return null
             val newId = java.util.UUID.randomUUID().toString()
             // The same trust boundary as load: a record id from a
             // hand-editable file never reaches a path join. An unsafe id's
@@ -269,7 +269,7 @@ class ProjectStore(private val root: File) {
             val file = json.decodeFromString(
                 ProjectFile.serializer(),
                 jsonFile.readText(Charsets.UTF_8),
-            )
+            ).currentForWrite(id) ?: return false
             val bytes = json.encodeToString(
                 ProjectFile.serializer(),
                 file.copy(
@@ -539,6 +539,16 @@ class ProjectStore(private val root: File) {
 
     private fun folderBytes(dir: File): Long =
         dir.walkTopDown().sumOf { if (it.isFile) it.length() else 0L }
+
+    /** Refuse future data; migrate every older metadata rewrite (§13). */
+    private fun ProjectFile.currentForWrite(id: String): ProjectFile? {
+        if (formatVersion > ProjectFile.FORMAT_VERSION) {
+            Log.w(TAG, "project $id: newer format $formatVersion, write skipped")
+            return null
+        }
+
+        return copy(formatVersion = ProjectFile.FORMAT_VERSION)
+    }
 
     internal companion object {
         const val TAG = "ProjectStore"

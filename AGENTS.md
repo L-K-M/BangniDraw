@@ -298,8 +298,9 @@ and the contradiction is noted here.
   nonzero. Release marks the front buffer dirty; the next front callback clears
   it before app drawing. `EngineRenderPolicy` therefore rebuilds the cumulative
   live preview once after an active completion, then returns to incremental
-  front-buffer drawing. Re-presenting the cumulative stroke every frame defeats
-  scan-line racing and produces a moving horizontal cutoff.
+  front-buffer drawing. View/background changes and surface resizes also force
+  that rebuild before the next dab. Re-presenting the cumulative stroke every
+  frame defeats scan-line racing and produces a moving horizontal cutoff.
 - **`execute` blocks and render requests ARE FIFO on the GL thread.**
   `03-canvas-engine.md` §8.3 flags this as an assumption "to verify against
   graphics-core", with a prepared fallback (do the merge at the top of the
@@ -425,7 +426,8 @@ and the contradiction is noted here.
 - **Replacement sessions stream only durable detached pixels.** Their disk
   upload waits for every earlier renderer release and the flusher FIFO, then
   relists sparse tile keys because the captured model may predate final
-  readback.
+  readback. The document gate blocks input and chrome mutations until those
+  uploads have joined the new renderer's GL queue.
 - **Undo/redo holds the action gate through post-apply readback.** Restored tile
   membership is folded into the stack sent by the same GL transaction; only
   after composite output reaches the CPU may `FlushKeys` join the IO queue.

@@ -7,8 +7,10 @@ import ch.lkmc.bangnidraw.engine.core.LayerEditPolicy
 import ch.lkmc.bangnidraw.engine.core.LayerHistory
 import ch.lkmc.bangnidraw.engine.core.LayerHistoryResult
 import ch.lkmc.bangnidraw.engine.core.LayerId
+import ch.lkmc.bangnidraw.engine.core.LayerTileUpdates
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.TileKey
+import ch.lkmc.bangnidraw.engine.core.presenceOf
 import java.io.IOException
 
 /** Rolls durable post-checkpoint pixels forward before sparse tiles are listed. */
@@ -61,14 +63,19 @@ internal object HistoryAfterRecovery {
             }
             val expected = LinkedHashSet<Pair<LayerId, TileKey>>()
             expected += HistoryCodec.payloadKeys(entry)
+            // Merge and flatten move pixels to a new after-image owner.
+            expected += HistoryCodec.redoPayloadKeys(entry)
             for (op in edit.pixelOps) expected += LayerEditPolicy.changedTiles(before, op)
 
             val after = history.readRecoveryAfter(entry.seq)
             if (expected.isNotEmpty() && after == null) {
                 return Result(current, appliedCount, Failure.INCONSISTENT)
             }
-            if (after != null && after.map { it.layer to it.key } != expected.toList()) {
-                return Result(current, appliedCount, Failure.INCONSISTENT)
+            if (after != null) {
+                val actual = after.mapTo(LinkedHashSet()) { it.layer to it.key }
+                if (actual.size != after.size || actual != expected) {
+                    return Result(current, appliedCount, Failure.INCONSISTENT)
+                }
             }
             val writes = after?.let(::prepareWrites)
             if (after != null && writes == null) {
@@ -78,8 +85,12 @@ internal object HistoryAfterRecovery {
                 return Result(current, appliedCount, Failure.WRITE_FAILED)
             }
 
+            // Later recovered edits consume the tile membership just written.
+            val outcomes = writes.orEmpty().associate { write ->
+                (write.layer to write.key) to presenceOf(write.pixels)
+            }
             current = current.copy(
-                stack = edit.stack,
+                stack = LayerTileUpdates.apply(edit.stack, outcomes),
                 paperColor = edit.paperColor ?: current.paperColor,
             )
             appliedCount += 1

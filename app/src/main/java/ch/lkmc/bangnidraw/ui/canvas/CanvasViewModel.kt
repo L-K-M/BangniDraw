@@ -402,6 +402,13 @@ class CanvasViewModel @Inject constructor(
 
     /** One journal mutation at a time; later chrome actions wait in order. */
     private val actionGate = CanvasActionGate()
+
+    /** Replacement sessions wait for the model mutation already in flight. */
+    private var documentWorkBarrier = CompletableDeferred(Unit)
+
+    /** Pen-up can outlive the surface until its journal entry is durable. */
+    private var strokeHistoryBarrier = CompletableDeferred(Unit)
+
     private val pendingIdleWork = ArrayDeque<() -> Unit>()
     private var pendingCheckpoint: GallerySyncDecision.Trigger? = null
     private var checkpointRetryJob: Job? = null
@@ -879,6 +886,7 @@ class CanvasViewModel @Inject constructor(
     private fun runNextIdleWork() {
         val checkpointTrigger = pendingCheckpoint
         if (checkpointTrigger != null && actionGate.beginCommittedCheckpoint()) {
+            markDocumentWorkStarted()
             pendingCheckpoint = null
             updateHistoryUi()
             updateInteractionUi()
@@ -889,7 +897,7 @@ class CanvasViewModel @Inject constructor(
         if (!actionGate.idleWorkReady) return
         val work = pendingIdleWork.removeFirstOrNull() ?: return
 
-        actionGate.beginWork()
+        beginDocumentWork()
         updateHistoryUi()
         updateInteractionUi()
         work()
@@ -1116,7 +1124,7 @@ class CanvasViewModel @Inject constructor(
         val fillMode = FillMixingPolicy.mode(activeColorMixer)
         val generation = ++fillGeneration
 
-        actionGate.beginWork()
+        beginDocumentWork()
         fillPhase = FillPhase.SNAPSHOT
         fillProgressValue = 0f
         updateInteractionUi()
@@ -1438,7 +1446,7 @@ class CanvasViewModel @Inject constructor(
         val stack = document?.stack
         if (selection.kind !is ToolKind.Eyedropper &&
             stack != null &&
-            !TileCapacityPolicy.hasTransientReserve(stack.layers.size, layerCap)
+            !TileCapacityPolicy.withinLayerCap(stack.layers.size, layerCap)
         ) {
             strokeLayerNotice = R.string.layer_over_capacity
             strokeLayerNoticeRevision += 1
@@ -1457,6 +1465,12 @@ class CanvasViewModel @Inject constructor(
             toolSwitcher.popTemporary(reason)
             updateToolUi()
         }
+        val waitsForHistory =
+            release == StrokeRelease.AFTER_HISTORY && actionGate.strokeInFlight
+        if (waitsForHistory) {
+            check(strokeHistoryBarrier.isCompleted) { "stroke history barrier is already pending" }
+            strokeHistoryBarrier = CompletableDeferred()
+        }
         val nextAction = actionGate.endStroke(release)
         chrome = CanvasUiPolicy.onStrokeEnd(chrome)
         updateInteractionUi()
@@ -1465,6 +1479,7 @@ class CanvasViewModel @Inject constructor(
 
     internal fun finishStrokeHistory() {
         val nextAction = actionGate.finishStrokeHistory()
+        strokeHistoryBarrier.complete(Unit)
         updateHistoryUi()
         updateInteractionUi()
         if (nextAction == null) runNextIdleWork() else executeAction(nextAction)
@@ -1628,7 +1643,7 @@ class CanvasViewModel @Inject constructor(
         if (mode != StrokeCancelMode.READ_MODIFY_WRITE) return
         if (!rmwRestorePending.compareAndSet(false, true)) return
 
-        actionGate.beginWork()
+        beginDocumentWork()
         updateInteractionUi()
     }
 
@@ -1733,7 +1748,7 @@ class CanvasViewModel @Inject constructor(
             if (!actionGate.idleWorkReady) return false
 
             gesture = LayerOpacityGesture.begin(doc.stack, index) ?: return false
-            actionGate.beginWork()
+            beginDocumentWork()
             updateHistoryUi()
             updateInteractionUi()
         }
@@ -1929,7 +1944,7 @@ class CanvasViewModel @Inject constructor(
             is CanvasDocumentAction.MergeDown -> applyStackResult(
                 when {
                     stack == null -> null
-                    !TileCapacityPolicy.hasTransientReserve(stack.layers.size, layerCap) ->
+                    !TileCapacityPolicy.withinLayerCap(stack.layers.size, layerCap) ->
                         StackResult.Refused(Refusal.OVER_CAPACITY)
                     else -> LayerActionTargetResolver.resolveMerge(layers, action.target)
                         ?.let(stack::mergeDown)
@@ -1938,7 +1953,7 @@ class CanvasViewModel @Inject constructor(
             CanvasDocumentAction.Flatten -> applyStackResult(
                 when {
                     stack == null -> null
-                    !TileCapacityPolicy.hasTransientReserve(stack.layers.size, layerCap) ->
+                    !TileCapacityPolicy.withinLayerCap(stack.layers.size, layerCap) ->
                         StackResult.Refused(Refusal.OVER_CAPACITY)
                     else -> stack.flatten(layerIds)
                 },
@@ -2056,7 +2071,7 @@ class CanvasViewModel @Inject constructor(
             addAll(LayerEditPolicy.changedTiles(doc.stack, edit.pixels))
         }.toList()
 
-        if (work == DocumentWork.START) actionGate.beginWork()
+        if (work == DocumentWork.START) beginDocumentWork()
         updateHistoryUi()
         engine.applyLayerEdit(
             stack = edit.stack,
@@ -2146,8 +2161,19 @@ class CanvasViewModel @Inject constructor(
         document = document?.copy(historyCursor = j.cursor)
     }
 
+    private fun beginDocumentWork() {
+        actionGate.beginWork()
+        markDocumentWorkStarted()
+    }
+
+    private fun markDocumentWorkStarted() {
+        check(documentWorkBarrier.isCompleted) { "document work barrier is already pending" }
+        documentWorkBarrier = CompletableDeferred()
+    }
+
     private fun finishDocumentWork() {
         val next = actionGate.finishWork()
+        documentWorkBarrier.complete(Unit)
         updateHistoryUi()
         updateInteractionUi()
         if (next != null) {
@@ -2189,7 +2215,7 @@ class CanvasViewModel @Inject constructor(
                 return
             }
         }
-        actionGate.beginWork()
+        beginDocumentWork()
         updateHistoryUi()
         appScope.launch {
             // The redo capture must see the post-edit pixels, including the
@@ -2217,6 +2243,12 @@ class CanvasViewModel @Inject constructor(
                 withContext(Dispatchers.Main) { failHistoryApply(direction) }
                 return@launch
             }
+            if (capturedRedoBytes != null) {
+                withContext(Dispatchers.Main) {
+                    journal?.noteRedoBytes(entry.seq, capturedRedoBytes)
+                    updateHistoryUi()
+                }
+            }
             val pending = try {
                 transitions.begin(entry, direction, fromCursor)
             } catch (_: java.io.IOException) {
@@ -2231,7 +2263,6 @@ class CanvasViewModel @Inject constructor(
                     direction,
                     historyEdit,
                     restores,
-                    capturedRedoBytes,
                     pixels,
                     transitions,
                     pending,
@@ -2246,7 +2277,6 @@ class CanvasViewModel @Inject constructor(
         direction: HistoryDirection,
         historyEdit: LayerHistoryEdit,
         restores: List<HistoryPixels.Restore>,
-        capturedRedoBytes: Long?,
         pixels: HistoryPixels,
         transitions: HistoryTransitionStore,
         pending: HistoryTransitionStore.Pending,
@@ -2451,30 +2481,76 @@ class CanvasViewModel @Inject constructor(
             // capture and any action barrier that was awaiting GPU restore.
             rmwHistoryCapture.reset()
             finishRmwRestore()
+            return
         }
-        val doc = document ?: return
-        if (next != null) {
-            next.onStrokeMerged = { spec, keys, revision, afterHistory ->
-                onStrokeMerged(next, spec, keys, revision, afterHistory)
-            }
-            next.onRmwStarted = ::onRmwStarted
-            next.onRmwTilesTouched = ::onRmwTilesTouched
-            next.onRmwCancelled = { spec, keys -> onRmwCancelled(next, spec, keys) }
-            viewModelScope.launch(Dispatchers.IO) {
-                if (!awaitDetachedSessionDrain(streamBarrier)) return@launch
-                val attached = withContext(Dispatchers.Main.immediate) { session === next }
-                if (!attached) return@launch
+        if (document == null) return
 
-                // The old model can predate its final sparse-tile readback.
-                val diskDocument = store.relistTiles(doc)
-                streamTiles(next, diskDocument)
-                withContext(Dispatchers.Main) {
-                    if (session === next) {
-                        markLayerThumbnailsDirty(diskDocument.stack.layers.map(Layer::id))
-                    }
+        val workBarrier = documentWorkBarrier
+        val historyBarrier = strokeHistoryBarrier
+        actionGate.beginSessionSync()
+        updateHistoryUi()
+        updateInteractionUi()
+        next.onStrokeMerged = { spec, keys, revision, afterHistory ->
+            onStrokeMerged(next, spec, keys, revision, afterHistory)
+        }
+        next.onRmwStarted = ::onRmwStarted
+        next.onRmwTilesTouched = ::onRmwTilesTouched
+        next.onRmwCancelled = { spec, keys -> onRmwCancelled(next, spec, keys) }
+        viewModelScope.launch(Dispatchers.IO) {
+            awaitActiveDocumentWork(workBarrier, historyBarrier)
+            if (!awaitDetachedSessionDrain(streamBarrier)) return@launch
+            val currentDocument = currentDocumentFor(next) ?: return@launch
+
+            // The old model can predate its final sparse-tile readback.
+            val diskDocument = store.relistTiles(currentDocument)
+            val published = withContext(Dispatchers.Main.immediate) {
+                publishRelistedDocument(next, diskDocument)
+            }
+            if (!published) return@launch
+
+            streamTiles(next, diskDocument)
+            withContext(Dispatchers.Main.immediate) {
+                if (session === next) {
+                    markLayerThumbnailsDirty(diskDocument.stack.layers.map(Layer::id))
+                    finishSessionSync()
                 }
             }
         }
+    }
+
+    private suspend fun awaitActiveDocumentWork(
+        workBarrier: CompletableDeferred<Unit>,
+        historyBarrier: CompletableDeferred<Unit>,
+    ) {
+        workBarrier.await()
+        historyBarrier.await()
+    }
+
+    private suspend fun currentDocumentFor(engine: EngineSession): Document? =
+        withContext(Dispatchers.Main.immediate) {
+            document?.takeIf { session === engine }
+        }
+
+    /** Makes the relisted sparse membership authoritative before input resumes. */
+    private fun publishRelistedDocument(engine: EngineSession, relisted: Document): Boolean {
+        if (session !== engine) return false
+        val current = document ?: return false
+        if (current.id != relisted.id) return false
+
+        val stack = relisted.stack
+        document = current.copy(stack = stack)
+        tileUpdates.clear()
+        val state = _uiState.value
+        if (state is UiState.Ready) _uiState.value = state.copy(stack = stack)
+        engine.setStack(stack)
+        return true
+    }
+
+    private fun finishSessionSync() {
+        val next = actionGate.finishSessionSync()
+        updateHistoryUi()
+        updateInteractionUi()
+        if (next == null) runNextIdleWork() else executeAction(next)
     }
 
     /**
@@ -2496,7 +2572,7 @@ class CanvasViewModel @Inject constructor(
     }
 
     private fun leaveNow() {
-        actionGate.beginWork()
+        beginDocumentWork()
         updateHistoryUi()
         updateInteractionUi()
         appScope.launch {
@@ -2885,7 +2961,10 @@ class CanvasViewModel @Inject constructor(
         val result = barrier?.await() ?: TileFlusher.ReadbackResult.COMPLETE
         if (result == TileFlusher.ReadbackResult.PENDING) return false
 
-        return flusher.checkpointFlush()
+        while (!flusher.checkpointFlush()) {
+            delay(SESSION_SYNC_RETRY_MS)
+        }
+        return true
     }
 
     private suspend fun streamTiles(engine: EngineSession, doc: Document) {
@@ -2933,6 +3012,7 @@ class CanvasViewModel @Inject constructor(
         /** ≥ [ch.lkmc.bangnidraw.engine.gl.Readback]'s 1 s fence timeout. */
         const val READBACK_WAIT_MS = 2_000L
         const val HISTORY_READBACK_RETRY_MS = 50L
+        const val SESSION_SYNC_RETRY_MS = 500L
         const val READY_WAIT_MS = 5_000L
 
         const val LAYER_THUMBNAIL_POLL_MS = 100L

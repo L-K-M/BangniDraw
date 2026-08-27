@@ -102,6 +102,17 @@ class CanvasActionGateTest {
     }
 
     @Test
+    fun `session streaming blocks input and document actions`() {
+        val gate = CanvasActionGate()
+        gate.beginSessionSync()
+
+        assertTrue(gate.busy)
+        assertFalse(gate.beginStroke())
+        assertEquals(CanvasActionDecision.Parked, gate.request(CanvasDocumentAction.Undo))
+        assertEquals(CanvasDocumentAction.Undo, gate.finishSessionSync())
+    }
+
+    @Test
     fun `RMW cancel restore keeps parked actions behind the stroke`() {
         val gate = CanvasActionGate()
         gate.beginStroke()

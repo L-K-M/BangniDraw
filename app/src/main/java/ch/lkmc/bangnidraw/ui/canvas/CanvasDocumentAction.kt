@@ -94,12 +94,13 @@ internal class CanvasActionGate {
     private val pending = ArrayDeque<CanvasDocumentAction>()
 
     private var strokeHistoryPending = false
+    private var workBusy = false
+    private var sessionSyncPending = false
 
     var strokeInFlight = false
         private set
 
-    var busy = false
-        private set
+    val busy: Boolean get() = workBusy || sessionSyncPending
 
     val pendingCount: Int get() = pending.size
 
@@ -153,12 +154,23 @@ internal class CanvasActionGate {
 
     fun beginWork() {
         check(!busy) { "document work is already running" }
-        busy = true
+        workBusy = true
     }
 
     fun finishWork(): CanvasDocumentAction? {
-        check(busy) { "no document work is running" }
-        busy = false
+        check(workBusy) { "no document work is running" }
+        workBusy = false
+        return next()
+    }
+
+    fun beginSessionSync() {
+        sessionSyncPending = true
+    }
+
+    fun finishSessionSync(): CanvasDocumentAction? {
+        if (!sessionSyncPending) return null
+
+        sessionSyncPending = false
         return next()
     }
 

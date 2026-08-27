@@ -56,7 +56,10 @@ internal fun BoxScope.PanelHost(
         Modifier.padding(start = railGap)
     }
     val height = if (layout.panelMode == PanelMode.FLOATING) {
-        Modifier.fillMaxHeight(LayoutSpec.PANEL_FLOATING_HEIGHT_FRACTION)
+        // Size and centre the card in the canvas below the persistent strip.
+        Modifier
+            .padding(top = LayoutSpec.TOP_STRIP_DP.dp)
+            .fillMaxHeight(LayoutSpec.PANEL_FLOATING_HEIGHT_FRACTION)
     } else {
         Modifier
             .fillMaxHeight()

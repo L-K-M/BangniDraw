@@ -105,6 +105,7 @@ class EngineRenderPolicyTest {
         policy.beginStroke()
 
         assertEquals(RedrawDecision.DEFER, policy.requestRedraw())
+        assertEquals(FrontFramePlan.RECOVER, policy.frontFrame())
         assertEquals(RedrawDecision.COVERED, policy.finishStroke(StrokeFinish.COMMIT))
         assertEquals(RedrawDecision.DRAW, policy.requestRedraw())
     }

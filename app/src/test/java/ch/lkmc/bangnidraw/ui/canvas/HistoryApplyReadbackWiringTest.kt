@@ -35,4 +35,17 @@ class HistoryApplyReadbackWiringTest {
         assertTrue(fold < dispatch)
         assertTrue(dispatchedStack.contains("stack = foldedStack"))
     }
+
+    @Test
+    fun `a durable redo sidecar is accounted before transition setup can fail`() {
+        val apply = source.substringAfter("private fun applyHistory(")
+            .substringBefore("private fun applyPreparedHistory(")
+        val captured = apply.indexOf("val capturedRedoBytes = redoBytes?.await()")
+        val accounted = apply.indexOf("journal?.noteRedoBytes(entry.seq, capturedRedoBytes)")
+        val transition = apply.indexOf("transitions.begin(entry, direction, fromCursor)")
+
+        assertTrue(captured >= 0)
+        assertTrue(accounted > captured)
+        assertTrue(accounted < transition)
+    }
 }

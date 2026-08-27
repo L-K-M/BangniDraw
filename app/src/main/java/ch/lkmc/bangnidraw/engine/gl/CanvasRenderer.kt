@@ -698,8 +698,10 @@ class CanvasRenderer(
         get() = strokeDirty.union(previousTailRect)
 
     /** A new surface, or a resize: `Accum` and `Scratch` are the only casualties. */
-    fun onSurfaceChanged(width: Int, height: Int) {
-        if (width <= 0 || height <= 0) return
+    fun onSurfaceChanged(width: Int, height: Int): Boolean {
+        if (width <= 0 || height <= 0) return false
+
+        val changed = width != viewportWidth || height != viewportHeight
         viewportWidth = width
         viewportHeight = height
         val next = FitTransform(
@@ -715,6 +717,7 @@ class CanvasRenderer(
         accum.ensure(width, height, state)
         scratch.ensure(width, height, state)
         Mat4.orthoYDown(width.toFloat(), height.toFloat(), projection)
+        return changed
     }
 
     // ------------------------------------------------------------- document
@@ -748,7 +751,8 @@ class CanvasRenderer(
     private fun syncSandwichCache(current: LayerStack?) {
         val hasReserve = current == null || TileCapacityPolicy.hasTransientReserve(
             layerCount = current.size,
-            maxLayers = budget.maxLayers,
+            canvas = canvas,
+            budget = budget,
         )
         if (!hasReserve) {
             sandwich?.release()

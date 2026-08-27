@@ -30,4 +30,17 @@ class EngineUpdatePolicyTest {
             EngineUpdatePolicy.decide(ViewTransform(), ViewTransform(scale = 2f)),
         )
     }
+
+    @Test
+    fun `the session gate suppresses a repeated view update`() {
+        val gate = EngineViewUpdateGate()
+        val view = ViewTransform(scale = 2f, tx = 10f)
+        val applied = mutableListOf<ViewTransform>()
+
+        gate.update(view) { applied += view }
+        gate.update(view.copy()) { applied += view.copy() }
+        gate.update(view.copy(tx = 20f)) { applied += view.copy(tx = 20f) }
+
+        assertEquals(listOf(view, view.copy(tx = 20f)), applied)
+    }
 }

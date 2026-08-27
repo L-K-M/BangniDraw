@@ -249,7 +249,7 @@ class CanvasTouchHandler(
     }
 
     fun setViewport(canvas: CanvasSize, width: Int, height: Int) {
-        fit = if (width > 0 && height > 0) {
+        val next = if (width > 0 && height > 0) {
             FitTransform(
                 viewWidth = width.toFloat(),
                 viewHeight = height.toFloat(),
@@ -259,6 +259,12 @@ class CanvasTouchHandler(
         } else {
             null
         }
+        val previous = fit
+        if (previous != null && next != null && previous != next) {
+            view = view.rebase(previous, next)
+            host.onViewChanged(view)
+        }
+        fit = next
         updateScreen()
     }
 

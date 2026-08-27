@@ -13,6 +13,7 @@ import ch.lkmc.bangnidraw.data.BrushPresetStore
 import ch.lkmc.bangnidraw.data.CpuFlatten
 import ch.lkmc.bangnidraw.data.CpuTile
 import ch.lkmc.bangnidraw.data.GalleryExporter
+import ch.lkmc.bangnidraw.data.GalleryExportOutcome
 import ch.lkmc.bangnidraw.data.GalleryNames
 import ch.lkmc.bangnidraw.data.ImageEncode
 import ch.lkmc.bangnidraw.data.PaletteStore
@@ -23,6 +24,7 @@ import ch.lkmc.bangnidraw.data.HistoryRecord
 import ch.lkmc.bangnidraw.data.HistoryStore
 import ch.lkmc.bangnidraw.data.ProjectStore
 import ch.lkmc.bangnidraw.data.RmwHistoryCapture
+import ch.lkmc.bangnidraw.data.ShareCache
 import ch.lkmc.bangnidraw.data.TileBufferPool
 import ch.lkmc.bangnidraw.data.TileCodec
 import ch.lkmc.bangnidraw.data.TileFlusher
@@ -34,9 +36,11 @@ import ch.lkmc.bangnidraw.engine.core.BlendMode
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushMixingPolicy
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
+import ch.lkmc.bangnidraw.engine.core.BrushSizeScale
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasBackEffect
 import ch.lkmc.bangnidraw.engine.core.CanvasChromeState
+import ch.lkmc.bangnidraw.engine.core.CanvasDialog
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
 import ch.lkmc.bangnidraw.engine.core.CanvasTapEffect
 import ch.lkmc.bangnidraw.engine.core.CanvasUiPolicy
@@ -85,6 +89,7 @@ import ch.lkmc.bangnidraw.engine.core.PixelCommitKind
 import ch.lkmc.bangnidraw.engine.core.Refusal
 import ch.lkmc.bangnidraw.engine.core.RmwSpec
 import ch.lkmc.bangnidraw.engine.core.RmwStrokePolicy
+import ch.lkmc.bangnidraw.engine.core.SizeAdjustment
 import ch.lkmc.bangnidraw.engine.core.StackEdit
 import ch.lkmc.bangnidraw.engine.core.StackResult
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
@@ -142,6 +147,8 @@ private enum class DocumentWork {
 
 private enum class FillPhase { IDLE, SNAPSHOT, COMPUTE, APPLY }
 
+private data class EncodedPainting(val name: String, val bytes: ByteArray)
+
 internal enum class StrokeColorUsage { RECORD, IGNORE }
 
 /**
@@ -167,6 +174,7 @@ class CanvasViewModel @Inject constructor(
     private val presetStore: BrushPresetStore,
     private val paletteStore: PaletteStore,
     private val exporter: GalleryExporter,
+    private val shareCache: ShareCache,
     private val prefs: Prefs,
     private val availableColorMixer: ColorMixer,
     @ApplicationScope private val appScope: CoroutineScope,
@@ -180,6 +188,7 @@ class CanvasViewModel @Inject constructor(
         data class Failed(@StringRes val message: Int) : UiState
 
         data class Ready(
+            val title: String,
             val canvas: CanvasSize,
             val stack: LayerStack,
             val paperColor: Int,
@@ -193,6 +202,8 @@ class CanvasViewModel @Inject constructor(
             val historyMaxSteps: Int = 0,
             val historyMaxBytes: Long = 0L,
             val brushPresets: List<BrushPreset>,
+            val paintBrushId: String,
+            val eraserBrushId: String,
             val toolSelection: ToolSelection,
             val color: ColorUiState,
             val fillParams: FillParams,
@@ -224,6 +235,8 @@ class CanvasViewModel @Inject constructor(
 
     @Volatile
     private var brushPresets: List<BrushPreset> = listOf(BrushPresets.DEFAULT)
+    private var paintBrushId = BrushPresets.PENCIL_ID
+    private var eraserBrushId = BrushPresets.HARD_ERASER_ID
 
     private var penButtonAction = PenButtonAction.Eraser
     private var eraserEndPreset = BrushPresets.HARD_ERASER_ID
@@ -441,6 +454,10 @@ class CanvasViewModel @Inject constructor(
         userPalettes = paletteStore.load()
         val default = brushPresets.firstOrNull { it.id == BrushPresets.PENCIL_ID }
             ?: brushPresets.first()
+        paintBrushId = default.id
+        eraserBrushId = brushPresets.firstOrNull { it.id == BrushPresets.HARD_ERASER_ID }?.id
+            ?: brushPresets.firstOrNull { it.eraseMode }?.id
+            ?: BrushPresets.HARD_ERASER_ID
         toolSwitcher.select(ToolKind.Brush(default))
 
         when (val result = store.load(projectId)) {
@@ -549,6 +566,7 @@ class CanvasViewModel @Inject constructor(
     private fun readyState(doc: Document, @StringRes warning: Int?): UiState.Ready {
         val j = journal
         return UiState.Ready(
+            title = doc.title,
             canvas = CanvasSize(doc.width, doc.height),
             stack = doc.stack,
             paperColor = doc.paperColor,
@@ -560,6 +578,8 @@ class CanvasViewModel @Inject constructor(
             historyMaxSteps = journalLimits.maxEntries,
             historyMaxBytes = journalLimits.maxBytes,
             brushPresets = brushPresets,
+            paintBrushId = paintBrushId,
+            eraserBrushId = eraserBrushId,
             toolSelection = toolSwitcher.selection.value,
             color = colorUiState(),
             fillParams = fillParams,
@@ -586,6 +606,8 @@ class CanvasViewModel @Inject constructor(
 
         _uiState.value = state.copy(
             brushPresets = brushPresets,
+            paintBrushId = paintBrushId,
+            eraserBrushId = eraserBrushId,
             toolSelection = toolSwitcher.selection.value,
             color = colorUiState(),
             penButtonAction = penButtonAction,
@@ -682,6 +704,70 @@ class CanvasViewModel @Inject constructor(
         applyChrome(result.state)
     }
 
+    internal fun requestRename() {
+        requestDialog(CanvasDialog.RenamePainting)
+    }
+
+    internal fun requestDialog(dialog: CanvasDialog) {
+        applyChrome(CanvasUiPolicy.requestDialog(chrome, dialog))
+    }
+
+    internal fun dismissDialog() {
+        applyChrome(CanvasUiPolicy.dismissDialog(chrome))
+    }
+
+    internal fun renamePainting(title: String) {
+        val clean = title.trim()
+        if (clean.isEmpty()) return
+        val doc = document ?: return
+        if (doc.title == clean) {
+            dismissDialog()
+            return
+        }
+
+        val next = doc.copy(title = clean)
+        document = next
+        dirty = true
+        contentDirty = true
+        val state = _uiState.value
+        if (state is UiState.Ready) _uiState.value = state.copy(title = clean)
+        dismissDialog()
+        noteChange()
+    }
+
+    internal fun share(
+        format: ImageEncode.Format,
+        onReady: (android.net.Uri, String) -> Unit,
+        onFailure: () -> Unit,
+    ) {
+        appScope.launch(Dispatchers.IO) {
+            val image = encodeCurrent(format)
+            if (image == null) {
+                withContext(Dispatchers.Main) { onFailure() }
+                return@launch
+            }
+
+            val uri = runCatching {
+                shareCache.stage("${image.name}.${format.extension}", image.bytes)
+            }.getOrNull()
+            withContext(Dispatchers.Main) {
+                if (uri == null) onFailure() else onReady(uri, format.mimeType)
+            }
+        }
+    }
+
+    internal fun export(
+        format: ImageEncode.Format,
+        onDone: (GalleryExportOutcome) -> Unit,
+    ) {
+        appScope.launch(Dispatchers.IO) {
+            val image = encodeCurrent(format)
+            val ok = image != null && exporter.saveAs(image.name, image.bytes, format)
+            val outcome = if (ok) GalleryExportOutcome.SUCCESS else GalleryExportOutcome.FAILURE
+            withContext(Dispatchers.Main) { onDone(outcome) }
+        }
+    }
+
     private fun applyChrome(next: CanvasChromeState) {
         if (next == chrome) return
 
@@ -692,12 +778,35 @@ class CanvasViewModel @Inject constructor(
         updateChromeUi()
     }
 
+    private suspend fun encodeCurrent(format: ImageEncode.Format): EncodedPainting? {
+        checkpoint(GallerySyncDecision.Trigger.CHECKPOINT)
+        if (contentDirty) return null
+
+        val doc = document ?: return null
+        val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+        val bytes = ImageEncode.encode(rgba, doc.width, doc.height, format)
+        val name = GalleryNames.sanitizeDisplayName(
+            doc.title,
+            context.getString(R.string.studio_untitled),
+        )
+        return EncodedPainting(name, bytes)
+    }
+
     fun selectBrush(id: String) {
         val preset = brushPresets.firstOrNull { it.id == id } ?: return
 
+        if (preset.eraseMode) eraserBrushId = id else paintBrushId = id
         clearColorPick()
         toolSwitcher.select(ToolKind.Brush(preset))
         updateToolUi()
+    }
+
+    internal fun selectPaintBrush() {
+        selectBrush(paintBrushId)
+    }
+
+    internal fun selectEraser() {
+        selectBrush(eraserBrushId)
     }
 
     fun selectSmudge() {
@@ -756,6 +865,19 @@ class CanvasViewModel @Inject constructor(
         selectEyedropperTool()
     }
 
+    internal fun beginKeyboardEyedropper() {
+        clearColorPick()
+        colorPickSession = newColorPick(ColorPickTarget.Current)
+        toolSwitcher.pushTemporary(ToolKind.Eyedropper(), TemporaryReason.Keyboard)
+        updateToolUi()
+    }
+
+    internal fun endKeyboardEyedropper() {
+        clearColorPick()
+        toolSwitcher.popTemporary(TemporaryReason.Keyboard)
+        updateToolUi()
+    }
+
     internal fun prepareColorPick() {
         if (colorPickSession == null && swatchPickSession == null) {
             colorPickSession = newColorPick(ColorPickTarget.Current)
@@ -776,6 +898,7 @@ class CanvasViewModel @Inject constructor(
         colorPickSession = null
         swatchPickSession?.let(::restoreSwatchPick)
         swatchPickSession = null
+        toolSwitcher.popTemporary(TemporaryReason.Rail)
     }
 
     internal fun selectBrushColor(argb: Int) {
@@ -1054,6 +1177,20 @@ class CanvasViewModel @Inject constructor(
     fun updateBrushSize(value: Float) = updateActiveBrush { it.withSize(value) }
 
     fun updateBrushOpacity(value: Float) = updateActiveBrush { it.withOpacity(value) }
+
+    internal fun adjustBrushSize(adjustment: SizeAdjustment) {
+        updateActiveBrush { preset ->
+            preset.withSize(
+                BrushSizeScale.adjust(
+                    preset.size,
+                    preset.sizeMin,
+                    preset.sizeMax,
+                    adjustment,
+                ),
+            )
+        }
+        persistBrushTuning()
+    }
 
     internal fun updateActiveBrush(updated: BrushPreset) {
         val selection = toolSwitcher.selection.value

@@ -1,5 +1,9 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import android.animation.ValueAnimator
+import android.content.Intent
+import android.content.ContextWrapper
+import android.app.Activity
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
@@ -8,24 +12,27 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.animation.core.tween
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Redo
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -33,6 +40,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,29 +50,55 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.runtime.DisposableEffect
 import ch.lkmc.bangnidraw.BuildConfig
+import ch.lkmc.bangnidraw.CanvasShortcutSink
+import ch.lkmc.bangnidraw.MainActivity
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.data.ImageEncode
+import ch.lkmc.bangnidraw.data.GalleryExportOutcome
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
+import ch.lkmc.bangnidraw.engine.core.CanvasDialog
+import ch.lkmc.bangnidraw.engine.core.CanvasPanel
+import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.FillParams
+import ch.lkmc.bangnidraw.engine.core.FocusMode
+import ch.lkmc.bangnidraw.engine.core.Hand
+import ch.lkmc.bangnidraw.engine.core.HapticsMode
+import ch.lkmc.bangnidraw.engine.core.HintVisibility
+import ch.lkmc.bangnidraw.engine.core.LayoutSpec
+import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
+import ch.lkmc.bangnidraw.engine.core.ShortcutContext
+import ch.lkmc.bangnidraw.engine.core.SizeAdjustment
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeLayerDecision
@@ -72,9 +108,13 @@ import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TemporaryReason
 import ch.lkmc.bangnidraw.engine.core.ToolKind
+import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.engine.core.WidthClass
 import ch.lkmc.bangnidraw.input.CanvasInputHost
 import ch.lkmc.bangnidraw.input.CanvasTouchHandler
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 /**
  * The Canvas: where one painting is painted (PLAN.md §5).
@@ -93,7 +133,7 @@ import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 fun CanvasScreen(onBack: () -> Unit, viewModel: CanvasViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val leave = { viewModel.leave(onBack) }
-    BackHandler(onBack = leave)
+    BackHandler { viewModel.handleBack(onBack) }
 
     // §6.2's ON_STOP row: the last callback before the process may be
     // reclaimed. Fire-and-forget — the write survives on the app scope.
@@ -143,20 +183,14 @@ private fun CanvasContent(
     viewModel: CanvasViewModel,
     onLeave: () -> Unit,
 ) {
-    var view by remember { mutableStateOf(ViewTransform()) }
+    var view by rememberSaveable(stateSaver = VIEW_TRANSFORM_SAVER) {
+        mutableStateOf(ViewTransform())
+    }
     val stack = state.stack
     var session by remember { mutableStateOf<EngineSession?>(null) }
     var hoverRevision by remember { mutableIntStateOf(0) }
-    var showBrushSettings by remember { mutableStateOf(false) }
-    var showFillSettings by remember { mutableStateOf(false) }
-    var showColorPanel by remember { mutableStateOf(false) }
-    var showLayers by remember { mutableStateOf(false) }
+    var textInputFocus by remember { mutableStateOf(TextInputFocus.CLEAR) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
-    BackHandler(enabled = showLayers) { showLayers = false }
-    LaunchedEffect(showLayers) { viewModel.setLayerPanelOpen(showLayers) }
-    DisposableEffect(viewModel) {
-        onDispose { viewModel.setLayerPanelOpen(false) }
-    }
 
     // The stroke in flight. Plain vars, not Compose state: they change several
     // hundred times a second on the input path and nothing draws from them, so
@@ -165,7 +199,12 @@ private fun CanvasContent(
     val density = LocalDensity.current
     val view0 = LocalView.current
     val context = LocalContext.current
+    CanvasImmersiveEffect()
     var seenStrokeNotice by remember { mutableLongStateOf(state.strokeLayerNoticeRevision) }
+
+    fun updateView(next: ViewTransform) {
+        view = next
+    }
 
     // 06 §4's one honest toast per open, when something could not be read.
     LaunchedEffect(state.warning) {
@@ -176,6 +215,7 @@ private fun CanvasContent(
         seenStrokeNotice = state.strokeLayerNoticeRevision
         val notice = state.strokeLayerNotice ?: return@LaunchedEffect
         Toast.makeText(context, notice, Toast.LENGTH_SHORT).show()
+        if (state.hapticsMode == HapticsMode.DISABLED) return@LaunchedEffect
         val haptic = when {
             notice == R.string.layer_locked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
                 HapticFeedbackConstants.REJECT
@@ -193,20 +233,32 @@ private fun CanvasContent(
     // `stack` is in the key for the same capture reason: the host reads the
     // active layer at pen-down, and 3a's stack is fixed per open, so a changed
     // stack means a different painting.
-    val touch = remember(density, view0, stack) {
+    val touch = remember(density, view0, stack, state.hapticsMode) {
         lateinit var handler: CanvasTouchHandler
         handler = CanvasTouchHandler(
             density = density.density,
             host = object : CanvasInputHost {
-                override fun onViewChanged(next: ViewTransform) { view = next }
+                override fun onViewChanged(view: ViewTransform) { updateView(view) }
                 override fun onRotationSnapped() {
                     // A single tick as the canvas clicks to straight (§7).
-                    view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    if (state.hapticsMode == HapticsMode.ENABLED) {
+                        view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
                 }
                 // Two- and three-finger taps (roadmap 3b): straight into the
                 // journal; the ViewModel drops a request that lands mid-apply.
-                override fun onUndoRequested() = viewModel.undo()
-                override fun onRedoRequested() = viewModel.redo()
+                override fun onUndoRequested() {
+                    if (state.hapticsMode == HapticsMode.ENABLED) {
+                        view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
+                    viewModel.undo()
+                }
+                override fun onRedoRequested() {
+                    if (state.hapticsMode == HapticsMode.ENABLED) {
+                        view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
+                    viewModel.redo()
+                }
                 override fun onHoverChanged() {
                     hoverRevision++
                     if (handler.stylus.isHovering) {
@@ -407,7 +459,9 @@ private fun CanvasContent(
                         strokeState.pickParams = null
                         strokeState.engine = null
                         viewModel.endStrokeTool(reason)
-                        view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        if (state.hapticsMode == HapticsMode.ENABLED) {
+                            view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        }
                         return
                     }
 
@@ -498,15 +552,136 @@ private fun CanvasContent(
     // Keyed on the handler, not Unit: a recreated handler starts from an
     // identity transform, and without re-seeding its first gesture would
     // measure from the wrong baseline and jump.
-    LaunchedEffect(touch) { touch.setView(view) }
+    LaunchedEffect(touch, state.touchDrawingMode) {
+        touch.setView(view)
+        touch.stylusOnly = state.touchDrawingMode == TouchDrawingMode.STYLUS_ONLY
+    }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    val shortcutContext = if (
+        state.chrome.dialog is CanvasDialog.RenameLayer ||
+        state.chrome.dialog == CanvasDialog.RenamePainting ||
+        textInputFocus == TextInputFocus.FOCUSED
+    ) {
+        ShortcutContext.TEXT_INPUT
+    } else {
+        ShortcutContext.CANVAS
+    }
+    val shortcutContextState = rememberUpdatedState(shortcutContext)
+    val shortcutHandlerState = rememberUpdatedState<(CanvasShortcut) -> Boolean> { shortcut ->
+        when (shortcut) {
+            CanvasShortcut.UNDO -> viewModel.undo()
+            CanvasShortcut.REDO -> viewModel.redo()
+            CanvasShortcut.SIZE_DOWN -> viewModel.adjustBrushSize(SizeAdjustment.DECREASE)
+            CanvasShortcut.SIZE_UP -> viewModel.adjustBrushSize(SizeAdjustment.INCREASE)
+            CanvasShortcut.BRUSH -> viewModel.selectPaintBrush()
+            CanvasShortcut.ERASER -> viewModel.selectEraser()
+            CanvasShortcut.SMUDGE -> viewModel.selectSmudge()
+            CanvasShortcut.FILL -> viewModel.selectFill()
+            CanvasShortcut.EYEDROPPER -> viewModel.selectEyedropper()
+            CanvasShortcut.BEGIN_EYEDROPPER -> viewModel.beginKeyboardEyedropper()
+            CanvasShortcut.END_EYEDROPPER -> viewModel.endKeyboardEyedropper()
+            CanvasShortcut.RESET_VIEW -> {
+                view = ViewTransform()
+                touch.setView(view)
+            }
+            CanvasShortcut.TOGGLE_FOCUS -> viewModel.toggleFocus()
+            CanvasShortcut.TOGGLE_LAYERS -> viewModel.togglePanel(CanvasPanel.LAYERS)
+            CanvasShortcut.TOGGLE_COLOR -> viewModel.togglePanel(CanvasPanel.COLOR)
+        }
+        true
+    }
+    val shortcutSink = remember(viewModel, touch) {
+        object : CanvasShortcutSink {
+            override val shortcutContext: ShortcutContext
+                get() = shortcutContextState.value
+
+            override fun onShortcut(shortcut: CanvasShortcut): Boolean =
+                shortcutHandlerState.value(shortcut)
+        }
+    }
+    val activity = remember(context) { context.findActivity() as? MainActivity }
+    DisposableEffect(activity, shortcutSink) {
+        activity?.installShortcutSink(shortcutSink)
+        onDispose {
+            activity?.uninstallShortcutSink(shortcutSink)
+            viewModel.endKeyboardEyedropper()
+        }
+    }
+
+    val animationScope = rememberCoroutineScope()
+    val resetJob = remember { arrayOfNulls<Job>(1) }
+    val resetView = {
+        resetJob[0]?.cancel()
+        val start = view
+        val reset = ViewTransform()
+        if (!ValueAnimator.areAnimatorsEnabled()) {
+            updateView(reset)
+            touch.setView(reset)
+            if (state.hapticsMode == HapticsMode.ENABLED) {
+                view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            }
+        } else {
+            resetJob[0] = animationScope.launch {
+                Animatable(0f).animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = RESET_DAMPING_RATIO,
+                        stiffness = Spring.StiffnessHigh,
+                    ),
+                ) {
+                    val next = start.lerp(reset, value)
+                    updateView(next)
+                    touch.setView(next)
+                }
+                updateView(reset)
+                touch.setView(reset)
+                if (state.hapticsMode == HapticsMode.ENABLED) {
+                    view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                }
+            }
+        }
+    }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val widthClass = WidthClass.forWidth(maxWidth.value.toInt())
+        val windowWidth = maxWidth
+        val safeInsets = WindowInsets.safeDrawing
+        val verticalInsetDp = (
+            safeInsets.getTop(density) + safeInsets.getBottom(density)
+            ) / density.density
+        val railHeight = (
+            maxHeight.value - verticalInsetDp - LayoutSpec.TOP_STRIP_DP
+            ).toInt().coerceAtLeast(0)
+        val layout = LayoutSpec.forWindow(widthClass, railHeight, state.handedness)
+        LaunchedEffect(state.chrome.openPanel) {
+            if (state.chrome.openPanel != CanvasPanel.COLOR) {
+                textInputFocus = TextInputFocus.CLEAR
+            }
+        }
+        val paintingName = state.title.ifBlank { stringResource(R.string.studio_untitled) }
+        val canvasDescription = stringResource(
+            R.string.canvas_description,
+            paintingName,
+            state.canvas.width,
+            state.canvas.height,
+            toolName(state.toolSelection.kind),
+            layerName(state.stack.active.props.name),
+        )
         CanvasSurface(
             canvas = state.canvas,
             stack = stack,
             paperColor = state.paperColor,
             view = view,
-            modifier = Modifier.fillMaxSize(),
+            canvasDescription = canvasDescription,
+            undoLabel = stringResource(R.string.canvas_undo),
+            redoLabel = stringResource(R.string.canvas_redo),
+            onUndo = viewModel::undo,
+            onRedo = viewModel::redo,
+            gestureExclusionSide = if (layout.railMode == RailMode.DOCK) null else layout.railSide,
+            gestureExclusionWidthDp = layout.toolSlotDp + RAIL_EXTRA_WIDTH_DP + EXCLUSION_GAP_DP,
+            modifier = Modifier
+                .fillMaxSize()
+                .semantics { traversalIndex = CANVAS_TRAVERSAL },
             debugBuild = BuildConfig.DEBUG,
             onSession = { attached ->
                 // A session arriving or departing takes any live stroke with
@@ -601,6 +776,26 @@ private fun CanvasContent(
                 .fillMaxSize()
                 .safeDrawingPadding(),
         ) {
+            val chromeVisible = state.chrome.focusMode == FocusMode.CHROME
+            val chromeAnimationMs = if (ValueAnimator.areAnimatorsEnabled()) {
+                CHROME_ANIMATION_MS
+            } else {
+                0
+            }
+            val railDirection = if (layout.railSide == Hand.RIGHT) 1 else -1
+            val railEnter = if (layout.railMode == RailMode.DOCK) {
+                slideInVertically(tween(chromeAnimationMs)) { it } + fadeIn(tween(chromeAnimationMs))
+            } else {
+                slideInHorizontally(tween(chromeAnimationMs)) { railDirection * it } +
+                    fadeIn(tween(chromeAnimationMs))
+            }
+            val railExit = if (layout.railMode == RailMode.DOCK) {
+                slideOutVertically(tween(chromeAnimationMs)) { it } + fadeOut(tween(chromeAnimationMs))
+            } else {
+                slideOutHorizontally(tween(chromeAnimationMs)) { railDirection * it } +
+                    fadeOut(tween(chromeAnimationMs))
+            }
+
             // §5.3's overlay, debug builds only. Drawn first so the back
             // button and the reset pill stay on top of it and reachable — the
             // overlay fills the box and would otherwise swallow their taps.
@@ -618,137 +813,120 @@ private fun CanvasContent(
                 )
             }
 
-            ToolRail(
+            AnimatedVisibility(
+                visible = chromeVisible,
+                enter = railEnter,
+                exit = railExit,
+                modifier = (if (layout.railMode == RailMode.DOCK) {
+                    Modifier.align(Alignment.BottomCenter)
+                } else if (layout.railSide == Hand.RIGHT) {
+                    Modifier.align(Alignment.BottomEnd)
+                } else {
+                    Modifier.align(Alignment.BottomStart)
+                })
+                    .semantics { traversalIndex = RAIL_TRAVERSAL }
+                    .zIndex(CHROME_Z),
+            ) {
+                ToolRail(
+                layout = layout,
                 presets = state.brushPresets,
+                paintBrushId = state.paintBrushId,
+                eraserBrushId = state.eraserBrushId,
                 selection = state.toolSelection,
-                brushColor = state.color.current,
+                hapticsMode = state.hapticsMode,
                 onBrushSelected = {
-                    showBrushSettings = false
-                    showFillSettings = false
-                    showLayers = false
+                    viewModel.dismissPanel()
                     viewModel.selectBrush(it)
                 },
                 onSmudgeSelected = {
-                    showBrushSettings = false
-                    showFillSettings = false
-                    showLayers = false
+                    viewModel.dismissPanel()
                     viewModel.selectSmudge()
                 },
                 onBlurSelected = {
-                    showBrushSettings = false
-                    showFillSettings = false
-                    showLayers = false
+                    viewModel.dismissPanel()
                     viewModel.selectBlur()
                 },
                 onFillSelected = {
-                    showBrushSettings = false
-                    showFillSettings = false
-                    showLayers = false
+                    viewModel.dismissPanel()
                     viewModel.selectFill()
                 },
                 onEyedropperSelected = {
-                    showBrushSettings = false
-                    showFillSettings = false
-                    showLayers = false
+                    viewModel.dismissPanel()
                     viewModel.selectEyedropper()
                 },
-                onColorRequested = {
-                    showBrushSettings = false
-                    showFillSettings = false
-                    showLayers = false
-                    showColorPanel = true
-                },
                 onSettingsRequested = {
-                    showFillSettings = false
-                    showLayers = false
-                    showBrushSettings = true
+                    viewModel.togglePanel(CanvasPanel.BRUSH_SETTINGS)
                 },
                 onFillSettingsRequested = {
-                    showBrushSettings = false
-                    showLayers = false
-                    showFillSettings = true
+                    viewModel.togglePanel(CanvasPanel.FILL_SETTINGS)
                 },
                 onSizeChanged = viewModel::updateBrushSize,
                 onOpacityChanged = viewModel::updateBrushOpacity,
                 onTuningFinished = viewModel::persistBrushTuning,
-                modifier = Modifier.align(Alignment.CenterEnd),
+                )
+            }
+
+            AnimatedVisibility(
+                visible = chromeVisible,
+                enter = slideInVertically(tween(chromeAnimationMs)) { -it } +
+                    fadeIn(tween(chromeAnimationMs)),
+                exit = slideOutVertically(tween(chromeAnimationMs)) { -it } +
+                    fadeOut(tween(chromeAnimationMs)),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .semantics { traversalIndex = TOP_STRIP_TRAVERSAL }
+                    .zIndex(CHROME_Z),
+            ) {
+                TopStrip(
+                layout = layout,
+                undoAvailability = if (state.canUndo) {
+                    ActionAvailability.ENABLED
+                } else {
+                    ActionAvailability.DISABLED
+                },
+                redoAvailability = if (state.canRedo) {
+                    ActionAvailability.ENABLED
+                } else {
+                    ActionAvailability.DISABLED
+                },
+                activeLayer = state.stack.activeIndex + 1,
+                brushColor = state.color.current,
+                openPanel = state.chrome.openPanel,
+                hapticsMode = state.hapticsMode,
+                onBack = { viewModel.handleBack(onLeave) },
+                onUndo = viewModel::undo,
+                onRedo = viewModel::redo,
+                onLayers = { viewModel.togglePanel(CanvasPanel.LAYERS) },
+                onColor = { viewModel.togglePanel(CanvasPanel.COLOR) },
+                onShare = {
+                    sharePainting(context, viewModel, ImageEncode.Format.PNG)
+                },
+                onExportPng = {
+                    exportPainting(context, viewModel, ImageEncode.Format.PNG)
+                },
+                onExportJpeg = {
+                    exportPainting(context, viewModel, ImageEncode.Format.JPEG)
+                },
+                onFocus = viewModel::toggleFocus,
+                onRename = viewModel::requestRename,
+                onSettings = null,
+                )
+            }
+
+            val resetBottomPadding = when (layout.railMode) {
+                RailMode.DOCK -> DOCK_CHROME_HEIGHT.dp
+                RailMode.SHORT -> LEDGE_CHROME_HEIGHT.dp
+                RailMode.GROUPED, RailMode.FULL -> RESET_EDGE_PADDING.dp
+            }
+            ResetViewPill(
+                view = view,
+                density = density.density,
+                strokeActivity = state.chrome.strokeActivity,
+                onReset = resetView,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = resetBottomPadding),
             )
-
-            IconButton(
-                onClick = onLeave,
-                modifier = Modifier.align(Alignment.TopStart),
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.canvas_back),
-                    tint = MaterialTheme.colorScheme.onBackground,
-                )
-            }
-
-            // Roadmap 3b: undo and redo in the top strip, with the honest
-            // "capped at N steps / M MB" readout beside them (06 §1's
-            // principle 5: limits are shown, not silent).
-            Row(
-                modifier = Modifier.align(Alignment.TopCenter),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = viewModel::undo, enabled = state.canUndo) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.Undo,
-                        contentDescription = stringResource(R.string.canvas_undo),
-                        tint = if (state.canUndo) MaterialTheme.colorScheme.onBackground
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = viewModel::redo, enabled = state.canRedo) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.Redo,
-                        contentDescription = stringResource(R.string.canvas_redo),
-                        tint = if (state.canRedo) MaterialTheme.colorScheme.onBackground
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(
-                    onClick = {
-                        showBrushSettings = false
-                        showLayers = !showLayers
-                    },
-                ) {
-                    Icon(
-                        Icons.Filled.Layers,
-                        contentDescription = stringResource(R.string.layers_title),
-                        tint = if (showLayers) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onBackground,
-                    )
-                }
-                Text(
-                    text = stringResource(
-                        R.string.canvas_history_cap,
-                        state.historySteps,
-                        state.historyMaxSteps,
-                        state.historyMaxBytes / (1L shl 20),
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            if (!view.isIdentity) {
-                FilledTonalButton(
-                    onClick = {
-                        view = ViewTransform()
-                        // The handler keeps the un-snapped angle §7 accumulates
-                        // separately; without this the next gesture would start
-                        // measuring from the old one and the canvas would jump.
-                        touch.setView(view)
-                    },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp),
-                ) {
-                    Text(stringResource(R.string.canvas_reset_view))
-                }
-            }
 
             // §6.3's storage-full banner: persistent while the state holds,
             // gone with the first successful write.
@@ -800,83 +978,147 @@ private fun CanvasContent(
                 }
             }
 
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                val compact = maxWidth < COMPACT_WIDTH.dp
-                val panelWidth = if (compact) minOf(PANEL_MAX.dp, maxWidth * PANEL_COMPACT_FRACTION)
-                else if (maxWidth < EXPANDED_WIDTH.dp) PANEL_MEDIUM.dp else PANEL_MAX.dp
-                val railPadding = if (compact) 0.dp else PANEL_RAIL_GAP.dp
-                AnimatedVisibility(
-                    visible = showLayers,
-                    enter = slideInHorizontally(
-                        animationSpec = tween(PANEL_ANIMATION_MS),
-                        initialOffsetX = { it },
-                    ) + fadeIn(tween(PANEL_ANIMATION_MS)),
-                    exit = slideOutHorizontally(
-                        animationSpec = tween(PANEL_ANIMATION_MS),
-                        targetOffsetX = { it },
-                    ) + fadeOut(tween(PANEL_ANIMATION_MS)),
+            val panel = state.chrome.openPanel
+            if (panel != null) {
+                val interaction = remember { MutableInteractionSource() }
+                Box(
                     modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = railPadding)
-                        .width(panelWidth)
-                        .fillMaxHeight(),
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = null,
+                            onClick = viewModel::dismissCanvasOverlay,
+                        )
+                        .clearAndSetSemantics {},
+                )
+            }
+
+            PanelHost(
+                layout = layout,
+                windowWidth = windowWidth,
+                announcement = panelAnnouncement(panel),
+                visibility = if (panel == null) {
+                    PanelVisibility.HIDDEN
+                } else {
+                    PanelVisibility.VISIBLE
+                },
+                modifier = Modifier.semantics { traversalIndex = PANEL_TRAVERSAL },
+            ) {
+                CanvasPanelContent(
+                    panel = panel,
+                    layout = layout,
+                    state = state,
+                    layerThumbnails = layerThumbnails,
+                    viewModel = viewModel,
+                    onTextInputFocus = { textInputFocus = it },
+                )
+            }
+
+            val ledgePreset = (state.toolSelection.kind as? ToolKind.Brush)?.preset
+            if (ledgePreset != null) {
+                val ledgeModifier = when (layout.railMode) {
+                    RailMode.DOCK -> Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = DOCK_HEIGHT.dp)
+                        .fillMaxWidth()
+                    RailMode.SHORT -> Modifier
+                        .align(
+                            if (layout.railSide == Hand.RIGHT) Alignment.BottomStart
+                            else Alignment.BottomEnd,
+                        )
+                        .width(windowWidth - (layout.toolSlotDp + RAIL_EXTRA_WIDTH_DP).dp)
+                    RailMode.GROUPED, RailMode.FULL -> Modifier
+                }
+                AnimatedVisibility(
+                    visible = chromeVisible,
+                    enter = slideInVertically(tween(chromeAnimationMs)) { it } +
+                        fadeIn(tween(chromeAnimationMs)),
+                    exit = slideOutVertically(tween(chromeAnimationMs)) { it } +
+                        fadeOut(tween(chromeAnimationMs)),
+                    modifier = ledgeModifier
+                        .semantics { traversalIndex = SLIDER_TRAVERSAL }
+                        .zIndex(CHROME_Z),
                 ) {
-                    LayerPanel(
-                        canvas = state.canvas,
-                        stack = state.stack,
-                        paperColor = state.paperColor,
-                        layerCap = state.layerCap,
-                        compact = compact,
-                        documentBusy = state.documentBusy,
-                        feedbackRevision = state.layerFeedbackRevision,
-                        refusal = state.layerRefusal,
-                        thumbnails = layerThumbnails,
-                        onDismiss = { showLayers = false },
-                        onSelect = viewModel::selectLayer,
-                        onAdd = viewModel::addLayer,
-                        onDelete = viewModel::deleteLayer,
-                        onDuplicate = viewModel::duplicateLayer,
-                        onMove = viewModel::moveLayer,
-                        onMergeDown = viewModel::mergeLayerDown,
-                        onFlatten = viewModel::flattenLayers,
-                        onClear = viewModel::clearLayer,
-                        onRename = viewModel::renameLayer,
-                        onOpacityPreview = viewModel::previewLayerOpacity,
-                        onOpacityFinished = viewModel::finishLayerOpacity,
-                        onToggleVisibility = viewModel::toggleLayerVisibility,
-                        onBlendMode = viewModel::setLayerBlendMode,
-                        onToggleAlphaLock = viewModel::toggleLayerAlphaLock,
-                        onToggleLock = viewModel::toggleLayerLock,
-                        onPaperColor = viewModel::setPaperColor,
+                    SliderLedge(
+                        layout = layout,
+                        preset = ledgePreset,
+                        hapticsMode = state.hapticsMode,
+                        onSizeChanged = viewModel::updateBrushSize,
+                        onOpacityChanged = viewModel::updateBrushOpacity,
+                        onTuningFinished = viewModel::persistBrushTuning,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
+            }
+
+            AnimatedVisibility(
+                visible = state.chrome.focusMode == FocusMode.FOCUSED,
+                enter = fadeIn(tween(chromeAnimationMs)),
+                exit = fadeOut(tween(chromeAnimationMs)),
+                modifier = Modifier
+                    .align(
+                        if (layout.railSide == Hand.RIGHT) Alignment.CenterEnd
+                        else Alignment.CenterStart,
+                    )
+                    .zIndex(CHROME_Z),
+            ) {
+                FocusHandle(
+                    side = layout.railSide,
+                    onClick = viewModel::showChrome,
+                )
+            }
+
+            if (state.chrome.hint == HintVisibility.VISIBLE) {
+                FirstRunHint(
+                    onDismiss = viewModel::dismissCanvasOverlay,
+                    modifier = Modifier.zIndex(HINT_Z),
+                )
             }
         }
     }
 
-    val settingsPreset = (state.toolSelection.kind as? ToolKind.Brush)?.preset
-    if (showBrushSettings && settingsPreset != null) {
-        BrushSettingsSheet(
-            active = settingsPreset,
-            presets = state.brushPresets,
-            brushColor = state.color.current,
+    CanvasDialogHost(state, viewModel)
+}
+
+@Composable
+private fun CanvasPanelContent(
+    panel: CanvasPanel?,
+    layout: LayoutSpec,
+    state: CanvasViewModel.UiState.Ready,
+    layerThumbnails: Map<ch.lkmc.bangnidraw.engine.core.LayerId, ch.lkmc.bangnidraw.engine.core.LayerThumbnail>,
+    viewModel: CanvasViewModel,
+    onTextInputFocus: (TextInputFocus) -> Unit,
+) {
+    when (panel) {
+        CanvasPanel.LAYERS -> LayerPanel(
+            canvas = state.canvas,
+            stack = state.stack,
             paperColor = state.paperColor,
-            onPresetSelected = viewModel::selectBrush,
-            onPresetChanged = viewModel::updateActiveBrush,
-            onPresetPersisted = viewModel::persistActiveBrush,
-            onReset = viewModel::resetActiveBrush,
-            onDismiss = { showBrushSettings = false },
+            layerCap = state.layerCap,
+            panelMode = layout.panelMode,
+            hapticsMode = state.hapticsMode,
+            documentBusy = state.documentBusy,
+            feedbackRevision = state.layerFeedbackRevision,
+            refusal = state.layerRefusal,
+            thumbnails = layerThumbnails,
+            onDismiss = viewModel::dismissPanel,
+            onSelect = viewModel::selectLayer,
+            onAdd = viewModel::addLayer,
+            onDelete = viewModel::deleteLayer,
+            onDuplicate = viewModel::duplicateLayer,
+            onMove = viewModel::moveLayer,
+            onMergeDown = viewModel::mergeLayerDown,
+            onClear = viewModel::clearLayer,
+            onRequestDialog = viewModel::requestDialog,
+            onOpacityPreview = viewModel::previewLayerOpacity,
+            onOpacityFinished = viewModel::finishLayerOpacity,
+            onToggleVisibility = viewModel::toggleLayerVisibility,
+            onBlendMode = viewModel::setLayerBlendMode,
+            onToggleAlphaLock = viewModel::toggleLayerAlphaLock,
+            onToggleLock = viewModel::toggleLayerLock,
+            onPaperColor = viewModel::setPaperColor,
         )
-    }
-    if (showFillSettings) {
-        FillSettingsSheet(
-            active = state.fillParams,
-            onChanged = viewModel::updateFillParams,
-            onDismiss = { showFillSettings = false },
-        )
-    }
-    if (showColorPanel) {
-        ColorPanel(
+        CanvasPanel.COLOR -> ColorPanel(
             state = state.color,
             mixSteps = viewModel::mixingDish,
             mixColor = viewModel::mixingColor,
@@ -890,30 +1132,259 @@ private fun CanvasContent(
             onDeleteSwatch = viewModel::deletePaletteSwatch,
             onMoveSwatch = viewModel::movePaletteSwatch,
             onPickSwatch = {
-                showColorPanel = false
+                viewModel.dismissPanel()
                 viewModel.selectPaletteSwatchEyedropper(it)
             },
             onDishWellChanged = viewModel::setDishWell,
             onPickDishWell = {
-                showColorPanel = false
+                viewModel.dismissPanel()
                 viewModel.selectDishEyedropper(it)
             },
-            onDismiss = { showColorPanel = false },
+            onTextInputFocus = onTextInputFocus,
+            hapticsMode = state.hapticsMode,
         )
+        CanvasPanel.BRUSH_SETTINGS -> {
+            val preset = (state.toolSelection.kind as? ToolKind.Brush)?.preset ?: return
+            BrushSettingsSheet(
+                active = preset,
+                presets = state.brushPresets,
+                brushColor = state.color.current,
+                paperColor = state.paperColor,
+                hapticsMode = state.hapticsMode,
+                onPresetSelected = viewModel::selectBrush,
+                onPresetChanged = viewModel::updateActiveBrush,
+                onPresetPersisted = viewModel::persistActiveBrush,
+                onReset = viewModel::resetActiveBrush,
+            )
+        }
+        CanvasPanel.FILL_SETTINGS -> FillSettingsSheet(
+            active = state.fillParams,
+            onChanged = viewModel::updateFillParams,
+        )
+        CanvasPanel.OVERFLOW, null -> Unit
     }
+}
+
+@Composable
+private fun panelAnnouncement(panel: CanvasPanel?): String = when (panel) {
+    CanvasPanel.LAYERS -> stringResource(R.string.panel_layers_opened)
+    CanvasPanel.COLOR -> stringResource(R.string.panel_color_opened)
+    CanvasPanel.BRUSH_SETTINGS -> stringResource(R.string.panel_brush_opened)
+    CanvasPanel.FILL_SETTINGS -> stringResource(R.string.panel_fill_opened)
+    CanvasPanel.OVERFLOW, null -> ""
+}
+
+@Composable
+private fun CanvasDialogHost(
+    state: CanvasViewModel.UiState.Ready,
+    viewModel: CanvasViewModel,
+) {
+    when (val dialog = state.chrome.dialog) {
+        CanvasDialog.RenamePainting -> RenameDialog(
+            title = R.string.studio_rename,
+            initialValue = state.title,
+            onConfirm = viewModel::renamePainting,
+            onDismiss = viewModel::dismissDialog,
+        )
+        is CanvasDialog.RenameLayer -> RenameDialog(
+            title = R.string.layer_rename_title,
+            initialValue = dialog.currentName,
+            onConfirm = {
+                viewModel.dismissDialog()
+                viewModel.renameLayer(dialog.index, it)
+            },
+            onDismiss = viewModel::dismissDialog,
+        )
+        is CanvasDialog.MergeLayers -> ConfirmationDialog(
+            title = stringResource(R.string.layer_merge_title),
+            body = stringResource(R.string.layer_merge_body),
+            onConfirm = {
+                viewModel.dismissDialog()
+                viewModel.mergeLayerDown(dialog.index)
+            },
+            onDismiss = viewModel::dismissDialog,
+        )
+        CanvasDialog.FlattenLayers -> ConfirmationDialog(
+            title = stringResource(R.string.layer_flatten_title, state.stack.size),
+            body = stringResource(R.string.layer_flatten_body),
+            onConfirm = {
+                viewModel.dismissDialog()
+                viewModel.flattenLayers()
+            },
+            onDismiss = viewModel::dismissDialog,
+        )
+        null -> Unit
+    }
+}
+
+@Composable
+private fun RenameDialog(
+    title: Int,
+    initialValue: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var draft by rememberSaveable(initialValue) { mutableStateOf(initialValue) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(title)) },
+        text = {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                singleLine = true,
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = draft.isNotBlank(),
+                onClick = { onConfirm(draft) },
+            ) {
+                Text(stringResource(R.string.studio_rename))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.new_canvas_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun ConfirmationDialog(
+    title: String,
+    body: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(body) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.layer_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.layer_cancel))
+            }
+        },
+    )
+}
+
+private fun sharePainting(
+    context: android.content.Context,
+    viewModel: CanvasViewModel,
+    format: ImageEncode.Format,
+) {
+    viewModel.share(
+        format = format,
+        onReady = { uri, mime ->
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(send, null))
+        },
+        onFailure = {
+            Toast.makeText(context, R.string.studio_save_failed, Toast.LENGTH_SHORT).show()
+        },
+    )
+}
+
+private fun exportPainting(
+    context: android.content.Context,
+    viewModel: CanvasViewModel,
+    format: ImageEncode.Format,
+) {
+    viewModel.export(format) { outcome ->
+        Toast.makeText(
+            context,
+            if (outcome == GalleryExportOutcome.SUCCESS) {
+                R.string.studio_saved_to_gallery
+            } else {
+                R.string.studio_save_failed
+            },
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
+}
+
+@Composable
+private fun CanvasImmersiveEffect() {
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    DisposableEffect(activity) {
+        val window = activity?.window
+        if (window == null) return@DisposableEffect onDispose {}
+
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        val previousBehavior = controller.systemBarsBehavior
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+        onDispose {
+            controller.systemBarsBehavior = previousBehavior
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+}
+
+private fun android.content.Context.findActivity(): Activity? {
+    var current: android.content.Context? = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return current as? Activity
+}
+
+@Composable
+private fun toolName(tool: ToolKind): String = when (tool) {
+    is ToolKind.Brush -> if (tool.preset.eraseMode) {
+        stringResource(R.string.tool_eraser)
+    } else {
+        brushPresetName(tool.preset)
+    }
+    is ToolKind.Smudge -> stringResource(R.string.tool_smudge)
+    is ToolKind.Blur -> stringResource(R.string.tool_blur)
+    is ToolKind.Fill -> stringResource(R.string.tool_fill)
+    is ToolKind.Eyedropper -> stringResource(R.string.tool_eyedropper)
 }
 
 /** 8 dp squares, per `03-canvas-engine.md` §3.2 step 1. */
 private const val CHECKER_DP = 8
-private const val COMPACT_WIDTH = 600
-private const val EXPANDED_WIDTH = 840
-private const val PANEL_MEDIUM = 300
-private const val PANEL_MAX = 320
-private const val PANEL_RAIL_GAP = 64
-private const val PANEL_ANIMATION_MS = 220
-private const val PANEL_COMPACT_FRACTION = 0.85f
 private const val FILL_PROGRESS_BOTTOM = 24
 private const val FILL_PROGRESS_WIDTH = 240
+private const val DOCK_HEIGHT = 56
+private const val DOCK_CHROME_HEIGHT = 120
+private const val LEDGE_CHROME_HEIGHT = 64
+private const val RESET_EDGE_PADDING = 16
+private const val RAIL_EXTRA_WIDTH_DP = 8
+private const val EXCLUSION_GAP_DP = 16
+private const val CHROME_Z = 2f
+private const val HINT_Z = 3f
+private const val RESET_DAMPING_RATIO = 0.8f
+private const val CHROME_ANIMATION_MS = 180
+private const val TOP_STRIP_TRAVERSAL = 0f
+private const val RAIL_TRAVERSAL = 1f
+private const val SLIDER_TRAVERSAL = 2f
+private const val PANEL_TRAVERSAL = 3f
+private const val CANVAS_TRAVERSAL = 4f
+
+private val VIEW_TRANSFORM_SAVER = Saver<ViewTransform, List<Float>>(
+    save = { listOf(it.scale, it.rotation, it.tx, it.ty) },
+    restore = { values ->
+        if (values.size != VIEW_TRANSFORM_FIELD_COUNT) return@Saver null
+        ViewTransform(values[0], values[1], values[2], values[3])
+    },
+)
+
+private const val VIEW_TRANSFORM_FIELD_COUNT = 4
 
 /**
  * The stroke in flight, plus the colour it paints with.

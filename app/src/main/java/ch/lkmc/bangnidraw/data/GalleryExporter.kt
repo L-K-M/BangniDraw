@@ -12,6 +12,8 @@ import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
+internal enum class GalleryExportOutcome { SUCCESS, FAILURE }
+
 /**
  * The gallery mirror (`docs/plan/06-document-and-persistence.md` §9): one
  * MediaStore item per painting under `Pictures/帮你Draw`, always the latest
@@ -105,7 +107,7 @@ class GalleryExporter @Inject constructor(
 
         check(action != GallerySyncDecision.Action.REWRITE)
         return try {
-            insert(displayName, png)
+            insert(displayName, png, ImageEncode.Format.PNG)
         } catch (e: SecurityException) {
             Log.w(TAG, "gallery insert refused", e)
             null
@@ -117,10 +119,14 @@ class GalleryExporter @Inject constructor(
 
     /**
      * §9.5's export "Save as…": a plain insert — a NEW item each time, never
-     * the mirror, and no bookkeeping. Returns false when the insert failed.
+     * the mirror, and no bookkeeping.
      */
-    fun saveAs(displayName: String, png: ByteArray): Boolean = try {
-        insert(displayName, png) != null
+    fun saveAs(
+        displayName: String,
+        bytes: ByteArray,
+        format: ImageEncode.Format,
+    ): Boolean = try {
+        insert(displayName, bytes, format) != null
     } catch (e: SecurityException) {
         Log.w(TAG, "save-as refused", e)
         false
@@ -164,12 +170,16 @@ class GalleryExporter @Inject constructor(
         return outcomeOf(uri)
     }
 
-    private fun insert(displayName: String, png: ByteArray): Outcome? {
+    private fun insert(
+        displayName: String,
+        bytes: ByteArray,
+        format: ImageEncode.Format,
+    ): Outcome? {
         val resolver = context.contentResolver
         val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, "$displayName.png")
-            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+            put(MediaStore.Images.Media.DISPLAY_NAME, "$displayName.${format.extension}")
+            put(MediaStore.Images.Media.MIME_TYPE, format.mimeType)
             put(
                 MediaStore.Images.Media.RELATIVE_PATH,
                 // The folder carries the app's name; strings.xml is its only
@@ -181,7 +191,7 @@ class GalleryExporter @Inject constructor(
         val uri = resolver.insert(collection, values) ?: return null
         try {
             (resolver.openOutputStream(uri) ?: throw IOException("no stream for $uri"))
-                .use { it.write(png) }
+                .use { it.write(bytes) }
             resolver.update(
                 uri,
                 ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) },

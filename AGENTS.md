@@ -119,6 +119,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   and `b13d7532033d96d963c7e3a854ba2b4e98b8a44d324456386e9b34e0615552be`.
 - The app has **no permissions**. Keep it that way; adding any is a
   product decision requiring an ADR.
+- Android caps each edge's system-gesture exclusion to 200 dp vertically.
+  Canvas centres that segment beside the side rail; dock mode excludes
+  nothing so the bottom system gesture remains available.
 - App display name lives ONLY in `strings.xml` (`app_name`). Never
   hardcode "帮你Draw" in a composable (rename checklist: PLAN.md "Renaming").
 - Colors come from `ui/theme/Color.kt` — no ad-hoc `Color(0x…)` in

@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.ui.canvas
 
 import android.app.ActivityManager
 import android.content.Context
+import android.graphics.Rect
 import android.view.SurfaceView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -10,13 +11,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.getSystemService
+import androidx.core.view.ViewCompat
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.DeviceMemory
+import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import kotlin.math.roundToInt
 
 /**
  * The `SurfaceView` the engine draws into, hosted in Compose
@@ -33,11 +41,18 @@ import ch.lkmc.bangnidraw.engine.core.ViewTransform
  * lifetime, not the ViewModel's.
  */
 @Composable
-fun CanvasSurface(
+internal fun CanvasSurface(
     canvas: CanvasSize,
     stack: LayerStack,
     paperColor: Int,
     view: ViewTransform,
+    canvasDescription: String,
+    undoLabel: String,
+    redoLabel: String,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    gestureExclusionSide: Hand?,
+    gestureExclusionWidthDp: Int,
     modifier: Modifier = Modifier,
     debugBuild: Boolean,
     onSession: (EngineSession?) -> Unit,
@@ -54,6 +69,21 @@ fun CanvasSurface(
     val context = LocalContext.current
     val budget = remember(canvas) { MemoryBudget.compute(readDeviceMemory(context), canvas) }
     val sessionHolder = remember { arrayOfNulls<EngineSession>(1) }
+    val surfaceHolder = remember { arrayOfNulls<SurfaceView>(1) }
+    val density = context.resources.displayMetrics.density
+    val accessibility = Modifier.semantics {
+        contentDescription = canvasDescription
+        customActions = listOf(
+            CustomAccessibilityAction(undoLabel) {
+                onUndo()
+                true
+            },
+            CustomAccessibilityAction(redoLabel) {
+                onRedo()
+                true
+            },
+        )
+    }
 
     // `key(canvas)` because the session takes its CanvasSize and its budget at
     // construction and has no resize path: without this, the New Canvas dialog
@@ -63,11 +93,24 @@ fun CanvasSurface(
     // is what makes the SurfaceView, the session and the budget move together.
     key(canvas) {
     AndroidView(
-        modifier = modifier.onSizeChanged { size ->
-            touchHandler?.setViewport(canvas, size.width, size.height)
-        },
+        modifier = modifier
+            .then(accessibility)
+            .onSizeChanged { size ->
+                touchHandler?.setViewport(canvas, size.width, size.height)
+                surfaceHolder[0]?.let { surface ->
+                    updateGestureExclusion(
+                        surface,
+                        size.width,
+                        size.height,
+                        density,
+                        gestureExclusionSide,
+                        gestureExclusionWidthDp,
+                    )
+                }
+            },
         factory = { ctx ->
             SurfaceView(ctx).also { surface ->
+                surfaceHolder[0] = surface
                 val session = EngineSession(
                     surface = surface,
                     canvas = canvas,
@@ -94,6 +137,14 @@ fun CanvasSurface(
             // calling them on every recomposition is idempotent.
             surface.setOnTouchListener(touchHandler)
             surface.setOnHoverListener(touchHandler)
+            updateGestureExclusion(
+                surface,
+                surface.width,
+                surface.height,
+                density,
+                gestureExclusionSide,
+                gestureExclusionWidthDp,
+            )
 
             // Compose recomposes on every state change; the engine only needs
             // to hear about the ones that change what it draws. Each setter
@@ -112,9 +163,34 @@ fun CanvasSurface(
             onSession(null)
             sessionHolder[0]?.release()
             sessionHolder[0] = null
+            surfaceHolder[0] = null
         }
     }
     }
+}
+
+/** Android honors at most 200 dp of vertical exclusion per edge. */
+private fun updateGestureExclusion(
+    surface: SurfaceView,
+    width: Int,
+    height: Int,
+    density: Float,
+    side: Hand?,
+    exclusionWidthDp: Int,
+) {
+    if (side == null || width <= 0 || height <= 0) {
+        ViewCompat.setSystemGestureExclusionRects(surface, emptyList())
+        return
+    }
+
+    val exclusionWidth = (exclusionWidthDp * density).roundToInt().coerceIn(0, width)
+    val exclusionHeight = (MAX_EXCLUSION_HEIGHT_DP * density).roundToInt().coerceAtMost(height)
+    val top = (height - exclusionHeight) / 2
+    val left = if (side == Hand.LEFT) 0 else width - exclusionWidth
+    ViewCompat.setSystemGestureExclusionRects(
+        surface,
+        listOf(Rect(left, top, left + exclusionWidth, top + exclusionHeight)),
+    )
 }
 
 /**
@@ -143,3 +219,4 @@ internal fun readDeviceMemory(context: Context): DeviceMemory {
 
 /** 1 GiB — the smallest device this app targets, used only if the platform reports nothing. */
 private const val MIN_ASSUMED_TOTAL_MEM = 1L shl 30
+private const val MAX_EXCLUSION_HEIGHT_DP = 200

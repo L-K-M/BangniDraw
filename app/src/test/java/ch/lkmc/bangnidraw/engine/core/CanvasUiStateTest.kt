@@ -10,13 +10,13 @@ class CanvasUiStateTest {
     fun `a dialog requested mid stroke waits for stroke end`() {
         val active = CanvasUiPolicy.onStrokeBegin(CanvasChromeState())
 
-        val parked = CanvasUiPolicy.requestDialog(active, CanvasDialog.FLATTEN)
+        val parked = CanvasUiPolicy.requestDialog(active, CanvasDialog.FlattenLayers)
 
         assertNull(parked.dialog)
-        assertEquals(CanvasDialog.FLATTEN, parked.pendingDialog)
+        assertEquals(CanvasDialog.FlattenLayers, parked.pendingDialog)
 
         val ended = CanvasUiPolicy.onStrokeEnd(parked)
-        assertEquals(CanvasDialog.FLATTEN, ended.dialog)
+        assertEquals(CanvasDialog.FlattenLayers, ended.dialog)
         assertNull(ended.pendingDialog)
     }
 
@@ -57,7 +57,7 @@ class CanvasUiStateTest {
         val start = CanvasChromeState(
             openPanel = CanvasPanel.LAYERS,
             focusMode = FocusMode.FOCUSED,
-            dialog = CanvasDialog.FLATTEN,
+            dialog = CanvasDialog.FlattenLayers,
         )
 
         val dialog = CanvasUiPolicy.back(start)

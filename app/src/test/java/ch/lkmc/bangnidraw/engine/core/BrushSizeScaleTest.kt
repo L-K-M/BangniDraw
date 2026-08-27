@@ -26,4 +26,21 @@ class BrushSizeScaleTest {
         assertEquals(12f, BrushSizeScale.size(0.8f, 12f, 12f))
         assertEquals(0f, BrushSizeScale.fraction(12f, 12f, 12f))
     }
+
+    @Test
+    fun `keyboard adjustment moves five percent and clamps`() {
+        assertEquals(
+            0.55f,
+            BrushSizeScale.fraction(
+                BrushSizeScale.adjust(20f, 2f, 200f, SizeAdjustment.INCREASE),
+                2f,
+                200f,
+            ),
+            absoluteTolerance = 0.0001f,
+        )
+        assertEquals(
+            2f,
+            BrushSizeScale.adjust(2f, 2f, 200f, SizeAdjustment.DECREASE),
+        )
+    }
 }

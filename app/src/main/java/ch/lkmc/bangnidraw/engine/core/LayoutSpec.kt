@@ -211,8 +211,7 @@ internal data class LayoutSpec(
         }
 
         private fun toolSlot(width: WidthClass, mode: RailMode): Int {
-            if (mode == RailMode.SHORT) return MIN_TARGET_DP
-            if (mode == RailMode.DOCK) return DOCK_HEIGHT_DP
+            if (mode == RailMode.SHORT || mode == RailMode.DOCK) return MIN_TARGET_DP
             if (width == WidthClass.EXPANDED) return EXPANDED_TARGET_DP
             return MIN_TARGET_DP
         }

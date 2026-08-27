@@ -73,6 +73,14 @@ class LayoutSpecTest {
     }
 
     @Test
+    fun `compact dock fits six targets on a 320 dp window`() {
+        val spec = LayoutSpec.forWindow(WidthClass.COMPACT, 480, Hand.RIGHT)
+
+        assertEquals(LayoutSpec.MIN_TARGET_DP, spec.toolSlotDp)
+        assertTrue(spec.toolSlotDp * 6 <= 320)
+    }
+
+    @Test
     fun `persistent chrome leaves the central 60 percent clear`() {
         val windows = listOf(
             Window(WidthClass.COMPACT, 360, 800),

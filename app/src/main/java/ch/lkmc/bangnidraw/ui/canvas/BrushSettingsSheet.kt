@@ -20,14 +20,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,6 +50,8 @@ import ch.lkmc.bangnidraw.engine.core.BrushPreview
 import ch.lkmc.bangnidraw.engine.core.BrushSizeScale
 import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.Curve
+import ch.lkmc.bangnidraw.engine.core.HapticsMode
+import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.TiltEffect
 import ch.lkmc.bangnidraw.engine.core.TipOrientation
 import ch.lkmc.bangnidraw.engine.core.TipShape
@@ -63,11 +66,11 @@ internal fun BrushSettingsSheet(
     presets: List<BrushPreset>,
     brushColor: Int,
     paperColor: Int,
+    hapticsMode: HapticsMode,
     onPresetSelected: (String) -> Unit,
     onPresetChanged: (BrushPreset) -> Unit,
     onPresetPersisted: () -> Unit,
     onReset: () -> Unit,
-    onDismiss: () -> Unit,
 ) {
     val view = LocalView.current
     val category = BrushPresets.railOrder(presets).filter {
@@ -81,6 +84,7 @@ internal fun BrushSettingsSheet(
     }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
     var preview by remember { mutableStateOf<ImageBitmap?>(null) }
+    var previousOpacity by remember(active.id) { mutableFloatStateOf(active.opacity) }
     LaunchedEffect(active, brushColor, paperColor, previewSize) {
         if (previewSize.width <= 0 || previewSize.height <= 0) return@LaunchedEffect
         delay(PREVIEW_DEBOUNCE_MS)
@@ -101,7 +105,11 @@ internal fun BrushSettingsSheet(
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxSize(),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -129,7 +137,9 @@ internal fun BrushSettingsSheet(
                         selected = preset.id == active.id,
                         onClick = {
                             if (preset.id == active.id) return@FilterChip
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            if (hapticsMode == HapticsMode.ENABLED) {
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            }
                             onPresetSelected(preset.id)
                         },
                         label = { Text(brushPresetName(preset)) },
@@ -174,7 +184,16 @@ internal fun BrushSettingsSheet(
                 value = active.opacity,
                 valueText = percent(active.opacity),
                 range = UNIT_RANGE,
-                onValueChange = { onPresetChanged(active.copy(opacity = it)) },
+                onValueChange = { value ->
+                    if (
+                        hapticsMode == HapticsMode.ENABLED &&
+                        OpacityMilestone.crossed(previousOpacity, value).isNotEmpty()
+                    ) {
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
+                    previousOpacity = value
+                    onPresetChanged(active.copy(opacity = value))
+                },
                 onValueChangeFinished = onPresetPersisted,
             )
             SettingSlider(

@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.input
 
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.GestureArbiter
+import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.RotationSnap
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
@@ -67,6 +68,27 @@ class CanvasTouchHandlerTest {
 
     private fun ms(v: Long) = v * 1_000_000L
     private fun handler(host: Host) = CanvasTouchHandler(density = 2f, host = host)
+
+    @Test
+    fun `viewport changes preserve the source point at center`() {
+        val host = Host()
+        val h = handler(host)
+        val canvas = CanvasSize(1000, 500)
+        val oldFit = FitTransform(1000f, 1000f, 1000f, 500f)
+        h.setViewport(canvas, width = 1000, height = 1000)
+        h.setView(ViewTransform(scale = 2f, rotation = 0.2f, tx = 80f, ty = -40f))
+        val oldCanvas = h.view.invert(oldFit.viewWidth / 2f, oldFit.viewHeight / 2f)
+        val oldUv = oldFit.viewToUv(oldCanvas.first, oldCanvas.second)
+
+        val newFit = FitTransform(600f, 1000f, 1000f, 500f)
+        h.setViewport(canvas, width = 600, height = 1000)
+        val newCanvas = h.view.invert(newFit.viewWidth / 2f, newFit.viewHeight / 2f)
+        val newUv = newFit.viewToUv(newCanvas.first, newCanvas.second)
+
+        assertEquals(oldUv.first, newUv.first, 1e-5f)
+        assertEquals(oldUv.second, newUv.second, 1e-5f)
+        assertTrue(host.events.contains("view"), "the host must receive the rebased transform")
+    }
 
     @Test
     fun `two fingers dragging pan the view`() {

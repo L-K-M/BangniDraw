@@ -60,12 +60,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.data.ImageEncode
+import ch.lkmc.bangnidraw.data.GalleryExportOutcome
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.WidthClass
@@ -202,11 +203,14 @@ fun StudioScreen(
                             onRename = { title -> viewModel.rename(painting.id, title) },
                             onDuplicate = { viewModel.duplicate(painting.id) },
                             onSaveAs = {
-                                viewModel.saveAsNewGalleryItem(painting.id) { ok ->
+                                viewModel.saveAsNewGalleryItem(painting.id) { outcome ->
                                     Toast.makeText(
                                         context,
-                                        if (ok) R.string.studio_saved_to_gallery
-                                        else R.string.studio_save_failed,
+                                        if (outcome == GalleryExportOutcome.SUCCESS) {
+                                            R.string.studio_saved_to_gallery
+                                        } else {
+                                            R.string.studio_save_failed
+                                        },
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                 }

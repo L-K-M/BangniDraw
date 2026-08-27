@@ -2,6 +2,7 @@
 
 package ch.lkmc.bangnidraw.ui.canvas
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,9 +24,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,6 +44,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -53,6 +57,8 @@ import ch.lkmc.bangnidraw.engine.core.Composite
 import ch.lkmc.bangnidraw.engine.core.DishWell
 import ch.lkmc.bangnidraw.engine.core.HsvColor
 import ch.lkmc.bangnidraw.engine.core.HsvPicker
+import ch.lkmc.bangnidraw.engine.core.HapticsMode
+import ch.lkmc.bangnidraw.engine.core.HueMilestone
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.MixingDish
 import ch.lkmc.bangnidraw.engine.core.Palette
@@ -60,6 +66,8 @@ import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+
+internal enum class TextInputFocus { CLEAR, FOCUSED }
 
 /** Hue/SV picker, persistent palettes, and the active mixer's dish. */
 @Composable
@@ -79,7 +87,8 @@ internal fun ColorPanel(
     onPickSwatch: (Int) -> Unit,
     onDishWellChanged: (DishWell, Int) -> Unit,
     onPickDishWell: (DishWell) -> Unit,
-    onDismiss: () -> Unit,
+    onTextInputFocus: (TextInputFocus) -> Unit,
+    hapticsMode: HapticsMode,
 ) {
     var hsv by remember(state.current) { mutableStateOf(HsvColor.fromArgb(state.current)) }
     var draft by remember(state.current) { mutableIntStateOf(state.current) }
@@ -96,7 +105,11 @@ internal fun ColorPanel(
         onColorSelected(argb)
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxSize(),
+    ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(PANEL_GAP),
@@ -108,6 +121,7 @@ internal fun ColorPanel(
             Text(stringResource(R.string.color_panel), style = MaterialTheme.typography.headlineSmall)
             HsvRingSquare(
                 hsv = hsv,
+                hapticsMode = hapticsMode,
                 onPreview = ::preview,
                 onCommit = { select(it.toArgb()) },
             )
@@ -117,7 +131,7 @@ internal fun ColorPanel(
                 onAddCurrent = { onAddToPalette(draft) },
                 onSwap = onSwapColors,
             )
-            ColorFields(state.current, ::select)
+            ColorFields(state.current, ::select, onTextInputFocus)
 
             PaletteSwitcher(
                 palettes = state.palettes,
@@ -154,6 +168,7 @@ internal fun ColorPanel(
 @Composable
 private fun HsvRingSquare(
     hsv: HsvColor,
+    hapticsMode: HapticsMode,
     onPreview: (HsvColor) -> Unit,
     onCommit: (HsvColor) -> Unit,
 ) {
@@ -161,10 +176,11 @@ private fun HsvRingSquare(
     val latestHsv = rememberUpdatedState(hsv)
     val latestPreview = rememberUpdatedState(onPreview)
     val latestCommit = rememberUpdatedState(onCommit)
+    val view = LocalView.current
     Canvas(
         modifier = Modifier
             .size(PICKER_SIZE)
-            .pointerInput(Unit) {
+            .pointerInput(hapticsMode) {
                 detectTapGestures { position ->
                     val next = HsvPicker.select(
                         position.x,
@@ -172,20 +188,33 @@ private fun HsvRingSquare(
                         minOf(size.width, size.height).toFloat(),
                         latestHsv.value,
                     )
+                    if (
+                        hapticsMode == HapticsMode.ENABLED &&
+                        HueMilestone.crossed(latestHsv.value.h, next.h)
+                    ) {
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
                     latestPreview.value(next)
                     latestCommit.value(next)
                 }
             }
-            .pointerInput(Unit) {
+            .pointerInput(hapticsMode) {
                 var gestureHsv = latestHsv.value
                 val update: (Offset) -> Unit = { position ->
-                    gestureHsv = HsvPicker.select(
+                    val next = HsvPicker.select(
                         position.x,
                         position.y,
                         minOf(size.width, size.height).toFloat(),
                         gestureHsv,
                     )
-                    latestPreview.value(gestureHsv)
+                    if (
+                        hapticsMode == HapticsMode.ENABLED &&
+                        HueMilestone.crossed(gestureHsv.h, next.h)
+                    ) {
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
+                    gestureHsv = next
+                    latestPreview.value(next)
                 }
                 detectDragGestures(
                     onDragStart = {
@@ -267,7 +296,11 @@ private fun ColorChips(
 }
 
 @Composable
-private fun ColorFields(color: Int, onSelected: (Int) -> Unit) {
+private fun ColorFields(
+    color: Int,
+    onSelected: (Int) -> Unit,
+    onTextInputFocus: (TextInputFocus) -> Unit,
+) {
     var hex by remember(color) { mutableStateOf(ColorText.hex(color)) }
     var red by remember(color) { mutableStateOf(Composite.red(color).toString()) }
     var green by remember(color) { mutableStateOf(Composite.green(color).toString()) }
@@ -288,23 +321,40 @@ private fun ColorFields(color: Int, onSelected: (Int) -> Unit) {
         },
         label = { Text(stringResource(R.string.color_hex)) },
         singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { focus ->
+                onTextInputFocus(
+                    if (focus.hasFocus) TextInputFocus.FOCUSED else TextInputFocus.CLEAR,
+                )
+            },
     )
     Row(horizontalArrangement = Arrangement.spacedBy(FIELD_GAP)) {
-        ChannelField(red, R.string.color_red) { red = it; selectRgb() }
-        ChannelField(green, R.string.color_green) { green = it; selectRgb() }
-        ChannelField(blue, R.string.color_blue) { blue = it; selectRgb() }
+        ChannelField(red, R.string.color_red, onTextInputFocus) { red = it; selectRgb() }
+        ChannelField(green, R.string.color_green, onTextInputFocus) { green = it; selectRgb() }
+        ChannelField(blue, R.string.color_blue, onTextInputFocus) { blue = it; selectRgb() }
     }
 }
 
 @Composable
-private fun ChannelField(value: String, label: Int, onValueChange: (String) -> Unit) {
+private fun ChannelField(
+    value: String,
+    label: Int,
+    onTextInputFocus: (TextInputFocus) -> Unit,
+    onValueChange: (String) -> Unit,
+) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(stringResource(label)) },
         singleLine = true,
-        modifier = Modifier.size(width = CHANNEL_FIELD_WIDTH, height = CHANNEL_FIELD_HEIGHT),
+        modifier = Modifier
+            .size(width = CHANNEL_FIELD_WIDTH, height = CHANNEL_FIELD_HEIGHT)
+            .onFocusChanged { focus ->
+                onTextInputFocus(
+                    if (focus.hasFocus) TextInputFocus.FOCUSED else TextInputFocus.CLEAR,
+                )
+            },
     )
 }
 

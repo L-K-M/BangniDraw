@@ -10,6 +10,7 @@ enum class TemporaryReason {
     LongPress,
     Hover,
     Rail,
+    Keyboard,
 }
 
 data class ToolSelection(

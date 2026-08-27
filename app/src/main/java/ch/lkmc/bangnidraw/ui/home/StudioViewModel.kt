@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.data.CpuFlatten
 import ch.lkmc.bangnidraw.data.GalleryExporter
+import ch.lkmc.bangnidraw.data.GalleryExportOutcome
 import ch.lkmc.bangnidraw.data.GalleryNames
 import ch.lkmc.bangnidraw.data.ImageEncode
 import ch.lkmc.bangnidraw.data.Prefs
@@ -208,7 +209,7 @@ class StudioViewModel @Inject constructor(
      * §9.5's export "Save as…": a fresh gallery item, not the mirror.
      * [onDone] reports success on the main thread for the toast.
      */
-    fun saveAsNewGalleryItem(id: String, onDone: (Boolean) -> Unit) {
+    internal fun saveAsNewGalleryItem(id: String, onDone: (GalleryExportOutcome) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val doc = (store.load(id) as? ProjectStore.LoadResult.Loaded)?.document
             val ok = if (doc == null) {
@@ -221,9 +222,11 @@ class StudioViewModel @Inject constructor(
                         context.getString(R.string.studio_untitled),
                     ),
                     ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG),
+                    ImageEncode.Format.PNG,
                 )
             }
-            withContext(Dispatchers.Main) { onDone(ok) }
+            val outcome = if (ok) GalleryExportOutcome.SUCCESS else GalleryExportOutcome.FAILURE
+            withContext(Dispatchers.Main) { onDone(outcome) }
         }
     }
 

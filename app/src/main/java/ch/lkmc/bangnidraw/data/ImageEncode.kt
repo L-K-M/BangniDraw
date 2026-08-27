@@ -14,7 +14,10 @@ import java.nio.ByteBuffer
  */
 object ImageEncode {
 
-    enum class Format { PNG, JPEG }
+    enum class Format(val extension: String, val mimeType: String) {
+        PNG("png", "image/png"),
+        JPEG("jpg", "image/jpeg"),
+    }
 
     /**
      * Encodes [rgba] (`width × height × 4`, premultiplied). JPEG carries no

@@ -25,9 +25,9 @@
     <string name="studio_copy_suffix">" 副本"</string>
     <string name="share_as_png">以 PNG 分享</string>
     <string name="share_as_jpeg">以 JPEG 分享</string>
-    <string name="save_to_gallery">另存为相册新图片</string>
-    <string name="studio_saved_to_gallery">已保存到相册</string>
-    <string name="studio_save_failed">保存失败</string>
+    <string name="save_to_gallery">导出为相册新图片</string>
+    <string name="studio_saved_to_gallery">已添加到相册</string>
+    <string name="studio_save_failed">无法添加到相册</string>
 
     <string name="new_canvas_title">新画布</string>
     <string name="new_canvas_create">创建</string>
@@ -56,8 +56,25 @@
 
     <string name="canvas_back">返回画室</string>
     <string name="canvas_reset_view">复位视图</string>
+    <string name="canvas_view_readout">%1$d %% · %2$d°</string>
+    <string name="panel_layers_opened">图层面板已打开</string>
+    <string name="panel_color_opened">颜色面板已打开</string>
+    <string name="panel_brush_opened">画笔设置已打开</string>
+    <string name="panel_fill_opened">填充设置已打开</string>
     <string name="canvas_undo">撤销</string>
     <string name="canvas_redo">重做</string>
+    <string name="canvas_more">更多操作</string>
+    <string name="canvas_export_png">导出 PNG</string>
+    <string name="canvas_export_jpeg">导出 JPEG</string>
+    <string name="canvas_focus">专注模式</string>
+    <string name="canvas_settings">设置</string>
+    <string name="cd_color">颜色，%1$s</string>
+    <string name="canvas_show_controls">显示控件</string>
+    <string name="canvas_hint_draw">用手指或笔绘画</string>
+    <string name="canvas_hint_navigate">双指移动、缩放和旋转</string>
+    <string name="canvas_hint_undo">双指轻点可撤销</string>
+    <string name="canvas_hint_dismiss">知道了</string>
+    <string name="canvas_description">%1$s，%2$d × %3$d，%4$s，%5$s。双指可移动、缩放和旋转。</string>
     <string name="canvas_history_cap">%1$d / %2$d 步 · 上限 %3$d MB</string>
 
     <string name="preset_pencil">铅笔</string>

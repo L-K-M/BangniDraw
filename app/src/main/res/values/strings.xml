@@ -30,9 +30,9 @@
     <string name="studio_copy_suffix">" copy"</string>
     <string name="share_as_png">Share as PNG</string>
     <string name="share_as_jpeg">Share as JPEG</string>
-    <string name="save_to_gallery">Save to gallery as new image</string>
-    <string name="studio_saved_to_gallery">Saved to the gallery</string>
-    <string name="studio_save_failed">Could not save</string>
+    <string name="save_to_gallery">Export a new gallery image</string>
+    <string name="studio_saved_to_gallery">Added to gallery</string>
+    <string name="studio_save_failed">Couldn’t add to gallery</string>
 
     <!-- New Canvas dialog (08 §2.1) -->
     <string name="new_canvas_title">New painting</string>
@@ -63,8 +63,25 @@
     <!-- Canvas -->
     <string name="canvas_back">Back to the Studio</string>
     <string name="canvas_reset_view">Reset view</string>
+    <string name="canvas_view_readout">%1$d %% · %2$d°</string>
+    <string name="panel_layers_opened">Layers panel opened</string>
+    <string name="panel_color_opened">Color panel opened</string>
+    <string name="panel_brush_opened">Brush settings opened</string>
+    <string name="panel_fill_opened">Fill settings opened</string>
     <string name="canvas_undo">Undo</string>
     <string name="canvas_redo">Redo</string>
+    <string name="canvas_more">More actions</string>
+    <string name="canvas_export_png">Export PNG</string>
+    <string name="canvas_export_jpeg">Export JPEG</string>
+    <string name="canvas_focus">Focus mode</string>
+    <string name="canvas_settings">Settings</string>
+    <string name="cd_color">Color, %1$s</string>
+    <string name="canvas_show_controls">Show controls</string>
+    <string name="canvas_hint_draw">Draw with a finger or pen</string>
+    <string name="canvas_hint_navigate">Two fingers: move, zoom, rotate</string>
+    <string name="canvas_hint_undo">Tap with two fingers to undo</string>
+    <string name="canvas_hint_dismiss">Got it</string>
+    <string name="canvas_description">%1$s, %2$d × %3$d, %4$s, %5$s. Two fingers move, zoom, and rotate.</string>
     <!-- The honest journal readout (06 §1, principle 5): steps used, the step
          cap, and the byte cap in MB. -->
     <string name="canvas_history_cap">%1$d / %2$d steps · %3$d MB cap</string>

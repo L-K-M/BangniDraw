@@ -8,7 +8,12 @@ internal enum class CanvasPanel {
     OVERFLOW,
 }
 
-internal enum class CanvasDialog { MERGE, FLATTEN }
+internal sealed interface CanvasDialog {
+    data class MergeLayers(val index: Int) : CanvasDialog
+    data object FlattenLayers : CanvasDialog
+    data class RenameLayer(val index: Int, val currentName: String) : CanvasDialog
+    data object RenamePainting : CanvasDialog
+}
 
 internal enum class FocusMode { CHROME, FOCUSED }
 

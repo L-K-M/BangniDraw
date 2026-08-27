@@ -22,4 +22,21 @@ internal object BrushSizeScale {
         return exp(ln(minimum) + t * (ln(maximum) - ln(minimum)))
             .coerceIn(minimum, maximum)
     }
+
+    fun adjust(
+        size: Float,
+        minimum: Float,
+        maximum: Float,
+        adjustment: SizeAdjustment,
+    ): Float {
+        val direction = when (adjustment) {
+            SizeAdjustment.DECREASE -> -1f
+            SizeAdjustment.INCREASE -> 1f
+        }
+        val fraction = fraction(size, minimum, maximum) + direction * KEYBOARD_STEP
+
+        return size(fraction, minimum, maximum)
+    }
+
+    private const val KEYBOARD_STEP = 0.05f
 }

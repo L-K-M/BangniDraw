@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import android.animation.ValueAnimator
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.graphics.Bitmap
@@ -32,14 +33,11 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,12 +67,15 @@ import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.BlendMode
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.core.CanvasDialog
 import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerPanelOrder
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
+import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
+import ch.lkmc.bangnidraw.engine.core.PanelMode
 import ch.lkmc.bangnidraw.engine.core.Refusal
 import ch.lkmc.bangnidraw.ui.theme.Indigo
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
@@ -90,7 +91,8 @@ internal fun LayerPanel(
     stack: LayerStack,
     paperColor: Int,
     layerCap: Int,
-    compact: Boolean,
+    panelMode: PanelMode,
+    hapticsMode: HapticsMode,
     documentBusy: Boolean,
     feedbackRevision: Long,
     refusal: Refusal?,
@@ -102,9 +104,8 @@ internal fun LayerPanel(
     onDuplicate: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
     onMergeDown: (Int) -> Unit,
-    onFlatten: () -> Unit,
     onClear: (Int) -> Unit,
-    onRename: (Int, String) -> Unit,
+    onRequestDialog: (CanvasDialog) -> Unit,
     onOpacityPreview: (Int, Float) -> Boolean,
     onOpacityFinished: () -> Unit,
     onToggleVisibility: (Int) -> Unit,
@@ -114,14 +115,13 @@ internal fun LayerPanel(
     onPaperColor: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val compact = panelMode == PanelMode.FULL_HEIGHT_SHEET
     var displayOrder by remember(stack.layers) {
         mutableStateOf(stack.layers.asReversed().map(Layer::id))
     }
     var draggedId by remember { mutableStateOf<LayerId?>(null) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var opacityLayer by remember { mutableStateOf<LayerId?>(null) }
-    var rename by remember { mutableStateOf<RenameRequest?>(null) }
-    var confirmation by remember { mutableStateOf<LayerConfirmation?>(null) }
     var headerMenu by remember { mutableStateOf(false) }
     var paperMenu by remember { mutableStateOf(false) }
     var hint by remember { mutableStateOf<String?>(null) }
@@ -137,14 +137,20 @@ internal fun LayerPanel(
     }
     LaunchedEffect(stack.active.id) {
         val displayIndex = LayerPanelOrder.displayIndex(stack.activeIndex, stack.size)
-        listState.animateScrollToItem(displayIndex)
+        if (ValueAnimator.areAnimatorsEnabled()) {
+            listState.animateScrollToItem(displayIndex)
+        } else {
+            listState.scrollToItem(displayIndex)
+        }
     }
     LaunchedEffect(feedbackRevision) {
         if (feedbackRevision == seenFeedback) return@LaunchedEffect
         seenFeedback = feedbackRevision
 
         if (refusal == null) {
-            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            if (hapticsMode == HapticsMode.ENABLED) {
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            }
             return@LaunchedEffect
         }
 
@@ -153,7 +159,7 @@ internal fun LayerPanel(
         } else {
             HapticFeedbackConstants.LONG_PRESS
         }
-        view.performHapticFeedback(rejected)
+        if (hapticsMode == HapticsMode.ENABLED) view.performHapticFeedback(rejected)
         displayOrder = stack.layers.asReversed().map(Layer::id)
         hint = refusalText
         hintRefusal = refusal
@@ -188,7 +194,7 @@ internal fun LayerPanel(
                     menuOpen = headerMenu,
                     onAdd = onAdd,
                     onMenuChange = { headerMenu = it },
-                    onFlatten = { confirmation = LayerConfirmation.Flatten },
+                    onFlatten = { onRequestDialog(CanvasDialog.FlattenLayers) },
                 )
 
                 LazyColumn(
@@ -207,12 +213,15 @@ internal fun LayerPanel(
                             editingOpacity = opacityLayer == id,
                             thumbnail = thumbnails[id],
                             dragOffset = if (draggedId == id) dragOffset else 0f,
+                            hapticsMode = hapticsMode,
                             onSelect = {
                                 onOpacityFinished()
                                 opacityLayer = null
                                 onSelect(index)
                                 if (compact) onDismiss()
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                if (hapticsMode == HapticsMode.ENABLED) {
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
                             },
                             onToggleVisibility = { onToggleVisibility(index) },
                             onOpacityClick = {
@@ -221,7 +230,9 @@ internal fun LayerPanel(
                             },
                             onOpacityPreview = { value -> onOpacityPreview(index, value) },
                             onOpacityFinished = onOpacityFinished,
-                            onRename = { rename = RenameRequest(index, displayName) },
+                            onRename = {
+                                onRequestDialog(CanvasDialog.RenameLayer(index, displayName))
+                            },
                             onDuplicate = { onDuplicate(index) },
                             onMergeDown = {
                                 val below = stack.layers.getOrNull(index - 1)
@@ -229,7 +240,7 @@ internal fun LayerPanel(
                                     (layer.props.blendMode != BlendMode.NORMAL ||
                                         below.props.blendMode != BlendMode.NORMAL)
                                 if (needsConfirm) {
-                                    confirmation = LayerConfirmation.Merge(index)
+                                    onRequestDialog(CanvasDialog.MergeLayers(index))
                                 } else {
                                     onMergeDown(index)
                                 }
@@ -263,7 +274,9 @@ internal fun LayerPanel(
                                     add(target, removeAt(current))
                                 }
                                 dragOffset -= direction * rowHeightPx
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                if (hapticsMode == HapticsMode.ENABLED) {
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
                             },
                             onDragEnd = {
                                 val fromDisplay = stack.layers.asReversed().indexOfFirst { it.id == id }
@@ -320,26 +333,6 @@ internal fun LayerPanel(
         }
     }
 
-    RenameDialog(
-        request = rename,
-        onDismiss = { rename = null },
-        onRename = { index, name ->
-            rename = null
-            onRename(index, name)
-        },
-    )
-    ConfirmationDialog(
-        confirmation = confirmation,
-        layerCount = stack.size,
-        onDismiss = { confirmation = null },
-        onConfirm = { action ->
-            confirmation = null
-            when (action) {
-                LayerConfirmation.Flatten -> onFlatten()
-                is LayerConfirmation.Merge -> onMergeDown(action.index)
-            }
-        },
-    )
 }
 
 @Composable
@@ -401,6 +394,7 @@ private fun LayerRow(
     editingOpacity: Boolean,
     thumbnail: LayerThumbnail?,
     dragOffset: Float,
+    hapticsMode: HapticsMode,
     onSelect: () -> Unit,
     onToggleVisibility: () -> Unit,
     onOpacityClick: () -> Unit,
@@ -439,7 +433,9 @@ private fun LayerRow(
             .combinedClickable(
                 onClick = onSelect,
                 onLongClick = {
-                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    if (hapticsMode == HapticsMode.ENABLED) {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    }
                     menuOpen = true
                 },
             ),
@@ -483,7 +479,10 @@ private fun LayerRow(
                     onValueChange = { value ->
                         if (!onOpacityPreview(value)) return@ThinSlider
 
-                        if (OpacityMilestone.crossed(opacity, value).isNotEmpty()) {
+                        if (
+                            hapticsMode == HapticsMode.ENABLED &&
+                            OpacityMilestone.crossed(opacity, value).isNotEmpty()
+                        ) {
                             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                         }
                         opacity = value
@@ -739,71 +738,6 @@ private fun paperChoices(): List<PaperChoice> = listOf(
 )
 
 @Composable
-private fun RenameDialog(
-    request: RenameRequest?,
-    onDismiss: () -> Unit,
-    onRename: (Int, String) -> Unit,
-) {
-    if (request == null) return
-    var value by remember(request) { mutableStateOf(request.name) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.layer_rename_title)) },
-        text = {
-            OutlinedTextField(
-                value = value,
-                onValueChange = { value = it },
-                label = { Text(stringResource(R.string.layer_rename_hint)) },
-                singleLine = true,
-            )
-        },
-        confirmButton = {
-            Button(onClick = { onRename(request.index, value) }, enabled = value.isNotBlank()) {
-                Text(stringResource(R.string.layer_rename))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.layer_cancel)) }
-        },
-    )
-}
-
-@Composable
-private fun ConfirmationDialog(
-    confirmation: LayerConfirmation?,
-    layerCount: Int,
-    onDismiss: () -> Unit,
-    onConfirm: (LayerConfirmation) -> Unit,
-) {
-    if (confirmation == null) return
-    val flatten = confirmation == LayerConfirmation.Flatten
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                if (flatten) stringResource(R.string.layer_flatten_title, layerCount)
-                else stringResource(R.string.layer_merge_title),
-            )
-        },
-        text = {
-            Text(
-                stringResource(
-                    if (flatten) R.string.layer_flatten_body else R.string.layer_merge_body,
-                ),
-            )
-        },
-        confirmButton = {
-            Button(onClick = { onConfirm(confirmation) }) {
-                Text(stringResource(R.string.layer_confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.layer_cancel)) }
-        },
-    )
-}
-
-@Composable
 private fun refusalMessage(refusal: Refusal?, canvas: CanvasSize, layerCap: Int): String? = when (refusal) {
     Refusal.AT_CAP -> stringResource(R.string.layer_limit, canvas.width, canvas.height, layerCap)
     Refusal.LAST_LAYER -> stringResource(R.string.layer_only)
@@ -812,13 +746,6 @@ private fun refusalMessage(refusal: Refusal?, canvas: CanvasSize, layerCap: Int)
     Refusal.NO_LAYER_BELOW -> stringResource(R.string.layer_no_below)
     Refusal.NOOP -> stringResource(R.string.layer_no_change)
     null -> null
-}
-
-private data class RenameRequest(val index: Int, val name: String)
-
-private sealed interface LayerConfirmation {
-    data object Flatten : LayerConfirmation
-    data class Merge(val index: Int) : LayerConfirmation
 }
 
 private data class PaperChoice(val color: Color, val label: Int)

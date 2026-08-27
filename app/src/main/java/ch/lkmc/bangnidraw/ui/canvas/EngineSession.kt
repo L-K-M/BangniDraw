@@ -29,6 +29,7 @@ import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
 import java.nio.ByteBuffer
 
 internal enum class LayerEditResult { APPLIED, REFUSED }
+internal enum class StrokeCancelMode { BUFFERED, READ_MODIFY_WRITE }
 
 /**
  * The per-canvas façade the ViewModel and tools talk to
@@ -72,6 +73,16 @@ class EngineSession(
 ) : GLFrontBufferedRenderer.Callback<DabBatch> {
 
     val renderer = CanvasRenderer(canvas, budget, assets, onTile = onTile)
+
+    var onRmwStarted: ((StrokeSpec) -> Unit)? = null
+    var onRmwTilesTouched: ((StrokeSpec, IntArray, Int) -> Unit)? = null
+    var onRmwCancelled: ((StrokeSpec, List<TileKey>) -> Unit)? = null
+
+    init {
+        renderer.onRmwFirstTouch = { spec, keys, count ->
+            onRmwTilesTouched?.invoke(spec, keys, count)
+        }
+    }
 
     /**
      * §11's budgets as measured, for the debug overlay (`10-performance.md`
@@ -137,6 +148,11 @@ class EngineSession(
     fun isEngineReady(): Boolean = renderer.isReady
 
     private var contextReady = false
+    @Volatile
+    private var activeStrokeRmw = false
+
+    @Volatile
+    private var activeStrokeSpec: StrokeSpec? = null
 
     // ------------------------------------------------------------- callbacks
 
@@ -386,7 +402,29 @@ class EngineSession(
      * for it is a no-op, so refusing late costs nothing.
      */
     fun beginStroke(spec: StrokeSpec, mode: BufferMode, r: Float, g: Float, b: Float) {
-        frontBuffered.execute { renderer.beginStroke(spec, mode, r, g, b) }
+        activeStrokeRmw = spec.rmw != null
+        activeStrokeSpec = spec
+        frontBuffered.execute {
+            if (spec.rmw != null) {
+                val pending = renderer.finishReadback()
+                if (ReadbackPolicy.strokeCommit(pending) == StrokeCommitDecision.CANCEL) {
+                    pendingMirror = pending
+                    pumpReadback()
+                    activeStrokeRmw = false
+                    activeStrokeSpec = null
+                    onRmwCancelled?.invoke(spec, emptyList())
+                    return@execute
+                }
+                onRmwStarted?.invoke(spec)
+            }
+
+            val opened = renderer.beginStroke(spec, mode, r, g, b)
+            if (!opened && spec.rmw != null) {
+                activeStrokeRmw = false
+                activeStrokeSpec = null
+                onRmwCancelled?.invoke(spec, emptyList())
+            }
+        }
     }
 
     /**
@@ -517,6 +555,8 @@ class EngineSession(
      * has been mapped and handed to the tile sink.
      */
     fun endStroke(opacityCeiling: Float) {
+        activeStrokeRmw = false
+        activeStrokeSpec = null
         val thisRevision = revisions.incrementAndGet()
         // §8.3's order, and it holds because the FIFO assumption §8.3 flags was
         // verified against graphics-core 1.0.4 (AGENTS.md): this block runs
@@ -642,6 +682,25 @@ class EngineSession(
         redraw()
     }
 
+    /** Restores the GPU-only partial pixels of a cancelled RMW stroke. */
+    fun restoreCancelledRmw(
+        layer: LayerId,
+        tiles: Map<TileKey, ByteArray?>,
+        onDone: (Boolean) -> Unit,
+    ) {
+        if (!frontBuffered.isValid()) {
+            onDone(false)
+            return
+        }
+        frontBuffered.execute {
+            val restored = renderer.restoreCancelledRmw(layer, tiles)
+            pollHandler.post {
+                if (restored) redraw()
+                onDone(restored)
+            }
+        }
+    }
+
     /**
      * Reports whether bounded fence waits delivered every in-flight tile.
      * A pending result keeps callers from persisting stale CPU pixels.
@@ -660,18 +719,36 @@ class EngineSession(
     }
 
     /** §4/§8.4: a cancelled stroke leaves no trace. */
-    fun cancelStroke() {
+    internal fun cancelStroke(
+        beforeCancel: (StrokeCancelMode) -> Unit = {},
+    ): StrokeCancelMode {
+        val mode = if (activeStrokeRmw) {
+            StrokeCancelMode.READ_MODIFY_WRITE
+        } else {
+            StrokeCancelMode.BUFFERED
+        }
+        val cancelledSpec = activeStrokeSpec
+        activeStrokeRmw = false
+        activeStrokeSpec = null
+        // Install the document-action barrier before an invalid surface can
+        // synchronously deliver the restore callback.
+        beforeCancel(mode)
+
+        if (!frontBuffered.isValid()) {
+            if (cancelledSpec?.rmw != null) onRmwCancelled?.invoke(cancelledSpec, emptyList())
+            return mode
+        }
         frontBuffered.execute {
             // Released, not stamped: §4 says a cancelled stroke leaves no
             // trace, but the slots still have to come back.
             drainPending(stamp = false)
-            renderer.cancelStroke()
+            renderer.cancelStroke { spec, keys -> onRmwCancelled?.invoke(spec, keys) }
         }
-        if (!frontBuffered.isValid()) return
         // §8.4: cancel() drops the front-buffered content, and the
         // multi-buffered layer beneath is still showing the pre-stroke state,
         // so nothing else needs drawing.
         frontBuffered.cancel()
+        return mode
     }
 
     fun invalidate(op: SandwichPolicy.Op) {

@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.stateDescription
@@ -54,7 +55,10 @@ internal fun ToolRail(
     selection: ToolSelection,
     brushColor: Int,
     onBrushSelected: (String) -> Unit,
+    onSmudgeSelected: () -> Unit,
+    onBlurSelected: () -> Unit,
     onEyedropperSelected: () -> Unit,
+    onColorRequested: () -> Unit,
     onSettingsRequested: () -> Unit,
     onSizeChanged: (Float) -> Unit,
     onOpacityChanged: (Float) -> Unit,
@@ -62,6 +66,7 @@ internal fun ToolRail(
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
+    val colorDescription = stringResource(R.string.color_panel)
     val activeBrush = (selection.kind as? ToolKind.Brush)?.preset
     val paints = BrushPresets.railOrder(presets).filterNot { it.eraseMode }
     val eraser = if (activeBrush?.eraseMode == true) {
@@ -126,6 +131,33 @@ internal fun ToolRail(
                 )
             }
 
+            ToolButton(
+                icon = Icons.Filled.Gesture,
+                description = stringResource(R.string.tool_smudge),
+                state = if (selection.kind is ToolKind.Smudge) {
+                    ToolButtonState.Active
+                } else {
+                    ToolButtonState.Inactive
+                },
+                onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    onSmudgeSelected()
+                },
+            )
+            ToolButton(
+                icon = Icons.Filled.BlurOn,
+                description = stringResource(R.string.tool_blur),
+                state = if (selection.kind is ToolKind.Blur) {
+                    ToolButtonState.Active
+                } else {
+                    ToolButtonState.Inactive
+                },
+                onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    onBlurSelected()
+                },
+            )
+
             val eyedropperActive = selection.kind is ToolKind.Eyedropper
             ToolButton(
                 icon = Icons.Filled.Colorize,
@@ -137,14 +169,21 @@ internal fun ToolRail(
                 },
             )
 
-            Box(
+            IconButton(
+                onClick = onColorRequested,
                 modifier = Modifier
-                    .padding(vertical = COLOR_GAP)
-                    .size(COLOR_DOT)
-                    .clip(RoundedCornerShape(COLOR_DOT))
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(COLOR_DOT)),
+                    .size(TOOL_SLOT)
+                    .semantics { contentDescription = colorDescription },
             ) {
-                Canvas(Modifier.size(COLOR_DOT)) { drawCircle(Color(brushColor)) }
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = COLOR_GAP)
+                        .size(COLOR_DOT)
+                        .clip(RoundedCornerShape(COLOR_DOT))
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(COLOR_DOT)),
+                ) {
+                    Canvas(Modifier.size(COLOR_DOT)) { drawCircle(Color(brushColor)) }
+                }
             }
 
             if (activeBrush != null) {

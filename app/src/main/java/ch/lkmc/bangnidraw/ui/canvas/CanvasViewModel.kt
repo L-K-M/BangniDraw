@@ -21,6 +21,7 @@ import ch.lkmc.bangnidraw.data.HistoryPixels
 import ch.lkmc.bangnidraw.data.HistoryRecord
 import ch.lkmc.bangnidraw.data.HistoryStore
 import ch.lkmc.bangnidraw.data.ProjectStore
+import ch.lkmc.bangnidraw.data.RmwHistoryCapture
 import ch.lkmc.bangnidraw.data.TileBufferPool
 import ch.lkmc.bangnidraw.data.TileCodec
 import ch.lkmc.bangnidraw.data.TileFlusher
@@ -56,8 +57,11 @@ import ch.lkmc.bangnidraw.engine.core.LayerThumbnailPolicy
 import ch.lkmc.bangnidraw.engine.core.LayerTileUpdates
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
+import ch.lkmc.bangnidraw.engine.core.MixingDish
 import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.Refusal
+import ch.lkmc.bangnidraw.engine.core.RmwSpec
+import ch.lkmc.bangnidraw.engine.core.RmwStrokePolicy
 import ch.lkmc.bangnidraw.engine.core.StackEdit
 import ch.lkmc.bangnidraw.engine.core.StackResult
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
@@ -83,6 +87,7 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -160,6 +165,7 @@ class CanvasViewModel @Inject constructor(
             val toolSelection: ToolSelection,
             val brushColor: Int,
             val mixerIsPigment: Boolean,
+            val pigmentMixerAvailable: Boolean,
             val penButtonAction: PenButtonAction,
             val eraserEndPreset: String,
             val layerCap: Int,
@@ -206,6 +212,9 @@ class CanvasViewModel @Inject constructor(
     ).also {
         it.start(appScope, Dispatchers.IO.limitedParallelism(1))
     }
+
+    private val rmwHistoryCapture = RmwHistoryCapture()
+    private val rmwRestorePending = AtomicBoolean(false)
 
     /** §6.3's storage-full state, for the `err_storage_full` banner. */
     val storageFull: StateFlow<Boolean> = flusher.storageFull
@@ -453,6 +462,7 @@ class CanvasViewModel @Inject constructor(
             toolSelection = toolSwitcher.selection.value,
             brushColor = brushColor,
             mixerIsPigment = activeColorMixer.isPigment,
+            pigmentMixerAvailable = availableColorMixer.isPigment,
             penButtonAction = penButtonAction,
             eraserEndPreset = eraserEndPreset,
             layerCap = layerCap,
@@ -502,6 +512,16 @@ class CanvasViewModel @Inject constructor(
         updateToolUi()
     }
 
+    fun selectSmudge() {
+        toolSwitcher.select(ToolKind.Smudge())
+        updateToolUi()
+    }
+
+    fun selectBlur() {
+        toolSwitcher.select(ToolKind.Blur())
+        updateToolUi()
+    }
+
     fun selectEyedropper() {
         // Rail selection can arrive while the eraser end hovers. Remove that
         // top entry before Rail so hover exit cannot release out of order.
@@ -518,8 +538,17 @@ class CanvasViewModel @Inject constructor(
 
     fun currentBrushColor(): Int = brushColor
 
+    fun mixingDish(a: Int, b: Int): IntArray = MixingDish.gradient(a, b, activeColorMixer)
+
+    fun setMixerChoice(choice: MixerChoice) {
+        viewModelScope.launch { prefs.setMixerChoice(choice) }
+    }
+
     internal fun strokeMode(preset: BrushPreset): StrokeMode =
         BrushMixingPolicy.mode(preset, activeColorMixer)
+
+    internal fun rmwSpec(kind: ToolKind): RmwSpec? =
+        RmwStrokePolicy.spec(kind, activeColorMixer)
 
     /** Rail tuning is session state; the settings sheet persists explicitly. */
     fun updateBrushSize(value: Float) = updateActiveBrush { it.withSize(value) }
@@ -705,6 +734,19 @@ class CanvasViewModel @Inject constructor(
         flusher.markDirty(CpuTile(layer, key, revision, copy))
     }
 
+    private fun onRmwStarted(spec: StrokeSpec) {
+        rmwHistoryCapture.begin(spec.layerId)
+    }
+
+    private fun onRmwTilesTouched(spec: StrokeSpec, packedKeys: IntArray, count: Int) {
+        val keys = ArrayList<Pair<LayerId, TileKey>>(count)
+        for (index in 0 until count) keys += spec.layerId to TileKey(packedKeys[index])
+        val captured = flusher.captureMirror(keys)
+        if (!rmwHistoryCapture.touch(spec.layerId, keys, captured)) {
+            android.util.Log.e(TAG, "RMW before-image arrived without an open capture")
+        }
+    }
+
     /**
      * §10.2's capture, on the GL thread at commit: the mirror still holds the
      * pre-stroke state for the merged keys (the engine finished every earlier
@@ -714,7 +756,11 @@ class CanvasViewModel @Inject constructor(
      * queue and the app scope.
      */
     private fun onStrokeMerged(spec: StrokeSpec, keys: List<TileKey>, @Suppress("UNUSED_PARAMETER") revision: Int) {
+        val rmwSnapshot = if (spec.rmw != null) rmwHistoryCapture.finish(spec.layerId) else null
         if (keys.isEmpty()) return
+        val payloadKeys = keys.map { spec.layerId to it }
+        val mirrorBefore = flusher.captureMirror(payloadKeys).toMutableMap()
+        rmwSnapshot?.mirrorBefore?.let(mirrorBefore::putAll)
         val doc = document ?: return
         val activeId = doc.stack.active.id
         val entry = HistoryEntry.Stroke(
@@ -727,7 +773,7 @@ class CanvasViewModel @Inject constructor(
             entry = entry,
             seq = nextSeq.getAndIncrement(),
             ts = System.currentTimeMillis(),
-            mirrorBefore = flusher.captureMirror(keys.map { spec.layerId to it }),
+            mirrorBefore = mirrorBefore,
             awaitReadback = { awaitReadbacks() },
         )
         if (!flusher.enqueueNow(job)) {
@@ -753,6 +799,57 @@ class CanvasViewModel @Inject constructor(
         contentDirty = true
         document?.stack?.active?.id?.let { markLayerThumbnailsDirty(listOf(it)) }
         noteChange()
+    }
+
+    internal fun prepareStrokeCancel(mode: StrokeCancelMode) {
+        if (mode != StrokeCancelMode.READ_MODIFY_WRITE) return
+        if (!rmwRestorePending.compareAndSet(false, true)) return
+
+        actionGate.beginWork()
+        updateInteractionUi()
+    }
+
+    private fun onRmwCancelled(
+        engine: EngineSession,
+        spec: StrokeSpec,
+        rendererKeys: List<TileKey>,
+    ) {
+        val snapshot = rmwHistoryCapture.finish(spec.layerId)
+        val keys = LinkedHashSet<TileKey>()
+        snapshot?.keys?.let(keys::addAll)
+        keys.addAll(rendererKeys)
+        if (keys.isEmpty() || session !== engine) {
+            viewModelScope.launch(Dispatchers.Main.immediate) { finishRmwRestore() }
+            return
+        }
+
+        val payloadKeys = keys.map { spec.layerId to it }
+        val mirrorBefore = flusher.captureMirror(payloadKeys).toMutableMap()
+        snapshot?.mirrorBefore?.let(mirrorBefore::putAll)
+
+        appScope.launch(Dispatchers.IO) {
+            val current = flusher.resolveCurrent(payloadKeys)
+            val restored = LinkedHashMap<TileKey, ByteArray?>(keys.size)
+            for (key in keys) {
+                val mapKey = spec.layerId to key
+                restored[key] = mirrorBefore[mapKey] ?: current[mapKey]
+            }
+            withContext(Dispatchers.Main) {
+                if (session !== engine) {
+                    finishRmwRestore()
+                    return@withContext
+                }
+                engine.restoreCancelledRmw(spec.layerId, restored) { success ->
+                    if (!success) android.util.Log.e(TAG, "cancelled RMW pixels could not be restored")
+                    finishRmwRestore()
+                }
+            }
+        }
+    }
+
+    private fun finishRmwRestore() {
+        if (!rmwRestorePending.compareAndSet(true, false)) return
+        finishDocumentWork()
     }
 
     // ------------------------------------------------------------ undo/redo
@@ -1302,10 +1399,22 @@ class CanvasViewModel @Inject constructor(
      */
     fun attachSession(next: EngineSession?) {
         session?.onStrokeMerged = null
+        session?.onRmwStarted = null
+        session?.onRmwTilesTouched = null
+        session?.onRmwCancelled = null
         session = next
+        if (next == null) {
+            // A dead context discards every uncommitted RMW pixel. Release its
+            // capture and any action barrier that was awaiting GPU restore.
+            rmwHistoryCapture.reset()
+            finishRmwRestore()
+        }
         val doc = document ?: return
         if (next != null) {
             next.onStrokeMerged = { spec, keys, revision -> onStrokeMerged(spec, keys, revision) }
+            next.onRmwStarted = ::onRmwStarted
+            next.onRmwTilesTouched = ::onRmwTilesTouched
+            next.onRmwCancelled = { spec, keys -> onRmwCancelled(next, spec, keys) }
             viewModelScope.launch(Dispatchers.IO) {
                 streamTiles(next, doc)
                 withContext(Dispatchers.Main) {
@@ -1344,6 +1453,9 @@ class CanvasViewModel @Inject constructor(
         // so there is no readback left to wait on — release() already
         // delivered or dropped it.
         session?.onStrokeMerged = null
+        session?.onRmwStarted = null
+        session?.onRmwTilesTouched = null
+        session?.onRmwCancelled = null
         session = null
         appScope.launch {
             withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }

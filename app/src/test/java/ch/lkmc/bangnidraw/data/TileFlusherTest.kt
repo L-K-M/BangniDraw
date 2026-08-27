@@ -372,6 +372,26 @@ class TileFlusherTest {
     }
 
     @Test
+    fun `ResolveCurrent runs after an earlier flush reaches disk`() = runBlocking {
+        val key = TileKey(7, 7)
+        val disk = HashMap<TileKey, ByteArray>()
+        val ordered = TileFlusher(
+            write = TileFlusher.TileWriter { _, writtenKey, pixels ->
+                disk[writtenKey] = TileCodec.encode(pixels)
+            },
+        )
+        ordered.diskReader = TileFlusher.DiskReader { _, readKey -> disk[readKey] }
+        ordered.markDirty(tile(key, fill = 12))
+        val resolve = TileFlusher.FlushJob.ResolveCurrent(listOf(layer to key))
+
+        ordered.enqueue(TileFlusher.FlushJob.Checkpoint())
+        ordered.enqueue(resolve)
+        ordered.runQueued()
+
+        assertEquals(12, resolve.result.await().getValue(layer to key)?.get(0)?.toInt())
+    }
+
+    @Test
     fun `pendingBytes tracks the unflushed mirror`() = runBlocking {
         flusher.markDirty(tile(TileKey(0, 0)))
         flusher.markDirty(tile(TileKey(0, 1)))

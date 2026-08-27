@@ -23,9 +23,28 @@ enum class StrokeMode {
  * bypasses the buffer" before `SmudgePass` exists — the branch is what keeps
  * `StrokeBuffer` from being handed a stroke it cannot represent.
  */
-enum class RmwKind {
-    SMUDGE,
-    BLUR,
+enum class RmwMixing { Linear, Pigment }
+
+/** Parameters fixed for one direct-to-layer stroke. */
+sealed interface RmwSpec {
+    data class Smudge(
+        val pickupRate: Float,
+        val pickupEdge: Int,
+        val mixing: RmwMixing,
+    ) : RmwSpec {
+        init {
+            require(pickupRate in 0f..1f) { "pickupRate must be 0..1, was $pickupRate" }
+            require(pickupEdge > 0) { "pickupEdge must be positive, was $pickupEdge" }
+        }
+    }
+
+    data class Blur(val radius: Int) : RmwSpec {
+        init {
+            require(radius in BlurKernel.MIN_RADIUS..BlurKernel.MAX_RADIUS) {
+                "blur radius must be ${BlurKernel.MIN_RADIUS}..${BlurKernel.MAX_RADIUS}, was $radius"
+            }
+        }
+    }
 }
 
 /**
@@ -54,7 +73,7 @@ data class StrokeSpec(
     /** Procedural dab modulation; texture grains remain post-v1. */
     val grainMode: GrainMode = GrainMode.None,
     /** Non-null bypasses the stroke buffer entirely (§7.6). */
-    val rmw: RmwKind? = null,
+    val rmw: RmwSpec? = null,
 ) {
     init {
         require(opacity in 0f..1f) { "opacity must be 0..1, was $opacity" }

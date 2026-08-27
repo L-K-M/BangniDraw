@@ -21,6 +21,7 @@ import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.LayerVisibilityPolicy
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.PixelOp
+import ch.lkmc.bangnidraw.engine.core.PoolExhausted
 import ch.lkmc.bangnidraw.engine.core.PerfStats
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.SANDWICH_MARGIN_PX
@@ -28,6 +29,7 @@ import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.SampleSource
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.TileGrid
+import ch.lkmc.bangnidraw.engine.core.RmwTouchTracker
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxLut
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxShaderSource
@@ -156,9 +158,16 @@ class CanvasRenderer(
     private var thumbnailPass: LayerThumbnailPass? = null
     private var layerPixelPass: LayerPixelPass? = null
     private var dab: GlProgram? = null
+    private var smudgeDeposit: GlProgram? = null
+    private var smudgeAbsorb: GlProgram? = null
+    private var blurHorizontal: GlProgram? = null
+    private var blurVertical: GlProgram? = null
+    private var smudgeDepositMix: GlProgram? = null
+    private var smudgeAbsorbMix: GlProgram? = null
     private var merge: GlProgram? = null
     private var mergeMix: GlProgram? = null
     private var dabPass: DabPass? = null
+    private var smudgePass: SmudgePass? = null
     private var mergePass: MergePass? = null
     private var preview: GlProgram? = null
     private var previewMix: GlProgram? = null
@@ -209,6 +218,12 @@ class CanvasRenderer(
     private var strokeG = 0f
     private var strokeB = 0f
     private var strokeBufferMode = BufferMode.Accumulate
+    private var rmwDirty = IntRect.EMPTY
+    private val rmwTouches = RmwTouchTracker(grid)
+    private val rmwKeyScratch = IntArray(grid.tileCount)
+
+    /** Captures direct-write before-images immediately before their first write. */
+    var onRmwFirstTouch: ((StrokeSpec, IntArray, Int) -> Unit)? = null
 
     /** Reused across strokes: the merge walks it and the readback reads it. */
     private val mergedKeys = ArrayList<TileKey>()
@@ -319,12 +334,18 @@ class CanvasRenderer(
         // inserting a program above PREVIEW would silently hand the preview
         // pass someone else's shaders. The `onContextLost` comment records that
         // this family of lists has already been wrong twice.
-        val linked = ArrayList<GlProgram>(9)
+        val linked = ArrayList<GlProgram>(15)
         var compositeProgram: GlProgram? = null
         var presentProgram: GlProgram? = null
         var checkerProgram: GlProgram? = null
         var tileCompositeProgram: GlProgram? = null
         var dabProgram: GlProgram? = null
+        var smudgeDepositProgram: GlProgram? = null
+        var smudgeAbsorbProgram: GlProgram? = null
+        var blurHorizontalProgram: GlProgram? = null
+        var blurVerticalProgram: GlProgram? = null
+        var smudgeDepositMixProgram: GlProgram? = null
+        var smudgeAbsorbMixProgram: GlProgram? = null
         var mergeProgram: GlProgram? = null
         var mergeMixProgram: GlProgram? = null
         var previewProgram: GlProgram? = null
@@ -336,12 +357,20 @@ class CanvasRenderer(
             checkerProgram = GlProgram.link(Shaders.CHECKER).also { linked += it }
             tileCompositeProgram = GlProgram.link(Shaders.TILE_COMPOSITE).also { linked += it }
             dabProgram = GlProgram.link(Shaders.DAB).also { linked += it }
+            smudgeDepositProgram = GlProgram.link(Shaders.SMUDGE_DEPOSIT).also { linked += it }
+            smudgeAbsorbProgram = GlProgram.link(Shaders.SMUDGE_ABSORB).also { linked += it }
+            blurHorizontalProgram = GlProgram.link(Shaders.BLUR_HORIZONTAL).also { linked += it }
+            blurVerticalProgram = GlProgram.link(Shaders.BLUR_VERTICAL).also { linked += it }
             mergeProgram = GlProgram.link(Shaders.MERGE).also { linked += it }
             previewProgram = GlProgram.link(Shaders.PREVIEW).also { linked += it }
             val mixboxSource = MixboxShaderSource.load(assets)
             if (mixboxSource.isNotEmpty()) {
                 mergeMixProgram = GlProgram.link(Shaders.mergeMix(mixboxSource)).also { linked += it }
                 previewMixProgram = GlProgram.link(Shaders.previewMix(mixboxSource)).also { linked += it }
+                smudgeDepositMixProgram = GlProgram
+                    .link(Shaders.smudgeDepositMix(mixboxSource)).also { linked += it }
+                smudgeAbsorbMixProgram = GlProgram
+                    .link(Shaders.smudgeAbsorbMix(mixboxSource)).also { linked += it }
                 lutTexture = MixboxLut.upload(assets)
             }
         } catch (e: Exception) {
@@ -350,12 +379,16 @@ class CanvasRenderer(
             isReady = false
             return false
         }
-        // The seven plain programs are mandatory; pigment variants are optional.
+        // Plain programs are mandatory; pigment variants are optional.
         checkNotNull(compositeProgram)
         checkNotNull(presentProgram)
         checkNotNull(checkerProgram)
         checkNotNull(tileCompositeProgram)
         checkNotNull(dabProgram)
+        checkNotNull(smudgeDepositProgram)
+        checkNotNull(smudgeAbsorbProgram)
+        checkNotNull(blurHorizontalProgram)
+        checkNotNull(blurVerticalProgram)
         checkNotNull(mergeProgram)
         checkNotNull(previewProgram)
         composite = compositeProgram
@@ -377,11 +410,27 @@ class CanvasRenderer(
         sandwich = SandwichCache(grid, tiles, tileCompositeProgram, state)
         layerPixelPass = LayerPixelPass(tiles, tileCompositeProgram, state)
         dab = dabProgram
+        smudgeDeposit = smudgeDepositProgram
+        smudgeAbsorb = smudgeAbsorbProgram
+        blurHorizontal = blurHorizontalProgram
+        blurVertical = blurVerticalProgram
+        smudgeDepositMix = smudgeDepositMixProgram
+        smudgeAbsorbMix = smudgeAbsorbMixProgram
         merge = mergeProgram
         mergeMix = mergeMixProgram
         previewMix = previewMixProgram
         mixboxLut = lutTexture
         dabPass = DabPass(dabProgram, state)
+        smudgePass = SmudgePass(
+            state,
+            smudgeDepositProgram,
+            smudgeAbsorbProgram,
+            blurHorizontalProgram,
+            blurVerticalProgram,
+            smudgeDepositMixProgram,
+            smudgeAbsorbMixProgram,
+            lutTexture,
+        )
         mergePass = MergePass(mergeProgram, state, tiles, mergeQuad, mergeMixProgram, lutTexture)
         strokeBuffer = StrokeBuffer(grid, tiles)
         tailBuffer = StrokeBuffer(grid, tiles)
@@ -394,20 +443,18 @@ class CanvasRenderer(
     /**
      * Opens a stroke (`docs/plan/03-canvas-engine.md` §7.1).
      *
-     * Returns false and opens nothing when the engine is not ready or the
-     * stroke is a read-modify-write one: §7.6's smudge and blur write the layer
-     * directly, dab by dab, and `SmudgePass` does not exist yet. Refusing here
-     * is what keeps a tool that has no path from silently painting through the
-     * wrong one.
+     * Returns false and opens nothing when the engine is not ready or another
+     * stroke is still open.
      */
     fun beginStroke(spec: StrokeSpec, mode: BufferMode, colorR: Float, colorG: Float, colorB: Float): Boolean {
         if (!isReady) return false
-        if (!spec.usesStrokeBuffer) return false
-        val buffer = strokeBuffer ?: return false
-        // A stroke already open means the previous one never ended — a pen-up
-        // lost to a cancelled gesture. Drop its buffer rather than merging it:
-        // §4 says a cancelled stroke leaves no trace.
-        if (stroke != null) buffer.reset()
+        if (stroke != null) return false
+        val rmw = spec.rmw
+        if (rmw == null && strokeBuffer == null) return false
+        if (rmw != null && smudgePass?.begin(rmw) != true) return false
+
+        rmwTouches.reset()
+        rmwDirty = IntRect.EMPTY
         // Unconditionally, not only on that branch: a tail whose slices were
         // never returned would hold pool pages for the whole of the next
         // stroke. After an ordinary pen-up this is already empty and costs a
@@ -447,10 +494,23 @@ class CanvasRenderer(
      */
     fun stampDabs(batch: DabBatch): IntRect {
         val spec = stroke ?: return IntRect.EMPTY
-        val pass = dabPass ?: return IntRect.EMPTY
-        val buffer = strokeBuffer ?: return IntRect.EMPTY
         val startNs = clock.nowNanos()
         val committed = batch.committedCount
+        val rmw = spec.rmw
+        if (rmw != null) {
+            val pass = smudgePass ?: return IntRect.EMPTY
+            val textures = textures(spec.layerId) ?: return IntRect.EMPTY
+            val dirty = pass.stamp(batch, textures, rmw, rmwTouches) { keys, count ->
+                onRmwFirstTouch?.invoke(spec, keys, count)
+            }
+            rmwDirty = rmwDirty.union(dirty)
+            pendingStampNs += clock.nowNanos() - startNs
+            pendingDabs += committed
+            return dirty
+        }
+
+        val pass = dabPass ?: return IntRect.EMPTY
+        val buffer = strokeBuffer ?: return IntRect.EMPTY
         var dirty = IntRect.EMPTY
         if (committed > 0) {
             dirty = pass.stamp(
@@ -500,6 +560,9 @@ class CanvasRenderer(
      * number, because nothing marks it as the rare path.
      */
     fun beginFrame() {
+        // graphics-core owns the context between callbacks; stamps must not
+        // trust the previous callback's blend, scissor, viewport, or program.
+        state.invalidate()
         pendingStampNs = 0L
         pendingDabs = 0
     }
@@ -539,6 +602,8 @@ class CanvasRenderer(
     ): Int {
         val startNs = clock.nowNanos()
         val spec = stroke?.withOpacityCeiling(opacityCeiling) ?: return 0
+        if (spec.rmw != null) return endRmwStroke(spec, revision, onMerged, startNs)
+
         val buffer = strokeBuffer ?: return 0
         val pass = mergePass ?: return 0
         // Before the merge and before any early return: the tail is front-layer
@@ -582,11 +647,44 @@ class CanvasRenderer(
         return merged
     }
 
+    private fun endRmwStroke(
+        spec: StrokeSpec,
+        revision: Int,
+        onMerged: ((StrokeSpec, List<TileKey>) -> Unit)?,
+        startNs: Long,
+    ): Int {
+        clearTail()
+        stroke = null
+        val textures = layers[spec.layerId]
+        val count = rmwTouches.all(rmwKeyScratch)
+        mergedKeys.clear()
+        for (index in 0 until count) mergedKeys += TileKey(rmwKeyScratch[index])
+        onMerged?.invoke(spec, ArrayList(mergedKeys))
+
+        if (textures != null && mergedKeys.isNotEmpty()) {
+            readback?.enqueue(spec.layerId, textures, mergedKeys, revision)
+            invalidate(SandwichPolicy.Op.StrokeCommit)
+        }
+        rmwTouches.reset()
+        rmwDirty = IntRect.EMPTY
+        perf.commitMs = (clock.nowNanos() - startNs) / NANOS_PER_MS
+        return mergedKeys.size
+    }
+
     /**
      * Abandons the open stroke. §4: a cancelled stroke leaves **no trace** — no
      * history entry, no pixels — which is exactly what the buffer makes cheap.
      */
-    fun cancelStroke() {
+    fun cancelStroke(onRmwCancelled: ((StrokeSpec, List<TileKey>) -> Unit)? = null) {
+        val spec = stroke
+        if (spec?.rmw != null) {
+            val count = rmwTouches.all(rmwKeyScratch)
+            val keys = ArrayList<TileKey>(count)
+            for (index in 0 until count) keys += TileKey(rmwKeyScratch[index])
+            if (keys.isNotEmpty()) onRmwCancelled?.invoke(spec, keys)
+            rmwTouches.reset()
+            rmwDirty = IntRect.EMPTY
+        }
         stroke = null
         strokeBuffer?.reset()
         // Rect dropped, for the reason [endStroke] gives: `cancel()` drops the
@@ -596,7 +694,8 @@ class CanvasRenderer(
     }
 
     /** The rect the open stroke has dirtied so far, for the caller's redraw. */
-    val strokeDirty: IntRect get() = strokeBuffer?.dirty ?: IntRect.EMPTY
+    val strokeDirty: IntRect
+        get() = if (stroke?.rmw != null) rmwDirty else strokeBuffer?.dirty ?: IntRect.EMPTY
 
     /** A new surface, or a resize: `Accum` and `Scratch` are the only casualties. */
     fun onSurfaceChanged(width: Int, height: Int) {
@@ -985,6 +1084,24 @@ class CanvasRenderer(
         }
     }
 
+    /** Restores a cancelled direct-write stroke without changing the CPU mirror. */
+    fun restoreCancelledRmw(layer: LayerId, tiles: Map<TileKey, ByteArray?>): Boolean {
+        val target = layers[layer] ?: return false
+        try {
+            for ((key, pixels) in tiles) {
+                if (pixels == null) {
+                    target.remove(key)
+                    continue
+                }
+                target.upload(key, java.nio.ByteBuffer.wrap(pixels))
+            }
+        } catch (_: PoolExhausted) {
+            return false
+        }
+        invalidate(SandwichPolicy.Op.UndoRedo)
+        return true
+    }
+
     /** The tiles of [id], creating the holder on first use. */
     fun textures(id: LayerId): LayerTextures? {
         val tiles = pool ?: return null
@@ -1226,7 +1343,7 @@ class CanvasRenderer(
         val layer = current.layers.getOrNull(index) ?: return
         val props = layer.props
         val buffer = strokeBuffer
-        val previewsStroke = previewSpec != null && buffer != null &&
+        val previewsStroke = previewSpec != null &&
             index == current.activeIndex && previewSpec.layerId == layer.id
         if (!LayerVisibilityPolicy.shouldDraw(props.visible, props.opacity, previewsStroke)) return
         val textures = textures(layer.id) ?: return
@@ -1265,7 +1382,7 @@ class CanvasRenderer(
         // the active layer's — a stroke that began before a layer switch would
         // otherwise be previewed onto whichever layer is active now, showing
         // the mark somewhere it will never land.
-        if (previewSpec != null && buffer != null && previewsStroke) {
+        if (previewSpec?.usesStrokeBuffer == true && buffer != null && previewsStroke) {
             pass.drawPreview(
                 layer = textures,
                 stroke = buffer,
@@ -1509,8 +1626,11 @@ class CanvasRenderer(
         stroke = null
         strokeBuffer = null
         tailBuffer = null
+        rmwTouches.reset()
+        rmwDirty = IntRect.EMPTY
         previousTailRect = IntRect.EMPTY
         dabPass = null
+        smudgePass = null
         mergePass = null
         layerPixelPass = null
         // EVERY program reference, including the optional pigment variants.
@@ -1524,6 +1644,12 @@ class CanvasRenderer(
         checker = null
         tileComposite = null
         dab = null
+        smudgeDeposit = null
+        smudgeAbsorb = null
+        blurHorizontal = null
+        blurVertical = null
+        smudgeDepositMix = null
+        smudgeAbsorbMix = null
         merge = null
         mergeMix = null
         preview = null
@@ -1559,6 +1685,7 @@ class CanvasRenderer(
         failQueuedThumbnails()
         compositePass?.release()
         dabPass?.release()
+        smudgePass?.release()
         mergePass?.release()
         layerPixelPass?.release()
         strokeBuffer?.reset()
@@ -1571,6 +1698,12 @@ class CanvasRenderer(
         checker?.release()
         tileComposite?.release()
         dab?.release()
+        smudgeDeposit?.release()
+        smudgeAbsorb?.release()
+        blurHorizontal?.release()
+        blurVertical?.release()
+        smudgeDepositMix?.release()
+        smudgeAbsorbMix?.release()
         merge?.release()
         mergeMix?.release()
         preview?.release()
@@ -1590,8 +1723,11 @@ class CanvasRenderer(
         stroke = null
         strokeBuffer = null
         tailBuffer = null
+        rmwTouches.reset()
+        rmwDirty = IntRect.EMPTY
         previousTailRect = IntRect.EMPTY
         dabPass = null
+        smudgePass = null
         mergePass = null
         layerPixelPass = null
         thumbnailPass = null

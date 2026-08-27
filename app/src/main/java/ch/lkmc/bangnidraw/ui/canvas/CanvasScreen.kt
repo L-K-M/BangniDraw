@@ -55,7 +55,9 @@ import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
+import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeLayerDecision
@@ -141,6 +143,7 @@ private fun CanvasContent(
     var session by remember { mutableStateOf<EngineSession?>(null) }
     var hoverRevision by remember { mutableIntStateOf(0) }
     var showBrushSettings by remember { mutableStateOf(false) }
+    var showColorPanel by remember { mutableStateOf(false) }
     var showLayers by remember { mutableStateOf(false) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
     BackHandler(enabled = showLayers) { showLayers = false }
@@ -230,8 +233,11 @@ private fun CanvasContent(
                     strokeState.driver = null
                     // The engine the stale stroke was opened on, which is not
                     // necessarily the current one.
-                    if (staleDriver != null) strokeState.engine?.cancelStroke()
+                    if (staleDriver != null) {
+                        strokeState.engine?.cancelStroke(viewModel::prepareStrokeCancel)
+                    }
                     strokeState.engine = null
+                    strokeState.readModifyWrite = false
                     viewModel.endStrokeTool(staleReason)
                     val pickGeneration = strokeState.nextPickGeneration()
 
@@ -252,7 +258,13 @@ private fun CanvasContent(
                         strokeState.pickGeneration = pickGeneration
                         return
                     }
-                    if (kind !is ToolKind.Brush) {
+                    val preset = when (kind) {
+                        is ToolKind.Brush -> kind.preset
+                        is ToolKind.Smudge -> RmwDabPreset.smudge(kind.params)
+                        is ToolKind.Blur -> RmwDabPreset.blur(kind.params)
+                        else -> null
+                    }
+                    if (preset == null) {
                         viewModel.endStrokeTool(strokeState.temporaryReason)
                         strokeState.temporaryReason = null
                         return
@@ -269,23 +281,33 @@ private fun CanvasContent(
                         return
                     }
 
-                    val preset = kind.preset
+                    val rmw = viewModel.rmwSpec(kind)
                     // A new seed keeps each stroke's jitter independent;
                     // procedural grain remains fixed to the canvas.
                     val driver = StrokeDriver(
                         preset,
                         seed = strokeState.nextSeed(),
                         zoom = handler.canvasToScreenScale,
+                        spacingPolicy = if (rmw == null) {
+                            DabSpacingPolicy.Brush
+                        } else {
+                            DabSpacingPolicy.ReadModifyWrite
+                        },
                     )
                     strokeState.driver = driver
                     strokeState.engine = engine
+                    strokeState.readModifyWrite = rmw != null
                     // Carried for every later sample. onStrokeBegin inspects
                     // `source` to pick erase mode, so passing a hardcoded
                     // STYLUS to the driver afterwards would report an eraser or
                     // a finger as a pen for the whole rest of the stroke.
                     strokeState.source = source
                     strokeState.setColor(viewModel.currentBrushColor())
-                    val strokeMode = viewModel.strokeMode(preset)
+                    val strokeMode = if (kind is ToolKind.Brush) {
+                        viewModel.strokeMode(preset)
+                    } else {
+                        StrokeMode.PAINT
+                    }
                     val spec = StrokeSpec(
                         layerId = active.id,
                         mode = strokeMode,
@@ -297,6 +319,7 @@ private fun CanvasContent(
                         alphaLock = active.props.alphaLock,
                         dilution = if (strokeMode == StrokeMode.MIX) preset.dilution else 0f,
                         grainMode = preset.grainMode,
+                        rmw = rmw,
                     )
                     engine.beginStroke(
                         spec, preset.bufferMode,
@@ -357,6 +380,7 @@ private fun CanvasContent(
                     // leave a dead stroke's driver installed for the next
                     // sample to feed.
                     strokeState.driver = null
+                    strokeState.readModifyWrite = false
                     val engine = strokeState.engine
                     strokeState.engine = null
                     if (engine == null) {
@@ -391,8 +415,9 @@ private fun CanvasContent(
                     }
                     strokeState.driver?.cancel()
                     strokeState.driver = null
-                    strokeState.engine?.cancelStroke()
+                    strokeState.engine?.cancelStroke(viewModel::prepareStrokeCancel)
                     strokeState.engine = null
+                    strokeState.readModifyWrite = false
                     viewModel.endStrokeTool(reason)
                 }
 
@@ -400,6 +425,7 @@ private fun CanvasContent(
                 // publish as a real batch — the dabs carry `predictedFrom`, and
                 // the renderer routes them to the tail buffer from that.
                 override fun onStrokePredicted(samples: StrokeInputBatch) {
+                    if (strokeState.readModifyWrite) return
                     val driver = strokeState.driver ?: return
                     val engine = strokeState.engine ?: return
                     val batch = engine.acquireDabBatch() ?: return
@@ -475,6 +501,7 @@ private fun CanvasContent(
                 strokeState.pickParams = null
                 strokeState.driver = null
                 strokeState.engine = null
+                strokeState.readModifyWrite = false
                 stale?.cancel()
                 viewModel.endStrokeTool(strokeState.temporaryReason)
                 strokeState.temporaryReason = null
@@ -544,10 +571,25 @@ private fun CanvasContent(
                     showLayers = false
                     viewModel.selectBrush(it)
                 },
+                onSmudgeSelected = {
+                    showBrushSettings = false
+                    showLayers = false
+                    viewModel.selectSmudge()
+                },
+                onBlurSelected = {
+                    showBrushSettings = false
+                    showLayers = false
+                    viewModel.selectBlur()
+                },
                 onEyedropperSelected = {
                     showBrushSettings = false
                     showLayers = false
                     viewModel.selectEyedropper()
+                },
+                onColorRequested = {
+                    showBrushSettings = false
+                    showLayers = false
+                    showColorPanel = true
                 },
                 onSettingsRequested = {
                     showLayers = false
@@ -723,6 +765,17 @@ private fun CanvasContent(
             onDismiss = { showBrushSettings = false },
         )
     }
+    if (showColorPanel) {
+        ColorPanel(
+            color = state.brushColor,
+            pigmentActive = state.mixerIsPigment,
+            pigmentAvailable = state.pigmentMixerAvailable,
+            mix = viewModel::mixingDish,
+            onColorChanged = viewModel::setBrushColor,
+            onMixerChanged = viewModel::setMixerChoice,
+            onDismiss = { showColorPanel = false },
+        )
+    }
 }
 
 /** 8 dp squares, per `03-canvas-engine.md` §3.2 step 1. */
@@ -747,6 +800,7 @@ private const val PANEL_COMPACT_FRACTION = 0.85f
  */
 internal class StrokeUiState {
     var driver: StrokeDriver? = null
+    var readModifyWrite = false
 
     var pickParams: EyedropperParams? = null
     var temporaryReason: TemporaryReason? = null

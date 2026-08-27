@@ -68,6 +68,15 @@
     <string name="preset_hard_eraser">硬橡皮擦</string>
     <string name="preset_soft_eraser">软橡皮擦</string>
     <string name="tool_eraser">橡皮擦</string>
+    <string name="tool_smudge">涂抹</string>
+    <string name="tool_blur">模糊</string>
+    <string name="color_panel">颜色</string>
+    <string name="color_value">明度</string>
+    <string name="mixing_dish">调色盘</string>
+    <string name="mixing_pigment">颜料</string>
+    <string name="mixing_rgb">RGB</string>
+    <string name="mixing_well_a">设为颜料 A</string>
+    <string name="mixing_well_b">设为颜料 B</string>
     <string name="tool_eyedropper">吸管</string>
     <string name="cd_selected">已选择</string>
     <string name="brush_settings">画笔设置</string>

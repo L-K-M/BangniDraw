@@ -97,6 +97,13 @@ class TileFlusher(
         /** Flush these pending keys now — restored tiles after an undo/redo. */
         class FlushKeys(val keys: List<Pair<LayerId, TileKey>>) : FlushJob
 
+        /** Resolves current raw pixels after every earlier flush has finished. */
+        class ResolveCurrent(
+            val keys: List<Pair<LayerId, TileKey>>,
+            val result: CompletableDeferred<Map<Pair<LayerId, TileKey>, ByteArray?>> =
+                CompletableDeferred(),
+        ) : FlushJob
+
         /**
          * §5.6 step 2's tail for a layer deletion: the directory goes only
          * after the entry holding its tiles was written, which queue order
@@ -211,6 +218,15 @@ class TileFlusher(
         queue.send(job)
     }
 
+    /** Reads mirror-or-disk pixels at a FIFO barrier, for RMW cancel restore. */
+    suspend fun resolveCurrent(
+        keys: List<Pair<LayerId, TileKey>>,
+    ): Map<Pair<LayerId, TileKey>, ByteArray?> {
+        val job = FlushJob.ResolveCurrent(keys)
+        queue.send(job)
+        return job.result.await()
+    }
+
     /** Enqueues from the GL thread, refusing instead of blocking when full. */
     fun enqueueNow(job: FlushJob): Boolean = queue.trySend(job).isSuccess
 
@@ -260,6 +276,7 @@ class TileFlusher(
             is FlushJob.WriteEntry -> runWriteEntry(job)
             is FlushJob.WriteRedo -> runWriteRedo(job)
             is FlushJob.FlushKeys -> flushKeys(job.keys)
+            is FlushJob.ResolveCurrent -> job.result.complete(resolveCurrentNow(job.keys))
             is FlushJob.DeleteLayerDir -> job.dir.deleteRecursively()
             is FlushJob.Checkpoint -> {
                 flushKeys(synchronized(lock) { pending.keys.toList() })
@@ -337,6 +354,26 @@ class TileFlusher(
             return
         }
         job.result.complete(bytes)
+    }
+
+    private fun resolveCurrentNow(
+        keys: List<Pair<LayerId, TileKey>>,
+    ): Map<Pair<LayerId, TileKey>, ByteArray?> {
+        val out = LinkedHashMap<Pair<LayerId, TileKey>, ByteArray?>(keys.size)
+        synchronized(lock) {
+            for (key in keys) pending[key]?.let { out[key] = it.pixels.copyOf() }
+        }
+        for (key in keys) {
+            if (out.containsKey(key)) continue
+            val encoded = diskReader.read(key.first, key.second)
+            out[key] = when (val decoded = encoded?.let(TileCodec::decode)) {
+                is TileCodec.Decoded.Ok -> decoded.pixels
+                TileCodec.Decoded.Corrupt,
+                null,
+                -> null
+            }
+        }
+        return out
     }
 
     /** Only under [jobMutex]. One failed write stops the pass; nothing is lost. */

@@ -44,4 +44,17 @@ class CanvasActionGateTest {
         assertEquals(false, gate.beginStroke())
         assertEquals(false, gate.strokeInFlight)
     }
+
+    @Test
+    fun `RMW cancel restore keeps parked actions behind the stroke`() {
+        val gate = CanvasActionGate()
+        gate.beginStroke()
+        gate.request(CanvasDocumentAction.Undo)
+
+        gate.beginWork()
+
+        assertNull(gate.endStroke())
+        assertEquals(false, gate.beginStroke())
+        assertEquals(CanvasDocumentAction.Undo, gate.finishWork())
+    }
 }

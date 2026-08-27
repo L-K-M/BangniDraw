@@ -28,6 +28,7 @@ internal sealed interface CanvasDocumentAction {
 internal sealed interface CanvasActionDecision {
     data class Run(val action: CanvasDocumentAction) : CanvasActionDecision
     data object Parked : CanvasActionDecision
+    data object Rejected : CanvasActionDecision
 }
 
 /** Main-confined queue behind the no-mutation-during-stroke UI invariant. */
@@ -86,7 +87,7 @@ internal class CanvasActionGate {
 
     @MainThread
     fun request(action: CanvasDocumentAction): CanvasActionDecision {
-        if (leaveRequested) return CanvasActionDecision.Parked
+        if (leaveRequested) return CanvasActionDecision.Rejected
         if (action == CanvasDocumentAction.Leave) leaveRequested = true
 
         if (!strokeInFlight && !busy) return CanvasActionDecision.Run(action)

@@ -1828,6 +1828,7 @@ class CanvasViewModel @Inject constructor(
         when (val decision = actionGate.request(action)) {
             is CanvasActionDecision.Run -> executeAction(decision.action)
             CanvasActionDecision.Parked -> Unit
+            CanvasActionDecision.Rejected -> Unit
         }
     }
 
@@ -2261,13 +2262,24 @@ class CanvasViewModel @Inject constructor(
 
     /** Flushes the final stroke before navigation and blocks new document work. */
     private fun beginLeave() {
-        val afterWrite = leaveAfterWrite ?: return
+        val afterWrite = checkNotNull(leaveAfterWrite) {
+            "Leave dispatched without requestLeave"
+        }
         actionGate.beginWork()
         updateInteractionUi()
 
         appScope.launch {
-            withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
-            withContext(Dispatchers.Main) { afterWrite() }
+            CanvasLeaveCoordinator.run(
+                checkpoint = {
+                    withContext(NonCancellable) {
+                        checkpoint(GallerySyncDecision.Trigger.LEAVE)
+                    }
+                },
+                onCheckpointFailure = {
+                    android.util.Log.e(TAG, "leave checkpoint failed", it)
+                },
+                navigate = { withContext(Dispatchers.Main) { afterWrite() } },
+            )
         }
     }
 

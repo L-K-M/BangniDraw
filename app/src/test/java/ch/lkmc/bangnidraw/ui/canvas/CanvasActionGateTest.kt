@@ -114,15 +114,26 @@ class CanvasActionGateTest {
             gate.request(CanvasDocumentAction.Leave),
         )
         assertEquals(
-            CanvasActionDecision.Parked,
+            CanvasActionDecision.Rejected,
             gate.request(CanvasDocumentAction.Leave),
         )
-        assertEquals(CanvasActionDecision.Parked, gate.request(CanvasDocumentAction.Undo))
+        assertEquals(CanvasActionDecision.Rejected, gate.request(CanvasDocumentAction.Undo))
         assertEquals(1, gate.pendingCount)
 
         assertNull(gate.endStrokeInput())
         assertEquals(CanvasDocumentAction.Leave, gate.completeStroke())
         assertNull(gate.next())
         assertEquals(false, gate.beginStroke())
+    }
+
+    @Test
+    fun `leave survives stroke completion before pen-up`() {
+        val gate = CanvasActionGate()
+        gate.beginStroke()
+        gate.request(CanvasDocumentAction.Leave)
+
+        assertNull(gate.completeStroke())
+        assertEquals(CanvasDocumentAction.Leave, gate.endStrokeInput())
+        assertNull(gate.next())
     }
 }

@@ -166,6 +166,36 @@ class ProjectStoreTest {
 
         assertNull(loaded.document.tracingReference)
         assertTrue(loaded.unreadableReference)
+        assertTrue(
+            store.referenceFile(id, reference.assetName).isFile,
+            "load must not destroy an unreadable committed asset",
+        )
+    }
+
+    @Test
+    fun `invalid tracing metadata is dropped before reaching a path`() {
+        val id = "invalid-reference-record"
+        val base = document(id = id)
+        store.checkpoint(base)
+        val file = File(store.projectDir(id), ProjectFile.FILE_NAME)
+        file.writeText(
+            ProjectStore.json.encodeToString(
+                ProjectFile.serializer(),
+                base.toProjectFile().copy(
+                    tracingReference = TracingReferenceRecord(
+                        assetName = "../escape.png",
+                        imageWidth = 0,
+                        imageHeight = 100,
+                        opacity = 2f,
+                    ),
+                ),
+            ),
+        )
+
+        val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load(id))
+
+        assertNull(loaded.document.tracingReference)
+        assertTrue(loaded.unreadableReference)
     }
 
     @Test

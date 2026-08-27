@@ -15,8 +15,26 @@ class TracingReferenceContractTest {
         val manifest = File(root, MANIFEST_PATH).readText()
 
         assertTrue("ActivityResultContracts.PickVisualMedia()" in screen)
-        assertFalse("RequestPermission" in screen)
-        assertFalse("<uses-permission" in manifest)
+        assertFalse(
+            "RequestPermission" in screen || "RequestMultiplePermissions" in screen,
+        )
+        assertFalse(
+            "<uses-permission" in manifest,
+            "media access must stay permission-free",
+        )
+    }
+
+    @Test
+    fun `tracing import and panel guard transient state`() {
+        val root = repositoryRoot()
+        val viewModel = File(root, VIEW_MODEL_PATH).readText()
+        val panel = File(root, REFERENCE_PANEL_PATH).readText()
+
+        assertTrue("ready !is UiState.Ready" in viewModel)
+        assertTrue(
+            Regex("modifier = Modifier\\.weight\\(1f\\)").findAll(panel).count() ==
+                REFERENCE_ACTION_COUNT,
+        )
     }
 
     private fun repositoryRoot(): File {
@@ -35,6 +53,11 @@ class TracingReferenceContractTest {
         const val APP_DIRECTORY = "app/src/main"
         const val CANVAS_SCREEN_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasScreen.kt"
+        const val VIEW_MODEL_PATH =
+            "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasViewModel.kt"
+        const val REFERENCE_PANEL_PATH =
+            "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/TracingReferencePanel.kt"
         const val MANIFEST_PATH = "app/src/main/AndroidManifest.xml"
+        const val REFERENCE_ACTION_COUNT = 3
     }
 }

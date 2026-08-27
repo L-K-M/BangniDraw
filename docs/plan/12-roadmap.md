@@ -872,6 +872,10 @@ CI: no manifest permission. Device: pick, transform, hide, reopen, replace,
 remove, EXIF rotation, export equality, and the eight-layer 120 Hz composite
 gate. Device checks remain required before a release claim.
 
+**Risks.** EXIF orientation applied twice or never, or a large decode crossing
+the transient memory cap — the device EXIF check and `MemoryBudget` gate both.
+Photo Picker needs no permission, so none may appear in the manifest.
+
 ## 4. Dependency graph and parallelism
 
 ```

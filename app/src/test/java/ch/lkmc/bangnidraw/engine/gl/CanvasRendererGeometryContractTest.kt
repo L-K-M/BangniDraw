@@ -187,7 +187,7 @@ class CanvasRendererGeometryContractTest {
                 """-screenTransform\.b,\s*screenTransform\.b,\s*""" +
                 """screenTransform\.a,?\s*\).*""" +
                 """program\.uniform2f\("u_screenTranslation",\s*""" +
-                """screenTransform\.tx,\s*screenTransform\.ty\)""",
+                """screenTransform\.tx,\s*screenTransform\.ty,?\s*\)""",
             RegexOption.DOT_MATCHES_ALL,
         )
         const val PAPER_CANVAS_QUAD_DRAW =

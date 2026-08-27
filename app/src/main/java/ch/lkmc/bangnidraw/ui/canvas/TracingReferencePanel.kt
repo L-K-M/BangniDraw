@@ -75,13 +75,25 @@ internal fun TracingReferencePanel(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            TextButton(onClick = onReplace, enabled = enabled) {
+            TextButton(
+                onClick = onReplace,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+            ) {
                 Text(stringResource(R.string.reference_replace))
             }
-            TextButton(onClick = onReset, enabled = enabled) {
+            TextButton(
+                onClick = onReset,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+            ) {
                 Text(stringResource(R.string.reference_reset))
             }
-            TextButton(onClick = onRemove, enabled = enabled) {
+            TextButton(
+                onClick = onRemove,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+            ) {
                 Text(stringResource(R.string.reference_remove))
             }
         }

@@ -47,7 +47,7 @@ internal object AtomicFiles {
                 throw IOException("could not rename $tmp to $target")
             }
         } catch (e: Throwable) {
-            tmp.delete()
+            runCatching { tmp.delete() }
             throw e
         }
     }

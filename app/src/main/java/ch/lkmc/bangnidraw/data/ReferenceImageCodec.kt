@@ -39,12 +39,12 @@ class ReferenceImageCodec @Inject constructor(
         canvas: CanvasSize,
         maxPixelBytes: Long,
     ): Normalized {
-        lateinit var normalized: Normalized
+        var normalized: Normalized? = null
         store.writeReferenceAsset(projectId, assetName) { output ->
             normalized = normalize(uri, canvas, maxPixelBytes, output)
         }
 
-        return normalized
+        return normalized ?: throw IOException("reference asset writer did not run")
     }
 
     fun discardAsset(projectId: String, assetName: String) {
@@ -74,7 +74,8 @@ class ReferenceImageCodec @Inject constructor(
             decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
         }
         try {
-            if (!bitmap.compress(Bitmap.CompressFormat.PNG, PNG_QUALITY, output)) {
+            // PNG is lossless; Android ignores its quality hint.
+            if (!bitmap.compress(Bitmap.CompressFormat.PNG, 0, output)) {
                 throw IOException("reference PNG encode failed")
             }
 
@@ -114,7 +115,7 @@ class ReferenceImageCodec @Inject constructor(
                     batch.clear()
                 }
             }
-            if (batch.isNotEmpty()) onBatch(batch)
+            if (batch.isNotEmpty()) onBatch(ArrayList(batch))
 
             return true
         } finally {
@@ -155,6 +156,5 @@ class ReferenceImageCodec @Inject constructor(
 
     private companion object {
         const val CHANNELS = 4
-        const val PNG_QUALITY = 100
     }
 }

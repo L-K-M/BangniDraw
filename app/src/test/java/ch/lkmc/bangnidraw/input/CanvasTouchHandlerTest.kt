@@ -1,14 +1,14 @@
 package ch.lkmc.bangnidraw.input
 
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
-import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.FitTransform
+import ch.lkmc.bangnidraw.engine.core.GestureArbiter
+import ch.lkmc.bangnidraw.engine.core.NavigationTarget
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PressureCalibration
 import ch.lkmc.bangnidraw.engine.core.PressureCurve
 import ch.lkmc.bangnidraw.engine.core.PressurePreference
 import ch.lkmc.bangnidraw.engine.core.RotationSnap
-import ch.lkmc.bangnidraw.engine.core.NavigationTarget
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import kotlin.math.PI
@@ -139,7 +139,10 @@ class CanvasTouchHandlerTest {
         assertTrue(h.view.isIdentity)
         assertEquals(50f, host.referencePans.single().first, 0.001f)
         assertEquals(0f, host.referencePans.single().second, 0.001f)
-        assertTrue(host.events.none { it.startsWith("begin") })
+        assertTrue(
+            host.events.none { it.startsWith("begin") || it == "cancel" },
+            "reference navigation has no stroke to cancel: ${host.events}",
+        )
     }
 
     @Test

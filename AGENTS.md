@@ -160,7 +160,8 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   enter thumbnails, flatten, gallery sync, sharing, export, or painting undo.
   Photo Picker is the import boundary; do not add storage permission or retain
   the picked URI. Checkpoints delete only the superseded committed asset;
-  reopen sweeps other orphans so autosave cannot delete an in-flight import.
+  reopen preserves the metadata-named asset even when unreadable and sweeps
+  other orphans, so a transient read failure cannot destroy recoverable bytes.
 
 ## Deviations discovered while building
 

@@ -447,7 +447,10 @@ class ProjectStore internal constructor(
             Log.w(TAG, "project $id: invalid geometry", e)
             return LoadResult.Failed(FailureReason.UNREADABLE)
         }
-        sweepReferenceAssets(dir, document.tracingReference)
+        sweepReferenceAssets(
+            dir = dir,
+            retainedAssetName = file.tracingReference?.assetName?.takeIf(::isSafeAssetName),
+        )
         return LoadResult.Loaded(
             document = document,
             unreadableLayers = unreadableLayers,
@@ -686,17 +689,19 @@ class ProjectStore internal constructor(
         if (!hasExpectedPngHeader(source, reference)) return null
 
         val targetDir = File(stage, REFERENCES_DIR)
-        if (!targetDir.mkdirs()) throw IOException("could not create $targetDir")
+        if (!targetDir.isDirectory && !targetDir.mkdirs()) {
+            throw IOException("could not create $targetDir")
+        }
         duplicateFileWriter.copy(source, File(targetDir, record.assetName))
 
         return record
     }
 
-    private fun sweepReferenceAssets(dir: File, reference: TracingReference?) {
+    private fun sweepReferenceAssets(dir: File, retainedAssetName: String?) {
         val references = File(dir, REFERENCES_DIR)
         val children = references.listFiles() ?: return
         for (file in children) {
-            if (file.isFile && file.name == reference?.assetName) continue
+            if (file.isFile && file.name == retainedAssetName) continue
 
             file.deleteRecursively()
         }

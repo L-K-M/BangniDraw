@@ -331,6 +331,10 @@ class GlShaderContractTest {
             "u_screenBasis.z * a_canvas.x + u_screenBasis.w * a_canvas.y" in
                 Shaders.COMPOSITE_VERT,
         )
+        assertTrue(
+            Shaders.COMPOSITE_VERT.split("u_screenTranslation").size - 1 >= 2,
+            "u_screenTranslation must be declared and applied",
+        )
     }
 
     @Test

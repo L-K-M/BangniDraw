@@ -828,7 +828,9 @@ class CanvasViewModel @Inject constructor(
     internal fun importTracingReference(uri: Uri) {
         val doc = document ?: return
         val ready = _uiState.value
-        if (ready is UiState.Ready && ready.referenceImportState == ReferenceImportState.IMPORTING) {
+        if (ready !is UiState.Ready ||
+            ready.referenceImportState == ReferenceImportState.IMPORTING
+        ) {
             return
         }
 
@@ -875,8 +877,8 @@ class CanvasViewModel @Inject constructor(
                 ),
             )
             val accepted = withContext(Dispatchers.Main) {
-                val current = document ?: return@withContext false
                 updateReferenceImporting(ReferenceImportState.IDLE)
+                val current = document ?: return@withContext false
                 val currentDecision = referenceImportDecision(current)
                 if (currentDecision != ReferenceImportDecision.ACCEPT) {
                     showReferenceRefusal(currentDecision)
@@ -2863,7 +2865,10 @@ class CanvasViewModel @Inject constructor(
         // skipped — that screen shows no canvas anyway.
         withTimeoutOrNull(READY_WAIT_MS) {
             while (!engine.isEngineReady()) delay(16)
-        } ?: return
+        } ?: run {
+            android.util.Log.w(TAG, "engine not ready; document tiles not streamed")
+            return
+        }
         var corruptTiles = 0
         val layers = doc.stack.layers
         for ((index, layer) in layers.withIndex()) {
@@ -2900,7 +2905,10 @@ class CanvasViewModel @Inject constructor(
     ) {
         withTimeoutOrNull(READY_WAIT_MS) {
             while (!engine.isEngineReady()) delay(16)
-        } ?: return
+        } ?: run {
+            android.util.Log.w(TAG, "engine not ready; tracing reference tiles not streamed")
+            return
+        }
 
         val read = referenceImageCodec.streamTiles(
             projectId = projectId,

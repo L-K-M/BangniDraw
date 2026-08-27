@@ -2113,13 +2113,22 @@ class CanvasViewModel @Inject constructor(
     fun leave(afterWrite: () -> Unit) {
         setClosing(true)
         appScope.launch {
+            // The app scope has no exception handler: an uncaught failure
+            // here would crash the process on its way out the door. A failed
+            // flush keeps the canvas open — logged, not fatal — and only a
+            // successful handoff to navigation leaves the scrim up (it covers
+            // the exit transition).
+            var handedOff = false
             try {
                 withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
                 withContext(Dispatchers.Main) { afterWrite() }
+                handedOff = true
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "leave checkpoint failed; canvas stays open", e)
             } finally {
-                // Even a failed flush must not strand the scrim: whatever
-                // went wrong, the user keeps a live canvas.
-                setClosing(false)
+                if (!handedOff) setClosing(false)
             }
         }
     }

@@ -46,6 +46,13 @@ interface CanvasInputHost {
     /** Coalesced to one callback per frame while hover state changes. */
     fun onHoverChanged() {}
 
+    /**
+     * A navigation gesture became live, or just ended — exactly once per
+     * transition, so a chrome readout can appear while the fingers move and
+     * disappear when they lift.
+     */
+    fun onNavigateActive(active: Boolean) {}
+
     /** Roadmap 2.4b. A stroke began with [source] at this pointer. */
     fun onStrokeBegin(pointerId: Int, source: StrokeSource) {}
 
@@ -216,6 +223,7 @@ class CanvasTouchHandler(
 
         override fun onNavigate() {
             navigating = true
+            host.onNavigateActive(true)
             rawRotation = view.rotation
             snap.reset()
             captureNavPointers()
@@ -243,6 +251,7 @@ class CanvasTouchHandler(
         }
         override fun onNavigateEnd() {
             navigating = false
+            host.onNavigateActive(false)
             navIds[0] = NO_POINTER
             navIds[1] = NO_POINTER
         }

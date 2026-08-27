@@ -115,7 +115,9 @@ import ch.lkmc.bangnidraw.engine.core.WidthClass
 import ch.lkmc.bangnidraw.input.CanvasInputHost
 import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * The Canvas: where one painting is painted (PLAN.md §5).
@@ -203,6 +205,7 @@ private fun CanvasContent(
     // hundred times a second on the input path and nothing draws from them, so
     // making them observable would recompose the whole screen per pen sample.
     val strokeState = remember { StrokeUiState() }
+    var navigating by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val view0 = LocalView.current
     val context = LocalContext.current
@@ -280,6 +283,8 @@ private fun CanvasContent(
                         color?.let(viewModel::selectBrushColor)
                     }
                 }
+
+                override fun onNavigateActive(active: Boolean) { navigating = active }
 
                 override fun onStrokeBegin(pointerId: Int, source: StrokeSource) {
                     viewModel.cancelFill()
@@ -920,6 +925,46 @@ private fun CanvasContent(
                 )
             }
 
+            // A live readout while the fingers steer the view: the reset pill
+            // only appears once they lift, so the gesture itself owes the
+            // zoom/angle feedback. Delayed like the pill, so the navigation
+            // blip inside a two-finger tap-undo never flashes it.
+            var readoutVisible by remember { mutableStateOf(false) }
+            LaunchedEffect(navigating) {
+                readoutVisible = false
+                if (!navigating) return@LaunchedEffect
+                delay(READOUT_APPEAR_DELAY_MS)
+                readoutVisible = true
+            }
+            AnimatedVisibility(
+                visible = readoutVisible && navigating,
+                enter = fadeIn(tween(chromeAnimationMs)),
+                exit = fadeOut(tween(chromeAnimationMs)),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = LayoutSpec.TOP_STRIP_DP.dp + READOUT_GAP)
+                    .zIndex(CHROME_Z),
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = MaterialTheme.shapes.medium,
+                    tonalElevation = 3.dp,
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.canvas_view_readout,
+                            (view.scale * READOUT_PERCENT).roundToInt(),
+                            Math.toDegrees(view.rotation.toDouble()).roundToInt(),
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(
+                            horizontal = READOUT_PADDING_H,
+                            vertical = READOUT_PADDING_V,
+                        ),
+                    )
+                }
+            }
+
             val resetBottomPadding = when (layout.railMode) {
                 RailMode.DOCK -> DOCK_CHROME_HEIGHT.dp
                 RailMode.SHORT -> LEDGE_CHROME_HEIGHT.dp
@@ -1376,6 +1421,11 @@ private const val CHROME_Z = 2f
 private const val HINT_Z = 3f
 private const val RESET_DAMPING_RATIO = 0.8f
 private const val CHROME_ANIMATION_MS = 180
+private val READOUT_GAP = 8.dp
+private const val READOUT_PERCENT = 100f
+private const val READOUT_APPEAR_DELAY_MS = 150L
+private val READOUT_PADDING_H = 12.dp
+private val READOUT_PADDING_V = 6.dp
 private const val TOP_STRIP_TRAVERSAL = 0f
 private const val RAIL_TRAVERSAL = 1f
 private const val SLIDER_TRAVERSAL = 2f

@@ -27,8 +27,8 @@ between them.
 > conventions and [PLAN.md](PLAN.md) for the design.
 
 > [!NOTE]
-> **Status:** v1 code is feature-complete. Real-device acceptance,
-> screenshots, and the v1.0.0 release remain.
+> **Status:** v1.0.0. Automated gates pass; real-device acceptance remains
+> unverified.
 
 ## Building
 

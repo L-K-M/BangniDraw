@@ -804,7 +804,7 @@ two-finger tap that lands as two dots). The arbiter's tap window is tested
 from pointer timelines; if real devices still misfire, the fix is a timing
 constant in `GestureArbiter`, with the timeline that failed added as a test.
 
-### Step 10 — v1.0 (S, implementation landed — commits `e10374b..311bcc7`, 2026-08-27; release blocked)
+### Step 10 — v1.0 (S, release authorized 2026-08-27)
 
 **Landed.** The one-level Studio Settings sheet controls handedness,
 stylus-only drawing, S Pen button action, pressure gamma, haptics, gallery
@@ -815,8 +815,8 @@ keys, the README states the release-candidate boundary, and `CHANGELOG.md`
 records the v1 work. **The native-reading zh-Hans review, real-device
 screenshots, release-over-release install check, phone/tablet acceptance,
 TalkBack/Accessibility Scanner walk, full device checklist and tagged release
-have not been completed — no device has ever been available. No v1.0.0 tag was
-created.**
+have not been completed — no device has ever been available. The user
+explicitly directed the v1.0.0 release despite these unmet gates.**
 
 **Goal.** Ship.
 

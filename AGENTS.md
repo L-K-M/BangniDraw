@@ -142,6 +142,12 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 Recorded per PLAN.md's rule: when the plan contradicts itself, PLAN.md wins
 and the contradiction is noted here.
 
+- **v1.0.0 was explicitly authorized without real-device acceptance.** No
+  device was available for screenshots, upgrade testing, the phone/tablet
+  checklist, TalkBack/Accessibility Scanner, or native zh-Hans review. The
+  user directed the release after those blockers were reported; do not infer
+  that any device gate passed from the existence of the tag.
+
 - **The v1 pencil uses the reserved grain key `procedural`.**
   `04-tools.md` §5 says its `grain` stays null until a CC0 texture arrives,
   while roadmap step 5 requires procedural shader noise in the meantime.

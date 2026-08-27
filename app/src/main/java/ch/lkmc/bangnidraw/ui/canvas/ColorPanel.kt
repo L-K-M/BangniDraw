@@ -55,6 +55,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.ColorText
@@ -142,6 +143,7 @@ internal fun ColorPanel(
             ColorChips(
                 current = draft,
                 previous = state.previous,
+                hapticsMode = hapticsMode,
                 onAddCurrent = { onAddToPalette(draft) },
                 onSwap = onSwapColors,
             )
@@ -288,7 +290,7 @@ private fun HsvControls(
 ) {
     val latestHsv = rememberUpdatedState(hsv)
     val latestCommit = rememberUpdatedState(onCommit)
-    var pendingHsv by remember { mutableStateOf(hsv) }
+    var pendingHsv by remember(hsv) { mutableStateOf(hsv) }
 
     // Finish commits the last preview for touch, keyboard, and accessibility.
     Column(
@@ -308,7 +310,7 @@ private fun HsvControls(
                 HsvChannel.HUE -> stringResource(R.string.color_hue_value, value)
                 HsvChannel.SATURATION,
                 HsvChannel.VALUE,
-                -> stringResource(R.string.brush_value_percent, value)
+                -> stringResource(R.string.color_percent_value, value)
             }
 
             HsvChannelSlider(
@@ -353,7 +355,10 @@ private fun HsvChannelSlider(
         steps = steps,
         modifier = Modifier
             .fillMaxWidth()
-            .semantics { contentDescription = label },
+            .semantics {
+                contentDescription = label
+                stateDescription = valueText
+            },
     )
 }
 
@@ -362,12 +367,22 @@ private fun HsvChannelSlider(
 private fun ColorChips(
     current: Int,
     previous: Int,
+    hapticsMode: HapticsMode,
     onAddCurrent: () -> Unit,
     onSwap: () -> Unit,
 ) {
+    val view = LocalView.current
     val currentLabel = stringResource(R.string.color_current)
     val previousLabel = stringResource(R.string.color_previous)
     val addLabel = stringResource(R.string.mixing_add_palette)
+
+    fun addCurrent() {
+        if (hapticsMode == HapticsMode.ENABLED) {
+            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        }
+        onAddCurrent()
+    }
+
     Row(horizontalArrangement = Arrangement.spacedBy(PANEL_GAP), verticalAlignment = Alignment.CenterVertically) {
         ColorCircle(
             current,
@@ -376,12 +391,12 @@ private fun ColorChips(
                 .semantics {
                     contentDescription = currentLabel
                     onLongClick(label = addLabel) {
-                        onAddCurrent()
+                        addCurrent()
                         true
                     }
                 }
-                .pointerInput(onAddCurrent) {
-                    detectTapGestures(onLongPress = { onAddCurrent() })
+                .pointerInput(onAddCurrent, hapticsMode) {
+                    detectTapGestures(onLongPress = { addCurrent() })
                 },
         )
         ColorCircle(

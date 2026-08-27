@@ -118,6 +118,7 @@
     <string name="color_hue">色相</string>
     <string name="color_hue_value">%1$.0f°</string>
     <string name="color_saturation">饱和度</string>
+    <string name="color_percent_value">%1$.0f%%</string>
     <string name="color_value">明度</string>
     <string name="mixing_dish">调色盘</string>
     <string name="mixing_pigment">颜料</string>

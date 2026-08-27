@@ -15,9 +15,12 @@ class ColorPanelAccessibilityContractTest {
 
         assertTrue("HsvChannel.entries.forEach" in controls)
         assertTrue("contentDescription = label" in controls)
+        assertTrue("stateDescription = valueText" in controls)
         assertTrue("onValueChangeFinished" in controls)
+        assertTrue("remember(hsv) { mutableStateOf(hsv) }" in controls)
         assertTrue("pendingHsv = next" in controls)
         assertTrue("latestCommit.value(pendingHsv)" in controls)
+        assertTrue("R.string.color_percent_value" in controls)
     }
 
     @Test
@@ -27,6 +30,7 @@ class ColorPanelAccessibilityContractTest {
 
         assertFalse(NO_OP_CLICK.containsMatchIn(chips))
         assertTrue("onLongClick(label = addLabel)" in chips)
+        assertTrue("performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)" in chips)
     }
 
     private fun source(): String = File(repositoryRoot(), COLOR_PANEL_PATH).readText()

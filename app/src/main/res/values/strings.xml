@@ -161,6 +161,7 @@
     <string name="palette_move_right">Move right</string>
     <string name="tool_eyedropper">Eyedropper</string>
     <string name="cd_selected">Selected</string>
+    <string name="cd_toggle_eraser">Switch between hard and soft eraser</string>
     <string name="brush_settings">Brush settings</string>
     <string name="brush_group_stroke">Stroke</string>
     <string name="brush_size">Size</string>

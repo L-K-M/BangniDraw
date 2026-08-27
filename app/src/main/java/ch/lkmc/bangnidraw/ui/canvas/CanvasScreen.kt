@@ -995,6 +995,7 @@ private fun CanvasContent(
                 onFillSettingsRequested = {
                     viewModel.togglePanel(CanvasPanel.FILL_SETTINGS)
                 },
+                onEraserToggle = viewModel::toggleEraserPreset,
                 onSizeChanged = viewModel::updateActiveToolSize,
                 onOpacityChanged = viewModel::updateActiveToolOpacity,
                 onTuningFinished = viewModel::persistBrushTuning,

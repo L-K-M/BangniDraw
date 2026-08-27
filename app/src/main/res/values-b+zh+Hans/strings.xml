@@ -142,6 +142,7 @@
     <string name="palette_move_right">向右移动</string>
     <string name="tool_eyedropper">吸管</string>
     <string name="cd_selected">已选择</string>
+    <string name="cd_toggle_eraser">在硬橡皮擦和软橡皮擦之间切换</string>
     <string name="brush_settings">画笔设置</string>
     <string name="brush_group_stroke">笔触</string>
     <string name="brush_size">大小</string>

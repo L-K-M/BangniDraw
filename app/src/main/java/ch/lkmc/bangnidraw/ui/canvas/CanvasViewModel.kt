@@ -453,6 +453,12 @@ class CanvasViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            prefs.snapRightAngles.collect { enabled ->
+                snapRightAngles = enabled
+                updateChromeUi()
+            }
+        }
+        viewModelScope.launch {
             prefs.debugLatency.collect { enabled ->
                 debugLatency = enabled
                 updateChromeUi()

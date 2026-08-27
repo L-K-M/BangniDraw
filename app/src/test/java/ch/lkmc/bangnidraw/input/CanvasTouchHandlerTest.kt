@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.input
 
+import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.RotationSnap
@@ -409,6 +410,20 @@ class CanvasTouchHandlerTest {
         val (downX, downY) = host.samples.first()
         assertEquals(100f, downX, 1e-3f, "the opening down must be canvas px too")
         assertEquals(100f, downY, 1e-3f, "the opening down must be canvas px too")
+    }
+
+    @Test
+    fun `stroke samples invert the fitted canvas letterbox`() {
+        val host = Host()
+        val h = handler(host)
+        h.stylusOnly = false
+        h.setViewport(CanvasSize(1000, 500), width = 1000, height = 1000)
+
+        h.handleDown(1, PointerTool.FINGER, 100f, 350f, ms(0))
+        h.handleTick(ms(GestureArbiter.PENDING_MS))
+
+        assertEquals(100f, host.samples.single().first, 1e-3f)
+        assertEquals(100f, host.samples.single().second, 1e-3f)
     }
 
     @Test

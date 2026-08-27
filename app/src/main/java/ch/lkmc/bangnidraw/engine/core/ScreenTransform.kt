@@ -87,6 +87,20 @@ data class ScreenTransform(
         return Pair((a * dx + b * dy) / det, (-b * dx + a * dy) / det)
     }
 
+    /** Allocation-free x half of [invert] for the touch path. */
+    fun invertX(x: Float, y: Float): Float {
+        val det = a * a + b * b
+        if (det <= 0f || !det.isFinite()) return 0f
+        return (a * (x - tx) + b * (y - ty)) / det
+    }
+
+    /** Allocation-free y half of [invert] for the touch path. */
+    fun invertY(x: Float, y: Float): Float {
+        val det = a * a + b * b
+        if (det <= 0f || !det.isFinite()) return 0f
+        return (-b * (x - tx) + a * (y - ty)) / det
+    }
+
     /**
      * The screen-space bounding box of a canvas-space rect, inflated by one
      * pixel and clipped to a [viewportWidth] × [viewportHeight] viewport —

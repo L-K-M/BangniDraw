@@ -8,6 +8,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.getSystemService
@@ -62,7 +63,9 @@ fun CanvasSurface(
     // is what makes the SurfaceView, the session and the budget move together.
     key(canvas) {
     AndroidView(
-        modifier = modifier,
+        modifier = modifier.onSizeChanged { size ->
+            touchHandler?.setViewport(canvas, size.width, size.height)
+        },
         factory = { ctx ->
             SurfaceView(ctx).also { surface ->
                 val session = EngineSession(surface, canvas, budget, debugBuild, onTile, revisions)

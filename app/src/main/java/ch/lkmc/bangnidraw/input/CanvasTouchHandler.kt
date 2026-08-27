@@ -5,6 +5,8 @@ import android.view.Choreographer
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
+import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.GestureListener
 import ch.lkmc.bangnidraw.engine.core.LatencyTrace
@@ -12,6 +14,7 @@ import ch.lkmc.bangnidraw.engine.core.NavigationStep
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PredictionGate
 import ch.lkmc.bangnidraw.engine.core.RotationSnap
+import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
@@ -101,6 +104,12 @@ class CanvasTouchHandler(
 
     var view: ViewTransform = ViewTransform()
         private set
+
+    private var fit: FitTransform? = null
+    private var screen: ScreenTransform? = null
+
+    val canvasToScreenScale: Float
+        get() = screen?.effectiveScale ?: view.scale
 
     var stylusOnly: Boolean
         get() = arbiter.stylusOnly
@@ -228,8 +237,27 @@ class CanvasTouchHandler(
 
     fun setView(next: ViewTransform) {
         view = next
+        updateScreen()
         rawRotation = next.rotation
         snap.reset()
+    }
+
+    fun setViewport(canvas: CanvasSize, width: Int, height: Int) {
+        fit = if (width > 0 && height > 0) {
+            FitTransform(
+                viewWidth = width.toFloat(),
+                viewHeight = height.toFloat(),
+                imageWidth = canvas.width.toFloat(),
+                imageHeight = canvas.height.toFloat(),
+            )
+        } else {
+            null
+        }
+        updateScreen()
+    }
+
+    private fun updateScreen() {
+        screen = fit?.let { ScreenTransform.of(it, view) }
     }
 
     // ------------------------------------------------------- primitive path
@@ -307,9 +335,8 @@ class CanvasTouchHandler(
      * "ScreenTransform.invert → StrokeInput samples", and a brush size is in
      * canvas px so that a pencil is the same width on the paper at any zoom.
      *
-     * Through [ViewTransform.invertX]/[invertY] rather than `invert`, because
-     * this runs per sample and the `Pair` would be an allocation on the touch
-     * path (§2.4).
+     * Through scalar inverse methods because the `Pair` returned by `invert`
+     * would allocate per sample on the touch path (§2.4).
      */
     private fun emitSample(
         x: Float,
@@ -320,14 +347,20 @@ class CanvasTouchHandler(
         timeNs: Long,
     ) {
         host.onStrokeSample(
-            view.invertX(x, y),
-            view.invertY(x, y),
+            canvasX(x, y),
+            canvasY(x, y),
             pressure,
             tilt,
             canvasOrientation(orientation),
             timeNs,
         )
     }
+
+    private fun canvasX(x: Float, y: Float): Float =
+        screen?.invertX(x, y) ?: view.invertX(x, y)
+
+    private fun canvasY(x: Float, y: Float): Float =
+        screen?.invertY(x, y) ?: view.invertY(x, y)
 
     /**
      * The pen's azimuth in **canvas** space: the screen-space azimuth minus the
@@ -455,6 +488,7 @@ class CanvasTouchHandler(
         val stepped = step.applyTo(view)
         // The snap only touches rotation; pan and zoom are the gesture's.
         view = stepped.copy(rotation = displayed)
+        updateScreen()
         if (snap.justEntered) host.onRotationSnapped()
         host.onViewChanged(view)
     }
@@ -742,8 +776,8 @@ class CanvasTouchHandler(
         predictedWindowX[slot] = windowX
         predictedWindowY[slot] = windowY
         sample.set(
-            x = view.invertX(windowX, windowY),
-            y = view.invertY(windowX, windowY),
+            x = canvasX(windowX, windowY),
+            y = canvasY(windowX, windowY),
             pressure = if (current) e.getPressure(pointer) else e.getHistoricalPressure(pointer, history),
             tilt = if (current) {
                 e.getAxisValue(MotionEvent.AXIS_TILT, pointer)

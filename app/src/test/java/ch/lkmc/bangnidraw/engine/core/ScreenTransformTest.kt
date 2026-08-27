@@ -76,6 +76,8 @@ class ScreenTransformTest {
                 val tol = eps / screen.effectiveScale
                 assertTrue(abs(cx - p.first) < tol, "x $p -> ($sx,$sy) -> $cx under $view")
                 assertTrue(abs(cy - p.second) < tol, "y $p -> ($sx,$sy) -> $cy under $view")
+                assertEquals(cx, screen.invertX(sx, sy), tol)
+                assertEquals(cy, screen.invertY(sx, sy), tol)
             }
         }
     }
@@ -109,6 +111,8 @@ class ScreenTransformTest {
         val degenerate = ScreenTransform(0f, 0f, 10f, 10f)
         assertEquals(0f, degenerate.canvasPerScreen)
         assertEquals(Pair(0f, 0f), degenerate.invert(5f, 5f))
+        assertEquals(0f, degenerate.invertX(5f, 5f))
+        assertEquals(0f, degenerate.invertY(5f, 5f))
     }
 
     @Test

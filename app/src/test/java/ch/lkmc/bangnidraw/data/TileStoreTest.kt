@@ -65,6 +65,7 @@ class TileStoreTest {
         assertTrue(!File(root, "4_4.tile").exists(), "erasing to nothing must reclaim the file")
         store.write(key, ByteArray(TILE_BYTES))
         assertEquals(TileStore.Read.Empty, store.read(key))
+        assertTrue(!File(root, "4_4.tile").exists(), "erasing an absent tile must remain a no-op")
     }
 
     @Test

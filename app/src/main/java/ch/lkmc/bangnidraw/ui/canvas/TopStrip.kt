@@ -239,9 +239,19 @@ private fun ToolCluster(
                     },
                 )
             }
+            // Count badge: inset from the icon's corner and ringed in the
+            // strip's surface colour, so a two-digit count reads as a badge
+            // instead of growing over the glyph.
             Surface(
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = RoundedCornerShape(BADGE_RADIUS),
+                modifier = Modifier
+                    .padding(BADGE_INSET)
+                    .border(
+                        width = BADGE_RING,
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        shape = RoundedCornerShape(BADGE_RADIUS),
+                    ),
             ) {
                 Text(
                     text = activeLayer.toString(),
@@ -359,6 +369,8 @@ private val ICON_BUTTON = 48.dp
 private const val DISABLED_ALPHA = 0.38f
 private val COLOR_RADIUS = 6.dp
 private val BADGE_RADIUS = 8.dp
+private val BADGE_INSET = 2.dp
+private val BADGE_RING = 1.dp
 private const val RGB_MASK = 0xFFFFFF
 
 /** Silences combinedClickable's built-in long-press haptic (HapticsMode.DISABLED). */

@@ -124,6 +124,7 @@ class CanvasViewModel @Inject constructor(
             val historyMaxBytes: Long = 0L,
             val brushPresets: List<BrushPreset>,
             val toolSelection: ToolSelection,
+            val brushColor: Int,
             val penButtonAction: PenButtonAction,
             val eraserEndPreset: String,
         ) : UiState
@@ -141,6 +142,7 @@ class CanvasViewModel @Inject constructor(
 
     private var penButtonAction = PenButtonAction.Eraser
     private var eraserEndPreset = BrushPresets.HARD_ERASER_ID
+    private var brushColor = OPAQUE_BLACK
 
     private val pool = TileBufferPool()
 
@@ -356,6 +358,7 @@ class CanvasViewModel @Inject constructor(
             historyMaxBytes = journalLimits.maxBytes,
             brushPresets = brushPresets,
             toolSelection = toolSwitcher.selection.value,
+            brushColor = brushColor,
             penButtonAction = penButtonAction,
             eraserEndPreset = eraserEndPreset,
         )
@@ -368,6 +371,7 @@ class CanvasViewModel @Inject constructor(
         _uiState.value = state.copy(
             brushPresets = brushPresets,
             toolSelection = toolSwitcher.selection.value,
+            brushColor = brushColor,
             penButtonAction = penButtonAction,
             eraserEndPreset = eraserEndPreset,
         )
@@ -384,6 +388,13 @@ class CanvasViewModel @Inject constructor(
         toolSwitcher.pushTemporary(ToolKind.Eyedropper(), TemporaryReason.Rail)
         updateToolUi()
     }
+
+    fun setBrushColor(argb: Int) {
+        brushColor = argb or OPAQUE_ALPHA
+        updateToolUi()
+    }
+
+    fun currentBrushColor(): Int = brushColor
 
     fun updateBrushSize(value: Float) = updateBrush { it.withSize(value) }
 
@@ -897,6 +908,9 @@ class CanvasViewModel @Inject constructor(
 
         /** Opaque white, the paper of a new sketch until that same dialog. */
         const val PAPER_WHITE = 0xFFFFFFFF.toInt()
+
+        const val OPAQUE_ALPHA = 0xFF000000.toInt()
+        const val OPAQUE_BLACK = OPAQUE_ALPHA
 
         /** ≥ [ch.lkmc.bangnidraw.engine.gl.Readback]'s 1 s fence timeout. */
         const val READBACK_WAIT_MS = 2_000L

@@ -17,6 +17,12 @@ enum class ButtonState {
     Pressed,
 }
 
+object StylusButtonPolicy {
+    fun resolve(buttons: Int, primaryMask: Int, legacyMask: Int): ButtonState =
+        if (buttons and (primaryMask or legacyMask) != 0) ButtonState.Pressed
+        else ButtonState.Released
+}
+
 enum class TemporaryToolTarget {
     Eraser,
     Eyedropper,

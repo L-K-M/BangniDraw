@@ -40,12 +40,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.DisposableEffect
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
-import ch.lkmc.bangnidraw.engine.core.BrushPresets
+import ch.lkmc.bangnidraw.engine.core.ButtonState
+import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
+import ch.lkmc.bangnidraw.engine.core.TemporaryReason
+import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.input.CanvasInputHost
 import ch.lkmc.bangnidraw.input.CanvasTouchHandler
@@ -143,7 +146,8 @@ private fun CanvasContent(
     // active layer at pen-down, and 3a's stack is fixed per open, so a changed
     // stack means a different painting.
     val touch = remember(density, view0, stack) {
-        CanvasTouchHandler(
+        lateinit var handler: CanvasTouchHandler
+        handler = CanvasTouchHandler(
             density = density.density,
             host = object : CanvasInputHost {
                 override fun onViewChanged(next: ViewTransform) { view = next }
@@ -155,7 +159,12 @@ private fun CanvasContent(
                 // journal; the ViewModel drops a request that lands mid-apply.
                 override fun onUndoRequested() = viewModel.undo()
                 override fun onRedoRequested() = viewModel.redo()
-                override fun onColorPick(x: Float, y: Float) = Unit
+                override fun onColorPick(x: Float, y: Float) {
+                    val engine = session ?: return
+                    engine.sampleColor(x, y, EyedropperParams()) { color ->
+                        color?.let(viewModel::setBrushColor)
+                    }
+                }
 
                 override fun onStrokeBegin(pointerId: Int, source: StrokeSource) {
                     // A begin while one is already open means the previous
@@ -163,21 +172,53 @@ private fun CanvasContent(
                     // session. Cancel it rather than orphaning the driver and
                     // opening a second stroke on the engine while the first is
                     // still live (§4: a cancelled stroke leaves no trace).
-                    strokeState.driver?.let { stale ->
-                        strokeState.driver = null
-                        stale.cancel()
-                        // The engine the stale stroke was opened on, which is
-                        // not necessarily the current one.
-                        strokeState.engine?.cancelStroke()
-                        strokeState.engine = null
+                    val staleReason = strokeState.temporaryReason
+                    strokeState.temporaryReason = null
+                    if (strokeState.pickParams != null) {
+                        viewModel.setBrushColor(strokeState.previousColor)
                     }
+                    strokeState.pickParams = null
+                    val staleDriver = strokeState.driver
+                    staleDriver?.cancel()
+                    strokeState.driver = null
+                    // The engine the stale stroke was opened on, which is not
+                    // necessarily the current one.
+                    if (staleDriver != null) strokeState.engine?.cancelStroke()
+                    strokeState.engine = null
+                    viewModel.endStrokeTool(staleReason)
+                    val pickGeneration = strokeState.nextPickGeneration()
+
                     val engine = session ?: return
                     val active = stack.layers.getOrNull(stack.activeIndex) ?: return
-                    val preset = BrushPresets.DEFAULT
-                    val erasing = preset.eraseMode || source == StrokeSource.ERASER_END
+                    val button = if (handler.stylus.buttonPressed) {
+                        ButtonState.Pressed
+                    } else {
+                        ButtonState.Released
+                    }
+                    val selection = viewModel.beginStrokeTool(source, button)
+                    strokeState.temporaryReason = selection.temporaryReason
+                    val kind = selection.kind
+                    if (kind is ToolKind.Eyedropper) {
+                        strokeState.engine = engine
+                        strokeState.pickParams = kind.params
+                        strokeState.previousColor = viewModel.currentBrushColor()
+                        strokeState.pickGeneration = pickGeneration
+                        return
+                    }
+                    if (kind !is ToolKind.Brush) {
+                        viewModel.endStrokeTool(strokeState.temporaryReason)
+                        strokeState.temporaryReason = null
+                        return
+                    }
+
+                    val preset = kind.preset
                     // A new seed keeps each stroke's jitter independent;
                     // procedural grain remains fixed to the canvas.
-                    val driver = StrokeDriver(preset, seed = strokeState.nextSeed(), zoom = view.scale)
+                    val driver = StrokeDriver(
+                        preset,
+                        seed = strokeState.nextSeed(),
+                        zoom = handler.canvasToScreenScale,
+                    )
                     strokeState.driver = driver
                     strokeState.engine = engine
                     // Carried for every later sample. onStrokeBegin inspects
@@ -185,9 +226,10 @@ private fun CanvasContent(
                     // STYLUS to the driver afterwards would report an eraser or
                     // a finger as a pen for the whole rest of the stroke.
                     strokeState.source = source
+                    strokeState.setColor(viewModel.currentBrushColor())
                     val spec = StrokeSpec(
                         layerId = active.id,
-                        mode = if (erasing) StrokeMode.ERASE else StrokeMode.PAINT,
+                        mode = if (preset.eraseMode) StrokeMode.ERASE else StrokeMode.PAINT,
                         // The ceiling is only known once the stroke has ended —
                         // it is the maximum pressure actually used — so the
                         // spec sent at pen-down carries the preset's own
@@ -210,11 +252,22 @@ private fun CanvasContent(
                     orientation: Float,
                     timeNs: Long,
                 ) {
-                    val driver = strokeState.driver ?: return
                     // The stroke's own engine, not `session`. Identity, not
                     // nullability: a replaced session is non-null and would
                     // accept these calls while having no stroke open.
                     val engine = strokeState.engine ?: return
+                    val pick = strokeState.pickParams
+                    if (pick != null) {
+                        val generation = strokeState.pickGeneration
+                        engine.sampleColor(x, y, pick) { color ->
+                            if (strokeState.pickGeneration == generation) {
+                                color?.let(viewModel::setBrushColor)
+                            }
+                        }
+                        return
+                    }
+
+                    val driver = strokeState.driver ?: return
                     val batch = engine.acquireDabBatch() ?: return
                     val emitted = if (driver.isActive) {
                         driver.sample(x, y, pressure, tilt, orientation, timeNs, strokeState.source, batch)
@@ -225,7 +278,21 @@ private fun CanvasContent(
                 }
 
                 override fun onStrokeEnd(pointerId: Int) {
-                    val driver = strokeState.driver ?: return
+                    val reason = strokeState.temporaryReason
+                    strokeState.temporaryReason = null
+                    if (strokeState.pickParams != null) {
+                        strokeState.pickParams = null
+                        strokeState.engine = null
+                        viewModel.endStrokeTool(reason)
+                        view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        return
+                    }
+
+                    val driver = strokeState.driver
+                    if (driver == null) {
+                        viewModel.endStrokeTool(reason)
+                        return
+                    }
                     // Cleared before the session check, so no early return can
                     // leave a dead stroke's driver installed for the next
                     // sample to feed.
@@ -234,6 +301,7 @@ private fun CanvasContent(
                     strokeState.engine = null
                     if (engine == null) {
                         driver.cancel()
+                        viewModel.endStrokeTool(reason)
                         return
                     }
                     val batch = engine.acquireDabBatch()
@@ -247,13 +315,25 @@ private fun CanvasContent(
                     // The commit's pixels reach disk through the readback; the
                     // ViewModel only needs to know the document changed.
                     viewModel.onStrokeCommitted()
+                    viewModel.endStrokeTool(reason)
                 }
 
                 override fun onStrokeCancel() {
+                    val reason = strokeState.temporaryReason
+                    strokeState.temporaryReason = null
+                    if (strokeState.pickParams != null) {
+                        strokeState.nextPickGeneration()
+                        viewModel.setBrushColor(strokeState.previousColor)
+                        strokeState.pickParams = null
+                        strokeState.engine = null
+                        viewModel.endStrokeTool(reason)
+                        return
+                    }
                     strokeState.driver?.cancel()
                     strokeState.driver = null
                     strokeState.engine?.cancelStroke()
                     strokeState.engine = null
+                    viewModel.endStrokeTool(reason)
                 }
 
                 // Roadmap 2.5b: §9's predicted tail. The same ring and the same
@@ -272,6 +352,7 @@ private fun CanvasContent(
                 }
             },
         )
+        handler
     }
     val checkerA = MaterialTheme.colorScheme.surface.toArgb()
     val checkerB = MaterialTheme.colorScheme.surfaceVariant.toArgb()
@@ -327,9 +408,16 @@ private fun CanvasContent(
                 // fact about another class: whatever runs below, the pin is
                 // already gone.
                 val stale = strokeState.driver
+                if (strokeState.pickParams != null) {
+                    strokeState.nextPickGeneration()
+                    viewModel.setBrushColor(strokeState.previousColor)
+                }
+                strokeState.pickParams = null
                 strokeState.driver = null
                 strokeState.engine = null
                 stale?.cancel()
+                viewModel.endStrokeTool(strokeState.temporaryReason)
+                strokeState.temporaryReason = null
                 session = attached
                 // The ViewModel streams the painting's tiles into an arriving
                 // engine (§5.7's reopen path) and stops waiting on a departed
@@ -477,6 +565,11 @@ private const val CHECKER_DP = 8
 internal class StrokeUiState {
     var driver: StrokeDriver? = null
 
+    var pickParams: EyedropperParams? = null
+    var temporaryReason: TemporaryReason? = null
+    var previousColor: Int = 0
+    var pickGeneration: Long = 0
+
     /**
      * The session [driver] was opened against, so every later call reaches
      * *that* engine rather than whichever one happens to be current.
@@ -505,6 +598,12 @@ internal class StrokeUiState {
     var colorG = 0f
     var colorB = 0f
 
+    fun setColor(argb: Int) {
+        colorR = ((argb ushr RED_SHIFT) and CHANNEL_MASK) / CHANNEL_MAX
+        colorG = ((argb ushr GREEN_SHIFT) and CHANNEL_MASK) / CHANNEL_MAX
+        colorB = (argb and CHANNEL_MASK) / CHANNEL_MAX
+    }
+
     // Seeded from the clock rather than from 1: a fixed start makes the first
     // stroke of every session wobble identically to the first stroke of the
     // last one. Nothing in the suite depends on the sequence — StrokeDriverTest
@@ -517,4 +616,14 @@ internal class StrokeUiState {
      * wobble every time. Procedural grain remains fixed to the canvas.
      */
     fun nextSeed(): Long = seed++
+
+    /** Invalidates eyedropper callbacks already queued on the GL thread. */
+    fun nextPickGeneration(): Long = ++pickGeneration
+
+    private companion object {
+        const val RED_SHIFT = 16
+        const val GREEN_SHIFT = 8
+        const val CHANNEL_MASK = 0xFF
+        const val CHANNEL_MAX = 255f
+    }
 }

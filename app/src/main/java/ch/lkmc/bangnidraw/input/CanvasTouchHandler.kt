@@ -5,6 +5,7 @@ import android.view.Choreographer
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
+import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.GestureArbiter
@@ -17,6 +18,7 @@ import ch.lkmc.bangnidraw.engine.core.RotationSnap
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
+import ch.lkmc.bangnidraw.engine.core.StylusButtonPolicy
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 
 /**
@@ -220,7 +222,8 @@ class CanvasTouchHandler(
         }
         override fun onTapUndo() = host.onUndoRequested()
         override fun onTapRedo() = host.onRedoRequested()
-        override fun onLongPressPick(x: Float, y: Float) = host.onColorPick(x, y)
+        override fun onLongPressPick(x: Float, y: Float) =
+            host.onColorPick(canvasX(x, y), canvasY(x, y))
         override fun onIgnore(pointerId: Int) = Unit
         override fun onStrokeEnd(pointerId: Int) {
             strokeLive = false
@@ -825,6 +828,7 @@ class CanvasTouchHandler(
         // nothing has to be plumbed through the composable that owns both.
         attachPredictor(v)
         recordForPrediction(e)
+        syncStylusButton(e)
         // Before the `when`, not inside its DOWN arm. That arm matches
         // ACTION_POINTER_DOWN too, so the call needed a nested re-check of the
         // value the `when` had already switched on — invisible to anyone
@@ -891,10 +895,10 @@ class CanvasTouchHandler(
             MotionEvent.ACTION_BUTTON_PRESS -> {
                 val tool = toolOf(e.getToolType(index))
                 if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
-                    stylus.onButton(true)
+                    syncStylusButton(e)
                 }
             }
-            MotionEvent.ACTION_BUTTON_RELEASE -> stylus.onButton(false)
+            MotionEvent.ACTION_BUTTON_RELEASE -> stylus.onButton(ButtonState.Released)
             MotionEvent.ACTION_CANCEL -> handleCancel(timeNs)
             else -> return false
         }
@@ -1040,6 +1044,25 @@ class CanvasTouchHandler(
         MotionEvent.TOOL_TYPE_ERASER -> PointerTool.ERASER
         MotionEvent.TOOL_TYPE_MOUSE -> PointerTool.MOUSE
         else -> PointerTool.FINGER
+    }
+
+    private fun syncStylusButton(event: MotionEvent) {
+        var hasStylus = false
+        for (index in 0 until event.pointerCount) {
+            val tool = toolOf(event.getToolType(index))
+            if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
+                hasStylus = true
+                break
+            }
+        }
+        if (!hasStylus) return
+
+        val state = StylusButtonPolicy.resolve(
+            event.buttonState,
+            MotionEvent.BUTTON_STYLUS_PRIMARY,
+            MotionEvent.BUTTON_SECONDARY,
+        )
+        stylus.onButton(state)
     }
 
     private companion object {

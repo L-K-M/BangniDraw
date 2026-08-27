@@ -4,6 +4,7 @@ import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.StylusToolPolicy
+import ch.lkmc.bangnidraw.engine.core.StylusButtonPolicy
 import ch.lkmc.bangnidraw.engine.core.TemporaryReason
 import ch.lkmc.bangnidraw.engine.core.TemporaryToolRequest
 import ch.lkmc.bangnidraw.engine.core.TemporaryToolTarget
@@ -96,10 +97,24 @@ class StylusStateTest {
     fun `the barrel button latches and releases`() {
         val s = StylusState()
         assertFalse(s.buttonPressed)
-        s.onButton(true)
+        s.onButton(ButtonState.Pressed)
         assertTrue(s.buttonPressed)
-        s.onButton(false)
+        s.onButton(ButtonState.Released)
         assertFalse(s.buttonPressed)
+    }
+
+    @Test
+    fun `only primary and legacy button masks count as the barrel button`() {
+        val primary = 1 shl 5
+        val legacy = 1 shl 1
+        val secondaryStylus = 1 shl 6
+
+        assertEquals(ButtonState.Pressed, StylusButtonPolicy.resolve(primary, primary, legacy))
+        assertEquals(ButtonState.Pressed, StylusButtonPolicy.resolve(legacy, primary, legacy))
+        assertEquals(
+            ButtonState.Released,
+            StylusButtonPolicy.resolve(secondaryStylus, primary, legacy),
+        )
     }
 
     @Test
@@ -155,7 +170,7 @@ class StylusStateTest {
     fun `reset forgets the pen entirely`() {
         val s = StylusState()
         s.onDown(1f, 2f, PointerTool.STYLUS)
-        s.onButton(true)
+        s.onButton(ButtonState.Pressed)
         s.reset()
         assertFalse(s.isDown)
         assertFalse(s.buttonPressed)

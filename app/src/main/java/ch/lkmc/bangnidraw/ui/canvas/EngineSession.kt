@@ -10,6 +10,7 @@ import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.DabRing
+import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
@@ -306,6 +307,22 @@ class EngineSession(
             renderer.checkerB = colorB
         }
         redraw()
+    }
+
+    fun sampleColor(
+        x: Float,
+        y: Float,
+        params: EyedropperParams,
+        onColor: (Int?) -> Unit,
+    ) {
+        if (!frontBuffered.isValid()) {
+            onColor(null)
+            return
+        }
+        frontBuffered.execute {
+            val color = renderer.sampleColor(x, y, params)
+            pollHandler.post { onColor(color) }
+        }
     }
 
     // ------------------------------------------------------- the stroke (§7)

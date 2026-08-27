@@ -10,6 +10,7 @@ import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.BufferMode
+import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.LayerId
@@ -18,6 +19,7 @@ import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.PerfStats
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.SANDWICH_MARGIN_PX
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
+import ch.lkmc.bangnidraw.engine.core.SampleSource
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
@@ -99,6 +101,7 @@ class CanvasRenderer(
     private val accum = OffscreenTarget("Accum")
     private val scratch = OffscreenTarget("Scratch")
     private val fbo = GlFbo()
+    private val pixelReadback = PixelReadback(grid, fbo)
 
     /**
      * A second FBO purely so `Accum → Scratch` can bind a source and a
@@ -601,6 +604,18 @@ class CanvasRenderer(
     fun setView(next: ViewTransform) {
         // Pan/zoom/rotate never stale anything: the caches are in canvas space.
         view = next
+    }
+
+    fun sampleColor(x: Float, y: Float, params: EyedropperParams): Int? {
+        val currentScreen = screen ?: return null
+        return when (params.source) {
+            SampleSource.Composite ->
+                pixelReadback.sampleComposite(accum, currentScreen, x, y, params.radius)
+            SampleSource.CurrentLayer -> {
+                val active = stack?.active ?: return null
+                pixelReadback.sampleLayer(layers[active.id], x, y, params.radius)
+            }
+        }
     }
 
     /** The tiles of [id], creating the holder on first use. */

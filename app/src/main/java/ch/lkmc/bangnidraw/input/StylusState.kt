@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.input
 
+import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 
 /**
@@ -91,8 +92,8 @@ class StylusState {
         exitedAtNs = timeNs
     }
 
-    fun onButton(pressed: Boolean) {
-        buttonPressed = pressed
+    fun onButton(state: ButtonState) {
+        buttonPressed = state == ButtonState.Pressed
     }
 
     /**

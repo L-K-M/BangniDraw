@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3 - 2026-08-27
+
+- Restore the canvas after startup and surface recreation.
+
 ## 1.0.2 - 2026-08-27
 
 - Remove moving live-stroke cutoffs and tile-edge seams.

@@ -888,7 +888,9 @@ completion recomposites and presents the cumulative preview once; later frames
 return to incremental damage. Re-presenting the growing cumulative preview on
 every sample defeats scan-line racing and produces a moving cutoff. Redraws
 during a stroke are deferred, and equal Compose inputs are filtered before they
-request one.
+request one. A target-generation gate prevents both front renders and commits
+before attachment. Surface changes replace only the `GLFrontBufferedRenderer`;
+the shared `GLRenderer`, EGL context, and canvas textures remain alive.
 
 ### 8.2 `onDrawMultiDoubleBufferedLayer(eglManager, bufferInfo, transform, params)`
 

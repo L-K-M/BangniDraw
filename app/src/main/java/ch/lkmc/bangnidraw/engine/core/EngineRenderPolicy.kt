@@ -115,6 +115,14 @@ internal class EngineRenderPolicy {
     }
 
     @Synchronized
+    fun onFrontInvalidated(): MultiDrawCompletion {
+        if (released || !strokeActive) return MultiDrawCompletion.NONE
+
+        recoverCumulative = true
+        return MultiDrawCompletion.RESUME_FRONT
+    }
+
+    @Synchronized
     fun resumeFront(): MultiDrawCompletion {
         if (released) return MultiDrawCompletion.NONE
         if (!strokeActive || !resumeQueued) return MultiDrawCompletion.NONE

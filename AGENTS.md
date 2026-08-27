@@ -396,6 +396,22 @@ and the contradiction is noted here.
   immutable stack refuses structural pixel edits, but strokes bypass those
   operations. `StrokeLayerPolicy` is the matching input-boundary guard; a
   hidden active layer remains drawable and previews until pen-up.
+- **RMW tile coordinates are canvas-top-first.** Unlike window-space and
+  accumulation scissors, an RMW tile target maps canvas row zero directly to
+  GL row zero; do not Y-flip `RmwTileScissor`.
+- **RMW cancellation resolves current pixels through `TileFlusher`'s FIFO.**
+  A direct disk read can race a pending sparse-tile removal or replacement.
+  `ResolveCurrent` is the ordering barrier before the captured before-image is
+  restored.
+- **RMW before-images are captured in memory on first tile touch.** Before
+  commit, those pixels may exist only on the GPU, so the open stroke cannot
+  use the plan's disk journal literally. Pen-up persists the ordinary history
+  entry; context loss restores the captured pre-stroke state before reopening
+  the persisted document.
+- **Generated palette names use a closed token grammar.** Only the four exact
+  built-in tokens `@string/palette_painters`, `@string/palette_basic`,
+  `@string/palette_recent`, and `@string/palette_my` resolve through resources.
+  User names are literal; never resolve arbitrary stored `@string/` values.
 
 - **What "`engine/core` is pure JVM" actually forbids.**
   `docs/plan/02-architecture.md` §1 writes the rule as "`kotlin.*` and

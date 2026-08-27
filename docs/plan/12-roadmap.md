@@ -681,7 +681,14 @@ until pen-up"; the CPU `Composite` on a small fixture document is the
 oracle — a JVM test composes N layers two ways (full and sandwich) and
 asserts equality, so the invalidation rules are pinned before the shader.
 
-### Step 7 — Mixing, smudge, blur (M)
+### Step 7 — Mixing, smudge, blur (M, **landed on main** — commits `9e0cf60..1925b0d`, 2026-08-27, direct push)
+
+**Landed.** CPU and shader Mixbox paths share the documented pigment result;
+smudge and blur use journaled ping-pong RMW passes; the color panel supplies
+the HSV picker, persistent palettes, recent colors, targeted eyedropping and
+the two-well dish. The stripped RGB build remains supported. **The pigment,
+smudge, blur and dish device checks have not been run — no device has ever
+been available.**
 
 **Goal.** Blue + yellow = green: Mixbox in the dab merge for pigment
 brushes, a smudge tool that drags color, a blur tool, the mixing dish in

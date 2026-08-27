@@ -132,6 +132,13 @@ class DabGeneratorTest {
             "builtin.airbrush" to Expected(60f, 60f, 0.06f, 0f, 1f),
             "builtin.spray_can" to Expected(26f, 54f, 0.045f, 0f, 1f),
             "builtin.marker" to Expected(12f, 12f, 1f, 0.95f, 0.3f),
+            "builtin.charcoal" to Expected(4.8f, 7.2f, 0.28f, 0.6f, 1f),
+            "builtin.soft_pastel" to Expected(16.4f, 23.6f, 0.24f, 0.62f, 0.65f),
+            "builtin.technical_pen" to Expected(2f, 2f, 1f, 1f, 1f),
+            "builtin.calligraphy" to Expected(8f, 8f, 0.9f, 0.85f, 0.35f),
+            "builtin.dry_brush" to Expected(22.88f, 29.12f, 0.22f, 0.78f, 0.45f),
+            "builtin.oil_paint" to Expected(28f, 36f, 0.95f, 0.55f, 0.6f),
+            "builtin.pigment_wash" to Expected(57f, 63f, 0.12f, 0.18f, 0.75f),
             "builtin.hard_eraser" to Expected(15f, 15f, 1f, 0.95f, 1f),
             "builtin.soft_eraser" to Expected(40f, 40f, 0.4f, 0.15f, 1f),
         )
@@ -180,6 +187,19 @@ class DabGeneratorTest {
         ).single()
         assertEquals(12f, markerLight.radius, pxEps, "marker width ignores pressure")
         assertEquals(0.7f, markerLight.angle, pxEps, "marker tip follows stylus orientation")
+
+        val technicalPen = builtIns.getValue("builtin.technical_pen")
+        val penLight = run(
+            technicalPen,
+            listOf(sample(0f, 0f, pressure = 0.1f)),
+        ).single()
+        val penHard = run(
+            technicalPen,
+            listOf(sample(0f, 0f, pressure = 1f)),
+        ).single()
+        assertEquals(2f, penLight.radius, pxEps, "technical pen width is absolute")
+        assertEquals(penLight.radius, penHard.radius, pxEps, "technical pen ignores pressure")
+        assertEquals(1f, penLight.flow, 1e-5f, "technical pen ink is constant")
 
         val softEraser = builtIns.getValue("builtin.soft_eraser")
         val soft = run(softEraser, listOf(sample(0f, 0f, pressure = 0.5f))).single()

@@ -20,13 +20,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.Air
+import androidx.compose.material.icons.filled.Architecture
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.FormatPaint
+import androidx.compose.material.icons.filled.Gradient
+import androidx.compose.material.icons.filled.HistoryEdu
+import androidx.compose.material.icons.filled.OilBarrel
+import androidx.compose.material.icons.filled.Texture
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -678,6 +685,13 @@ private fun iconFor(glyph: BrushToolGlyph): ImageVector = when (glyph) {
     BrushToolGlyph.AIRBRUSH -> Icons.Filled.Air
     BrushToolGlyph.SPRAY_CAN -> ToolGlyphs.SprayCan
     BrushToolGlyph.MARKER -> ToolGlyphs.Marker
+    BrushToolGlyph.CHARCOAL -> Icons.Filled.Texture
+    BrushToolGlyph.SOFT_PASTEL -> Icons.Filled.Gradient
+    BrushToolGlyph.TECHNICAL_PEN -> Icons.Filled.Architecture
+    BrushToolGlyph.CALLIGRAPHY -> Icons.Filled.HistoryEdu
+    BrushToolGlyph.DRY_BRUSH -> Icons.Filled.FormatPaint
+    BrushToolGlyph.OIL_PAINT -> Icons.Filled.OilBarrel
+    BrushToolGlyph.PIGMENT_WASH -> Icons.Filled.WaterDrop
     BrushToolGlyph.ERASER -> ToolGlyphs.Eraser
     BrushToolGlyph.CUSTOM -> Icons.Filled.Tune
 }

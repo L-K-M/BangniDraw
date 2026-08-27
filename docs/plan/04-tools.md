@@ -3,7 +3,7 @@
 **What this covers.** The implementable catalog behind PLAN.md §6 and
 decision 9 ("tools are presets over one engine"): the `Tool`/`ToolKind`
 model, the `BrushPreset` data class with every parameter and its meaning,
-the seven built-in presets with their actual values, the `DabGenerator`
+the built-in presets with their actual values, the `DabGenerator`
 and `Stabilizer` math, and the three non-brush tools (smudge/blur, fill,
 eyedropper) plus the eraser's S Pen bindings. It expands PLAN.md; where the
 engine plumbing (stroke buffer, `DabPass`, ping-pong RMW, tiles, readback)
@@ -63,7 +63,7 @@ one `HistoryEntry` per stroke.
 
 | Tool (rail slot) | `ToolKind` | Engine path | Writes to |
 | --- | --- | --- | --- |
-| Pencil, Ink pen, Paintbrush, Airbrush, Marker | `Brush(preset)` | `DabPass` → stroke buffer → merge on pen-up | active layer |
+| Core rail: Pencil, Ink pen, Paintbrush, Airbrush, Marker; library: Spray can, Charcoal, Soft pastel, Technical pen, Calligraphy, Dry brush, Oil paint, Pigment wash | `Brush(preset)` | `DabPass` → stroke buffer → merge on pen-up | active layer |
 | Hard eraser, Soft eraser | `Brush(preset.eraseMode=true)` | same | active layer (alpha only) |
 | Smudge | `Smudge` | `SmudgePass` ping-pong RMW per dab | active layer, live |
 | Blur | `Blur` | `SmudgePass` variant (separable kernel) | active layer, live |
@@ -375,6 +375,14 @@ device"). All sizes in canvas px; spacing is a fraction of the radius (§2);
 | Paintbrush | 40 (4–400) | 1.0 | 0.6 | 0.45 | 0.20 | Flat(0.7) / StrokeDirection | 0.35 | **on** (0.15) | – |
 | Airbrush | 120 (10–400) | 1.0 | 0.06 | 0.0 | 0.08 | Round / Fixed | 0.1 | off | – |
 | Marker | 24 (4–200) | 0.6 | 1.0 | 0.95 | 0.12 | Flat(0.3) / Stylus | 0.4 | off | – |
+| Spray can | 80 (10–300) | 1.0 | 0.045 | 0.0 | 0.50 | Round / Fixed | 0.05 | off | – |
+| Charcoal | 12 (2–120) | 0.95 | 0.28 | 0.6 | 0.12 | Round / Fixed | 0.15 | off | – |
+| Soft pastel | 40 (6–200) | 0.8 | 0.24 | 0.62 | 0.14 | Flat(0.65) / Stylus | 0.18 | off | – |
+| Technical pen | 4 (1–24) | 1.0 | 1.0 | 1.0 | 0.12 | Round / Fixed | 0.8 | off | – |
+| Calligraphy | 16 (2–120) | 1.0 | 0.9 | 0.85 | 0.08 | Flat(0.35) / StrokeDirection | 0.55 | off | – |
+| Dry brush | 52 (6–300) | 0.9 | 0.22 | 0.78 | 0.16 | Flat(0.45) / StrokeDirection | 0.25 | **on** (0.05) | – |
+| Oil paint | 64 (8–400) | 1.0 | 0.95 | 0.55 | 0.25 | Flat(0.6) / StrokeDirection | 0.3 | **on** (0.25) | – |
+| Pigment wash | 120 (12–600) | 0.38 | 0.12 | 0.18 | 0.10 | Flat(0.75) / StrokeDirection | 0.22 | **on** (0.65) | – |
 | Hard eraser | 30 (2–400) | 1.0 | 1.0 | 0.95 | 0.20 | Round / Fixed | 0.2 | off | yes |
 | Soft eraser | 80 (4–400) | 0.5 | 0.4 | 0.15 | 0.16 | Round / Fixed | 0.2 | off | yes |
 
@@ -385,6 +393,14 @@ device"). All sizes in canvas px; spacing is a fraction of the radius (§2);
 | Paintbrush | `Curve(0.35, 0.6, 0.85, 1)` | One | gamma(0.7) | size 1.4 at flat | none | size 0.05 | Accumulate |
 | Airbrush | `Curve(0.6, 0.75, 0.9, 1)` | One | Linear | none | none | none | Accumulate |
 | Marker | One (constant width) | One | One | none | none | none | Max |
+| Spray can | `Curve(0.7, 0.8, 0.9, 1)` | One | Linear | none | none | size 0.35, pos 0.85 | Accumulate |
+| Charcoal | `Curve(0.6, 0.73, 0.87, 1)` | `Curve(0, 0.415244, 0.722981, 1)` | `Curve(0, 0.19245, 0.544331, 1)` | size 2.6 at flat, opacity 0.6, elongate | none | size 0.18, pos 0.22 | Accumulate |
+| Soft pastel | `Curve(0.65, 0.75, 0.87, 1)` | `Curve(0.15, 0.4, 0.72, 1)` | `Curve(0.08, 0.3, 0.65, 1)` | size 1.8 at flat, opacity 0.75, elongate | none | size 0.18, pos 0.15 | Accumulate |
+| Technical pen | One | One | One | none | none | none | Max |
+| Calligraphy | `Curve(0.05, 0.25, 0.7, 1)` | One | `Curve(0, 0.15, 0.55, 1)` | none | size 0.7 at fast (2.5 px/ms) | none | Max |
+| Dry brush | `Curve(0.3, 0.5, 0.75, 1)` | One | `Curve(0.03, 0.18, 0.55, 1)` | none | none | size 0.12, pos 0.12 | Accumulate |
+| Oil paint | `Curve(0.5, 0.75, 0.92, 1)` | One | `Curve(0.35, 0.6, 0.85, 1)` | size 1.3 at flat | none | size 0.12, pos 0.05 | Accumulate |
+| Pigment wash | `Curve(0.65, 0.75, 0.87, 1)` | `Curve(0.25, 0.5, 0.75, 1)` | `Curve(0.15, 0.42, 0.72, 1)` | size 1.5 at flat, opacity 0.7 | none | size 0.05, pos 0.04 | Accumulate |
 | Hard eraser | floor(0.5) | One | One | none | none | none | Max |
 | Soft eraser | floor(0.6) | Linear | Linear | none | none | none | Accumulate |
 
@@ -428,6 +444,19 @@ Why the values feel the way they do:
   layers. Flat(0.3) tip oriented by the stylus so the chisel tip turns
   with the pen; on finger input orientation is 0 and it is a horizontal
   chisel, which is still recognisably a marker.
+- **Charcoal and soft pastel.** Procedural paper grain, pressure-driven flow,
+  jitter, and broad tilt shading separate a dusty stick from the clean pencil.
+- **Technical pen.** A hard 4 px round tip ignores pressure and uses the
+  strongest stabilizer for constant drafting lines.
+- **Spray can.** Wide position and size jitter scatter low-flow soft dabs;
+  pressure controls coverage without changing the paint model.
+- **Calligraphy.** A narrow path-oriented tip, strong pressure response, and
+  velocity thinning create controlled thick/thin strokes.
+- **Dry brush.** Low flow, grain, jitter, and a narrow path-oriented tip leave
+  a broken mark while retaining pigment mixing.
+- **Oil paint.** High-flow, broad pigment dabs build opaque, mixed strokes.
+- **Pigment wash.** Low opacity, low flow, and strong dilution layer broad,
+  transparent pigment without claiming watercolor bloom or diffusion.
 - **Hard eraser.** A hard disc; `Max` with opacity 1 so one pass removes
   fully. Size floor 0.5 so light pressure still erases, just narrower.
 - **Soft eraser.** Hardness 0.15, opacity 0.5: it *lightens*; one stroke

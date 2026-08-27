@@ -45,6 +45,13 @@ class BrushPresetStoreTest {
                 "builtin.airbrush",
                 "builtin.spray_can",
                 "builtin.marker",
+                "builtin.charcoal",
+                "builtin.soft_pastel",
+                "builtin.technical_pen",
+                "builtin.calligraphy",
+                "builtin.dry_brush",
+                "builtin.oil_paint",
+                "builtin.pigment_wash",
                 "builtin.hard_eraser",
                 "builtin.soft_eraser",
             ),
@@ -54,6 +61,9 @@ class BrushPresetStoreTest {
             GrainMode.Procedural,
             presets.single { it.id == "builtin.pencil" }.grainMode,
         )
+        for (id in listOf("builtin.charcoal", "builtin.soft_pastel", "builtin.dry_brush")) {
+            assertEquals(GrainMode.Procedural, presets.single { it.id == id }.grainMode, id)
+        }
     }
 
     @Test

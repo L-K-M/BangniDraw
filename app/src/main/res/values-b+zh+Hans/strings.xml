@@ -103,6 +103,13 @@
     <string name="preset_airbrush">喷枪</string>
     <string name="preset_spray_can">喷漆罐</string>
     <string name="preset_marker">马克笔</string>
+    <string name="preset_charcoal">炭笔</string>
+    <string name="preset_soft_pastel">软粉彩</string>
+    <string name="preset_technical_pen">针管笔</string>
+    <string name="preset_calligraphy">书法笔</string>
+    <string name="preset_dry_brush">干画笔</string>
+    <string name="preset_oil_paint">油画笔</string>
+    <string name="preset_pigment_wash">淡彩笔</string>
     <string name="preset_hard_eraser">硬橡皮擦</string>
     <string name="preset_soft_eraser">软橡皮擦</string>
     <string name="tool_eraser">橡皮擦</string>

@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "id": "builtin.oil_paint",
+  "name": "@string/preset_oil_paint",
+  "icon": "oil_paint",
+  "size": 64.0,
+  "sizeMin": 8.0,
+  "sizeMax": 400.0,
+  "flow": 0.95,
+  "hardness": 0.55,
+  "spacing": 0.25,
+  "tip": { "type": "flat", "aspect": 0.6 },
+  "orientation": "StrokeDirection",
+  "pressureSize": { "p0": 0.5, "p1": 0.75, "p2": 0.92, "p3": 1.0 },
+  "pressureFlow": { "p0": 0.35, "p1": 0.6, "p2": 0.85, "p3": 1.0 },
+  "tilt": { "sizeAtFlat": 1.3, "opacityAtFlat": 1.0, "elongate": false },
+  "jitter": { "size": 0.12, "position": 0.05 },
+  "stabilizer": 0.3,
+  "mixing": true,
+  "dilution": 0.25,
+  "bufferMode": "Accumulate"
+}

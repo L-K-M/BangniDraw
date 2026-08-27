@@ -605,6 +605,11 @@ third-party asset, the rail and settings sheet edit those presets, and stylus
 eraser/button precedence is pinned in JVM tests. **The per-preset and S Pen
 device checks have not been run — no device has ever been available.**
 
+**Extended.** Seven specialty presets later joined the same JSON/dab path:
+charcoal, soft pastel, technical pen, calligraphy, dry brush, oil paint, and
+pigment wash. Their parsing and dab dynamics are pinned on the JVM; physical
+feel remains unverified because no device was available.
+
 **Goal.** Every preset in PLAN.md §6 feels like its name: pencil, ink pen,
 paintbrush, airbrush, marker, hard and soft eraser, plus the eyedropper;
 S Pen eraser end and side button mapped.

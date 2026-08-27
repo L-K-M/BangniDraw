@@ -120,6 +120,13 @@
     <string name="preset_airbrush">Airbrush</string>
     <string name="preset_spray_can">Spray can</string>
     <string name="preset_marker">Marker</string>
+    <string name="preset_charcoal">Charcoal</string>
+    <string name="preset_soft_pastel">Soft pastel</string>
+    <string name="preset_technical_pen">Technical pen</string>
+    <string name="preset_calligraphy">Calligraphy</string>
+    <string name="preset_dry_brush">Dry brush</string>
+    <string name="preset_oil_paint">Oil paint</string>
+    <string name="preset_pigment_wash">Pigment wash</string>
     <string name="preset_hard_eraser">Hard eraser</string>
     <string name="preset_soft_eraser">Soft eraser</string>
 

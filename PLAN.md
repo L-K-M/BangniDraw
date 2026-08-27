@@ -348,6 +348,13 @@ competes with the picture.
 | Paintbrush | preset | round soft-edged, pressure → size + flow, pigment mixing on, bristle-ish texture |
 | Airbrush | preset | very soft, low flow, high spacing density |
 | Marker | preset | hard, semi-transparent, builds up to a cap (opacity), squared tip follows orientation |
+| Spray can | preset | scattered soft low-flow dabs across a broad radius |
+| Charcoal / Soft pastel | presets | procedural paper grain, jitter, pressure buildup, broad tilt shading |
+| Technical pen | preset | constant narrow width, hard edge, strong stabilizer |
+| Calligraphy | preset | narrow path-oriented tip, pressure thick/thin, velocity taper |
+| Dry brush | preset | grainy broken edge, low flow, narrow path-oriented tip |
+| Oil paint | preset | broad, opaque, high-flow pigment mixing |
+| Pigment wash | preset | broad transparent pigment layers; no bloom or diffusion claim |
 | Eraser (hard / soft) | preset (erase mode) | same dab pipeline, subtracts alpha; the S Pen eraser end and button map here |
 | Smudge | RMW | picks up color under the dab and drags it; strength; pigment mixing |
 | Blur | RMW | softens under the dab |

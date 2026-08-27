@@ -15,6 +15,13 @@ internal fun brushPresetName(preset: BrushPreset): String = when (preset.id) {
     BrushPresets.AIRBRUSH_ID -> stringResource(R.string.preset_airbrush)
     BrushPresets.SPRAY_CAN_ID -> stringResource(R.string.preset_spray_can)
     BrushPresets.MARKER_ID -> stringResource(R.string.preset_marker)
+    BrushPresets.CHARCOAL_ID -> stringResource(R.string.preset_charcoal)
+    BrushPresets.SOFT_PASTEL_ID -> stringResource(R.string.preset_soft_pastel)
+    BrushPresets.TECHNICAL_PEN_ID -> stringResource(R.string.preset_technical_pen)
+    BrushPresets.CALLIGRAPHY_ID -> stringResource(R.string.preset_calligraphy)
+    BrushPresets.DRY_BRUSH_ID -> stringResource(R.string.preset_dry_brush)
+    BrushPresets.OIL_PAINT_ID -> stringResource(R.string.preset_oil_paint)
+    BrushPresets.PIGMENT_WASH_ID -> stringResource(R.string.preset_pigment_wash)
     BrushPresets.HARD_ERASER_ID -> stringResource(R.string.preset_hard_eraser)
     BrushPresets.SOFT_ERASER_ID -> stringResource(R.string.preset_soft_eraser)
     else -> preset.name

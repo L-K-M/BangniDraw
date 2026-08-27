@@ -574,8 +574,13 @@ and the contradiction is noted here.
   the rail never grows past it; the active preset always keeps a slot
   (`RailSlotPolicy`), and the overflow presets are reachable through the
   settings sheet's chip row — the same path GROUPED/SHORT/DOCK already use.
+  The first five paint IDs in `BrushPresets.RAIL_ORDER` are the v1 core set;
+  additional brushes follow so they cannot displace a core slot until selected.
   The `*_FULL_MIN_DP` thresholds stay sized for the v1 catalogue; they select
   a mode, not a capacity.
+- **The seven specialty brush presets have no device feel pass.** Their JSON
+  parsing, dynamics, grain modes, rail priority, glyph roles, and localization
+  are pinned on the JVM; their physical feel still needs stylus testing.
 - **HSV fine controls use `HsvChannel`.** Keep their ranges, discrete steps,
   reads, and replacements in that pure enum so visual sliders and accessibility
   adjustments cannot drift. The current-color chip has a named long-click only;

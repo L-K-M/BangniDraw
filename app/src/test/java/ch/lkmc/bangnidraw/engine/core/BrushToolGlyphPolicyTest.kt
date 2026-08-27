@@ -14,6 +14,13 @@ class BrushToolGlyphPolicyTest {
             "airbrush" to BrushToolGlyph.AIRBRUSH,
             "spray_can" to BrushToolGlyph.SPRAY_CAN,
             "marker" to BrushToolGlyph.MARKER,
+            "charcoal" to BrushToolGlyph.CHARCOAL,
+            "soft_pastel" to BrushToolGlyph.SOFT_PASTEL,
+            "technical_pen" to BrushToolGlyph.TECHNICAL_PEN,
+            "calligraphy" to BrushToolGlyph.CALLIGRAPHY,
+            "dry_brush" to BrushToolGlyph.DRY_BRUSH,
+            "oil_paint" to BrushToolGlyph.OIL_PAINT,
+            "pigment_wash" to BrushToolGlyph.PIGMENT_WASH,
         )
 
         for ((icon, expected) in cases) {

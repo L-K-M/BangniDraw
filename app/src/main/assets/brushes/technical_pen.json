@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "id": "builtin.technical_pen",
+  "name": "@string/preset_technical_pen",
+  "icon": "technical_pen",
+  "size": 4.0,
+  "sizeMin": 1.0,
+  "sizeMax": 24.0,
+  "hardness": 1.0,
+  "spacing": 0.12,
+  "pressureSize": { "p0": 1.0, "p1": 1.0, "p2": 1.0, "p3": 1.0 },
+  "stabilizer": 0.8,
+  "bufferMode": "Max"
+}

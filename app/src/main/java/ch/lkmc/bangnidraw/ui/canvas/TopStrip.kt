@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +35,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -223,40 +227,46 @@ private fun ToolCluster(
         // Long-press = the quick palette: the last colours painted with,
         // without opening the colour panel. combinedClickable keeps tap and
         // long-press mutually exclusive — releasing after a long press must
-        // not also open the panel over the popover.
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(ICON_BUTTON)
-                .combinedClickable(
-                    onClick = onColor,
-                    // No manual haptic here: combinedClickable fires
-                    // HapticFeedbackType.LongPress itself (Compose 1.6+),
-                    // and a manual one would double-buzz enabled users while
-                    // buzzing haptics-off users anyway.
-                    onLongClick = { onColorLongPress() },
-                )
-                .semantics {
-                    role = Role.Button
-                    contentDescription = colorDescription
-                    customActions = listOf(
-                        CustomAccessibilityAction(quickPaletteLabel) {
-                            onColorLongPress()
-                            true
-                        },
-                    )
-                },
+        // not also open the panel over the popover. Its built-in LongPress
+        // haptic knows nothing of the app's HapticsMode, so the provider
+        // silences it for haptics-off users.
+        CompositionLocalProvider(
+            LocalHapticFeedback provides if (hapticsMode == HapticsMode.ENABLED) {
+                LocalHapticFeedback.current
+            } else {
+                NoOpHapticFeedback
+            },
         ) {
             Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(COLOR_SWATCH)
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outline,
-                        shape = RoundedCornerShape(COLOR_RADIUS),
-                    ),
+                    .size(ICON_BUTTON)
+                    .combinedClickable(
+                        onClick = onColor,
+                        onLongClick = { onColorLongPress() },
+                    )
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = colorDescription
+                        customActions = listOf(
+                            CustomAccessibilityAction(quickPaletteLabel) {
+                                onColorLongPress()
+                                true
+                            },
+                        )
+                    },
             ) {
-                Canvas(Modifier.size(COLOR_SWATCH)) { drawRect(Color(brushColor)) }
+                Box(
+                    modifier = Modifier
+                        .size(COLOR_SWATCH)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline,
+                            shape = RoundedCornerShape(COLOR_RADIUS),
+                        ),
+                ) {
+                    Canvas(Modifier.size(COLOR_SWATCH)) { drawRect(Color(brushColor)) }
+                }
             }
         }
         OverflowMenu(
@@ -317,5 +327,10 @@ private val ICON_BUTTON = 48.dp
 private val COLOR_RADIUS = 6.dp
 private val BADGE_RADIUS = 8.dp
 private const val RGB_MASK = 0xFFFFFF
+
+/** Silences combinedClickable's built-in long-press haptic (HapticsMode.DISABLED). */
+private object NoOpHapticFeedback : HapticFeedback {
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
+}
 
 internal enum class ActionAvailability { ENABLED, DISABLED }

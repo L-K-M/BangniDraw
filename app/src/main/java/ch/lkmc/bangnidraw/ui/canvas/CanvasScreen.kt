@@ -19,19 +19,29 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,6 +67,8 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
@@ -95,6 +107,7 @@ import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.HintVisibility
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
+import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import ch.lkmc.bangnidraw.engine.core.PressureCurve
 import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
@@ -115,6 +128,7 @@ import ch.lkmc.bangnidraw.engine.core.WidthClass
 import ch.lkmc.bangnidraw.input.CanvasInputHost
 import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -197,6 +211,11 @@ private fun CanvasContent(
     var session by remember { mutableStateOf<EngineSession?>(null) }
     var hoverRevision by remember { mutableIntStateOf(0) }
     var textInputFocus by remember { mutableStateOf(TextInputFocus.CLEAR) }
+    var showRecentSwatches by remember { mutableStateOf(false) }
+    val recentColors = state.color.palettes
+        .firstOrNull { it.id == PaletteCatalog.RECENT_ID }
+        ?.swatches
+        .orEmpty()
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
 
     // The stroke in flight. Plain vars, not Compose state: they change several
@@ -905,6 +924,14 @@ private fun CanvasContent(
                 onRedo = viewModel::redo,
                 onLayers = { viewModel.togglePanel(CanvasPanel.LAYERS) },
                 onColor = { viewModel.togglePanel(CanvasPanel.COLOR) },
+                onColorLongPress = {
+                    // No colours painted yet: the panel is the honest answer.
+                    if (recentColors.isEmpty()) {
+                        viewModel.togglePanel(CanvasPanel.COLOR)
+                    } else {
+                        showRecentSwatches = true
+                    }
+                },
                 onShare = {
                     sharePainting(context, viewModel, ImageEncode.Format.PNG)
                 },
@@ -917,6 +944,36 @@ private fun CanvasContent(
                 onFocus = viewModel::toggleFocus,
                 onRename = viewModel::requestRename,
                 onSettings = onSettings,
+                )
+            }
+
+            // The quick palette: the last colours painted with, one tap away
+            // from the strip's swatch. The scrim below it consumes the
+            // dismissing tap so it never draws (the panel rule, §4.1).
+            if (showRecentSwatches) {
+                LaunchedEffect(showRecentSwatches) {
+                    delay(RECENT_POPOVER_MS)
+                    showRecentSwatches = false
+                }
+                val interaction = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(RECENT_SCRIM_Z)
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = null,
+                            onClick = { showRecentSwatches = false },
+                        )
+                        .clearAndSetSemantics {},
+                )
+                RecentPopover(
+                    colors = recentColors,
+                    current = state.color.current,
+                    onSelected = { color ->
+                        viewModel.selectBrushColor(color)
+                        showRecentSwatches = false
+                    },
                 )
             }
 
@@ -1172,6 +1229,68 @@ private fun CanvasPanelContent(
     }
 }
 
+/**
+ * The strip swatch's long-press palette: the last colours painted with, as
+ * 48 dp targets in a wrapping row. Dismissed by its scrim, a selection, or
+ * the timeout.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BoxScope.RecentPopover(
+    colors: List<Int>,
+    current: Int,
+    onSelected: (Int) -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = MaterialTheme.shapes.large,
+        tonalElevation = 4.dp,
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .padding(top = RECENT_POPOVER_TOP.dp)
+            .zIndex(CHROME_Z)
+            .widthIn(max = RECENT_POPOVER_MAX.dp),
+    ) {
+        Column(Modifier.padding(8.dp)) {
+            Text(
+                text = stringResource(R.string.palette_recent),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                for (color in colors) {
+                    val selected = color == current
+                    val border = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outline
+                    }
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(RECENT_TARGET.dp)
+                            .clickable { onSelected(color) },
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(RECENT_VISUAL.dp)
+                                .clip(CircleShape)
+                                .border(
+                                    if (selected) 2.dp else 1.dp,
+                                    border,
+                                    CircleShape,
+                                ),
+                        ) {
+                            Canvas(Modifier.fillMaxSize()) { drawCircle(Color(color)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun panelAnnouncement(panel: CanvasPanel?): String = when (panel) {
     CanvasPanel.LAYERS -> stringResource(R.string.panel_layers_opened)
@@ -1376,6 +1495,12 @@ private const val CHROME_Z = 2f
 private const val HINT_Z = 3f
 private const val RESET_DAMPING_RATIO = 0.8f
 private const val CHROME_ANIMATION_MS = 180
+private const val RECENT_POPOVER_MS = 4_000L
+private const val RECENT_SCRIM_Z = 1f
+private const val RECENT_POPOVER_TOP = 56
+private const val RECENT_POPOVER_MAX = 336
+private const val RECENT_TARGET = 48
+private const val RECENT_VISUAL = 34
 private const val TOP_STRIP_TRAVERSAL = 0f
 private const val RAIL_TRAVERSAL = 1f
 private const val SLIDER_TRAVERSAL = 2f

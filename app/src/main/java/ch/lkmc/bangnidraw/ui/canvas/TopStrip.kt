@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.ui.canvas
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -59,6 +61,7 @@ internal fun TopStrip(
     onRedo: () -> Unit,
     onLayers: () -> Unit,
     onColor: () -> Unit,
+    onColorLongPress: () -> Unit,
     onShare: () -> Unit,
     onExportPng: () -> Unit,
     onExportJpeg: () -> Unit,
@@ -82,8 +85,10 @@ internal fun TopStrip(
             activeLayer,
             brushColor,
             openPanel,
+            hapticsMode,
             onLayers,
             onColor,
+            onColorLongPress,
             onShare,
             onExportPng,
             onExportJpeg,
@@ -170,8 +175,10 @@ private fun ToolCluster(
     activeLayer: Int,
     brushColor: Int,
     openPanel: CanvasPanel?,
+    hapticsMode: HapticsMode,
     onLayers: () -> Unit,
     onColor: () -> Unit,
+    onColorLongPress: () -> Unit,
     onShare: () -> Unit,
     onExportPng: () -> Unit,
     onExportJpeg: () -> Unit,
@@ -179,6 +186,7 @@ private fun ToolCluster(
     onRename: () -> Unit,
     onSettings: (() -> Unit)?,
 ) {
+    val view = LocalView.current
     Row(horizontalArrangement = Arrangement.End) {
         Box(contentAlignment = Alignment.BottomEnd) {
             IconButton(onClick = onLayers) {
@@ -207,20 +215,35 @@ private fun ToolCluster(
             R.string.cd_color,
             String.format("#%06X", brushColor and RGB_MASK),
         )
-        IconButton(
-            onClick = onColor,
-            modifier = Modifier.semantics { contentDescription = colorDescription },
+        // Long-press = the quick palette: the last colours painted with,
+        // without opening the colour panel. Like undo's readout, the
+        // detector sits on the parent Box and works regardless of button
+        // state.
+        Box(
+            modifier = Modifier.pointerInput(onColorLongPress, hapticsMode) {
+                detectTapGestures(onLongPress = {
+                    if (hapticsMode == HapticsMode.ENABLED) {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    }
+                    onColorLongPress()
+                })
+            },
         ) {
-            Box(
-                modifier = Modifier
-                    .size(COLOR_SWATCH)
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outline,
-                        shape = RoundedCornerShape(COLOR_RADIUS),
-                    ),
+            IconButton(
+                onClick = onColor,
+                modifier = Modifier.semantics { contentDescription = colorDescription },
             ) {
-                Canvas(Modifier.size(COLOR_SWATCH)) { drawRect(Color(brushColor)) }
+                Box(
+                    modifier = Modifier
+                        .size(COLOR_SWATCH)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline,
+                            shape = RoundedCornerShape(COLOR_RADIUS),
+                        ),
+                ) {
+                    Canvas(Modifier.size(COLOR_SWATCH)) { drawRect(Color(brushColor)) }
+                }
             }
         }
         OverflowMenu(

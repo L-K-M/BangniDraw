@@ -11,6 +11,8 @@ import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.BufferMode
+import ch.lkmc.bangnidraw.engine.core.BufferPresentationDecision
+import ch.lkmc.bangnidraw.engine.core.BufferPresentationPolicy
 import ch.lkmc.bangnidraw.engine.core.CanvasVoidColorPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.FitTransform
@@ -1202,7 +1204,8 @@ class CanvasRenderer(
      * [bufferTransform] is graphics-core's pre-rotation matrix, applied in
      * **buffer pixel space before the projection** (§3.1's `projection ×
      * transform × pixelPos`). It is identity for every offscreen pass here and
-     * only ever binds on the present quad.
+     * only ever binds on the present quad. The canonical half-turn takes the
+     * device fallback documented in §8.5.
      */
     fun drawFrame(
         frameBufferId: Int,
@@ -1240,7 +1243,12 @@ class CanvasRenderer(
 
         if (!compositeIntoAccum(current, screenTransform, pass, fullCanvasRect, null, null)) return
 
-        presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform, null)
+        val effectiveBufferTransform = effectiveBufferTransform(
+            bufferTransform,
+            bufferWidth,
+            bufferHeight,
+        )
+        presentToWindow(frameBufferId, bufferWidth, bufferHeight, effectiveBufferTransform, null)
         GlErrors.checkGlDebug("drawFrame")
     }
 
@@ -1293,9 +1301,14 @@ class CanvasRenderer(
             viewportHeight,
         )
         if (presentWindowRect.isEmpty) return false
+        val effectiveBufferTransform = effectiveBufferTransform(
+            bufferTransform,
+            bufferWidth,
+            bufferHeight,
+        )
         val bufferRect = BufferScissor.bounds(
             presentWindowRect,
-            bufferTransform,
+            effectiveBufferTransform,
             bufferWidth,
             bufferHeight,
         )
@@ -1329,9 +1342,14 @@ class CanvasRenderer(
             )
             if (!composited) return false
         }
-        if (!presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform, bufferRect)) {
-            return false
-        }
+        val presented = presentToWindow(
+            frameBufferId,
+            bufferWidth,
+            bufferHeight,
+            effectiveBufferTransform,
+            bufferRect,
+        )
+        if (!presented) return false
         // The clock stops HERE, before the error check. `checkGlDebug` drains
         // `glGetError` in a loop — a driver round-trip, and a synchronisation
         // point on some drivers — and it is a cost only debug builds pay. Since
@@ -1626,6 +1644,24 @@ class CanvasRenderer(
             ((argb and 0xFF) / 255f) * a,
             a,
         )
+    }
+
+    private fun effectiveBufferTransform(
+        bufferTransform: FloatArray,
+        bufferWidth: Int,
+        bufferHeight: Int,
+    ): FloatArray {
+        val decision = BufferPresentationPolicy.decide(
+            transform = bufferTransform,
+            logicalWidth = accum.width,
+            logicalHeight = accum.height,
+            bufferWidth = bufferWidth,
+            bufferHeight = bufferHeight,
+        )
+        return when (decision) {
+            BufferPresentationDecision.USE_LIBRARY_TRANSFORM -> bufferTransform
+            BufferPresentationDecision.NEUTRALIZE_HALF_TURN -> identity
+        }
     }
 
     /**

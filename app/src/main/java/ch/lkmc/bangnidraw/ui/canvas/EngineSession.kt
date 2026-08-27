@@ -13,6 +13,8 @@ import androidx.graphics.surface.SurfaceControlCompat
 import ch.lkmc.bangnidraw.engine.core.AttachmentCompletion
 import ch.lkmc.bangnidraw.engine.core.AttachmentRenderPlan
 import ch.lkmc.bangnidraw.engine.core.BufferMode
+import ch.lkmc.bangnidraw.engine.core.BufferPresentationDecision
+import ch.lkmc.bangnidraw.engine.core.BufferPresentationPolicy
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Coverage
 import ch.lkmc.bangnidraw.engine.core.DabBatch
@@ -510,6 +512,8 @@ class EngineSession(
         private val generation: Long,
     ) : GLFrontBufferedRenderer.Callback<DabBatch> {
 
+        private var halfTurnNeutralized = false
+
         override fun onDrawFrontBufferedLayer(
             eglManager: EGLManager,
             width: Int,
@@ -519,6 +523,8 @@ class EngineSession(
             param: DabBatch,
         ) {
             if (!attachmentGate.acceptsDriverCallback(generation)) return
+
+            captureHalfTurn(width, height, bufferInfo, transform)
 
             this@EngineSession.onDrawFrontBufferedLayer(
                 eglManager, width, height, bufferInfo, transform, param,
@@ -535,6 +541,8 @@ class EngineSession(
         ) {
             if (!attachmentGate.acceptsDriverCallback(generation)) return
 
+            captureHalfTurn(width, height, bufferInfo, transform)
+
             this@EngineSession.onDrawMultiBufferedLayer(
                 eglManager, width, height, bufferInfo, transform, params,
             )
@@ -545,6 +553,12 @@ class EngineSession(
             transaction: SurfaceControlCompat.Transaction,
         ) {
             if (!attachmentGate.acceptsDriverCallback(generation)) return
+            if (halfTurnNeutralized) {
+                transaction.setBufferTransform(
+                    frontBufferedLayerSurfaceControl,
+                    SurfaceControlCompat.BUFFER_TRANSFORM_IDENTITY,
+                )
+            }
 
             // graphics-core still owns its parameter lock in this callback.
             // Re-enter after it commits so input never blocks behind GL work.
@@ -562,6 +576,12 @@ class EngineSession(
             transaction: SurfaceControlCompat.Transaction,
         ) {
             if (!attachmentGate.acceptsDriverCallback(generation)) return
+            if (halfTurnNeutralized) {
+                transaction.setBufferTransform(
+                    multiBufferedLayerSurfaceControl,
+                    SurfaceControlCompat.BUFFER_TRANSFORM_IDENTITY,
+                )
+            }
 
             // graphics-core commits the transaction after this callback
             // returns. The next GL command therefore observes that commit.
@@ -571,6 +591,21 @@ class EngineSession(
                     finishRedrawCompletions(generation)
                 }
             }
+        }
+
+        private fun captureHalfTurn(
+            logicalWidth: Int,
+            logicalHeight: Int,
+            bufferInfo: BufferInfo,
+            transform: FloatArray,
+        ) {
+            halfTurnNeutralized = BufferPresentationPolicy.decide(
+                transform = transform,
+                logicalWidth = logicalWidth,
+                logicalHeight = logicalHeight,
+                bufferWidth = bufferInfo.width,
+                bufferHeight = bufferInfo.height,
+            ) == BufferPresentationDecision.NEUTRALIZE_HALF_TURN
         }
     }
 

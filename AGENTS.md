@@ -282,6 +282,15 @@ and the contradiction is noted here.
   whole reason the present step is a quad through `u_bufferTransform` and not
   a blit. That quad starts at `Accum`'s logical dimensions; starting at the
   swapped buffer dimensions clips a band after the transform.
+- **Canonical 180° buffer transforms are neutralized on both sides.** A real
+  Samsung tablet displayed top-right input at bottom-left when graphics-core
+  supplied its half-turn transform. Because 180° preserves the buffer
+  dimensions, `CanvasRenderer` safely uses identity for both presentation and
+  front damage, while `EngineSession` replaces the matching SurfaceControl
+  transform with identity in the same completion transaction. Never change
+  only one side: that either rotates twice or clips damage in the opposite
+  quadrant. The 90°/270° paths retain graphics-core's transform because their
+  dimensions swap.
 - **Front damage has two bounds.** The inflated window-space scissor decides
   which `Accum` pixels are cleared. Tile selection uses that scissor
   inverse-mapped to canvas space, not the original dab rect. Otherwise the

@@ -961,6 +961,14 @@ after rendering to intermediate frame buffer objects", which is exactly
 what the present step does after our per-tile binds. The contract test
 pins the uniform names.
 
+One real Samsung tablet reports the canonical 180° transform but displays
+producer-transformed pixels as though both axes were transformed again. A
+half-turn does not swap the buffer dimensions, so that exact matrix takes a
+correctness fallback: the present shader and front damage use identity, and
+the matching front or multi-buffer transaction replaces graphics-core's
+consumer transform with identity before commit. Quarter-turns still use the
+library transform because their buffer dimensions are swapped.
+
 ### 8.6 View changes during a stroke
 
 **A view change never happens during a stroke.** When a stylus is down,

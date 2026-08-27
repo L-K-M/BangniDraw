@@ -95,6 +95,14 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         dataStore.edit { it[KEY_PRESSURE_PREFERENCE] = preference.name }
     }
 
+    /** Right-angle rotation snapping while navigating (07 §7), off by default. */
+    internal val snapRightAngles: Flow<Boolean> =
+        dataStore.data.map { it[KEY_SNAP_RIGHT_ANGLES] ?: false }
+
+    internal suspend fun setSnapRightAngles(enabled: Boolean) {
+        dataStore.edit { it[KEY_SNAP_RIGHT_ANGLES] = enabled }
+    }
+
     val hintShown: Flow<Boolean> =
         dataStore.data.map { it[KEY_HINT_SHOWN] ?: false }
 
@@ -202,6 +210,7 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         val KEY_TOUCH_DRAWING = stringPreferencesKey("touchDrawing")
         val KEY_HAPTICS = stringPreferencesKey("haptics")
         val KEY_PRESSURE_PREFERENCE = stringPreferencesKey("pressurePreference")
+        val KEY_SNAP_RIGHT_ANGLES = booleanPreferencesKey("snapRightAngles")
         val KEY_HINT_SHOWN = booleanPreferencesKey("hintShown")
         val KEY_DEBUG_LATENCY = booleanPreferencesKey("debugLatency")
         val KEY_PEN_BUTTON_ACTION = stringPreferencesKey("penButtonAction")

@@ -32,6 +32,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -400,23 +401,57 @@ private fun ColorFields(
     onSelected: (Int) -> Unit,
     onTextInputFocus: (TextInputFocus) -> Unit,
 ) {
-    var hex by remember(color) { mutableStateOf(ColorText.hex(color)) }
-    var red by remember(color) { mutableStateOf(Composite.red(color).toString()) }
-    var green by remember(color) { mutableStateOf(Composite.green(color).toString()) }
-    var blue by remember(color) { mutableStateOf(Composite.blue(color).toString()) }
+    // Field-local drafts, NOT keyed on `color`: a commit this field itself
+    // emitted must not re-key the field, or the cursor jumps while the user
+    // is still typing (a 3-char hex like "FFF" parses and commits mid-edit).
+    // Only a color change from elsewhere (picker, swatch, eyedropper)
+    // re-syncs the drafts.
+    var hex by remember { mutableStateOf(ColorText.hex(color)) }
+    var red by remember { mutableStateOf(Composite.red(color).toString()) }
+    var green by remember { mutableStateOf(Composite.green(color).toString()) }
+    var blue by remember { mutableStateOf(Composite.blue(color).toString()) }
+    var lastReflected by remember { mutableIntStateOf(color) }
+
+    LaunchedEffect(color) {
+        if (color == lastReflected) return@LaunchedEffect
+        lastReflected = color
+        hex = ColorText.hex(color)
+        red = Composite.red(color).toString()
+        green = Composite.green(color).toString()
+        blue = Composite.blue(color).toString()
+    }
+
+    fun emit(argb: Int) {
+        // The drafts already show what was typed; mark them as reflecting
+        // the committed color so the external-change sync does not fire.
+        lastReflected = argb
+        onSelected(argb)
+    }
+
+    /** Syncs the fields the user is NOT typing in; the typed field keeps its literal text. */
+    fun syncSiblings(argb: Int) {
+        red = Composite.red(argb).toString()
+        green = Composite.green(argb).toString()
+        blue = Composite.blue(argb).toString()
+    }
 
     fun selectRgb() {
         val r = ColorText.parseChannel(red) ?: return
         val g = ColorText.parseChannel(green) ?: return
         val b = ColorText.parseChannel(blue) ?: return
-        onSelected(Composite.argb(CHANNEL_MAX, r, g, b))
+        val argb = Composite.argb(CHANNEL_MAX, r, g, b)
+        hex = ColorText.hex(argb)
+        emit(argb)
     }
 
     OutlinedTextField(
         value = hex,
         onValueChange = {
             hex = it
-            ColorText.parseHex(it)?.let(onSelected)
+            ColorText.parseHex(it)?.let { argb ->
+                syncSiblings(argb)
+                emit(argb)
+            }
         },
         label = { Text(stringResource(R.string.color_hex)) },
         singleLine = true,

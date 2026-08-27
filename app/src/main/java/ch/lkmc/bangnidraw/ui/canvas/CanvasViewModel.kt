@@ -35,6 +35,11 @@ import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushMixingPolicy
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
+import ch.lkmc.bangnidraw.engine.core.CanvasBackEffect
+import ch.lkmc.bangnidraw.engine.core.CanvasChromeState
+import ch.lkmc.bangnidraw.engine.core.CanvasPanel
+import ch.lkmc.bangnidraw.engine.core.CanvasTapEffect
+import ch.lkmc.bangnidraw.engine.core.CanvasUiPolicy
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.ColorMixer
 import ch.lkmc.bangnidraw.engine.core.ColorMixerResolver
@@ -47,10 +52,13 @@ import ch.lkmc.bangnidraw.engine.core.Document
 import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
 import ch.lkmc.bangnidraw.engine.core.FillParams
 import ch.lkmc.bangnidraw.engine.core.FloodFill
+import ch.lkmc.bangnidraw.engine.core.FocusMode
+import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HistoryDirection
 import ch.lkmc.bangnidraw.engine.core.HistoryEntry
 import ch.lkmc.bangnidraw.engine.core.HistoryJournal
 import ch.lkmc.bangnidraw.engine.core.HistoryRecovery
+import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.IdSource
 import ch.lkmc.bangnidraw.engine.core.LayerEditPolicy
 import ch.lkmc.bangnidraw.engine.core.LayerHistory
@@ -95,6 +103,7 @@ import ch.lkmc.bangnidraw.engine.core.TilePresence
 import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ToolSelection
 import ch.lkmc.bangnidraw.engine.core.ToolSwitcher
+import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
 import ch.lkmc.bangnidraw.ui.navigation.CanvasRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -164,7 +173,7 @@ class CanvasViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    sealed interface UiState {
+    internal sealed interface UiState {
         data object Loading : UiState
 
         /** The painting could not be opened; it is never silently replaced. */
@@ -189,6 +198,10 @@ class CanvasViewModel @Inject constructor(
             val fillParams: FillParams,
             val penButtonAction: PenButtonAction,
             val eraserEndPreset: String,
+            val chrome: CanvasChromeState,
+            val handedness: Hand,
+            val touchDrawingMode: TouchDrawingMode,
+            val hapticsMode: HapticsMode,
             val layerCap: Int,
             val strokeInFlight: Boolean = false,
             val documentBusy: Boolean = false,
@@ -204,7 +217,7 @@ class CanvasViewModel @Inject constructor(
     private val projectId: String = savedStateHandle.toRoute<CanvasRoute>().projectId
 
     private val _uiState = MutableStateFlow<UiState>(UiState.Loading)
-    val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+    internal val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     private val toolSwitcher = ToolSwitcher(ToolKind.Brush(BrushPresets.DEFAULT))
     private val layerIds = IdSource { LayerId(UUID.randomUUID().toString()) }
@@ -214,6 +227,10 @@ class CanvasViewModel @Inject constructor(
 
     private var penButtonAction = PenButtonAction.Eraser
     private var eraserEndPreset = BrushPresets.HARD_ERASER_ID
+    private var handedness = Hand.RIGHT
+    private var touchDrawingMode = TouchDrawingMode.ENABLED
+    private var hapticsMode = HapticsMode.ENABLED
+    private var chrome = CanvasChromeState()
     private var brushColor = OPAQUE_BLACK
     private var previousBrushColor = OPAQUE_BLACK
     private var userPalettes: List<Palette> = emptyList()
@@ -360,6 +377,24 @@ class CanvasViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            prefs.handedness.collect { hand ->
+                handedness = hand
+                updateChromeUi()
+            }
+        }
+        viewModelScope.launch {
+            prefs.touchDrawingMode.collect { mode ->
+                touchDrawingMode = mode
+                updateChromeUi()
+            }
+        }
+        viewModelScope.launch {
+            prefs.hapticsMode.collect { mode ->
+                hapticsMode = mode
+                updateChromeUi()
+            }
+        }
+        viewModelScope.launch {
             prefs.mixerChoice.collect { choice ->
                 activeColorMixer = ColorMixerResolver.resolve(choice, availableColorMixer)
                 updateToolUi()
@@ -386,6 +421,11 @@ class CanvasViewModel @Inject constructor(
     }
 
     private suspend fun open() {
+        val hintShown = runCatching { prefs.hintShown.first() }
+            .onFailure { android.util.Log.w(TAG, "hint preference could not be loaded", it) }
+            .getOrDefault(false)
+        if (!hintShown) chrome = CanvasUiPolicy.showHint(chrome)
+
         val loadedPresets = BrushPresets.railOrder(presetStore.load()).ifEmpty {
             listOf(BrushPresets.DEFAULT)
         }
@@ -525,6 +565,10 @@ class CanvasViewModel @Inject constructor(
             fillParams = fillParams,
             penButtonAction = penButtonAction,
             eraserEndPreset = eraserEndPreset,
+            chrome = chrome,
+            handedness = handedness,
+            touchDrawingMode = touchDrawingMode,
+            hapticsMode = hapticsMode,
             layerCap = layerCap,
             strokeInFlight = actionGate.strokeInFlight,
             documentBusy = actionGate.busy,
@@ -547,6 +591,18 @@ class CanvasViewModel @Inject constructor(
             penButtonAction = penButtonAction,
             eraserEndPreset = eraserEndPreset,
             fillParams = fillParams,
+        )
+    }
+
+    private fun updateChromeUi() {
+        val state = _uiState.value
+        if (state !is UiState.Ready) return
+
+        _uiState.value = state.copy(
+            chrome = chrome,
+            handedness = handedness,
+            touchDrawingMode = touchDrawingMode,
+            hapticsMode = hapticsMode,
         )
     }
 
@@ -575,6 +631,7 @@ class CanvasViewModel @Inject constructor(
         if (state !is UiState.Ready) return
 
         _uiState.value = state.copy(
+            chrome = chrome,
             strokeInFlight = actionGate.strokeInFlight,
             documentBusy = actionGate.busy,
             pendingActionCount = actionGate.pendingCount,
@@ -583,6 +640,56 @@ class CanvasViewModel @Inject constructor(
             strokeLayerNotice = strokeLayerNotice,
             strokeLayerNoticeRevision = strokeLayerNoticeRevision,
         )
+    }
+
+    internal fun togglePanel(panel: CanvasPanel) {
+        applyChrome(CanvasUiPolicy.togglePanel(chrome, panel))
+    }
+
+    internal fun dismissPanel() {
+        applyChrome(CanvasUiPolicy.dismissPanel(chrome))
+    }
+
+    internal fun toggleFocus() {
+        val next = if (chrome.focusMode == FocusMode.FOCUSED) {
+            CanvasUiPolicy.exitFocus(chrome)
+        } else {
+            CanvasUiPolicy.enterFocus(chrome)
+        }
+        applyChrome(next)
+    }
+
+    internal fun showChrome() {
+        applyChrome(CanvasUiPolicy.exitFocus(chrome))
+    }
+
+    /** Called only by an overlay that has already consumed the whole gesture. */
+    internal fun dismissCanvasOverlay() {
+        val result = CanvasUiPolicy.canvasTap(chrome)
+        if (result.effect == CanvasTapEffect.DRAW) return
+
+        val dismissedHint = chrome.hint != result.state.hint
+        applyChrome(result.state)
+        if (dismissedHint) appScope.launch { prefs.markHintShown() }
+    }
+
+    internal fun handleBack(afterWrite: () -> Unit) {
+        val result = CanvasUiPolicy.back(chrome)
+        if (result.effect == CanvasBackEffect.LEAVE) {
+            leave(afterWrite)
+            return
+        }
+        applyChrome(result.state)
+    }
+
+    private fun applyChrome(next: CanvasChromeState) {
+        if (next == chrome) return
+
+        val wasLayers = chrome.openPanel == CanvasPanel.LAYERS
+        chrome = next
+        val hasLayers = chrome.openPanel == CanvasPanel.LAYERS
+        if (wasLayers != hasLayers) setLayerPanelOpen(hasLayers)
+        updateChromeUi()
     }
 
     fun selectBrush(id: String) {
@@ -1033,6 +1140,7 @@ class CanvasViewModel @Inject constructor(
     fun beginStrokeTool(source: StrokeSource, button: ButtonState): ToolSelection? {
         if (!actionGate.beginStroke()) return null
 
+        chrome = CanvasUiPolicy.onStrokeBegin(chrome)
         updateInteractionUi()
 
         // Contact replaces hover before stroke-specific overrides are pushed.
@@ -1065,6 +1173,7 @@ class CanvasViewModel @Inject constructor(
             updateToolUi()
         }
         val nextAction = actionGate.endStroke()
+        chrome = CanvasUiPolicy.onStrokeEnd(chrome)
         updateInteractionUi()
         if (nextAction != null) executeAction(nextAction)
     }

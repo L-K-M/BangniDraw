@@ -87,8 +87,11 @@ import ch.lkmc.bangnidraw.data.GalleryExportOutcome
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasDialog
+import ch.lkmc.bangnidraw.engine.core.CanvasIdleDecision
+import ch.lkmc.bangnidraw.engine.core.CanvasIdleOperation
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
+import ch.lkmc.bangnidraw.engine.core.CanvasUiPolicy
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.EyedropperSampleGate
@@ -103,11 +106,13 @@ import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
 import ch.lkmc.bangnidraw.engine.core.ShortcutContext
 import ch.lkmc.bangnidraw.engine.core.SizeAdjustment
+import ch.lkmc.bangnidraw.engine.core.StrokeActivity
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeLayerDecision
 import ch.lkmc.bangnidraw.engine.core.StrokeLayerPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeMode
+import ch.lkmc.bangnidraw.engine.core.StrokeOperation
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TemporaryReason
@@ -142,8 +147,9 @@ fun CanvasScreen(
     viewModel: CanvasViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val leave = { viewModel.leave(onBack) }
-    BackHandler { viewModel.handleBack(onBack) }
+    BackHandler(enabled = state !is CanvasViewModel.UiState.Ready) {
+        viewModel.handleBack(onBack)
+    }
 
     // §6.2's ON_STOP row: the last callback before the process may be
     // reclaimed. Fire-and-forget — the write survives on the app scope.
@@ -164,7 +170,10 @@ fun CanvasScreen(
                 .fillMaxSize()
                 .safeDrawingPadding(),
         ) {
-            IconButton(onClick = leave, modifier = Modifier.align(Alignment.TopStart)) {
+            IconButton(
+                onClick = { viewModel.leave(onBack) },
+                modifier = Modifier.align(Alignment.TopStart),
+            ) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = stringResource(R.string.canvas_back),
@@ -182,8 +191,8 @@ fun CanvasScreen(
         is CanvasViewModel.UiState.Ready -> CanvasContent(
             state = current,
             viewModel = viewModel,
-            onLeave = leave,
-            onSettings = { viewModel.leave(onSettings) },
+            onLeave = onBack,
+            onSettings = onSettings,
         )
     }
 }
@@ -219,6 +228,66 @@ private fun CanvasContent(
         view = next
     }
 
+    /** Chrome exits commit the front buffer before queuing their checkpoint. */
+    fun finishOpenStrokeForLeave() {
+        val reason = strokeState.temporaryReason
+        strokeState.temporaryReason = null
+        if (strokeState.pickParams != null) {
+            strokeState.nextPickGeneration()
+            viewModel.cancelPickedColor()
+            strokeState.pickParams = null
+            strokeState.engine = null
+            viewModel.endStrokeTool(reason)
+            return
+        }
+
+        val wasFill = strokeState.fillTouch
+        strokeState.fillParams = null
+        strokeState.fillTouch = false
+        if (wasFill) {
+            strokeState.engine = null
+            viewModel.cancelFill()
+            viewModel.endStrokeTool(reason)
+            return
+        }
+
+        val driver = strokeState.driver
+        strokeState.driver = null
+        strokeState.readModifyWrite = false
+        val engine = strokeState.engine
+        strokeState.engine = null
+        if (driver == null || engine == null) {
+            driver?.cancel()
+            viewModel.endStrokeTool(reason)
+            return
+        }
+
+        val batch = engine.acquireDabBatch()
+        if (batch == null) {
+            driver.cancel()
+        } else if (driver.end(batch) == 0) {
+            engine.releaseDabBatch(batch)
+        } else {
+            engine.stampDabs(batch)
+        }
+        viewModel.onStrokeCommitted(strokeState.colorUsage, strokeState.colorArgb)
+        strokeState.colorUsage = StrokeColorUsage.IGNORE
+        viewModel.endStrokeTool(reason, StrokeRelease.AFTER_HISTORY)
+        engine.endStroke(driver.opacityCeiling, viewModel::finishStrokeHistory)
+    }
+
+    fun requestLeave(callback: () -> Unit) {
+        finishOpenStrokeForLeave()
+        viewModel.leave(callback)
+    }
+
+    BackHandler {
+        viewModel.handleBack(
+            beforeLeave = ::finishOpenStrokeForLeave,
+            afterWrite = onLeave,
+        )
+    }
+
     // 06 §4's one honest toast per open, when something could not be read.
     LaunchedEffect(state.warning) {
         state.warning?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
@@ -229,10 +298,13 @@ private fun CanvasContent(
         val notice = state.strokeLayerNotice ?: return@LaunchedEffect
         Toast.makeText(context, notice, Toast.LENGTH_SHORT).show()
         if (state.hapticsMode == HapticsMode.DISABLED) return@LaunchedEffect
+        val refused = notice == R.string.layer_locked ||
+            notice == R.string.layer_alpha_locked ||
+            notice == R.string.layer_over_capacity
         val haptic = when {
-            notice == R.string.layer_locked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+            refused && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
                 HapticFeedbackConstants.REJECT
-            notice == R.string.layer_locked -> HapticFeedbackConstants.LONG_PRESS
+            refused -> HapticFeedbackConstants.LONG_PRESS
             else -> HapticFeedbackConstants.CLOCK_TICK
         }
         view0.performHapticFeedback(haptic)
@@ -251,7 +323,10 @@ private fun CanvasContent(
         handler = CanvasTouchHandler(
             density = density.density,
             host = object : CanvasInputHost {
-                override fun onViewChanged(view: ViewTransform) { updateView(view) }
+                override fun onViewChanged(view: ViewTransform) {
+                    session?.setView(view)
+                    updateView(view)
+                }
                 override fun onRotationSnapped() {
                     // A single tick as the canvas clicks to straight (§7).
                     if (state.hapticsMode == HapticsMode.ENABLED) {
@@ -340,11 +415,11 @@ private fun CanvasContent(
                     }
                     if (kind is ToolKind.Fill) {
                         val layerDecision = StrokeLayerPolicy.decide(
-                            visible = active.props.visible,
-                            locked = active.props.locked,
+                            active.props,
+                            StrokeOperation.PAINT,
                         )
                         viewModel.noteStrokeLayerDecision(layerDecision)
-                        if (layerDecision == StrokeLayerDecision.REFUSE_LOCKED) {
+                        if (layerDecision.isRefusal()) {
                             viewModel.endStrokeTool(strokeState.temporaryReason)
                             strokeState.temporaryReason = null
                             return
@@ -369,11 +444,15 @@ private fun CanvasContent(
                     }
 
                     val layerDecision = StrokeLayerPolicy.decide(
-                        visible = active.props.visible,
-                        locked = active.props.locked,
+                        active.props,
+                        if (kind is ToolKind.Brush && preset.eraseMode) {
+                            StrokeOperation.ERASE
+                        } else {
+                            StrokeOperation.PAINT
+                        },
                     )
                     viewModel.noteStrokeLayerDecision(layerDecision)
-                    if (layerDecision == StrokeLayerDecision.REFUSE_LOCKED) {
+                    if (layerDecision.isRefusal()) {
                         viewModel.endStrokeTool(strokeState.temporaryReason)
                         strokeState.temporaryReason = null
                         return
@@ -522,11 +601,11 @@ private fun CanvasContent(
                     } else {
                         driver.cancel()
                     }
-                    engine.endStroke(driver.opacityCeiling)
                     // The commit's pixels reach disk through the readback; the
                     // ViewModel only needs to know the document changed.
                     viewModel.onStrokeCommitted(colorUsage, strokeColor)
-                    viewModel.endStrokeTool(reason)
+                    viewModel.endStrokeTool(reason, StrokeRelease.AFTER_HISTORY)
+                    engine.endStroke(driver.opacityCeiling, viewModel::finishStrokeHistory)
                 }
 
                 override fun onStrokeCancel() {
@@ -608,8 +687,19 @@ private fun CanvasContent(
             CanvasShortcut.BEGIN_EYEDROPPER -> viewModel.beginKeyboardEyedropper()
             CanvasShortcut.END_EYEDROPPER -> viewModel.endKeyboardEyedropper()
             CanvasShortcut.RESET_VIEW -> {
-                view = ViewTransform()
-                touch.setView(view)
+                val strokeActivity = if (strokeState.engine != null) {
+                    StrokeActivity.ACTIVE
+                } else {
+                    state.chrome.strokeActivity
+                }
+                val decision = CanvasUiPolicy.idleOperation(
+                    strokeActivity,
+                    CanvasIdleOperation.RESET_VIEW,
+                )
+                if (decision == CanvasIdleDecision.RUN) {
+                    view = ViewTransform()
+                    touch.setView(view)
+                }
             }
             CanvasShortcut.TOGGLE_FOCUS -> viewModel.toggleFocus()
             CanvasShortcut.TOGGLE_LAYERS -> viewModel.togglePanel(CanvasPanel.LAYERS)
@@ -919,7 +1009,12 @@ private fun CanvasContent(
                 brushColor = state.color.current,
                 openPanel = state.chrome.openPanel,
                 hapticsMode = state.hapticsMode,
-                onBack = { viewModel.handleBack(onLeave) },
+                onBack = {
+                    viewModel.handleBack(
+                        beforeLeave = ::finishOpenStrokeForLeave,
+                        afterWrite = onLeave,
+                    )
+                },
                 onUndo = viewModel::undo,
                 onRedo = viewModel::redo,
                 onLayers = { viewModel.togglePanel(CanvasPanel.LAYERS) },
@@ -935,7 +1030,7 @@ private fun CanvasContent(
                 },
                 onFocus = viewModel::toggleFocus,
                 onRename = viewModel::requestRename,
-                onSettings = onSettings,
+                onSettings = { requestLeave(onSettings) },
                 )
             }
 
@@ -1022,7 +1117,7 @@ private fun CanvasContent(
                     tonalElevation = 3.dp,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = FILL_PROGRESS_BOTTOM.dp)
+                        .padding(bottom = layout.bottomChromeInsetDp(FILL_PROGRESS_BOTTOM).dp)
                         .width(FILL_PROGRESS_WIDTH.dp),
                 ) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -1257,7 +1352,7 @@ private fun CanvasDialogHost(
             initialValue = dialog.currentName,
             onConfirm = {
                 viewModel.dismissDialog()
-                viewModel.renameLayer(dialog.index, it)
+                viewModel.renameLayer(dialog.layer, it)
             },
             onDismiss = viewModel::dismissDialog,
         )
@@ -1266,7 +1361,7 @@ private fun CanvasDialogHost(
             body = stringResource(R.string.layer_merge_body),
             onConfirm = {
                 viewModel.dismissDialog()
-                viewModel.mergeLayerDown(dialog.index)
+                viewModel.mergeLayerDown(dialog.upper, dialog.lower)
             },
             onDismiss = viewModel::dismissDialog,
         )
@@ -1411,6 +1506,15 @@ private fun android.content.Context.findActivity(): Activity? {
         current = current.baseContext
     }
     return current as? Activity
+}
+
+private fun StrokeLayerDecision.isRefusal(): Boolean = when (this) {
+    StrokeLayerDecision.REFUSE_LOCKED,
+    StrokeLayerDecision.REFUSE_ALPHA_LOCKED,
+    -> true
+    StrokeLayerDecision.DRAW,
+    StrokeLayerDecision.DRAW_HIDDEN,
+    -> false
 }
 
 @Composable

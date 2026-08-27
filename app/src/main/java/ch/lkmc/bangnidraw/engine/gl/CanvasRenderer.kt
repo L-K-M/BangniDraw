@@ -30,6 +30,7 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.SANDWICH_MARGIN_PX
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.SampleSource
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
+import ch.lkmc.bangnidraw.engine.core.TileCapacityPolicy
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.RmwTouchTracker
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
@@ -401,7 +402,8 @@ class CanvasRenderer(
         thumbnailPass = LayerThumbnailPass(canvas, state, canvasCompositePass)
         val tiles = TilePool(probed, budget)
         pool = tiles
-        sandwich = SandwichCache(grid, tiles, tileCompositeProgram, state)
+        sandwich = null
+        syncSandwichCache(stack)
         layerPixelPass = LayerPixelPass(tiles, tileCompositeProgram, state)
         dab = dabProgram
         smudgeDeposit = smudgeDepositProgram
@@ -698,7 +700,6 @@ class CanvasRenderer(
     /** A new surface, or a resize: `Accum` and `Scratch` are the only casualties. */
     fun onSurfaceChanged(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
-        val previous = fit
         viewportWidth = width
         viewportHeight = height
         val next = FitTransform(
@@ -707,9 +708,8 @@ class CanvasRenderer(
             imageWidth = canvas.width.toFloat(),
             imageHeight = canvas.height.toFloat(),
         )
-        // Keeps the canvas point under the viewport centre across rotation,
-        // fold and multi-window (§8.6), rather than leaving a stale pixel pan.
-        if (previous != null) view = view.rebase(previous, next)
+        // Input owns resize rebasing; duplicating it here applies one resize
+        // twice when Compose publishes the rebased view before this callback.
         fit = next
         state.invalidate()
         accum.ensure(width, height, state)
@@ -722,10 +722,8 @@ class CanvasRenderer(
     fun setStack(next: LayerStack, invalidation: SandwichPolicy.Op? = null) {
         val previous = stack
         stack = next
-        // A `return` inside the getOrPut lambda is a NON-LOCAL return: with a
-        // null pool it abandoned setStack after `stack` was already assigned,
-        // skipping the stale-layer release, `observe` and the invalidate below.
-        // Benign only because pool and sandwich are created together today.
+        // Keep lifecycle work below running when the context has no pool or a
+        // legacy stack intentionally has no sandwich cache.
         val tiles = pool
         if (tiles != null) {
             for (layer in next.layers) {
@@ -737,13 +735,33 @@ class CanvasRenderer(
         val live = next.layers.map { it.id }.toSet()
         val gone = layers.keys.filterNot { it in live }
         for (id in gone) layers.remove(id)?.release()
-        sandwich?.observe(next)
+        syncSandwichCache(next)
         when {
             previous == null -> sandwich?.invalidate(SandwichPolicy.Op.Select(next.activeIndex), next.activeIndex)
             invalidation != null -> sandwich?.invalidate(invalidation, previous.activeIndex)
             previous.active.id != next.active.id ->
                 sandwich?.invalidate(SandwichPolicy.Op.Select(next.activeIndex), previous.activeIndex)
         }
+    }
+
+    /** Legacy stacks over today's cap use the exact direct path until they shrink. */
+    private fun syncSandwichCache(current: LayerStack?) {
+        val hasReserve = current == null || TileCapacityPolicy.hasTransientReserve(
+            layerCount = current.size,
+            maxLayers = budget.maxLayers,
+        )
+        if (!hasReserve) {
+            sandwich?.release()
+            sandwich = null
+            return
+        }
+
+        val cache = sandwich ?: run {
+            val tiles = pool ?: return
+            val program = tileComposite ?: return
+            SandwichCache(grid, tiles, program, state).also { sandwich = it }
+        }
+        if (current != null) cache.observe(current)
     }
 
     /** Queues isolated layer renders; [pollLayerThumbnails] drains their PBOs. */
@@ -1393,7 +1411,7 @@ class CanvasRenderer(
         accumScissor: IntRect?,
         previewSpec: StrokeSpec?,
     ): Boolean {
-        rebuildSandwichIfNeeded(current, screenTransform)
+        val rebuiltRect = rebuildSandwichIfNeeded(current, screenTransform)
 
         if (!fbo.bindTexture2d(accum.texture)) return false
         state.viewport(0, 0, accum.width, accum.height)
@@ -1413,7 +1431,15 @@ class CanvasRenderer(
 
         // Above becomes unavailable when its modes are not associative. Below
         // owns a real backdrop and remains available for every blend mode.
-        val readyCache = sandwich?.takeIf { it.aboveAvailable && it.belowAvailable }
+        val cache = sandwich
+        val readinessRect = if (rebuiltRect == null) {
+            null
+        } else {
+            SandwichPolicy.readinessRect(rect, rebuiltRect, fullCanvasRect)
+        }
+        val readyCache =
+            if (cache != null && readinessRect != null && cache.isReady(readinessRect)) cache
+            else null
         val useSandwich = readyCache != null
 
         drawPaper(bakedIntoBelow = useSandwich)
@@ -1669,18 +1695,22 @@ class CanvasRenderer(
         return true
     }
 
-    private fun rebuildSandwichIfNeeded(current: LayerStack, screenTransform: ScreenTransform) {
-        val cache = sandwich ?: return
+    private fun rebuildSandwichIfNeeded(
+        current: LayerStack,
+        screenTransform: ScreenTransform,
+    ): IntRect? {
+        val cache = sandwich ?: return null
         // onContextLost() nulls the pool while leaving the cache in place, so
         // this window is reachable — and `!!` there would throw from inside a
         // render callback on surface recreation.
-        val tiles = pool ?: return
+        val tiles = pool ?: return null
         // Viewport-first, plus a margin so a small pan does not stall on a
         // rebuild (`docs/plan/10-performance.md` §2.6).
         val visible = visibleCanvasRect(screenTransform)
         cache.rebuild(visible, current, paperColor) { index ->
             textures(current.layers[index].id) ?: LayerTextures(grid, tiles)
         }
+        return visible
     }
 
     /**
@@ -1780,12 +1810,13 @@ class CanvasRenderer(
     }
 
     /** Ordinary teardown, with a live context: everything is deleted. */
-    fun release() {
+    fun release(): Int {
         // First, before anything is torn down: map what is still in flight and
         // hand it over — these are the last stroke's tiles, and dropping them
         // here would lose exactly the pixels a leave-checkpoint is about to
         // save. Then delete the PBOs with the rest of the GL objects.
         readback?.finish()
+        val pendingReadback = readbackPending
         readback?.release()
         for (textures in layers.values) textures.release()
         layers.clear()
@@ -1840,6 +1871,7 @@ class CanvasRenderer(
         layerPixelPass = null
         thumbnailPass = null
         isReady = false
+        return pendingReadback
     }
 
     private fun failQueuedThumbnails() {

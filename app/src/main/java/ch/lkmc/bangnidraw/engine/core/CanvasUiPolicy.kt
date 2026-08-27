@@ -9,9 +9,9 @@ internal enum class CanvasPanel {
 }
 
 internal sealed interface CanvasDialog {
-    data class MergeLayers(val index: Int) : CanvasDialog
+    data class MergeLayers(val upper: LayerId, val lower: LayerId) : CanvasDialog
     data object FlattenLayers : CanvasDialog
-    data class RenameLayer(val index: Int, val currentName: String) : CanvasDialog
+    data class RenameLayer(val layer: LayerId, val currentName: String) : CanvasDialog
     data object RenamePainting : CanvasDialog
 }
 
@@ -20,6 +20,18 @@ internal enum class FocusMode { CHROME, FOCUSED }
 internal enum class HintVisibility { HIDDEN, VISIBLE }
 
 internal enum class StrokeActivity { IDLE, ACTIVE }
+
+internal enum class CanvasIdleOperation {
+    SHARE,
+    EXPORT,
+    RESET_VIEW,
+}
+
+internal enum class CanvasIdleDecision {
+    RUN,
+    DEFER,
+    IGNORE,
+}
 
 internal data class CanvasChromeState(
     val openPanel: CanvasPanel? = null,
@@ -58,7 +70,22 @@ internal object CanvasUiPolicy {
 
     fun togglePanel(state: CanvasChromeState, panel: CanvasPanel): CanvasChromeState {
         val next = if (state.openPanel == panel) null else panel
-        return state.copy(openPanel = next)
+        if (next == null) return state.copy(openPanel = null)
+
+        return state.copy(
+            openPanel = next,
+            focusMode = FocusMode.CHROME,
+        )
+    }
+
+    fun idleOperation(
+        strokeActivity: StrokeActivity,
+        operation: CanvasIdleOperation,
+    ): CanvasIdleDecision {
+        if (strokeActivity == StrokeActivity.IDLE) return CanvasIdleDecision.RUN
+        if (operation == CanvasIdleOperation.RESET_VIEW) return CanvasIdleDecision.IGNORE
+
+        return CanvasIdleDecision.DEFER
     }
 
     fun dismissPanel(state: CanvasChromeState): CanvasChromeState =

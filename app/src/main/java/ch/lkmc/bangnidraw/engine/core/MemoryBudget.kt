@@ -14,7 +14,7 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.MAX_LAYERS
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.MIN_LAYERS
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.MIN_USEFUL_LAYERS
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.SLICES_PER_PAGE
-import ch.lkmc.bangnidraw.engine.core.PerfConstants.STROKE_BUFFER_RESERVE_LAYERS
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.TRANSIENT_TILE_RESERVE_LAYERS
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.THUMB_MIB_LARGE
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.THUMB_MIB_LOW_RAM
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.THUMB_MIB_SMALL
@@ -182,7 +182,7 @@ object MemoryBudget {
         val layersThatFit =
             (poolCapacityBytes / canvas.layerBytesWorstCase)
                 .coerceAtMost(Int.MAX_VALUE.toLong())
-                .toInt() - STROKE_BUFFER_RESERVE_LAYERS
+                .toInt() - TRANSIENT_TILE_RESERVE_LAYERS
         // The upward half of this clamp is a documented contract, not an
         // accident — see the KDoc. For a canvas that clears maxCanvasEdge, the
         // honest cap is enforced where it can be: the pool allocates pages
@@ -241,7 +241,7 @@ object MemoryBudget {
         // big texture. The largest multiple of TILE_SIZE whose square, fully
         // painted, still holds MIN_USEFUL_LAYERS plus the stroke-buffer
         // reserve — so a size the dialog offers can always be painted on.
-        val perLayerLimit = poolCapacityBytes / (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)
+        val perLayerLimit = poolCapacityBytes / (MIN_USEFUL_LAYERS + TRANSIENT_TILE_RESERVE_LAYERS)
         // The loop tests TILE_SIZE + TILE_SIZE and up; the starting value is
         // returned untested, so the "always paintable" promise holds at the
         // floor only through a coupling between the minimum tile budget,
@@ -251,9 +251,9 @@ object MemoryBudget {
         // floor budget in the hundreds), and that is the point — if someone
         // lowers the budget or raises MIN_USEFUL_LAYERS it fails here rather
         // than offering a 256 px canvas that cannot hold the minimum stack.
-        check(TILE_BYTES.toLong() * (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS) <= poolCapacityBytes) {
+        check(TILE_BYTES.toLong() * (MIN_USEFUL_LAYERS + TRANSIENT_TILE_RESERVE_LAYERS) <= poolCapacityBytes) {
             "a pool capacity of $poolCapacityBytes B cannot hold " +
-                "${MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS} layers of a ${TILE_SIZE}px canvas"
+                "${MIN_USEFUL_LAYERS + TRANSIENT_TILE_RESERVE_LAYERS} layers of a ${TILE_SIZE}px canvas"
         }
         var maxCanvasEdge = TILE_SIZE
         while (maxCanvasEdge + TILE_SIZE <= MAX_CANVAS_EDGE_V1 &&

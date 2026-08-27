@@ -42,26 +42,28 @@ internal fun BoxScope.PanelHost(
         else -> Alignment.CenterStart
     }
     val panelWidth = when (layout.panelMode) {
-        PanelMode.FULL_HEIGHT_SHEET -> minOf(PANEL_MAX_WIDTH, windowWidth * COMPACT_WIDTH_FRACTION)
-        PanelMode.SIDE_SHEET -> PANEL_SIDE_WIDTH
-        PanelMode.FLOATING -> PANEL_MAX_WIDTH
+        PanelMode.FULL_HEIGHT_SHEET -> minOf(
+            LayoutSpec.PANEL_MAX_WIDTH_DP.dp,
+            windowWidth * LayoutSpec.PANEL_COMPACT_WIDTH_FRACTION,
+        )
+        PanelMode.SIDE_SHEET -> LayoutSpec.PANEL_SIDE_WIDTH_DP.dp
+        PanelMode.FLOATING -> LayoutSpec.PANEL_MAX_WIDTH_DP.dp
     }
-    val railGap = if (layout.panelMode == PanelMode.FLOATING) {
-        (layout.railWidthDp + FLOATING_GAP_DP).dp
-    } else {
-        0.dp
-    }
+    val railGap = layout.panelSideInsetDp().dp
     val sidePadding = if (onRight) {
         Modifier.padding(end = railGap)
     } else {
         Modifier.padding(start = railGap)
     }
     val height = if (layout.panelMode == PanelMode.FLOATING) {
-        Modifier.fillMaxHeight(FLOATING_HEIGHT_FRACTION)
+        Modifier.fillMaxHeight(LayoutSpec.PANEL_FLOATING_HEIGHT_FRACTION)
     } else {
         Modifier
             .fillMaxHeight()
-            .padding(top = TOP_STRIP_HEIGHT)
+            .padding(
+                top = LayoutSpec.TOP_STRIP_DP.dp,
+                bottom = layout.panelBottomInsetDp().dp,
+            )
     }
     val direction = if (onRight) 1 else -1
     val animationMs = if (ValueAnimator.areAnimatorsEnabled()) PANEL_ANIMATION_MS else 0
@@ -90,10 +92,4 @@ internal fun BoxScope.PanelHost(
     }
 }
 
-private val PANEL_SIDE_WIDTH = 300.dp
-private val PANEL_MAX_WIDTH = 320.dp
-private val TOP_STRIP_HEIGHT = 48.dp
-private const val FLOATING_GAP_DP = 8
 private const val PANEL_ANIMATION_MS = 220
-private const val COMPACT_WIDTH_FRACTION = 0.85f
-private const val FLOATING_HEIGHT_FRACTION = 0.9f

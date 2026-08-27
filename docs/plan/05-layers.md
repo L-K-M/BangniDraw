@@ -436,7 +436,7 @@ visibly, nothing is refused.
 
 `MemoryBudget` is pure JVM and **owned by `10-performance.md` §4**:
 `MemoryBudget.compute(DeviceMemory, CanvasSize): Result`, with the
-constants (`GPU_TILE_FRACTION`, `MAX_LAYERS`, `STROKE_BUFFER_RESERVE_LAYERS`,
+constants (`GPU_TILE_FRACTION`, `MAX_LAYERS`, `TRANSIENT_TILE_RESERVE_LAYERS`,
 …) and the pinned worked table living there and in `MemoryBudgetTest`.
 This document consumes `Result.maxLayers` and `Result.maxCanvasEdge`; it
 does not recompute them. `DeviceMemory` is gathered once (`totalMem`,
@@ -468,7 +468,7 @@ In `10-performance.md` §4's terms, with `L = CanvasSize.layerBytesWorstCase`:
 ```
 gpuTileBudgetBytes = isLowRamDevice ? LOW_RAM_GPU_TILE_BYTES (256 MiB)
                                     : (totalMem · GPU_TILE_FRACTION (1/8)).coerceIn(256 MiB, 1.5 GiB)
-maxLayers          = (gpuTileBudgetBytes / L − STROKE_BUFFER_RESERVE_LAYERS (1)).coerceIn(MIN_LAYERS (1), MAX_LAYERS (16))
+maxLayers          = (gpuTileBudgetBytes / L − TRANSIENT_TILE_RESERVE_LAYERS (4)).coerceIn(MIN_LAYERS (1), MAX_LAYERS (16))
 maxCanvasEdge      = largest power-of-two edge whose square still admits MIN_LAYERS + the reserve
 ```
 

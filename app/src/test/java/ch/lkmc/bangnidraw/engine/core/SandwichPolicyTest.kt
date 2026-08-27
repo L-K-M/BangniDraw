@@ -228,6 +228,39 @@ class SandwichPolicyTest {
         }
     }
 
+    @Test
+    fun `a half-built sandwich falls back to direct composition`() {
+        val requested = intArrayOf(TileKey(1, 0).packed, TileKey(2, 0).packed, TileKey(3, 0).packed)
+        val packed = requested.toHashSet()
+
+        assertFalse(
+            SandwichPolicy.cacheReady(
+                requested = requested,
+                count = requested.size,
+                belowBuilt = packed,
+                aboveBuilt = packed - TileKey(3, 0).packed,
+            ),
+        )
+        assertTrue(
+            SandwichPolicy.cacheReady(
+                requested = requested,
+                count = requested.size,
+                belowBuilt = packed,
+                aboveBuilt = packed,
+            ),
+        )
+    }
+
+    @Test
+    fun `full redraw checks only the visible rebuilt cache region`() {
+        val full = IntRect(0, 0, 4096, 4096)
+        val visible = IntRect(1024, 1024, 1536, 1536)
+
+        assertEquals(visible, SandwichPolicy.readinessRect(full, visible, full))
+        val damage = IntRect(1100, 1100, 1200, 1200)
+        assertEquals(damage, SandwichPolicy.readinessRect(damage, visible, full))
+    }
+
     private var nextId = 0
 
     private fun layer(mode: BlendMode, visible: Boolean = true): Layer = Layer(

@@ -47,6 +47,7 @@ class SandwichCache(
     private val fbo = GlFbo()
     private val pass = TileCompositePass(program, state, pool)
     private val excludedPages = IntArray(2)
+    private val keyScratch = IntArray(grid.tileCount)
 
     /** A whole half needs rebuilding; individual tiles are rebuilt as they are drawn. */
     private var belowStale = true
@@ -107,10 +108,11 @@ class SandwichCache(
      * every visible one.
      */
     fun invalidateTiles(rect: IntRect, below: Boolean, above: Boolean) {
-        val keys = grid.keysFor(rect)
-        for (k in keys) {
-            if (below) belowBuilt.remove(k.packed)
-            if (above) aboveBuilt.remove(k.packed)
+        val count = grid.keysFor(rect, keyScratch)
+        for (index in 0 until count) {
+            val key = keyScratch[index]
+            if (below) belowBuilt.remove(key)
+            if (above) aboveBuilt.remove(key)
         }
         if (below) belowStale = true
         if (above) aboveStale = true
@@ -144,9 +146,11 @@ class SandwichCache(
         val abovePending = aboveStale && aboveAvailable
         if (!belowPending && !abovePending) return
         val activeIndex = stack.activeIndex
-        val keys = grid.keysFor(rect)
-        for (key in keys) {
-            if (belowPending && key.packed !in belowBuilt) {
+        val count = grid.keysFor(rect, keyScratch)
+        for (index in 0 until count) {
+            val packed = keyScratch[index]
+            val key = TileKey(packed)
+            if (belowPending && packed !in belowBuilt) {
                 val built = buildTile(
                     key,
                     target = below,
@@ -156,9 +160,9 @@ class SandwichCache(
                     stack = stack,
                     layerTextures = layerTextures,
                 )
-                if (built) belowBuilt.add(key.packed)
+                if (built) belowBuilt.add(packed)
             }
-            if (abovePending && key.packed !in aboveBuilt) {
+            if (abovePending && packed !in aboveBuilt) {
                 val built = buildTile(
                     key,
                     target = above,
@@ -169,11 +173,24 @@ class SandwichCache(
                     stack = stack,
                     layerTextures = layerTextures,
                 )
-                if (built) aboveBuilt.add(key.packed)
+                if (built) aboveBuilt.add(packed)
             }
         }
         if (belowBuilt.size >= grid.tileCount) belowStale = false
         if (aboveBuilt.size >= grid.tileCount) aboveStale = false
+    }
+
+    /** A half-built cache is never selected; direct composition stays exact. */
+    fun isReady(rect: IntRect): Boolean {
+        if (!belowAvailable || !aboveAvailable) return false
+
+        val count = grid.keysFor(rect, keyScratch)
+        return SandwichPolicy.cacheReady(
+            requested = keyScratch,
+            count = count,
+            belowBuilt = belowBuilt,
+            aboveBuilt = aboveBuilt,
+        )
     }
 
     /**

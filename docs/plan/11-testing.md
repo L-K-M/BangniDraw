@@ -397,7 +397,7 @@ use `kotlin.io.path.createTempDirectory("bangni-…")` as Meltorama's
 
 `ProjectStoreTest`:
 - `` `a full document round-trips through project.json` `` — size, paper, layer stack with all properties, cursor, gallery URI as an opaque string, timestamps
-- `` `a file from an older version loads on its defaults` `` and `` `unknown fields from a newer version are ignored` `` (kotlinx-serialization `ignoreUnknownKeys`)
+- `` `a version one fixture migrates on its defaults` `` and `` `unknown fields from a newer version are ignored` `` (kotlinx-serialization `ignoreUnknownKeys`)
 - `` `project ids are the only thing that names a folder` `` — a document whose id disagrees with its folder is refused
 - `` `list orders by last-edited, newest first` ``
 - `` `delete removes the folder and nothing else` ``
@@ -413,10 +413,13 @@ use `kotlin.io.path.createTempDirectory("bangni-…")` as Meltorama's
 `HistoryStoreTest`:
 - `` `entries are named by sequence and load in order` ``
 - `` `a gap in the sequence stops loading at the gap` `` — everything before it is usable
+- `` `a committed entry replaces the checkpoint redo branch` `` — crash recovery cannot retain the abandoned tail
+- `` `legacy checkpoint infers a complete gapped membership` `` — a v1 divergent branch survives migration
+- `` `an exact membership count mismatch preserves omitted files` `` — corrupt metadata cannot trigger destructive cleanup
 - `` `prune deletes the files it drops` ``
 
 `TileFlusherTest` (fake clock and dispatcher, §7; a `TileStore` over a temp dir whose writes can be made to fail):
-- `` `storage full lifts the mirror cap and keeps committing` `` — writes fail with `err_storage_full`; a commit that would exceed `CPU_MIRROR_CAP_BYTES` is still accepted, the storage-full state is reported, the pending writes are retried on the next autosave tick, and they drain once writes succeed (`06-document-and-persistence.md` §6.3)
+- `` `storage full retains every mirror tile until writes recover` `` — writes fail with `err_storage_full`; already-issued readbacks remain accepted, the durable FIFO head retains action ownership, and its internal retry drains once writes succeed (`06-document-and-persistence.md` §6.3)
 
 `TornWriteTest` — the crash-mid-write simulation, the reason the format is
 what it is (`06-document-and-persistence.md` §5.6):

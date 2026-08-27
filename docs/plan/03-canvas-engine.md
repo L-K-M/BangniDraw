@@ -445,6 +445,12 @@ A frame while a stroke is live is therefore `Below (paper baked in) →
 not grow with the layer count, and layer count is what large paintings
 have.
 
+A saved stack can exceed this device's current `MemoryBudget.maxLayers`
+(for example after reopening on a lower-memory device). In that state the
+renderer releases and disables both cache halves and uses direct per-layer
+composition. Deleting back to the cap recreates the empty cache lazily. This
+protects the remaining transient capacity without rejecting a legacy document.
+
 **Building a cache** is canvas-space, tile by tile: for each key present
 in any contributing layer (for Below: every key of the canvas, since the
 paper covers it all — an opaque paper makes every Below tile present),
@@ -1198,21 +1204,20 @@ Per layer, worst case (every tile painted), for the size presets
 `CanvasPresets` offers (`docs/plan/10-performance.md` §4; the dialog shows
 only those the budget admits — these rows are the arithmetic):
 
-| Preset | Tiles (tx × ty) | Per layer, full | 8 layers + sandwich (2) + stroke buffer (1) |
+| Preset | Tiles (tx × ty) | Per layer, full | 8 layers + transient reserve (4) |
 | --- | --- | --- | --- |
-| Phone sketch 1080×1920 | 5 × 8 = 40 | 10 MiB | 110 MiB |
-| Square 2048² | 8 × 8 = 64 | 16 MiB | 176 MiB |
-| Tablet 2560×1600 | 10 × 7 = 70 | 17.5 MiB | 192.5 MiB |
-| Large 4096² | 16 × 16 = 256 | 64 MiB | 704 MiB |
-| Format ceiling 8192² (post-v1) | 32 × 32 = 1024 | 256 MiB | 2.75 GiB (the budget will not admit 8 layers here on any current device) |
+| Phone sketch 1080×1920 | 5 × 8 = 40 | 10 MiB | 120 MiB |
+| Square 2048² | 8 × 8 = 64 | 16 MiB | 192 MiB |
+| Tablet 2560×1600 | 10 × 7 = 70 | 17.5 MiB | 210 MiB |
+| Large 4096² | 16 × 16 = 256 | 64 MiB | 768 MiB |
+| Format ceiling 8192² (post-v1) | 32 × 32 = 1024 | 256 MiB | 3 GiB (the budget will not admit 8 layers here on any current device) |
 
 `MemoryBudget.compute(device, canvas).maxLayers` is
 `docs/plan/10-performance.md` §4's: `gpuTileBudgetBytes / layerBytes −
-STROKE_BUFFER_RESERVE_LAYERS (1)`, clamped to `1..MAX_LAYERS (16)`, where
+TRANSIENT_TILE_RESERVE_LAYERS (4)`, clamped to `1..MAX_LAYERS (16)`, where
 `gpuTileBudgetBytes` is `totalMem / 8` clamped to 256 MiB..1.5 GiB (a flat
-256 MiB on `isLowRamDevice`). The sandwich halves are not reserved: they
-are sparse canvas-space grids that ride on the tiles no layer has painted
-(10 §2.6), and the lazy page allocation is the backstop. It assumes fully
+256 MiB on `isLowRamDevice`). The reserve covers both sandwich halves, a
+stroke or structural output, and merge scratch. It assumes fully
 painted layers — pessimistic on purpose (decision 4: honest, not clever).
 Because memory grows with painted tiles, the cap is a guarantee, not an
 estimate: if the budget admits 8 layers, all 8 can be painted edge to

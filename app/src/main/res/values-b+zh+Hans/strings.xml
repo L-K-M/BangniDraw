@@ -210,8 +210,10 @@
     <plurals name="layer_limit">
         <item quantity="other">此设备上的 %1$d×%2$d 画布最多允许 %3$d 个图层。请合并或删除一个图层后再添加。</item>
     </plurals>
+    <string name="layer_over_capacity">此旧画作超过本设备的安全图层上限。请先删除图层，再绘画、合并或拼合。</string>
     <string name="layer_only">无法删除唯一图层——请改为清除。</string>
     <string name="layer_locked">图层已锁定。</string>
+    <string name="layer_alpha_locked">透明度锁定已开启。</string>
     <string name="layer_hidden">图层已隐藏。笔触仍会添加到图层中。</string>
     <string name="layer_hidden_partner">请显示两个图层后再合并。</string>
     <string name="layer_no_below">下方没有图层。</string>

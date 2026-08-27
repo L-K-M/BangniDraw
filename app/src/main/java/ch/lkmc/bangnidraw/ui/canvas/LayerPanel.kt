@@ -232,7 +232,7 @@ internal fun LayerPanel(
                             onOpacityPreview = { value -> onOpacityPreview(index, value) },
                             onOpacityFinished = onOpacityFinished,
                             onRename = {
-                                onRequestDialog(CanvasDialog.RenameLayer(index, displayName))
+                                onRequestDialog(CanvasDialog.RenameLayer(layer.id, displayName))
                             },
                             onDuplicate = { onDuplicate(index) },
                             onMergeDown = {
@@ -241,7 +241,7 @@ internal fun LayerPanel(
                                     (layer.props.blendMode != BlendMode.NORMAL ||
                                         below.props.blendMode != BlendMode.NORMAL)
                                 if (needsConfirm) {
-                                    onRequestDialog(CanvasDialog.MergeLayers(index))
+                                    onRequestDialog(CanvasDialog.MergeLayers(layer.id, below.id))
                                 } else {
                                     onMergeDown(index)
                                 }
@@ -747,6 +747,7 @@ private fun refusalMessage(refusal: Refusal?, canvas: CanvasSize, layerCap: Int)
         canvas.height,
         layerCap,
     )
+    Refusal.OVER_CAPACITY -> stringResource(R.string.layer_over_capacity)
     Refusal.LAST_LAYER -> stringResource(R.string.layer_only)
     Refusal.LOCKED -> stringResource(R.string.layer_locked)
     Refusal.HIDDEN_PARTNER -> stringResource(R.string.layer_hidden_partner)

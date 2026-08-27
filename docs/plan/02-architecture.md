@@ -536,7 +536,7 @@ sealed interface StoreResult<out T> {
 | `ProjectStore` load (on opening a painting, including a `SavedStateHandle` restore whose folder is gone or unreadable) | `err_project_read` | the Canvas never shows: navigate back to the Studio with the toast; the folder is left untouched (06 §7: a corrupt painting is a support question, not an eviction) |
 | `ProjectStore` save | `err_project_write` / `err_storage_full` | snackbar; save retried on next policy tick |
 | `TileStore` read (corrupt `.tile`, 06 §4) | `err_tiles_unreadable` | one toast on open with the count; the tiles show transparent |
-| `TileStore` write | `err_storage_full` | persistent banner "Storage full — free up space to keep saving" (string key `err_storage_full`); painting continues (GPU + CPU mirror intact): the `TileFlusher` enters its storage-full state (06 §6.3 — the mirror cap is lifted so commits are never blocked on a disk that cannot drain, the write is retried on each autosave tick), and leaving the canvas shows a dialog saying the last N minutes may be unsaved |
+| `TileStore` write | `err_storage_full` | persistent banner "Storage full — free up space to keep saving" (string key `err_storage_full`); GPU + CPU pixels remain intact, while later document edits and checkpoints pause behind the failed durable FIFO head and its internal retry (06 §6.3) |
 | `GalleryExporter` | `err_gallery_write` | snackbar once per session; gallery sync marked stale, retried on leave |
 | `HistoryStore` | `err_history_write` | undo for that step unavailable; stated in the snackbar |
 | GL (shader compile, out of slices) | `err_gpu_init` / `err_gpu_memory` | dialog with the budget numbers; canvas falls back to read-only view via CPU `Composite` |

@@ -44,7 +44,7 @@ data class LayoutSpec(
 | --- | --- | --- | --- |
 | COMPACT width (any height) | DOCK — bottom row, 6 grouped slots | FULL_HEIGHT_SHEET from the panel side, width `min(320dp, 85 %)` | LEDGE — one thin horizontal slider directly above the dock, with a size/opacity toggle chip (`01-product.md`: one slider visible at a time on compact) |
 | MEDIUM/EXPANDED, rail height < `SHORT_MIN` (288 dp) — split-screen slivers | DOCK, as compact | FULL_HEIGHT_SHEET | LEDGE, one slider |
-| MEDIUM/EXPANDED, rail height `SHORT_MIN` … < `GROUPED_MIN` (phone landscape) | SHORT — 6 grouped slots, 48 dp, no gaps, no padding | SIDE_SHEET 300 dp, full height | LEDGE at the bottom edge, opposite the rail, two sliders |
+| MEDIUM/EXPANDED, rail height `SHORT_MIN` … < `GROUPED_MIN` (phone landscape) | SHORT — 6 grouped slots, 48 dp, no gaps, no padding | SIDE_SHEET 300 dp, ending above the ledge | LEDGE at the bottom edge, opposite the rail, two sliders |
 | MEDIUM/EXPANDED, rail height `GROUPED_MIN` … < `FULL_MIN` | GROUPED — 6 grouped slots + sliders | SIDE_SHEET 300 dp | IN_RAIL, 120 dp long |
 | MEDIUM/EXPANDED, rail height ≥ `FULL_MIN` (tablets) | FULL — all 10 tools + sliders | FLOATING 320 dp card beside the rail | IN_RAIL, 160 dp long |
 
@@ -339,6 +339,7 @@ Content is identical in every mode; only the container differs.
   refreshed at most every 500 ms per layer while the panel is open.
 - The panel is 300–320 dp wide; on compact it is a full-height sheet of
   `min(320dp, 85 %)` width so a strip of canvas always remains tappable.
+  Interactive content clears the SHORT ledge and the DOCK ledge plus dock.
 
 ### 3.4 Color panel
 

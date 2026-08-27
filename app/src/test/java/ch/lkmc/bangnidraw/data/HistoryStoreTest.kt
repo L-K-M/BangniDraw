@@ -74,6 +74,109 @@ class HistoryStoreTest {
     }
 
     @Test
+    fun `checkpointed divergent branch keeps its exact sequence set`() {
+        put(1)
+        put(4)
+
+        val loaded = store.load(
+            HistoryRecord(
+                cursor = 2,
+                nextSeq = 5,
+                oldestSeq = 1,
+                entries = 2,
+                seqs = listOf(1, 4),
+            ),
+        )
+
+        assertEquals(listOf(1L, 4L), loaded.entries.map { it.seq })
+        assertEquals(2, loaded.cursor)
+    }
+
+    @Test
+    fun `exact checkpoint membership removes stale truncated entries`() {
+        put(1)
+        put(2)
+        put(3)
+        put(4)
+
+        val loaded = store.load(
+            HistoryRecord(
+                cursor = 2,
+                nextSeq = 5,
+                oldestSeq = 1,
+                entries = 2,
+                seqs = listOf(1, 4),
+            ),
+        )
+
+        assertEquals(listOf(1L, 4L), loaded.entries.map { it.seq })
+        assertTrue(!store.entryFile(2).exists())
+        assertTrue(!store.entryFile(3).exists())
+    }
+
+    @Test
+    fun `a committed entry replaces the checkpoint redo branch`() {
+        put(1)
+        put(2)
+        put(3)
+        put(4)
+
+        val loaded = store.load(
+            HistoryRecord(
+                cursor = 1,
+                nextSeq = 4,
+                oldestSeq = 1,
+                entries = 3,
+                seqs = listOf(1, 2, 3),
+            ),
+        )
+
+        assertEquals(listOf(1L, 4L), loaded.entries.map(HistoryEntry::seq))
+        assertEquals(2, loaded.cursor)
+        assertTrue(!store.entryFile(2).exists())
+        assertTrue(!store.entryFile(3).exists())
+    }
+
+    @Test
+    fun `legacy checkpoint infers a complete gapped membership`() {
+        put(1)
+        put(4)
+
+        val loaded = store.load(
+            HistoryRecord(
+                cursor = 2,
+                nextSeq = 5,
+                oldestSeq = 1,
+                entries = 2,
+            ),
+        )
+
+        assertEquals(listOf(1L, 4L), loaded.entries.map(HistoryEntry::seq))
+        assertEquals(2, loaded.cursor)
+    }
+
+    @Test
+    fun `an exact membership count mismatch preserves omitted files`() {
+        put(1)
+        put(2)
+        put(3)
+
+        val loaded = store.load(
+            HistoryRecord(
+                cursor = 1,
+                nextSeq = 3,
+                oldestSeq = 1,
+                entries = 2,
+                seqs = listOf(1),
+            ),
+        )
+
+        assertEquals(listOf(1L), loaded.entries.map(HistoryEntry::seq))
+        assertTrue(store.entryFile(2).isFile)
+        assertTrue(store.entryFile(3).isFile)
+    }
+
+    @Test
     fun `prune deletes the files it drops`() {
         putStroke(1)
         put(2)
@@ -113,6 +216,44 @@ class HistoryStoreTest {
         assertEquals(listOf(1L, 2L, 3L), loaded.entries.map { it.seq })
         assertEquals(3, loaded.cursor, "the recovered entries are applied, not redoable")
         assertTrue(!store.entryFile(5).exists())
+    }
+
+    @Test
+    fun `a post-checkpoint pixel entry without an after-image is excluded`() {
+        putStroke(1)
+
+        val loaded = store.load(HistoryRecord(cursor = 0, nextSeq = 1, oldestSeq = 1))
+
+        assertTrue(loaded.entries.isEmpty())
+        assertEquals(0, loaded.cursor)
+    }
+
+    @Test
+    fun `a post-checkpoint pixel entry with a valid after-image is recovered`() {
+        val stamped = putStroke(1)
+        val after = Random(2).nextBytes(TILE_BYTES)
+        store.writeRecoveryAfter(
+            seq = stamped.seq,
+            payloads = listOf(
+                HistoryStore.Payload(a, TileKey(1, 1), TileCodec.encode(after)),
+            ),
+        )
+
+        val loaded = store.load(HistoryRecord(cursor = 0, nextSeq = 1, oldestSeq = 1))
+
+        assertEquals(listOf(1L), loaded.entries.map(HistoryEntry::seq))
+        assertEquals(1, loaded.cursor)
+    }
+
+    @Test
+    fun `a corrupt post-checkpoint after-image is incomplete`() {
+        putStroke(1)
+        store.afterFile(1).writeText("not a recovery image")
+
+        val loaded = store.load(HistoryRecord(cursor = 0, nextSeq = 1, oldestSeq = 1))
+
+        assertTrue(loaded.entries.isEmpty())
+        assertEquals(0, loaded.cursor)
     }
 
     @Test
@@ -223,7 +364,7 @@ class HistoryStoreTest {
         // The body's bytes, not just its length: a slice from a wrong
         // in-bounds offset would be 16 bytes of header text and pass a
         // size-only check.
-        assertEquals("x".repeat(16), payloads!!.single().encoded.decodeToString())
+        assertEquals("x".repeat(16), payloads.single().encoded.decodeToString())
     }
 
     @Test

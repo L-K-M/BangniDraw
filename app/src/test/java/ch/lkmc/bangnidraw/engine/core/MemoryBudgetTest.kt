@@ -40,7 +40,7 @@ class MemoryBudgetTest {
     fun `the worked table of 10 section 4 holds`() {
         MemoryBudget.compute(device(8.0), canvas4096).let {
             assertEquals(1024 * mib, it.gpuTileBudgetBytes, "8 GiB device, tile budget")
-            assertEquals(15, it.maxLayers, "8 GiB device, 4096 canvas")
+            assertEquals(12, it.maxLayers, "8 GiB device, 4096 canvas")
             assertEquals(4096, it.maxCanvasEdge, "the v1 ceiling")
             assertEquals(200, it.historyMaxSteps)
             assertEquals(256 * mib, it.historyMaxBytes)
@@ -54,7 +54,7 @@ class MemoryBudgetTest {
         }
         MemoryBudget.compute(device(4.0), canvas4096).let {
             assertEquals(512 * mib, it.gpuTileBudgetBytes)
-            assertEquals(7, it.maxLayers)
+            assertEquals(4, it.maxLayers)
             assertEquals(4096, it.maxCanvasEdge)
             assertEquals(100, it.historyMaxSteps)
             assertEquals(128 * mib, it.historyMaxBytes)
@@ -63,8 +63,8 @@ class MemoryBudgetTest {
         }
         MemoryBudget.compute(device(4.0, lowRam = true), canvas4096).let {
             assertEquals(256 * mib, it.gpuTileBudgetBytes, "a low-RAM device gets the flat budget")
-            assertEquals(3, it.maxLayers)
-            assertEquals(3584, it.maxCanvasEdge, "3840 squared would need 5 x 56.3 MiB")
+            assertEquals(1, it.maxLayers)
+            assertEquals(2816, it.maxCanvasEdge, "3072 squared would exceed eight full layers")
             assertEquals(100, it.historyMaxSteps)
             assertEquals(128 * mib, it.historyMaxBytes)
             assertEquals(8 * mib, it.thumbnailCacheBytes)
@@ -227,6 +227,52 @@ class MemoryBudgetTest {
     }
 
     @Test
+    fun `four full-canvas transient layers are reserved`() {
+        assertEquals(EXPECTED_TRANSIENT_LAYERS, PerfConstants.TRANSIENT_TILE_RESERVE_LAYERS)
+    }
+
+    @Test
+    fun `advertised resident and transient layers fit the pool`() {
+        for (totalGib in listOf(2.0, 4.0, 8.0, 12.0, 16.0)) {
+            for (lowRam in listOf(false, true)) {
+                for (glLayers in listOf(256, 128, 64)) {
+                    val initial = MemoryBudget.compute(
+                        device(totalGib, lowRam, glLayers),
+                        canvas2048,
+                    )
+                    val canvases = listOf(
+                        CanvasSize(256, 256),
+                        CanvasSize(1080, 1920),
+                        canvas2048,
+                        canvas4096,
+                        CanvasSize(initial.maxCanvasEdge, initial.maxCanvasEdge),
+                    ).distinct()
+
+                    for (canvas in canvases) {
+                        val result = MemoryBudget.compute(
+                            device(totalGib, lowRam, glLayers),
+                            canvas,
+                        )
+                        if (maxOf(canvas.width, canvas.height) > result.maxCanvasEdge) continue
+
+                        val poolSlices = result.poolArraySlices.toLong() * result.poolArrayCount
+                        val residentSlices = result.maxLayers.toLong() * canvas.tilesPerLayer
+                        val transientSlices = EXPECTED_TRANSIENT_LAYERS.toLong() * canvas.tilesPerLayer
+
+                        assertTrue(
+                            residentSlices + transientSlices <= poolSlices,
+                            "$totalGib GiB / lowRam=$lowRam / ${canvas.width}x${canvas.height} / " +
+                                "$glLayers per array: ${result.maxLayers} resident and " +
+                                "$EXPECTED_TRANSIENT_LAYERS transient layers need " +
+                                "${residentSlices + transientSlices} slices, pool has $poolSlices",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `the pool never advertises capacity the budget cannot cover`() {
         for (totalGib in listOf(2.0, 2.734375, 4.0, 5.5, 8.0, 12.0, 16.0)) {
             for (glLayers in listOf(256, 128, 64)) {
@@ -355,5 +401,9 @@ class MemoryBudgetTest {
             assertEquals(8, it.tilesY, "1920 px is exactly 7.5 tiles, so 8")
             assertEquals(40L, it.tilesPerLayer)
         }
+    }
+
+    private companion object {
+        const val EXPECTED_TRANSIENT_LAYERS = 4
     }
 }

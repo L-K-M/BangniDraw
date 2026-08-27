@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
@@ -27,27 +28,28 @@ import kotlinx.coroutines.sync.withLock
  * 1. a step's "before" tiles not held in the mirror are read from disk *into
  *    the entry* before any flush of those keys,
  * 2. `<seq>.entry` (and `.redo` before restored tiles) is written tmp+rename,
- * 3. the step's readback is awaited, then the tiles the step changed are
- *    flushed,
- * 4. `project.json` last, at the checkpoint.
+ * 3. the step's readback is awaited and `<seq>.after` is written,
+ * 4. the tiles the step changed are flushed,
+ * 5. `project.json` last, at the checkpoint.
  *
  * Ordering holds because tiles are flushed **only** inside jobs and jobs run
  * strictly in queue order on one coroutine: when [FlushJob.WriteEntry] for
  * stroke N runs, the disk still holds the pre-N state for every key its
  * mirror capture missed. There is no idle flush — a tile always belongs to
- * some job's step 3, or to a checkpoint.
+ * some job's step 4, or to a checkpoint.
  *
  * **Storage full** (§6.3): a failed write flips [storageFull] and leaves the
- * tiles pending; nothing is dropped. The mirror cap is lifted
- * ([hasMirrorRoom]), strokes keep committing, [retryPending] retries on each
- * checkpoint/autosave tick, and the first successful write clears the state.
+ * tiles pending; nothing is dropped. A failed history step keeps FIFO and
+ * action ownership while the worker retries it, so no later edit can replace
+ * the pixels its recovery image must capture. The first successful write
+ * clears the state.
  */
 class TileFlusher(
     private val write: TileWriter,
     private val pool: TileBufferPool? = null,
 ) {
     enum class ReadbackResult { COMPLETE, PENDING }
-    enum class StepResult { COMPLETE, DEFERRED }
+    enum class StepResult { COMPLETE }
 
     /** Writes one tile, or throws [IOException] — [TileStore.write]'s shape. */
     fun interface TileWriter {
@@ -64,11 +66,10 @@ class TileFlusher(
          * or recorded as empty. [awaitReadback] must return only once the
          * step's own readback has landed in the mirror; [changedKeys] then
          * flushes outputs whose owners differ from the entry payload, such as
-         * a flattened result. [result] completes with the stamped entry — or
-         * null when the entry could not be written, which is a storage-full
-         * condition, not a crash. [completion] reports whether readback and
-         * disk flush both finished; destructive followers must wait for
-         * `COMPLETE`.
+         * a flattened result. [result] and [completion] stay pending until the
+         * entry, recovery image, and changed tiles are durable. This retains
+         * action ownership across retries, so a later edit cannot overwrite
+         * the post-edit pixels before they reach the recovery image.
          */
         class WriteEntry(
             val entry: HistoryEntry,
@@ -144,6 +145,21 @@ class TileFlusher(
     /** Serialises job execution: the worker and [runQueued] must not interleave. */
     private val jobMutex = Mutex()
 
+    /** One FIFO head retained across bounded readback and storage retries. */
+    private var pendingEntry: PendingEntry? = null
+
+    private data class PendingEntry(
+        val job: FlushJob.WriteEntry,
+        var store: HistoryStore? = null,
+        var before: List<HistoryStore.Payload>? = null,
+        var stamped: HistoryEntry? = null,
+        var readbackComplete: Boolean = false,
+        var after: List<HistoryStore.Payload>? = null,
+        var afterWritten: Boolean = false,
+    )
+
+    private enum class EntryAttempt { COMPLETE, RETRY }
+
     /**
      * §6.3's bounded queue (`capacity = 64`): enqueue suspends the ViewModel
      * side when IO lags rather than growing without bound.
@@ -164,8 +180,9 @@ class TileFlusher(
      * Whether a commit's readback may land more tiles here (§6.3's mirror
      * cap). Advisory: [markDirty] itself never refuses pixels, because a
      * refused readback tile is lost work — the cap is for the commit path to
-     * consult *before* issuing a readback, and in the storage-full state it
-     * is lifted so strokes keep committing.
+     * consult *before* issuing a readback. Storage-full lifts it only so
+     * already-issued readbacks are never rejected; later document edits wait
+     * behind the failed durable FIFO head.
      */
     fun hasMirrorRoom(): Boolean = _storageFull.value || pendingBytes < CPU_MIRROR_CAP_BYTES
 
@@ -230,11 +247,6 @@ class TileFlusher(
     /** Enqueues from the GL thread, refusing instead of blocking when full. */
     fun enqueueNow(job: FlushJob): Boolean = queue.trySend(job).isSuccess
 
-    /** Wakes a retry of everything pending — the checkpoint/autosave hook. */
-    fun retryPending() {
-        queue.trySend(FlushJob.Checkpoint())
-    }
-
     /**
      * Starts the worker: one coroutine, [io] expected to be
      * `Dispatchers.IO.limitedParallelism(1)` (§6.3). Tests skip this and call
@@ -243,25 +255,35 @@ class TileFlusher(
     fun start(scope: CoroutineScope, io: CoroutineDispatcher): Job =
         scope.launch(io) {
             while (isActive) {
+                val retrying = jobMutex.withLock { pendingEntry != null }
+                if (retrying) {
+                    delay(WRITE_ENTRY_RETRY_MS)
+                    jobMutex.withLock { retryPendingEntry() }
+                    continue
+                }
+
                 val job = queue.receive()
                 jobMutex.withLock { run(job) }
             }
         }
 
-    /** Drains every job queued so far, inline — the tests' worker. */
+    /** Retries the FIFO head once, then drains queued jobs — the tests' worker. */
     suspend fun runQueued() {
-        while (true) {
-            val job = queue.tryReceive().getOrNull() ?: return
-            jobMutex.withLock { run(job) }
+        jobMutex.withLock {
+            if (!retryPendingEntry()) return@withLock
+
+            while (true) {
+                val job = queue.tryReceive().getOrNull() ?: return@withLock
+                if (!run(job)) return@withLock
+            }
         }
     }
 
     /**
      * Enqueues a [FlushJob.Checkpoint] and waits it out: on return every
      * job enqueued before this call has run, in order, and the answer says
-     * whether the mirror drained (false = storage-full; `project.json` may
-     * still be written — metadata is not pixels — and the retry keeps the
-     * tiles).
+     * whether the mirror drained. False is storage-full and forbids the
+     * caller's `project.json` commit; the pending pixels stay in memory.
      */
     suspend fun checkpointFlush(): Boolean {
         val job = FlushJob.Checkpoint()
@@ -271,9 +293,16 @@ class TileFlusher(
 
     // --------------------------------------------------------------- worker
 
-    private suspend fun run(job: FlushJob) {
+    /** Runs one job, returning false while its entry remains the FIFO head. */
+    private suspend fun run(job: FlushJob): Boolean {
         when (job) {
-            is FlushJob.WriteEntry -> runWriteEntry(job)
+            is FlushJob.WriteEntry -> {
+                val pending = PendingEntry(job)
+                if (runWriteEntry(pending) == EntryAttempt.RETRY) {
+                    pendingEntry = pending
+                    return false
+                }
+            }
             is FlushJob.WriteRedo -> runWriteRedo(job)
             is FlushJob.FlushKeys -> flushKeys(job.keys)
             is FlushJob.ResolveCurrent -> job.result.complete(resolveCurrentNow(job.keys))
@@ -283,17 +312,62 @@ class TileFlusher(
                 job.done.complete(synchronized(lock) { pending.isEmpty() })
             }
         }
+        return true
     }
 
-    private suspend fun runWriteEntry(job: FlushJob.WriteEntry) {
-        val store = historyStore
-        if (store == null) {
-            job.result.complete(null)
-            job.completion.complete(StepResult.DEFERRED)
-            return
+    private suspend fun retryPendingEntry(): Boolean {
+        val pending = pendingEntry ?: return true
+        if (runWriteEntry(pending) == EntryAttempt.RETRY) return false
+
+        pendingEntry = null
+        return true
+    }
+
+    private suspend fun runWriteEntry(pending: PendingEntry): EntryAttempt {
+        val job = pending.job
+        val store = pending.store ?: historyStore ?: return EntryAttempt.RETRY
+        pending.store = store
+
+        if (pending.stamped == null) {
+            val before = pending.before ?: entryPayloads(job).also { pending.before = it }
+            val stamped = try {
+                store.append(job.entry, job.seq, job.ts, before)
+            } catch (_: IOException) {
+                _storageFull.value = true
+                return EntryAttempt.RETRY
+            }
+            pending.stamped = stamped
         }
+
+        if (!pending.readbackComplete) {
+            if (job.awaitReadback() == ReadbackResult.PENDING) return EntryAttempt.RETRY
+
+            // Freeze this revision before later work can touch the mirror.
+            pending.after = recoveryPayloads(job.changedKeys)
+            pending.readbackComplete = true
+        }
+
+        if (!pending.afterWritten) {
+            try {
+                store.writeRecoveryAfter(job.seq, checkNotNull(pending.after))
+            } catch (_: IOException) {
+                _storageFull.value = true
+                return EntryAttempt.RETRY
+            }
+            pending.afterWritten = true
+            _storageFull.value = false
+        }
+
+        if (!flushKeys(job.changedKeys)) return EntryAttempt.RETRY
+
+        job.result.complete(checkNotNull(pending.stamped))
+        job.completion.complete(StepResult.COMPLETE)
+        return EntryAttempt.COMPLETE
+    }
+
+    private fun entryPayloads(job: FlushJob.WriteEntry): List<HistoryStore.Payload> {
         val keys = HistoryCodec.payloadKeys(job.entry)
-        val payloads = keys.map { key ->
+        return keys.map { key ->
             val raw = job.mirrorBefore[key]
             val encoded = when {
                 // §5.5's order: the unflushed mirror first — it holds the
@@ -308,27 +382,20 @@ class TileFlusher(
             }
             HistoryStore.Payload(key.first, key.second, encoded)
         }
-        val stamped = try {
-            store.append(job.entry, job.seq, job.ts, payloads)
-        } catch (_: IOException) {
-            _storageFull.value = true
-            job.result.complete(null)
-            job.completion.complete(StepResult.DEFERRED)
-            return
+    }
+
+    private fun recoveryPayloads(
+        keys: List<Pair<LayerId, TileKey>>,
+    ): List<HistoryStore.Payload> {
+        val mirror = captureMirror(keys)
+        return keys.map { key ->
+            val raw = mirror[key]
+            val encoded = when {
+                raw != null -> if (TileCodec.isAllZero(raw)) EMPTY else TileCodec.encode(raw)
+                else -> diskReader.read(key.first, key.second) ?: EMPTY
+            }
+            HistoryStore.Payload(key.first, key.second, encoded)
         }
-        job.result.complete(stamped)
-        // §5.6 step 3: the step's own pixels land in the mirror, then flush.
-        val readback = job.awaitReadback()
-        if (readback == ReadbackResult.PENDING) {
-            job.completion.complete(StepResult.DEFERRED)
-            return
-        }
-        val result = if (flushKeys(job.changedKeys)) {
-            StepResult.COMPLETE
-        } else {
-            StepResult.DEFERRED
-        }
-        job.completion.complete(result)
     }
 
     private suspend fun runWriteRedo(job: FlushJob.WriteRedo) {
@@ -403,6 +470,7 @@ class TileFlusher(
     }
 
     private companion object {
+        const val WRITE_ENTRY_RETRY_MS = 500L
         val EMPTY = ByteArray(0)
     }
 }

@@ -181,4 +181,27 @@ object SandwichPolicy {
             -> true
         }
     }
+
+    /** Cache availability is per requested packed tile, not merely per half. */
+    fun cacheReady(
+        requested: IntArray,
+        count: Int,
+        belowBuilt: Set<Int>,
+        aboveBuilt: Set<Int>,
+    ): Boolean {
+        require(count in 0..requested.size) {
+            "count must be 0..${requested.size}, was $count"
+        }
+
+        for (index in 0 until count) {
+            val key = requested[index]
+            if (key !in belowBuilt || key !in aboveBuilt) return false
+        }
+
+        return true
+    }
+
+    /** A full redraw only depends on the cache region rebuilt for this viewport. */
+    fun readinessRect(requested: IntRect, visible: IntRect, fullCanvas: IntRect): IntRect =
+        if (requested == fullCanvas) visible else requested
 }

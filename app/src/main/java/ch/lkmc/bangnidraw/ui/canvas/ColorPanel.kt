@@ -32,6 +32,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -55,6 +56,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.engine.core.ColorFieldSync
 import ch.lkmc.bangnidraw.engine.core.ColorText
 import ch.lkmc.bangnidraw.engine.core.ColorUiState
 import ch.lkmc.bangnidraw.engine.core.Composite
@@ -307,10 +309,15 @@ private fun ColorFields(
     onSelected: (Int) -> Unit,
     onTextInputFocus: (TextInputFocus) -> Unit,
 ) {
-    var hex by remember(color) { mutableStateOf(ColorText.hex(color)) }
+    var hexDrafts by remember { mutableStateOf(ColorFieldSync.fromColor(color)) }
+    var hexFocused by remember { mutableStateOf(false) }
     var red by remember(color) { mutableStateOf(Composite.red(color).toString()) }
     var green by remember(color) { mutableStateOf(Composite.green(color).toString()) }
     var blue by remember(color) { mutableStateOf(Composite.blue(color).toString()) }
+
+    LaunchedEffect(color, hexFocused) {
+        if (!hexFocused) hexDrafts = ColorFieldSync.syncParent(hexDrafts, color)
+    }
 
     fun selectRgb() {
         val r = ColorText.parseChannel(red) ?: return
@@ -320,16 +327,19 @@ private fun ColorFields(
     }
 
     OutlinedTextField(
-        value = hex,
-        onValueChange = {
-            hex = it
-            ColorText.parseHex(it)?.let(onSelected)
+        value = hexDrafts.hex,
+        onValueChange = { hex ->
+            val next = ColorFieldSync.editHex(hexDrafts, hex)
+            hexDrafts = next
+            next.selectedColor?.let(onSelected)
         },
         label = { Text(stringResource(R.string.color_hex)) },
         singleLine = true,
         modifier = Modifier
             .fillMaxWidth()
             .onFocusChanged { focus ->
+                hexFocused = focus.hasFocus
+                if (!focus.hasFocus) hexDrafts = ColorFieldSync.fromColor(color)
                 onTextInputFocus(
                     if (focus.hasFocus) TextInputFocus.FOCUSED else TextInputFocus.CLEAR,
                 )

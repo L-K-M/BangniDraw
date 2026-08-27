@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.input
 import android.os.Build
 import android.view.Choreographer
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import ch.lkmc.bangnidraw.engine.core.ButtonState
@@ -11,6 +12,8 @@ import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.GestureListener
 import ch.lkmc.bangnidraw.engine.core.LatencyTrace
+import ch.lkmc.bangnidraw.engine.core.MouseNavigationPolicy
+import ch.lkmc.bangnidraw.engine.core.MouseScrollMode
 import ch.lkmc.bangnidraw.engine.core.NavigationStep
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PredictionGate
@@ -21,6 +24,8 @@ import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StylusButtonPolicy
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.engine.core.ViewportResizePolicy
+import ch.lkmc.bangnidraw.engine.core.ViewportResizeState
 
 /**
  * What the canvas does with pointers — the callbacks a host implements.
@@ -108,7 +113,7 @@ interface CanvasInputHost {
 class CanvasTouchHandler(
     density: Float,
     private val host: CanvasInputHost,
-) : View.OnTouchListener, View.OnHoverListener {
+) : View.OnTouchListener, View.OnHoverListener, View.OnGenericMotionListener {
 
     val stylus = StylusState()
     val arbiter = GestureArbiter(density)
@@ -184,6 +189,11 @@ class CanvasTouchHandler(
     private val trackTimeNs = LongArray(GestureArbiter.MAX_POINTERS)
 
     private var navigating = false
+
+    /** Generic mouse button events and mouse touch events share this drag. */
+    private var middleDragging = false
+    private var previousMouseX = 0f
+    private var previousMouseY = 0f
 
     /** A move arrived and its event has not been closed by [handleMoveEnd] yet. */
     private var pendingMove = false
@@ -276,9 +286,13 @@ class CanvasTouchHandler(
             null
         }
         val previous = fit
-        if (previous != null && next != null && previous != next) {
-            view = view.rebase(previous, next)
-            host.onViewChanged(view)
+        if (previous != null && next != null) {
+            val resized = ViewportResizePolicy.resize(
+                ViewportResizeState(view, previous),
+                next,
+            )
+            if (resized.view != view) host.onViewChanged(resized.view)
+            view = resized.view
         }
         fit = next
         updateScreen()
@@ -870,6 +884,8 @@ class CanvasTouchHandler(
      */
     override fun onTouch(v: View?, event: MotionEvent?): Boolean {
         val e = event ?: return false
+        if (handleMouseTouch(e)) return true
+
         val index = e.actionIndex
         val id = e.getPointerId(index)
         val timeNs = e.eventTime * 1_000_000L
@@ -960,6 +976,123 @@ class CanvasTouchHandler(
         }
         return true
     }
+
+    override fun onGenericMotion(v: View?, event: MotionEvent?): Boolean {
+        val e = event ?: return false
+        if (!e.isFromSource(InputDevice.SOURCE_MOUSE)) return false
+        if (e.actionMasked == MotionEvent.ACTION_SCROLL) return handleMouseScroll(e)
+
+        return handleMiddleMouse(e)
+    }
+
+    private fun handleMouseScroll(event: MotionEvent): Boolean {
+        if (strokeLive) return false
+
+        val ticks = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+        if (ticks == 0f) return false
+
+        val ctrlPressed = event.metaState and KeyEvent.META_CTRL_MASK != 0
+        val mode = if (ctrlPressed) MouseScrollMode.ROTATE else MouseScrollMode.ZOOM
+        view = MouseNavigationPolicy.scroll(
+            view = view,
+            pivotX = event.x,
+            pivotY = event.y,
+            ticks = ticks,
+            mode = mode,
+        )
+        publishMouseView()
+        return true
+    }
+
+    private fun handleMiddleMouse(event: MotionEvent): Boolean {
+        if (strokeLive) return false
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_BUTTON_PRESS -> {
+                if (event.actionButton != MotionEvent.BUTTON_TERTIARY) return false
+                beginMiddleDrag(event.x, event.y)
+                return true
+            }
+            MotionEvent.ACTION_MOVE, MotionEvent.ACTION_HOVER_MOVE -> {
+                if (!event.hasMiddleButton()) {
+                    middleDragging = false
+                    return false
+                }
+                moveMiddleDrag(event.x, event.y)
+                return true
+            }
+            MotionEvent.ACTION_BUTTON_RELEASE -> {
+                if (event.actionButton != MotionEvent.BUTTON_TERTIARY) return false
+                middleDragging = false
+                return true
+            }
+            else -> return false
+        }
+    }
+
+    private fun handleMouseTouch(event: MotionEvent): Boolean {
+        if (event.getToolType(event.actionIndex) != MotionEvent.TOOL_TYPE_MOUSE) return false
+        if (strokeLive) return false
+
+        return when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (!event.hasMiddleButton()) return false
+                beginMiddleDrag(event.x, event.y)
+                true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!event.hasMiddleButton()) {
+                    if (!middleDragging) return false
+                    middleDragging = false
+                    return true
+                }
+                moveMiddleDrag(event.x, event.y)
+                true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!middleDragging) return false
+                middleDragging = false
+                true
+            }
+            else -> false
+        }
+    }
+
+    private fun beginMiddleDrag(x: Float, y: Float) {
+        middleDragging = true
+        previousMouseX = x
+        previousMouseY = y
+    }
+
+    private fun moveMiddleDrag(x: Float, y: Float) {
+        if (!middleDragging) {
+            beginMiddleDrag(x, y)
+            return
+        }
+
+        val deltaX = x - previousMouseX
+        val deltaY = y - previousMouseY
+        previousMouseX = x
+        previousMouseY = y
+        if (deltaX == 0f && deltaY == 0f) return
+
+        view = MouseNavigationPolicy.middleDrag(
+            view,
+            deltaX = deltaX,
+            deltaY = deltaY,
+        )
+        publishMouseView()
+    }
+
+    private fun publishMouseView() {
+        rawRotation = view.rotation
+        snap.reset()
+        updateScreen()
+        host.onViewChanged(view)
+    }
+
+    private fun MotionEvent.hasMiddleButton(): Boolean =
+        buttonState and MotionEvent.BUTTON_TERTIARY != 0
 
     override fun onHover(v: View?, event: MotionEvent?): Boolean {
         val e = event ?: return false

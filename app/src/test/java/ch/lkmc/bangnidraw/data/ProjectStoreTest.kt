@@ -109,16 +109,16 @@ class ProjectStoreTest {
     }
 
     @Test
-    fun `a file from an older version loads on its defaults`() {
+    fun `a version one fixture migrates on its defaults`() {
         val dir = store.projectDir("p-2").also { it.mkdirs() }
-        // A minimal file, as an older writer without the newer fields would
-        // leave it — no nextLayerName, no gallery fields, no view.
-        File(dir, "project.json").writeText(
-            """{"formatVersion":1,"id":"p-2","createdAt":1,"updatedAt":2,
-               "width":512,"height":512,"paperColor":-1,
-               "layers":[{"id":"a","name":"@string/layer_default 7"}],
-               "activeLayerId":"a"}""",
-        )
+        val fixture = requireNotNull(
+            javaClass.getResourceAsStream("/fixtures/projects/v1/project.json"),
+        ).bufferedReader().use { it.readText() }
+        val file = File(dir, "project.json")
+        file.writeText(fixture)
+
+        assertEquals(2, ProjectFile.FORMAT_VERSION)
+
         val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load("p-2"))
         val doc = loaded.document
         assertEquals("", doc.title)
@@ -129,6 +129,10 @@ class ProjectStoreTest {
         // default name — "Layer 7" exists, so the next is 8, and reopening
         // can never reissue a name already on a layer (AGENTS.md).
         assertEquals(8, doc.stack.nextName)
+        assertEquals(null, loaded.history.seqs)
+
+        store.checkpoint(doc, loaded.history)
+        assertTrue(file.readText().contains("\"formatVersion\":2"))
     }
 
     @Test
@@ -223,8 +227,9 @@ class ProjectStoreTest {
     @Test
     fun `a file from a newer format version is refused, not rewritten`() {
         val dir = store.projectDir("p-7").also { it.mkdirs() }
+        val newerVersion = ProjectFile.FORMAT_VERSION + 1
         File(dir, "project.json").writeText(
-            """{"formatVersion":2,"id":"p-7","width":512,"height":512,
+            """{"formatVersion":$newerVersion,"id":"p-7","width":512,"height":512,
                "layers":[{"id":"a","name":"n"}],"activeLayerId":"a"}""",
         )
         val result = assertIs<ProjectStore.LoadResult.Failed>(store.load("p-7"))
@@ -392,6 +397,23 @@ class ProjectStoreTest {
         file.writeText("{ nope")
         assertTrue(!store.rename("r-2", "x"))
         assertEquals("{ nope", file.readText(), "never silently replaced")
+    }
+
+    @Test
+    fun `checkpoint preserves exact history sequence membership`() {
+        val history = HistoryRecord(
+            cursor = 2,
+            nextSeq = 8,
+            oldestSeq = 2,
+            entries = 3,
+            bytes = 42,
+            seqs = listOf(2, 6, 7),
+        )
+
+        store.checkpoint(document(id = "history-membership"), history)
+
+        val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load("history-membership"))
+        assertEquals(history, loaded.history)
     }
 
     @Test

@@ -26,6 +26,7 @@ internal class LayerThumbnailPass(
     private class Chunk {
         val pbo = IntArray(1)
         var fence = 0L
+        var waitPhase = FenceWaitPhase.FIRST
         var layer: LayerId? = null
         var callback: ((LayerId, LayerThumbnail?) -> Unit)? = null
 
@@ -104,6 +105,7 @@ internal class LayerThumbnailPass(
         chunk.layer = layer
         chunk.callback = callback
         chunk.fence = fence
+        chunk.waitPhase = FenceWaitPhase.FIRST
         return EnqueueResult.STARTED
     }
 
@@ -111,7 +113,12 @@ internal class LayerThumbnailPass(
         for (chunk in chunks) {
             if (!chunk.inFlight) continue
 
-            val status = GLES30.glClientWaitSync(chunk.fence, 0, 0L)
+            val status = GLES30.glClientWaitSync(
+                chunk.fence,
+                GlFenceWaitPolicy.flags(chunk.waitPhase),
+                0L,
+            )
+            chunk.waitPhase = FenceWaitPhase.LATER
             when (status) {
                 GLES30.GL_TIMEOUT_EXPIRED -> continue
                 GLES30.GL_ALREADY_SIGNALED, GLES30.GL_CONDITION_SATISFIED -> finish(chunk)
@@ -148,6 +155,7 @@ internal class LayerThumbnailPass(
     private fun clear(chunk: Chunk) {
         if (chunk.fence != 0L) GLES30.glDeleteSync(chunk.fence)
         chunk.fence = 0L
+        chunk.waitPhase = FenceWaitPhase.FIRST
         chunk.layer = null
         chunk.callback = null
     }

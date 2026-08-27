@@ -7,6 +7,7 @@ import ch.lkmc.bangnidraw.engine.core.TileKey
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 
 /**
@@ -30,6 +31,7 @@ internal class HistoryStore(private val dir: File) {
 
     fun entryFile(seq: Long): File = File(dir, fileName(seq, ENTRY_SUFFIX))
     fun redoFile(seq: Long): File = File(dir, fileName(seq, REDO_SUFFIX))
+    fun afterFile(seq: Long): File = File(dir, fileName(seq, AFTER_SUFFIX))
 
     /**
      * Writes `<seq>.entry` atomically and returns [entry] stamped with [seq],
@@ -58,6 +60,55 @@ internal class HistoryStore(private val dir: File) {
         return bytes.size.toLong()
     }
 
+    /**
+     * Persists the post-edit pixels before their ordinary tile files change.
+     * The file doubles as a commit marker for pixel operations with no tiles.
+     */
+    @Throws(IOException::class)
+    fun writeRecoveryAfter(seq: Long, payloads: List<Payload>) {
+        val bytes = encodeRecoveryAfter(seq, payloads)
+        ensureDir()
+        AtomicFiles.write(afterFile(seq), bytes)
+    }
+
+    /**
+     * Reads a recovery after-image. Null means the step cannot be rolled
+     * forward after a crash.
+     */
+    fun readRecoveryAfter(seq: Long): List<Payload>? {
+        val file = afterFile(seq)
+        val bytes = try {
+            if (!file.isFile) return null
+            file.readBytes()
+        } catch (_: IOException) {
+            return null
+        }
+        val parsed = parseRecoveryAfter(bytes) ?: return null
+        val (header, bodyOffset) = parsed
+        if (header.seq != seq) return null
+
+        val out = ArrayList<Payload>(header.payloads.size)
+        val seen = HashSet<Pair<LayerId, TileKey>>()
+        for (ref in header.payloads) {
+            if (ref.tx !in TILE_COORDINATE_RANGE || ref.ty !in TILE_COORDINATE_RANGE) return null
+            if (!payloadWithinBody(ref.off, ref.len.toLong(), bodyOffset, bytes.size.toLong())) {
+                return null
+            }
+            val layer = try {
+                LayerId(ref.layer)
+            } catch (_: IllegalArgumentException) {
+                return null
+            }
+            val key = TileKey(ref.tx, ref.ty)
+            if (!seen.add(layer to key)) return null
+
+            val start = (bodyOffset + ref.off).toInt()
+            val encoded = bytes.copyOfRange(start, start + ref.len)
+            out += Payload(layer, key, encoded)
+        }
+        return out
+    }
+
     /** True when `<seq>.redo` exists — the first-undo capture already ran. */
     fun hasRedo(seq: Long): Boolean = redoFile(seq).isFile
 
@@ -78,7 +129,7 @@ internal class HistoryStore(private val dir: File) {
         val (header, bodyOffset) = parsed
         val out = ArrayList<Payload>(header.payloads.size)
         for (ref in header.payloads) {
-            if (!payloadWithinBody(ref.off.toLong(), ref.len.toLong(), bodyOffset, bytes.size.toLong())) {
+            if (!payloadWithinBody(ref.off, ref.len.toLong(), bodyOffset, bytes.size.toLong())) {
                 return null
             }
             val layer = try {
@@ -96,11 +147,12 @@ internal class HistoryStore(private val dir: File) {
         return out
     }
 
-    /** Deletes `<seq>.entry` and `<seq>.redo` — truncation and pruning (§5.6). */
+    /** Deletes one step and both sidecars — truncation and pruning (§5.6). */
     fun delete(seqs: List<Long>) {
         for (seq in seqs) {
             entryFile(seq).delete()
             redoFile(seq).delete()
+            afterFile(seq).delete()
         }
     }
 
@@ -109,14 +161,24 @@ internal class HistoryStore(private val dir: File) {
         redoFile(seq).delete()
     }
 
+    /** A successful checkpoint makes older recovery after-images redundant. */
+    fun deleteRecoveryBefore(nextSeq: Long) {
+        val files = dir.listFiles() ?: return
+        for (file in files) {
+            val seq = parseAfterName(file.name) ?: continue
+            if (seq < nextSeq) file.delete()
+        }
+    }
+
     /**
      * §5.6's load: headers only, lazily — payload bytes wait for an undo.
      *
      * - seqs below `oldestSeq` are orphans of a pruning the checkpoint never
      *   saw: deleted.
-     * - the checkpointed range `[oldestSeq, nextSeq)` is read in order; the
-     *   first missing or unreadable entry truncates the list there (undo
-     *   history is a prefix or it is lies).
+     * - new checkpoints list exact sequence membership, preserving deliberate
+     *   gaps left by divergent edits. Older records retain the contiguous
+     *   `[oldestSeq, nextSeq)` rule. The first unreadable entry truncates the
+     *   list there (undo history is a prefix or it is lies).
      * - a contiguous run at `nextSeq` and beyond was pushed after the
      *   checkpoint (§5.6: truncation orphans always predate it): appended to
      *   the *undo* branch as applied — its tiles are on disk by §5.6's write
@@ -145,11 +207,13 @@ internal class HistoryStore(private val dir: File) {
         }
 
         val entries = ArrayList<HistoryEntry>()
-        var seq = record.oldestSeq
-        while (seq < record.nextSeq) {
-            val entry = readEntry(seq) ?: break
-            entries.add(entry)
-            seq += 1
+        val exactSeqs = record.seqs
+        val checkpointComplete = if (exactSeqs == null) {
+            loadLegacyCheckpoint(record, present.keys, entries)
+        } else {
+            loadExactCheckpoint(record, exactSeqs, entries).also { complete ->
+                if (complete) deleteStaleCheckpointEntries(record, exactSeqs, present.keys)
+            }
         }
         // Entries the checkpoint recorded but the walk could not prove: their
         // redo files may exist; sweep nothing here — a corrupt entry stays on
@@ -161,10 +225,21 @@ internal class HistoryStore(private val dir: File) {
         // checkpointed range was readable — a truncated prefix means the
         // journal is already suspect, and appending later strokes onto a
         // shortened undo branch would replay them against the wrong state.
-        if (entries.size.toLong() == record.nextSeq - record.oldestSeq) {
+        if (checkpointComplete) {
             var next = record.nextSeq
+            var replacedRedo = false
             while (true) {
                 val entry = readEntry(next) ?: break
+                if (recoveryNeedsAfter(entry) && readRecoveryAfter(next) == null) {
+                    Log.w(TAG, "history: incomplete recovery at seq $next")
+                    break
+                }
+
+                if (!replacedRedo) {
+                    replaceRedoBranch(entries, cursor)
+                    replacedRedo = true
+                }
+
                 entries.add(entry)
                 cursor = entries.size
                 next += 1
@@ -193,6 +268,91 @@ internal class HistoryStore(private val dir: File) {
         return Loaded(entries, cursor)
     }
 
+    /** Older project files implied a contiguous checkpointed sequence range. */
+    private fun loadLegacyCheckpoint(
+        record: HistoryRecord,
+        present: Set<Long>,
+        entries: MutableList<HistoryEntry>,
+    ): Boolean {
+        var seq = record.oldestSeq
+        while (seq < record.nextSeq) {
+            val entry = readEntry(seq) ?: break
+            entries += entry
+            seq += 1
+        }
+
+        if (entries.size.toLong() == record.nextSeq - record.oldestSeq) return true
+
+        // v1 wrote no membership. Its saved count can still prove a gapped
+        // branch when every file in the checkpoint range is readable.
+        if (record.entries <= 0) return false
+        val inferredSeqs = present
+            .filter { it >= record.oldestSeq && it < record.nextSeq }
+            .sorted()
+        if (inferredSeqs.size != record.entries) return false
+
+        val inferred = ArrayList<HistoryEntry>(inferredSeqs.size)
+        for (inferredSeq in inferredSeqs) {
+            val entry = readEntry(inferredSeq) ?: return false
+            inferred += entry
+        }
+        if (record.bytes > 0L && inferred.sumOf(HistoryEntry::bytes) != record.bytes) return false
+
+        entries.clear()
+        entries += inferred
+        return true
+    }
+
+    /** Exact membership preserves a new branch without reusing old seqs. */
+    private fun loadExactCheckpoint(
+        record: HistoryRecord,
+        seqs: List<Long>,
+        entries: MutableList<HistoryEntry>,
+    ): Boolean {
+        val countMatches = seqs.size == record.entries
+        if (!countMatches) {
+            Log.w(TAG, "history: checkpoint lists ${seqs.size} of ${record.entries} entries")
+        }
+
+        var previous = 0L
+        for (seq in seqs) {
+            if (seq < record.oldestSeq || seq >= record.nextSeq || seq <= previous) {
+                Log.w(TAG, "history: invalid checkpointed sequence $seq after $previous")
+                return false
+            }
+            val entry = readEntry(seq) ?: return false
+            entries += entry
+            previous = seq
+        }
+
+        return countMatches
+    }
+
+    /** A recovered commit proves that the checkpoint's redo tail was replaced. */
+    private fun replaceRedoBranch(entries: MutableList<HistoryEntry>, cursor: Int) {
+        if (cursor >= entries.size) return
+
+        val stale = entries.subList(cursor, entries.size).map(HistoryEntry::seq)
+        delete(stale)
+        entries.subList(cursor, entries.size).clear()
+    }
+
+    /** A landed exact checkpoint makes files from its old redo branch stale. */
+    private fun deleteStaleCheckpointEntries(
+        record: HistoryRecord,
+        seqs: List<Long>,
+        present: Set<Long>,
+    ) {
+        val live = seqs.toHashSet()
+        val stale = present.filter { seq ->
+            seq >= record.oldestSeq && seq < record.nextSeq && seq !in live
+        }
+        if (stale.isEmpty()) return
+
+        Log.w(TAG, "history: deleting ${stale.size} entries outside checkpoint membership")
+        delete(stale)
+    }
+
     // ------------------------------------------------------------- internals
 
     private fun readEntry(seq: Long): HistoryEntry? {
@@ -215,7 +375,7 @@ internal class HistoryStore(private val dir: File) {
         // as readPayloads — one predicate, two sites, no drift between what
         // load truncates on and what an undo reads with.
         for (ref in header.payloads) {
-            if (!payloadWithinBody(ref.off.toLong(), ref.len.toLong(), bodyOffset, bytes.size.toLong())) {
+            if (!payloadWithinBody(ref.off, ref.len.toLong(), bodyOffset, bytes.size.toLong())) {
                 Log.w(TAG, "history: $seq.entry payload exceeds the file")
                 return null
             }
@@ -263,6 +423,23 @@ internal class HistoryStore(private val dir: File) {
         return header to (newline + 1).toLong()
     }
 
+    private fun parseRecoveryAfter(bytes: ByteArray): Pair<RecoveryHeader, Long>? {
+        val newline = bytes.indexOf('\n'.code.toByte())
+        if (newline <= 0) return null
+        val header = try {
+            HistoryCodec.json.decodeFromString(
+                RecoveryHeader.serializer(),
+                String(bytes, 0, newline, Charsets.UTF_8),
+            )
+        } catch (_: SerializationException) {
+            return null
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+        if (header.v != RECOVERY_FORMAT_VERSION) return null
+        return header to (newline + 1).toLong()
+    }
+
     private fun encode(
         entry: HistoryEntry,
         seq: Long,
@@ -300,6 +477,57 @@ internal class HistoryStore(private val dir: File) {
         return out.toByteArray()
     }
 
+    private fun encodeRecoveryAfter(seq: Long, payloads: List<Payload>): ByteArray {
+        val refs = payloadRefs(payloads)
+        val header = RecoveryHeader(seq = seq, payloads = refs)
+        val headerLine = HistoryCodec.json.encodeToString(RecoveryHeader.serializer(), header)
+        require('\n' !in headerLine) { "the header must be one line" }
+
+        val payloadBytes = payloads.sumOf { it.encoded.size.toLong() }
+        require(payloadBytes <= Int.MAX_VALUE - headerLine.length - 1) {
+            "recovery after-image is too large"
+        }
+        val out = ByteArrayOutputStream(headerLine.length + 1 + payloadBytes.toInt())
+        out.write(headerLine.toByteArray(Charsets.UTF_8))
+        out.write('\n'.code)
+        for (payload in payloads) out.write(payload.encoded)
+        return out.toByteArray()
+    }
+
+    private fun payloadRefs(payloads: List<Payload>): List<HistoryCodec.PayloadRef> {
+        val refs = ArrayList<HistoryCodec.PayloadRef>(payloads.size)
+        val seen = HashSet<Pair<LayerId, TileKey>>()
+        var off = 0L
+        for (payload in payloads) {
+            require(seen.add(payload.layer to payload.key)) { "recovery keys must be unique" }
+            refs += HistoryCodec.PayloadRef(
+                layer = payload.layer.value,
+                tx = payload.key.tx,
+                ty = payload.key.ty,
+                off = off,
+                len = payload.encoded.size,
+            )
+            off += payload.encoded.size
+        }
+        return refs
+    }
+
+    private fun recoveryNeedsAfter(entry: HistoryEntry): Boolean = when (entry) {
+        is HistoryEntry.LayerAdd,
+        is HistoryEntry.LayerReorder,
+        is HistoryEntry.LayerProps,
+        is HistoryEntry.PaperColor,
+        -> false
+        else -> true
+    }
+
+    @Serializable
+    private data class RecoveryHeader(
+        val v: Int = RECOVERY_FORMAT_VERSION,
+        val seq: Long,
+        val payloads: List<HistoryCodec.PayloadRef> = emptyList(),
+    )
+
     private enum class PayloadSide { BEFORE, REDO }
 
     private fun ensureDir() {
@@ -310,6 +538,10 @@ internal class HistoryStore(private val dir: File) {
         const val TAG = "HistoryStore"
         const val ENTRY_SUFFIX = ".entry"
         const val REDO_SUFFIX = ".redo"
+        const val AFTER_SUFFIX = ".after"
+
+        private const val RECOVERY_FORMAT_VERSION = 1
+        private val TILE_COORDINATE_RANGE = 0..0xFFFF
 
         /** `00000042.entry` — a plain directory sort is a sequence sort (§2). */
         fun fileName(seq: Long, suffix: String): String =
@@ -319,6 +551,13 @@ internal class HistoryStore(private val dir: File) {
         fun parseEntryName(name: String): Long? {
             if (!name.endsWith(ENTRY_SUFFIX)) return null
             val stem = name.removeSuffix(ENTRY_SUFFIX)
+            if (stem.length < 8 || stem.any { it !in '0'..'9' }) return null
+            return stem.toLongOrNull()
+        }
+
+        private fun parseAfterName(name: String): Long? {
+            if (!name.endsWith(AFTER_SUFFIX)) return null
+            val stem = name.removeSuffix(AFTER_SUFFIX)
             if (stem.length < 8 || stem.any { it !in '0'..'9' }) return null
             return stem.toLongOrNull()
         }

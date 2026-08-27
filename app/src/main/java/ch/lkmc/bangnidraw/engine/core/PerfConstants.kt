@@ -71,5 +71,6 @@ object PerfConstants {
     const val GPU_TILE_MIN_BYTES = 256L shl 20
     const val GPU_TILE_MAX_BYTES = 1536L shl 20
     const val LOW_RAM_GPU_TILE_BYTES = 256L shl 20
-    const val STROKE_BUFFER_RESERVE_LAYERS = 1
+    /** Two sandwich halves, one stroke/output layer, and one merge scratch. */
+    const val TRANSIENT_TILE_RESERVE_LAYERS = 4
 }

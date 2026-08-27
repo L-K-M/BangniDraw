@@ -34,6 +34,8 @@ filesDir/projects/<uuid>/
   layers/<layerId>/<tx>_<ty>.tile    one file per non-empty tile; absent file = empty tile
   history/<seq>.entry                one undo step: JSON header line + "before" payloads
   history/<seq>.redo                 sidecar: "after" payloads, exists only once <seq> has been undone
+  history/<seq>.after                crash roll-forward payloads, removed after checkpoint
+  history/transition.json            pending undo/redo target, removed after checkpoint
   thumb.png                          Studio thumbnail
   *.tmp                              in-flight writes; deleted on load and on every save
 ```
@@ -57,7 +59,7 @@ field has a default so a reader of a newer format still decodes what it knows (�
 ```kotlin
 @Serializable
 data class ProjectFile(
-    val formatVersion: Int = FORMAT_VERSION,          // 1
+    val formatVersion: Int = FORMAT_VERSION,          // 2
     val id: String,                                   // == folder name; mismatch → folder wins, log
     val title: String = "",                            // "" means "untitled" — see §10
     val createdAt: Long,                              // epoch ms
@@ -94,11 +96,12 @@ data class LayerRecord(
 
 @Serializable
 data class HistoryRecord(
-    val cursor: Int = 0,          // entries [oldestSeq, oldestSeq+cursor) are applied; the rest are redo
+    val cursor: Int = 0,          // the first cursor recovered entries are applied; the rest are redo
     val nextSeq: Long = 1L,       // next <seq> to allocate; never reused within a project
     val oldestSeq: Long = 1L,     // first entry still on disk (pruning advances it)
     val entries: Int = 0,         // count on disk, for the Studio readout without listing the dir
     val bytes: Long = 0L,         // sum of .entry + .redo sizes, same purpose
+    val seqs: List<Long>? = null, // exact membership; null means the legacy contiguous range
 )
 
 @Serializable
@@ -293,6 +296,10 @@ that is written streaming (header built from lengths obtained by deflating each 
 into a temporary file, then concatenated), which is the one place the simple path is not
 taken. The header is JSON, not binary, so a broken folder can be inspected with `cat`.
 
+`<seq>.after` uses the same header-plus-payload shape, but records every tile
+changed by the committed step. It is a temporary write-ahead recovery image,
+not the redo sidecar: it exists only until `project.json` covers the step.
+
 ### 5.4 The redo sidecar — `<seq>.redo`
 
 The "after" contents of a step are only needed once the step has been undone. Two options
@@ -367,26 +374,42 @@ reordered:
 2. `<seq>.entry` (and for undo, `<seq>.redo` *before* the restored tiles are flushed) written
    tmp+rename; for `LayerDelete`/`LayerMerge`/`Flatten` the entry is written *before* any
    `layers/<id>/` directory is deleted;
-3. the readback of the step is awaited (`Readback.await` handle attached to the job), then the
-   tiles the step *changed* are flushed (`.tile` tmp+rename; empties deleted). Entry before
-   tiles: a crash between the two leaves an entry whose "after" is not on disk yet — the loader
-   rule "entries with seq ≥ `nextSeq` are applied" (below) then restores a before-state the user
-   can redo out of, whereas tiles-before-entry would leave pixels with no way to undo them;
-4. `project.json` written last, at the next checkpoint (§6), with `history.cursor`,
-   `nextSeq`, `oldestSeq` reflecting what is on disk.
+3. the readback of the step is awaited (`Readback.await` handle attached to the job), then every
+   changed tile's post-edit bytes are written atomically to `<seq>.after` (an empty payload means
+   delete). This closes the entry-before-tile crash window;
+4. the tiles the step *changed* are flushed (`.tile` tmp+rename; empties deleted);
+5. `project.json` is written last, at the next checkpoint (§6), with `history.cursor`,
+   `nextSeq`, `oldestSeq`, and exact `seqs` reflecting what is on disk. Only then are covered
+   `.after` files deleted. Exact membership is required because undo followed by a divergent
+   edit leaves a deliberate gap: sequence numbers are never reused.
 
-Truncation/pruning deletes `.entry`/`.redo` files *after* the `project.json` that no longer
+Undo and redo additionally write `history/transition.json` after any required
+`.redo` sidecar, but before the GL mutation. It records the entry, direction,
+and source/target cursors. Their action gate stays owned through restored-tile
+flush and a target `project.json` checkpoint; only that checkpoint removes the
+marker. On reopen, a source-cursor project idempotently reapplies the target
+model and pixels from `.entry`/`.redo` before tile relisting. A target-cursor
+project means the checkpoint landed and only marker deletion was interrupted.
+
+Truncation/pruning deletes `.entry`/`.redo`/`.after` files *after* the `project.json` that no longer
 references them is written — a crash in between leaves an orphan file, which the loader
 ignores, never a referenced file that is missing.
 
 Load (`HistoryStore.load(dir, record)`):
 
-- list `history/`, parse seqs; seqs below `oldestSeq` → delete and log (orphans of a pruning
-  the checkpoint never saw). Entries with `seq ≥ nextSeq` are *not* orphans: truncation orphans
+- list `history/`, parse seqs; a non-null `HistoryRecord.seqs` is the exact checkpointed
+  membership. Its count must equal `entries` before omitted files can be deleted or later entries
+  recovered. Missing `seqs` identifies format 1: load the legacy contiguous range, or infer a
+  gapped membership only when the saved count matches every readable in-range file (and saved
+  bytes, when nonzero). Seqs below `oldestSeq` → delete and log (orphans of a pruning the
+  checkpoint never saw). Entries with `seq ≥ nextSeq` are *not* orphans: truncation orphans
   always have seqs allocated before the checkpoint, so anything at or past `nextSeq` was pushed
   after it. A contiguous run of them (from `nextSeq` upward, no gap) is appended to the *undo*
-  branch as applied — its tiles are on disk by §5.6 or restorable from the entry — and `nextSeq`
-  advances past it; the first gap ends the run and the rest are deleted. A hard crash therefore
+  branch as applied only when each pixel-changing entry has a valid `.after`. The first recovered
+  commit replaces the checkpoint's redo tail before it is appended. Recovery replays
+  structure and rolls those after-images into the tile store before sparse tiles are relisted;
+  an entry missing that commit marker and the tail after it are excluded. `nextSeq` advances
+  past the proven run; the first gap ends the run and the rest are deleted. A hard crash therefore
   keeps undo for every committed stroke, not only up to the last checkpoint;
 - read headers only (first line), lazily; payload bytes are read on undo;
 - an entry whose header does not parse or whose payload offsets exceed the file → that entry
@@ -490,8 +513,9 @@ class TileFlusher(scope: CoroutineScope, store: TileStore, history: HistoryStore
 - One coroutine on `Dispatchers.IO.limitedParallelism(1)` drains. Coalescing is free: a tile
   dirtied five times before the drainer reaches it is written once, with the latest bytes.
 - Ordering (§5.6) is enforced by the job queue: `WriteEntry(seq)` copies disk-sourced
-  "before" tiles into the entry, writes the entry, awaits the step's readback, then flushes the
-  tiles that entry changed; `Checkpoint` flushes everything pending, then `project.json`.
+  "before" tiles into the entry, writes the entry, awaits the step's readback, writes its
+  recovery after-image, then flushes the changed tiles; `Checkpoint` flushes everything
+  pending, writes `project.json`, then removes covered after-images.
 - `pending` and `TileStore.mirror` are written by the GL/main thread (`markDirty`, §5.5 step (d))
   and drained/dropped by the IO coroutine; both are guarded by one lock, and a buffer handed
   to `markDirty` is immutable from then on (the readback allocates fresh ones), so the lock
@@ -501,16 +525,16 @@ class TileFlusher(scope: CoroutineScope, store: TileStore, history: HistoryStore
   `CPU_MIRROR_CAP_BYTES` (64 MiB, `10-performance.md` §4) — a stroke commit waits for it to
   drop below that before its readback is accepted. The one exception is a full disk, which
   never drains: when a `TileStore` write fails with `err_storage_full` the flusher enters a
-  **storage-full** state — the mirror cap is lifted (memory then grows bounded only by the
-  layer budget, `10-performance.md` §4), strokes keep committing, a persistent banner
-  (string key `err_storage_full`: "Storage full — free up space to keep saving") stays up
-  (`02-architecture.md` §9), and the pending writes are retried on each autosave tick (§6.2);
-  the first successful write leaves the state and drops the banner. Leaving the canvas while
-  in that state shows a dialog saying the last N minutes may be unsaved (N measured from the
-  oldest unflushed dirty tile). Unwritten
-  entries hold deflated payloads (§5.5) and the job queue is bounded (`capacity = 64`):
-  `enqueue` suspends the ViewModel side when IO lags, surfaced as a "saving…" counter in the
-  debug overlay rather than growing without bound.
+  **storage-full** state. A failed `WriteEntry` remains the durable FIFO head and keeps action
+  ownership; its stamped result is not published, later document edits and checkpoints wait
+  behind it, and the worker retries it on a short delay. Once its readback completes, the
+  revision-specific after-image is frozen in memory so a retry cannot capture later pixels.
+  The mirror cap is lifted only so already-issued readbacks are never rejected (memory then
+  grows bounded by the layer budget, `10-performance.md` §4). A persistent banner (string key
+  `err_storage_full`: "Storage full — free up space to keep saving") stays up
+  (`02-architecture.md` §9); the first successful entry, after-image, and tile flush releases
+  the action, leaves the state, and drops the banner. The channel remains bounded
+  (`capacity = 64`) because the worker does not consume jobs past the failed FIFO head.
 - The flusher owns the mirror's *dirty* subset; `TileStore.mirror` entries are dropped once
   flushed, so the CPU side shrinks back to nothing when the painter pauses. (§5.5 step 2 then
   serves "before" tiles from disk — a read of ~40 KB per tile at commit, on IO, off the
@@ -706,7 +730,7 @@ post-v1) is the intended way to move paintings between devices.
 | `AutosavePolicy` | engine/core | main (VM) | `delayMs`; constants shown in About |
 | `ProjectStore` | data | IO | folder lifecycle: list/load/checkpoint/delete/duplicate; `project.json` |
 | `TileStore`, `TileCodec` | data | IO | `.tile` read/write, mirror map, empty detection |
-| `HistoryStore` | data | IO | `.entry`/`.redo` read/write/validate; applies entries via `TilePool` |
+| `HistoryStore` | data | IO | `.entry`/`.redo`/`.after` read/write/validate; applies entries via `TilePool` |
 | `TileFlusher` | data | IO (single) | the writer coroutine; coalescing; ordering |
 | `GalleryExporter` | data | IO | MediaStore mirror, share/export encodes |
 | `ShareCache` | data | IO | `cacheDir/share` rotation |
@@ -716,20 +740,21 @@ post-v1) is the intended way to move paintings between devices.
 Test hooks (`11-testing.md`): `HistoryJournal` round-trips through `HistoryStore`'s encoder on
 a JVM temp dir (headers + payload offsets); `TileCodec` round-trips random and all-zero tiles;
 `AutosavePolicy.delayMs` table; `ProjectStore.load` on fixtures with a torn `project.json.tmp`,
-a contiguous entry past `nextSeq` (must be applied) and one after a gap (must be deleted), a missing `.redo`, and a bad tile header — each opens.
+a contiguous entry plus valid `.after` past `nextSeq` (must be applied), one
+missing its after-image (must stop), one after a gap (must be deleted), a
+missing `.redo`, and a bad tile header — each opens.
 
 ## 13. Format versioning and migration
 
-- `formatVersion` (in `project.json`), the `.tile` header version and the `"v"` field of entry
-  headers are three independent integers, all currently 1.
+- `formatVersion` in `project.json` is 2. The `.tile` header and history-entry `"v"` remain 1;
+  these are three independent integers.
 - **Readers accept any version ≤ current**; a version > current is refused: the painting is
   listed in the Studio greyed out with "made by a newer version of 帮你Draw" and cannot be
   opened, never silently rewritten by an older format.
 - **Writers always write the current version.** A checkpoint of a project loaded from an
-  older version therefore migrates it in place; migration is `ProjectFile` defaults plus, when a
-  field's meaning changes, an explicit `Migrations.v1to2(file)` function called in
-  `ProjectStore.load` and unit-tested on a fixture folder of the old version kept under
-  `app/src/test/fixtures/projects/`.
+  older version therefore migrates it in place. The v1→v2 reader defaults `HistoryRecord.seqs`
+  to null and applies §5.6's guarded legacy inference; its fixture lives under
+  `app/src/test/resources/fixtures/projects/v1/`.
 - Tiles and entries are never rewritten just to bump their version; a folder may legitimately
   mix tile versions after a migration. That is why the tile and entry headers carry versions of
   their own.

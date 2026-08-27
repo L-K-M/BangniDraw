@@ -408,6 +408,45 @@ and the contradiction is noted here.
 
 ## Conventions the plan leaves open
 
+- **The tile cap reserves four full-canvas transient equivalents.** Two are
+  sandwich halves, one is a stroke or structural output, and one is merge
+  scratch. A half-built sandwich is unavailable; rendering falls back to the
+  direct per-layer path for that rect. A reopened stack above the current
+  device cap releases and disables the sandwich until the stack shrinks back
+  to the cap, avoiding two more full-canvas allocations on an already
+  over-budget stack.
+- **Pen-up owns the action gate through journal admission.** `endStroke` is
+  asynchronous. Undo, leave, share, export, and later edits wait until the
+  merged step is pushed (or explicitly completes empty/failed).
+- **History readbacks pin their originating `EngineSession`.** Compose detaches
+  the active session before its asynchronous release maps pending PBOs. A
+  release gate reports the renderer cleanup result before the final snapshot;
+  a release-time fence timeout stays pending, never a synthetic success.
+- **Replacement sessions stream only durable detached pixels.** Their disk
+  upload waits for every earlier renderer release and the flusher FIFO, then
+  relists sparse tile keys because the captured model may predate final
+  readback.
+- **Undo/redo holds the action gate through post-apply readback.** Restored tile
+  membership is folded into the stack sent by the same GL transaction; only
+  after composite output reaches the CPU may `FlushKeys` join the IO queue.
+- **Undo/redo uses a durable transition marker.** `history/transition.json`
+  lands before GL mutation and remains through restored-tile flush. The action
+  gate releases only after `project.json` checkpoints its target cursor and
+  model; reopen reapplies a pending target before sparse tiles are relisted.
+- **Post-checkpoint pixel entries require `<seq>.after`.** `WriteEntry` writes
+  this recovery after-image after readback and before tile flush. Reopen rolls
+  it forward before relisting tiles; a successful `project.json` checkpoint
+  removes covered files.
+- **A failed `WriteEntry` remains the durable FIFO head.** Its result and
+  action ownership stay pending while the worker retries; later edits and
+  checkpoints cannot pass it. Once readback completes, its after-image bytes
+  are frozen so a retry cannot capture a newer revision.
+- **Project format 2 records exact history membership.** Undo followed by a
+  divergent edit leaves gaps because sequence numbers are never reused.
+  `HistoryRecord.seqs` is authoritative. A format-1 null first uses the legacy
+  contiguous range, then infers a gap only when the saved count matches every
+  readable in-range entry (and saved bytes, when nonzero).
+
 - **Redo sidecars use post-edit tile owners.** A merge entry's before payload
   names upper and lower layers, but its redo payload names only the merged
   lower layer. A flatten redo payload names only the flattened result. Never
@@ -456,6 +495,10 @@ and the contradiction is noted here.
   use the plan's disk journal literally. Pen-up persists the ordinary history
   entry; context loss restores the captured pre-stroke state before reopening
   the persisted document.
+- **`ON_STOP` checkpoints snapshot the last committed generation.** They may
+  run while a stroke is open, but wait for document work and history pushes.
+  A generation check keeps a pen-up or late tile readback from being cleared
+  as saved by the older snapshot.
 - **Generated palette names use a closed token grammar.** Only the four exact
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.

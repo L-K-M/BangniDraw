@@ -119,6 +119,8 @@ import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.core.WidthClass
 import ch.lkmc.bangnidraw.input.CanvasInputHost
 import ch.lkmc.bangnidraw.input.CanvasTouchHandler
+import ch.lkmc.bangnidraw.ui.theme.LocalThemeTone
+import ch.lkmc.bangnidraw.ui.theme.canvasVoidColor
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -578,6 +580,7 @@ private fun CanvasContent(
     }
     val checkerA = MaterialTheme.colorScheme.surface.toArgb()
     val checkerB = MaterialTheme.colorScheme.surfaceVariant.toArgb()
+    val canvasVoid = canvasVoidColor(LocalThemeTone.current).toArgb()
 
     // Keyed on the handler, not Unit: a recreated handler starts from an
     // identity transform, and without re-seeding its first gesture would
@@ -785,14 +788,15 @@ private fun CanvasContent(
         )
 
         // Not in `onSession`: that fires once, from the AndroidView factory, so
-        // a dark-mode toggle kept the old theme's checkerboard until the screen
-        // was torn down and a density change kept the old square size. These
-        // three recompose; the engine has to be told.
-        LaunchedEffect(session, checkerA, checkerB, density) {
-            session?.setCheckerboard(
+        // a dark-mode toggle kept the old theme's checkerboard and canvas void
+        // until the screen was torn down, while a density change kept the old
+        // square size. These values recompose; the engine has to be told.
+        LaunchedEffect(session, checkerA, checkerB, canvasVoid, density) {
+            session?.setCanvasAppearance(
                 checkerPx = with(density) { CHECKER_DP.dp.toPx() },
                 colorA = checkerA,
                 colorB = checkerB,
+                canvasVoid = canvasVoid,
             )
         }
 

@@ -252,15 +252,17 @@ into the window buffer as a textured quad (step 3 — not a blit: the buffer
 may be pre-rotated, §8.5). Per frame, in order, all scissored to the dirty
 rect in window space (steps 1–2) or in buffer space (step 3):
 
-1. **Paper.** Clear `Accum` to the paper color (premultiplied, opaque). If
-   the paper is transparent, draw a full-rect quad with the checkerboard
-   shader instead: 8 dp squares in **screen** space (canvas-space squares
-   would shrink to noise when zoomed out and become slabs when zoomed in).
-   When the sandwich is in use (§4) the paper is already baked into
-   `Below`, so this step clears `Accum` to transparent (opaque paper) or
-   draws the checkerboard (transparent paper) and `Below` is drawn Normal
-   over it; the paper is painted here only on the per-layer path (§12
-   step 3, sandwich unavailable).
+1. **Canvas void, then paper.** Clear viewport-sized `Accum` to the theme's
+   `canvasVoid` colour (`08-ui-and-layout.md` §5.1), then draw a
+   **canvas-sized** quad through `u_screen`, so the paper boundary follows the
+   same pan, zoom and rotation as every tile. Opaque paper draws that quad in
+   its solid colour. Transparent paper draws the checkerboard there instead:
+   8 dp squares in **screen** space (canvas-space squares would shrink to noise
+   when zoomed out and become slabs when zoomed in), clipped by the transformed
+   canvas quad. When the sandwich is in use (§4), opaque paper is already baked
+   into `Below`, so the paper quad is skipped and `Below` is drawn Normal over
+   the void. Transparent `Below` still needs the transformed checkerboard
+   beneath it because the checker is a display backdrop, not document pixels.
 2. **Layers bottom to top.** For each visible layer (or cache, §4): if its
    blend mode is Normal, draw its tile quads with GL blending
    `glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)` — hardware source-over,

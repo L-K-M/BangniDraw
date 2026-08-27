@@ -4,8 +4,8 @@ import android.opengl.GLES30
 
 /**
  * One quad covering a whole rect, for the passes that are not per tile: the
- * `Accum` present of `docs/plan/03-canvas-engine.md` §3.2 step 3, and the
- * transparent-paper checkerboard of step 1.
+ * canvas-sized paper/checkerboard of `docs/plan/03-canvas-engine.md` §3.2
+ * step 1, and the viewport-sized `Accum` present of step 3.
  *
  * Separate from [CompositePass] because it shares nothing with it but the
  * vertex shader: no page batching, no per-tile uv, no streaming — the geometry

@@ -667,12 +667,18 @@ class EngineSession(
         redraw()
     }
 
-    /** Theme colours for the transparent-paper checkerboard, and the dp scale. */
-    fun setCheckerboard(checkerPx: Float, colorA: Int, colorB: Int) {
+    /** Theme colours for the canvas surround and transparent-paper checkerboard. */
+    fun setCanvasAppearance(
+        checkerPx: Float,
+        colorA: Int,
+        colorB: Int,
+        canvasVoid: Int,
+    ) {
         glRenderer.execute {
             renderer.checkerPx = checkerPx
             renderer.checkerA = colorA
             renderer.checkerB = colorB
+            renderer.canvasVoid = canvasVoid
         }
         redraw()
     }

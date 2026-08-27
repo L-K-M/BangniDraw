@@ -287,6 +287,16 @@ and the contradiction is noted here.
   inverse-mapped to canvas space, not the original dab rect. Otherwise the
   clear crosses a tile edge without redrawing its neighbor and leaves 1 px
   white grid seams until pen-up.
+- **Paper is a transformed canvas quad, not a viewport clear.** The old
+  `03-canvas-engine.md` §3.2 step 1 said to clear viewport-sized `Accum` to the
+  paper colour, while `08-ui-and-layout.md` §5.1 explicitly defines
+  `canvasVoid` as the area outside the paper. The UI styling rule wins: clear
+  `Accum` to `canvasVoid`, then draw paper/checker geometry through the same
+  `ScreenTransform` as layer tiles. The sandwich's opaque `Below` already
+  contains paper and skips that extra quad; transparent paper still draws its
+  checker beneath `Below`. Keep a dedicated canvas-sized `FullRectQuad` —
+  sharing the viewport present quad alternates dimensions and uploads geometry
+  twice per transparent frame.
 - **`renderMultiBufferedLayer(Collection<T>)` exists in 1.0.4 but bypasses
   commit coordination.** It does not increment the library's `mCommitCount`,
   so a new front render can race the later release-time clear.

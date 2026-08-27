@@ -11,6 +11,7 @@ import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.BufferMode
+import ch.lkmc.bangnidraw.engine.core.CanvasVoidColorPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.FillReference
@@ -34,6 +35,7 @@ import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.RmwTouchTracker
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
+import ch.lkmc.bangnidraw.engine.core.ThemeTone
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxLut
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxShaderSource
 
@@ -50,10 +52,10 @@ import ch.lkmc.bangnidraw.engine.mixbox.MixboxShaderSource
  *
  * Per frame, in §3.2's order, all into `Accum` and then presented:
  *
- * 1. **Paper** — clear `Accum` to the premultiplied paper colour, or draw the
- *    checkerboard when the paper is transparent. When the sandwich is in use
- *    the paper is already baked into `Below`, so this clears to transparent
- *    instead and `Below` is drawn Normal over it.
+ * 1. **Canvas void + paper** — clear `Accum` to the themed surround, then draw
+ *    the canvas-sized paper (or checkerboard) through the same screen transform
+ *    as the layer tiles. When the sandwich is in use opaque paper is already
+ *    baked into `Below`, so only the surround is needed before `Below`.
  * 2. **Layers bottom to top** — `Below → active → Above`, or every layer
  *    individually when a cache half is unavailable.
  * 3. **Present** — `Accum` into the window buffer as a textured quad through
@@ -231,7 +233,12 @@ class CanvasRenderer(
     /** Reused across strokes: the merge walks it and the readback reads it. */
     private val mergedKeys = ArrayList<TileKey>()
     private val mergeQuad = FullRectQuad()
-    /** Present and checker passes share `Accum`'s logical full-screen quad. */
+    /**
+     * Canvas-sized paper/checker geometry; stable even when the viewport is a
+     * different shape.
+     */
+    private val paperQuad = FullRectQuad()
+    /** The `Accum` present uses the viewport's logical full-screen quad. */
     private val screenQuad = FullRectQuad()
     private var sandwich: SandwichCache? = null
 
@@ -269,6 +276,9 @@ class CanvasRenderer(
     /** Theme colours for the transparent-paper checkerboard (`ui/theme/Color.kt` owns them). */
     var checkerA: Int = 0xFFFFFFFF.toInt()
     var checkerB: Int = 0xFFE0E0E0.toInt()
+
+    /** Theme colour outside the transformed paper (`08-ui-and-layout.md` §5.1). */
+    var canvasVoid: Int = CanvasVoidColorPolicy.argb(ThemeTone.LIGHT)
 
     /**
      * True once [onContextCreated] has run and the device can render at all.
@@ -1416,7 +1426,7 @@ class CanvasRenderer(
         val readyCache = sandwich?.takeIf { it.aboveAvailable && it.belowAvailable }
         val useSandwich = readyCache != null
 
-        drawPaper(bakedIntoBelow = useSandwich)
+        drawPaper(screenTransform, bakedIntoBelow = useSandwich)
 
         if (readyCache != null) {
             pass.draw(
@@ -1559,40 +1569,52 @@ class CanvasRenderer(
         return true
     }
 
-    private fun drawPaper(bakedIntoBelow: Boolean) {
+    private fun drawPaper(screenTransform: ScreenTransform, bakedIntoBelow: Boolean) {
+        // `Accum` is viewport-sized, while the paper is not. The void clear is
+        // deliberately first and obeys the active front-buffer scissor, so a
+        // dirty stroke frame replaces complete pixels without repainting the
+        // whole viewport. The paper quad below is clipped by that same scissor.
+        clearColor(canvasVoid)
+
         val transparent = (paperColor ushr 24) == 0
-        if (bakedIntoBelow || transparent) {
-            // Below already carries the paper, so Accum starts empty and Below
-            // is drawn Normal over it. A transparent paper gets the
-            // checkerboard instead, in SCREEN space: canvas-space squares
-            // would shrink to noise zoomed out and become slabs zoomed in.
-            fbo.clear(0f, 0f, 0f, 0f)
-            if (transparent) drawChecker()
-            return
-        }
-        val a = ((paperColor ushr 24) and 0xFF) / 255f
-        fbo.clear(
-            (((paperColor ushr 16) and 0xFF) / 255f) * a,
-            (((paperColor ushr 8) and 0xFF) / 255f) * a,
-            ((paperColor and 0xFF) / 255f) * a,
-            a,
-        )
+        // Opaque Below already covers every visible canvas tile with paper.
+        // Transparent Below does not: its checkerboard is a display backdrop,
+        // not document pixels, so it must still be drawn here inside the
+        // transformed canvas boundary.
+        if (bakedIntoBelow && !transparent) return
+
+        val colorA = if (transparent) checkerA else paperColor
+        val colorB = if (transparent) checkerB else paperColor
+        drawPaperQuad(screenTransform, colorA, colorB)
     }
 
-    private fun drawChecker() {
+    private fun drawPaperQuad(screenTransform: ScreenTransform, colorA: Int, colorB: Int) {
         val program = checker ?: return
         state.useProgram(program)
-        // Identity screen transform: the checkerboard is a screen-space
-        // pattern over the whole target, so the quad IS the target rect and
-        // the view must not move it.
-        program.uniform4f("u_screen", 1f, 0f, 0f, 0f)
+        program.uniform4f(
+            "u_screen",
+            screenTransform.a,
+            screenTransform.b,
+            screenTransform.tx,
+            screenTransform.ty,
+        )
         program.uniformMatrix4("u_projection", projection)
         program.uniformMatrix4("u_bufferTransform", identity)
         program.uniform1f("u_checkerPx", checkerPx)
-        setColorUniform(program, "u_checkerA", checkerA)
-        setColorUniform(program, "u_checkerB", checkerB)
+        setColorUniform(program, "u_checkerA", colorA)
+        setColorUniform(program, "u_checkerB", colorB)
         state.blendOff()
-        screenQuad.draw(accum.width.toFloat(), accum.height.toFloat())
+        paperQuad.draw(canvas.width.toFloat(), canvas.height.toFloat())
+    }
+
+    private fun clearColor(argb: Int) {
+        val a = ((argb ushr 24) and 0xFF) / 255f
+        fbo.clear(
+            (((argb ushr 16) and 0xFF) / 255f) * a,
+            (((argb ushr 8) and 0xFF) / 255f) * a,
+            ((argb and 0xFF) / 255f) * a,
+            a,
+        )
     }
 
     private fun setColorUniform(program: GlProgram, name: String, argb: Int) {
@@ -1818,6 +1840,7 @@ class CanvasRenderer(
         layerPixelPass?.release()
         strokeBuffer?.reset()
         tailBuffer?.reset()
+        paperQuad.release()
         screenQuad.release()
         mergeQuad.release()
         composite?.release()

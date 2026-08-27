@@ -255,7 +255,9 @@ object Shaders {
     """.trimIndent()
 
     /**
-     * The transparent-paper checkerboard of §3.2 step 1.
+     * The canvas paper/checkerboard of §3.2 step 1. Opaque paper binds the
+     * same solid colour to both colour uniforms; transparent paper binds the
+     * theme's alternating pair.
      *
      * Squares are sized in **screen** space, off `gl_FragCoord`: canvas-space
      * squares would shrink to noise when zoomed out and become slabs when

@@ -365,6 +365,10 @@ class CanvasViewModel @Inject constructor(
     /** One leave at a time: the guard lets a failed leave retry. */
     private var leaveJob: Job? = null
 
+    /** True once the running leaveJob has handed off to navigation. */
+    @Volatile
+    private var leaveHandedOff = false
+
     /** When the document first differed from disk — the ceiling clock's anchor. */
     @Volatile
     private var dirtySinceMs: Long? = null
@@ -2116,7 +2120,11 @@ class CanvasViewModel @Inject constructor(
      * scrim: shown only if the flush takes longer than 300 ms.
      */
     fun leave(afterWrite: () -> Unit) {
-        if (leaveJob?.isActive == true) return
+        // After a handoff the job is only running its grace delay; a second
+        // back press there starts a fresh leave rather than being dropped
+        // (a cancelled predictive-back gesture is exactly the case).
+        if (leaveJob?.isActive == true && !leaveHandedOff) return
+        leaveHandedOff = false
         setClosing(true)
         leaveJob = appScope.launch {
             // The app scope has no exception handler: an uncaught failure
@@ -2132,6 +2140,7 @@ class CanvasViewModel @Inject constructor(
                 flushed = true
                 withContext(Dispatchers.Main) { afterWrite() }
                 handedOff = true
+                leaveHandedOff = true
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2153,7 +2162,9 @@ class CanvasViewModel @Inject constructor(
                     // above makes this a cancelling coroutine — a bare delay
                     // would throw and skip the reset.
                     withContext(NonCancellable) { delay(LEAVE_HANDOFF_GRACE_MS) }
-                    setClosing(false)
+                    // A newer leave may have started during the grace window;
+                    // only the latest job owns clearing the scrim.
+                    if (leaveJob === coroutineContext[Job]) setClosing(false)
                 }
             }
         }

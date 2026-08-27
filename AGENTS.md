@@ -397,7 +397,18 @@ and the contradiction is noted here.
 - **All-zero readback removes a sparse tile key.** GPU slices may stay
   resident, but `TileStore` deletes zero tiles, so the immutable layer model
   must drop the key at checkpoint too. History validation accepts subsets of
-  recorded keys because this fold can happen between undo/redo cycles.
+  recorded keys because this fold can happen between undo/redo cycles. The
+  lag cuts both ways and both directions bite validation: a key the fold has
+  not yet removed (`LayerHistory`'s add-undo and clear-undo/redo originally
+  demanded exact sets) and one it has not yet added (the renderer's
+  `prepareCopy`, which compares a duplicate's source set exactly). Two rules
+  came out of fixing that: `LayerHistory` never compares tile sets in a
+  direction folds can move them (props and identity only where the fold
+  decides membership), and an applied undo/redo folds its restore outcomes
+  into the model immediately (`LayerTileUpdates.apply` in
+  `applyPreparedHistory`) — restores know their exact outcome, so the model
+  stops lagging the pixels at all on that path and the GL side's exact checks
+  hold again.
 - **Recovered structural entries are replayed before disk tiles are relisted.**
   `HistoryStore.load` only proves the post-checkpoint journal prefix; it does
   not update `project.json`'s stale stack. Replay that prefix through

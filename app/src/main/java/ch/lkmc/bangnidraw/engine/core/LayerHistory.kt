@@ -81,7 +81,11 @@ internal object LayerHistory {
         return when (direction) {
             HistoryDirection.UNDO -> {
                 if (!layers.matches(entry.index, props.id)) return false
-                if (layers[entry.index] != Layer(props)) return false
+                // Props only, not tiles: a stroke painted on the added layer
+                // and then undone leaves the model holding the key until the
+                // checkpoint fold runs, and the Delete op below emits empties
+                // for whatever the live set carries (AGENTS.md's fold rule).
+                if (layers[entry.index].props != props) return false
 
                 layers.removeAt(entry.index)
                 pixels += PixelOp.Delete(props.id)
@@ -206,13 +210,14 @@ internal object LayerHistory {
         val current = layers[index]
         layers[index] = when (direction) {
             HistoryDirection.UNDO -> {
-                if (current.tiles.isNotEmpty()) return false
-
+                // Stale keys from undone later strokes may still ride along
+                // unfolded; the restore replaces the set wholesale and the
+                // next fold drops what the empties prove gone.
                 current.copy(tiles = entry.tiles.toSet())
             }
             HistoryDirection.REDO -> {
-                if (!entry.tiles.toSet().containsAll(current.tiles)) return false
-
+                // No tile check: live keys beyond the recorded set are the same
+                // fold lag, and the Clear op empties the live set as-is.
                 pixels += PixelOp.Clear(entry.layerId)
                 current.copy(tiles = emptySet())
             }

@@ -10,6 +10,7 @@ class LayerHistoryTest {
     private val b = LayerId("b")
     private val key = TileKey(1, 2)
     private val emptyKey = TileKey(2, 3)
+    private val staleKey = TileKey(3, 4)
 
     @Test
     fun `undo and redo restore the active-layer hint`() {
@@ -75,6 +76,44 @@ class LayerHistoryTest {
     }
 
     @Test
+    fun `undo add accepts keys painted after the add and not yet folded`() {
+        // The model gains a painted key only at the next checkpoint fold, and
+        // an undone stroke's empty restore also waits for that fold — so the
+        // added layer can legitimately carry a key here. AGENTS.md: history
+        // validation accepts what folds can do between undo cycles.
+        val record = LayerRecord(id = b.value, name = "new")
+        val entry = HistoryEntry.LayerAdd(
+            activeBefore = a,
+            activeAfter = b,
+            layer = record,
+            index = 1,
+        )
+        val lagged = stack(layer(a), Layer(record.toProps(), setOf(key)), active = 1)
+
+        val undone = applied(lagged, entry, HistoryDirection.UNDO)
+
+        assertEquals(listOf(a), undone.stack.layers.map { it.id })
+        assertEquals(listOf(PixelOp.Delete(b)), undone.pixelOps)
+    }
+
+    @Test
+    fun `undo add still refuses a renamed or reordered subject`() {
+        val record = LayerRecord(id = b.value, name = "new")
+        val entry = HistoryEntry.LayerAdd(
+            activeBefore = a,
+            activeAfter = b,
+            layer = record,
+            index = 1,
+        )
+        val renamed = Layer(LayerProps(b, "renamed"), emptySet())
+
+        assertEquals(
+            LayerHistoryResult.Corrupt,
+            LayerHistory.apply(stack(layer(a), renamed, active = 1), entry, HistoryDirection.UNDO),
+        )
+    }
+
+    @Test
     fun `redo clear frees pixels while undo restores the tile keys`() {
         val entry = HistoryEntry.LayerClear(
             activeBefore = a,
@@ -133,6 +172,41 @@ class LayerHistoryTest {
 
         assertEquals(entry.before, undone.paperColor)
         assertEquals(entry.after, redone.paperColor)
+    }
+
+    @Test
+    fun `undo clear accepts stale keys from an undone later stroke`() {
+        val entry = HistoryEntry.LayerClear(
+            activeBefore = a,
+            activeAfter = a,
+            layerId = a,
+            tiles = listOf(key),
+        )
+        // `staleKey` was painted after the clear and undone before this undo;
+        // its empty restore has not reached the fold yet, so the model still
+        // lists it even though its pixels are gone.
+        val lagged = stack(layer(a, tiles = setOf(staleKey)))
+
+        val undone = applied(lagged, entry, HistoryDirection.UNDO)
+
+        assertEquals(setOf(key), undone.stack.active.tiles)
+    }
+
+    @Test
+    fun `redo clear accepts stale keys from an undone later stroke`() {
+        val entry = HistoryEntry.LayerClear(
+            activeBefore = a,
+            activeAfter = a,
+            layerId = a,
+            tiles = listOf(key),
+        )
+        // Undo restored `key`; `staleKey` is the same fold lag as above.
+        val lagged = stack(layer(a, tiles = setOf(key, staleKey)))
+
+        val redone = applied(lagged, entry, HistoryDirection.REDO)
+
+        assertEquals(emptySet(), redone.stack.active.tiles)
+        assertEquals(listOf(PixelOp.Clear(a)), redone.pixelOps)
     }
 
     @Test

@@ -254,16 +254,21 @@ class DabPass(
     private fun ensureInstanceCapacity(dabs: Int) {
         if (dabs <= instanceCapacityDabs) return
         val capacity = maxOf(dabs, instanceCapacityDabs * 2, MIN_INSTANCE_DABS)
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instanceVbo[0])
-        GLES30.glBufferData(
-            GLES30.GL_ARRAY_BUFFER, capacity * DAB_FLOATS * 4, null, GLES30.GL_STREAM_DRAW,
-        )
         // Capacity is committed only once the driver has accepted it.
         // GL_OUT_OF_MEMORY here would otherwise leave the pass believing it has
         // room it does not, and the next glBufferSubData would write past the
         // buffer's real end. `stamp` checks the capacity again and draws
         // nothing rather than corrupting memory.
-        if (GlErrors.checkAllocation("dab instance VBO ($capacity dabs)") != GLES30.GL_NO_ERROR) return
+        val error = GlErrors.checkAllocation("dab instance VBO ($capacity dabs)") {
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instanceVbo[0])
+            GLES30.glBufferData(
+                GLES30.GL_ARRAY_BUFFER,
+                capacity * DAB_FLOATS * 4,
+                null,
+                GLES30.GL_STREAM_DRAW,
+            )
+        }
+        if (error != GLES30.GL_NO_ERROR) return
         instanceData = FloatArray(capacity * DAB_FLOATS)
         instanceBuffer = ByteBuffer
             .allocateDirect(capacity * DAB_FLOATS * 4)

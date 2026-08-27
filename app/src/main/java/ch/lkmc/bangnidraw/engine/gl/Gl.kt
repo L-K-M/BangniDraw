@@ -84,11 +84,17 @@ object GlErrors {
     private const val MAX_DRAIN = 32
 
     /**
-     * Checks after an allocation or a link. Returns the error so the caller can
-     * turn `GL_OUT_OF_MEMORY` into a refusal (§2.1) rather than a crash; never
-     * throws by itself, because those are device conditions, not bugs.
+     * Runs an allocation, link, or upload with an attributable error check.
+     *
+     * The first drain discards flags left by unchecked release passes. The
+     * second therefore belongs to [operation], so a stale pass error cannot
+     * refuse a valid allocation. Returns the fresh error for callers that turn
+     * `GL_OUT_OF_MEMORY` into a refusal (§2.1); never throws by itself because
+     * those are device conditions, not bugs.
      */
-    fun checkAllocation(what: String): Int {
+    fun checkAllocation(what: String, operation: () -> Unit): Int {
+        drain()
+        operation()
         val e = drain()
         if (e != GLES30.GL_NO_ERROR) Log.w(GL_TAG, "$what: ${name(e)}")
         return e

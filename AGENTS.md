@@ -266,6 +266,11 @@ and the contradiction is noted here.
   Keep new pool logic on the core side; the `engine/gl` classes should stay
   "call the twin, then issue GL calls".
 
+- **`GlErrors.checkAllocation` owns the GL call it checks.** Release passes do
+  not drain `glGetError`, so a stale pass flag may remain queued. The wrapper
+  clears that flag before its operation and checks again after it; issuing the
+  allocation first can misattribute the stale error and refuse valid GPU work.
+
 - **graphics-core 1.0.4's callback is not the one `03-canvas-engine.md` §8.2
   names.** The plan writes `onDrawMultiDoubleBufferedLayer(eglManager,
   bufferInfo, transform, params)`; the pinned library actually declares

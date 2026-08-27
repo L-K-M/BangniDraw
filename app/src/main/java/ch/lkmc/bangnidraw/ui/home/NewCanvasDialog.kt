@@ -101,7 +101,12 @@ fun NewCanvasDialog(
     var customH by rememberSaveable {
         mutableStateOf(lastCustomSize?.height?.toString() ?: DEFAULT_CUSTOM_EDGE)
     }
-    var orientationOverride by rememberSaveable { mutableStateOf<CanvasOrientation?>(null) }
+    // Keyed on the selection: an override was chosen FOR a preset, so
+    // switching presets starts from that preset's own default again —
+    // carrying it across applied a stale Landscape to a portrait row.
+    var orientationOverride by rememberSaveable(selected) {
+        mutableStateOf<CanvasOrientation?>(null)
+    }
     var paper by rememberSaveable { mutableIntStateOf(PaperSwatchWhite.toArgb()) }
     val orientation = orientationOverride ?: defaults.orientation
 

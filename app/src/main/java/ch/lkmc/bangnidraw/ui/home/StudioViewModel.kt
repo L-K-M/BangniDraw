@@ -60,14 +60,6 @@ class StudioViewModel @Inject constructor(
 
     private var staleSyncJob: Job? = null
 
-    /**
-     * The Custom row's pre-fill for the New Canvas dialog. Seeded once from
-     * [Prefs] at startup; a dialog opened before the seed lands starts from
-     * the dialog's own default, as before.
-     */
-    internal var lastCustomSize: CanvasSize? = null
-        private set
-
     internal data class Painting(
         val id: String,
         val title: String,
@@ -85,10 +77,12 @@ class StudioViewModel @Inject constructor(
         val freeBytes: Long = 0L,
         /** False until the first listing lands, so "empty" is never a flash of a lie. */
         val loaded: Boolean = false,
+        val lastCustomSize: CanvasSize? = null,
         val handedness: Hand = Hand.RIGHT,
         val touchDrawingMode: TouchDrawingMode = TouchDrawingMode.ENABLED,
         val penButtonAction: PenButtonAction = PenButtonAction.Eraser,
         val pressurePreference: PressurePreference = PressurePreference.LINEAR,
+        val snapRightAngles: Boolean = false,
         val hapticsMode: HapticsMode = HapticsMode.ENABLED,
         val gallerySync: Boolean = true,
         val mixerChoice: MixerChoice = MixerChoice.PIGMENT,
@@ -109,18 +103,20 @@ class StudioViewModel @Inject constructor(
 
     init {
         collectPreferences()
-        viewModelScope.launch {
-            lastCustomSize = prefs.lastCustomSize.first()
-        }
     }
 
     /** Records a Custom-row creation so the next dialog pre-fills it. */
     internal fun rememberCustomSize(size: CanvasSize) {
-        lastCustomSize = size
+        _uiState.update { it.copy(lastCustomSize = size) }
         viewModelScope.launch { prefs.setLastCustomSize(size) }
     }
 
     private fun collectPreferences() {
+        viewModelScope.launch {
+            prefs.lastCustomSize.collect { value ->
+                _uiState.update { it.copy(lastCustomSize = value) }
+            }
+        }
         viewModelScope.launch {
             prefs.handedness.collect { value -> _uiState.update { it.copy(handedness = value) } }
         }
@@ -137,6 +133,11 @@ class StudioViewModel @Inject constructor(
         viewModelScope.launch {
             prefs.pressurePreference.collect { value ->
                 _uiState.update { it.copy(pressurePreference = value) }
+            }
+        }
+        viewModelScope.launch {
+            prefs.snapRightAngles.collect { value ->
+                _uiState.update { it.copy(snapRightAngles = value) }
             }
         }
         viewModelScope.launch {
@@ -192,6 +193,10 @@ class StudioViewModel @Inject constructor(
 
     internal fun setPressurePreference(value: PressurePreference) {
         viewModelScope.launch { prefs.setPressurePreference(value) }
+    }
+
+    internal fun setSnapRightAngles(value: Boolean) {
+        viewModelScope.launch { prefs.setSnapRightAngles(value) }
     }
 
     internal fun setHapticsMode(value: HapticsMode) {

@@ -161,6 +161,7 @@
     <string name="palette_move_right">Move right</string>
     <string name="tool_eyedropper">Eyedropper</string>
     <string name="cd_selected">Selected</string>
+    <string name="cd_toggle_eraser">Switch between hard and soft eraser</string>
     <string name="brush_settings">Brush settings</string>
     <string name="brush_group_stroke">Stroke</string>
     <string name="brush_size">Size</string>
@@ -302,6 +303,8 @@
     <string name="settings_pressure_softer">Softer</string>
     <string name="settings_pressure_linear">Linear</string>
     <string name="settings_pressure_harder">Harder</string>
+    <string name="settings_snap_right_angles">Snap rotation to right angles</string>
+    <string name="settings_snap_right_angles_help">Two-finger rotation clicks into 0°, 90°, 180°, 270°.</string>
     <string name="settings_feedback">Feedback</string>
     <string name="settings_haptics">Haptics</string>
     <string name="settings_storage">Storage</string>

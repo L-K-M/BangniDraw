@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -23,8 +24,32 @@ class PluralResourceContractTest {
         }
     }
 
+    @Test
+    fun `no locale overrides a plural with a plain string`() {
+        val values = requireNotNull(File(repositoryRoot(), ENGLISH_STRINGS).parentFile)
+        val resources = requireNotNull(values.parentFile)
+        val valueDirectories = resources.listFiles { file ->
+            file.isDirectory && file.name.startsWith(VALUES_PREFIX)
+        }.orEmpty()
+        assertTrue(valueDirectories.isNotEmpty(), "no values directories found under $resources")
+
+        for (directory in valueDirectories) {
+            val strings = File(directory, STRINGS_FILE).takeIf(File::isFile) ?: continue
+            val source = strings.readText()
+            for (name in COUNT_RESOURCES) {
+                val plainString = Regex("""<string\b[^>]*\bname="$name"[^>]*>""")
+                assertFalse(
+                    plainString.containsMatchIn(source),
+                    "$name is a plain string in ${directory.name}",
+                )
+            }
+        }
+    }
+
     private fun pluralBlock(source: String, name: String): String {
-        val pattern = Regex("""<plurals\s+name="$name">([\s\S]*?)</plurals>""")
+        val pattern = Regex(
+            """<plurals\b[^>]*\bname="$name"[^>]*>([\s\S]*?)</plurals>""",
+        )
         return assertNotNull(pattern.find(source)?.groupValues?.get(1), "$name is not pluralized")
     }
 
@@ -44,6 +69,8 @@ class PluralResourceContractTest {
         const val APP_DIRECTORY = "app/src/main"
         const val ENGLISH_STRINGS = "app/src/main/res/values/strings.xml"
         const val CHINESE_STRINGS = "app/src/main/res/values-b+zh+Hans/strings.xml"
+        const val VALUES_PREFIX = "values"
+        const val STRINGS_FILE = "strings.xml"
 
         val COUNT_RESOURCES = listOf(
             "studio_storage",

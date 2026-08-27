@@ -1733,3 +1733,13 @@ touchscreen hover too, not only a pen.
   and its readout updates live in the shipped v1.0.1+. A `withFrameNanos`
   sampling loop would double-represent state the snapshot system already
   invalidates.
+
+## PR #53 — stroke-gated navigation (2026-08-27)
+
+- **R-101 ⏸️ Final round, minor: make `finishLeave` tolerate an unstarted or
+  repeated release.** Declined: `requestLeave` is the sole Leave producer and
+  stores its callback before dispatch. `beginLeave` starts gate work before
+  launching the job. Its handed-off and failure branches are exclusive, and a
+  retry clears `leaveJob` ownership before reopening the gate, so the old grace
+  timer cannot release again. The checks expose a broken invariant; relaxing
+  them would hide one.

@@ -435,7 +435,8 @@ and the contradiction is noted here.
 - **Project duplication commits by directory rename.** Build the copy under
   `<uuid>.duplicating`, write its `project.json` last, then rename it to the
   final UUID. The next Studio listing sweeps abandoned duplicate stages while
-  leaving the singleton store's active stages alone.
+  sparing every store instance's active stages through the process-wide
+  companion guard.
 - **Entry payload keys and changed tile keys differ.** Duplicate and flatten
   write tiles under new owners that have no before-payload. `WriteEntry` must
   flush `LayerEditPolicy.changedTiles`, and layer directories may be deleted

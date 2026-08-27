@@ -18,6 +18,8 @@ object EraserTogglePolicy {
         if (erasers.size < 2) return null
 
         val currentIndex = erasers.indexOfFirst { it.id == currentId }
+        if (currentIndex == -1) return erasers.first().id
+
         return erasers[(currentIndex + 1) % erasers.size].id
     }
 }

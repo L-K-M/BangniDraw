@@ -1430,6 +1430,10 @@ private const val CHROME_Z = 2f
 private const val HINT_Z = 3f
 private const val CLOSING_SCRIM_Z = 5f
 private const val CLOSING_SCRIM_ALPHA = 0.55f
+// 08 §4.8 fixes the scrim threshold at 300 ms; the leave() grace period in
+// CanvasViewModel (LEAVE_HANDOFF_GRACE_MS) is the stranded-scrim reset, not
+// a scrim threshold — a cancelled back gesture may therefore flash the scrim
+// briefly before the canvas pops back, which is honest feedback, not a bug.
 private const val CLOSING_SCRIM_DELAY_MS = 300L
 private const val RESET_DAMPING_RATIO = 0.8f
 private const val CHROME_ANIMATION_MS = 180

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.9 - 2026-08-27
+
+- Keep the canvas visible and correctly positioned through display rotation.
+- Replace the ambiguous marker and eraser rail icons.
+- Draw pressure curves above their knot controls.
+- Cache decoded Studio thumbnails.
+- Preserve typed custom canvas sizes over remembered prefills.
+- Name newly created palettes and reject duplicate names.
+- Tint the hover ring with the active brush colour.
+- Report Studio action and share failures accurately.
+
 ## 1.0.8 - 2026-08-27
 
 - Remember the last custom canvas size.

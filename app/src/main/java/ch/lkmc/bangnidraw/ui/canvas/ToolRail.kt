@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.Texture
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -661,6 +662,7 @@ private fun iconFor(glyph: BrushToolGlyph): ImageVector = when (glyph) {
     // smudge tool, nor the airbrush BlurOn with blur — identical glyphs in one
     // rail defeat the glance-recognition the rail exists for.
     BrushToolGlyph.PENCIL -> Icons.Filled.Draw
+    BrushToolGlyph.CHARCOAL -> Icons.Filled.Texture
     BrushToolGlyph.INK_PEN -> Icons.Filled.Create
     BrushToolGlyph.PAINTBRUSH -> Icons.Filled.Brush
     BrushToolGlyph.AIRBRUSH -> Icons.Filled.Air

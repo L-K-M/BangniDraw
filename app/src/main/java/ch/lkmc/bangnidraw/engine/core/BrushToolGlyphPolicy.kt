@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.engine.core
 
 internal enum class BrushToolGlyph(val presetKey: String?) {
     PENCIL("pencil"),
+    CHARCOAL("charcoal"),
     INK_PEN("ink_pen"),
     PAINTBRUSH("paintbrush"),
     AIRBRUSH("airbrush"),

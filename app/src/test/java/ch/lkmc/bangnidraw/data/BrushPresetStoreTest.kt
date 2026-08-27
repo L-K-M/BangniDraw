@@ -40,6 +40,7 @@ class BrushPresetStoreTest {
         assertEquals(
             setOf(
                 "builtin.pencil",
+                "builtin.charcoal",
                 "builtin.ink_pen",
                 "builtin.paintbrush",
                 "builtin.airbrush",
@@ -52,6 +53,10 @@ class BrushPresetStoreTest {
         assertEquals(
             GrainMode.Procedural,
             presets.single { it.id == "builtin.pencil" }.grainMode,
+        )
+        assertEquals(
+            GrainMode.Procedural,
+            presets.single { it.id == "builtin.charcoal" }.grainMode,
         )
     }
 

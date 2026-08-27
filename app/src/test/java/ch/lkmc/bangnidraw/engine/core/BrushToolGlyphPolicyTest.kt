@@ -9,6 +9,7 @@ class BrushToolGlyphPolicyTest {
     fun `built-in brushes receive distinct glyphs`() {
         val cases = mapOf(
             "pencil" to BrushToolGlyph.PENCIL,
+            "charcoal" to BrushToolGlyph.CHARCOAL,
             "ink_pen" to BrushToolGlyph.INK_PEN,
             "paintbrush" to BrushToolGlyph.PAINTBRUSH,
             "airbrush" to BrushToolGlyph.AIRBRUSH,

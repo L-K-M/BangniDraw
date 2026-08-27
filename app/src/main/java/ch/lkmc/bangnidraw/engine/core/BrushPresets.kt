@@ -14,6 +14,7 @@ package ch.lkmc.bangnidraw.engine.core
 object BrushPresets {
 
     const val PENCIL_ID = "builtin.pencil"
+    const val CHARCOAL_ID = "builtin.charcoal"
     const val INK_PEN_ID = "builtin.ink_pen"
     const val PAINTBRUSH_ID = "builtin.paintbrush"
     const val AIRBRUSH_ID = "builtin.airbrush"
@@ -24,6 +25,7 @@ object BrushPresets {
 
     val RAIL_ORDER: List<String> = listOf(
         PENCIL_ID,
+        CHARCOAL_ID,
         INK_PEN_ID,
         PAINTBRUSH_ID,
         AIRBRUSH_ID,

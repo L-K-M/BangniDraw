@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.ui.canvas
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -14,6 +15,8 @@ class ToolRailAccessibilityContractTest {
         assertTrue("EraserTogglePolicy.next(eraser.id, presets)" in source)
         assertTrue(".minimumInteractiveComponentSize()" in source)
         assertTrue("LocalContentColor provides buttonColors.icon" in source)
+        assertTrue(".clip(shape)" in source)
+        assertFalse("hapticsEnabled: Boolean" in source)
     }
 
     private fun repositoryRoot(): File {

@@ -44,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedback
@@ -231,7 +232,7 @@ private fun ToolColumn(
             slot,
             item.onLongClick,
             item.longClickLabel,
-            item.hapticsEnabled,
+            item.hapticsMode,
         )
         if (index == slots.lastIndex) continue
 
@@ -263,7 +264,7 @@ private fun Dock(slots: List<ToolSlot>, slot: Dp, modifier: Modifier) {
                     slot,
                     item.onLongClick,
                     item.longClickLabel,
-                    item.hapticsEnabled,
+                    item.hapticsMode,
                 )
             }
         }
@@ -450,7 +451,7 @@ private fun brushSlot(
                 onBrushSelected(preset.id)
             }
         },
-        hapticsEnabled = hapticsMode == HapticsMode.ENABLED,
+        hapticsMode = hapticsMode,
         // The LONG_PRESS haptic is the built-in one, gated by the provider
         // above; an explicit performHapticFeedback here would double it.
         onLongClick = onEraserToggle,
@@ -549,7 +550,7 @@ private fun ToolButton(
     slot: Dp,
     onLongClick: (() -> Unit)? = null,
     longClickLabel: String? = null,
-    hapticsEnabled: Boolean = false,
+    hapticsMode: HapticsMode = HapticsMode.DISABLED,
 ) {
     val active = state != ToolButtonState.Inactive
     val selectedText = stringResource(R.string.cd_selected)
@@ -594,7 +595,7 @@ private fun ToolButton(
             }
         } else {
             CompositionLocalProvider(
-                LocalHapticFeedback provides if (hapticsEnabled) {
+                LocalHapticFeedback provides if (hapticsMode == HapticsMode.ENABLED) {
                     LocalHapticFeedback.current
                 } else {
                     SilentHapticFeedback
@@ -604,6 +605,7 @@ private fun ToolButton(
                 Box(
                     modifier = Modifier
                         .size(slot)
+                        .clip(shape)
                         .combinedClickable(
                             role = Role.Button,
                             onClick = onClick,
@@ -674,7 +676,7 @@ private data class ToolSlot(
     val onClick: () -> Unit,
     val onLongClick: (() -> Unit)? = null,
     val longClickLabel: String? = null,
-    val hapticsEnabled: Boolean = false,
+    val hapticsMode: HapticsMode = HapticsMode.DISABLED,
 )
 
 private enum class ToolButtonState {

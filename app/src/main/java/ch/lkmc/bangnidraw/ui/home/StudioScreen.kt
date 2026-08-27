@@ -250,8 +250,26 @@ fun StudioScreen(
                             painting = painting,
                             hapticsMode = state.hapticsMode,
                             onOpen = { onOpenPainting(painting.id) },
-                            onRename = { title -> viewModel.rename(painting.id, title) },
-                            onDuplicate = { viewModel.duplicate(painting.id) },
+                            onRename = { title ->
+                                viewModel.rename(painting.id, title) { renamed ->
+                                    if (renamed) return@rename
+                                    Toast.makeText(
+                                        context,
+                                        R.string.studio_rename_failed,
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                            onDuplicate = {
+                                viewModel.duplicate(painting.id) { duplicated ->
+                                    if (duplicated) return@duplicate
+                                    Toast.makeText(
+                                        context,
+                                        R.string.studio_duplicate_failed,
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
                             onSaveAs = {
                                 viewModel.saveAsNewGalleryItem(painting.id) { outcome ->
                                     Toast.makeText(
@@ -266,22 +284,44 @@ fun StudioScreen(
                                 }
                             },
                             onShare = { format ->
-                                viewModel.share(painting.id, format) { uri, mime ->
-                                    val send = Intent(Intent.ACTION_SEND).apply {
-                                        type = mime
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(
-                                        Intent.createChooser(send, painting.title),
-                                    )
-                                }
+                                viewModel.share(
+                                    painting.id,
+                                    format,
+                                    onReady = { uri, mime ->
+                                        val send = Intent(Intent.ACTION_SEND).apply {
+                                            type = mime
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(
+                                            Intent.createChooser(send, painting.title),
+                                        )
+                                    },
+                                    onFailed = {
+                                        Toast.makeText(
+                                            context,
+                                            R.string.studio_share_failed,
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                                )
                             },
                             onDelete = { alsoGallery ->
-                                viewModel.delete(painting.id, alsoGallery, painting.galleryUri)
-                                Toast.makeText(
-                                    context, R.string.studio_deleted, Toast.LENGTH_SHORT,
-                                ).show()
+                                viewModel.delete(
+                                    painting.id,
+                                    alsoGallery,
+                                    painting.galleryUri,
+                                ) { deleted ->
+                                    Toast.makeText(
+                                        context,
+                                        if (deleted) {
+                                            R.string.studio_deleted
+                                        } else {
+                                            R.string.studio_delete_failed
+                                        },
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
                             },
                         )
                     }
@@ -298,7 +338,18 @@ fun StudioScreen(
             onDismiss = { showNewCanvas = false },
             onCreate = { size, paper ->
                 showNewCanvas = false
-                viewModel.createPainting(size, paper) { id -> onOpenPainting(id) }
+                viewModel.createPainting(
+                    size,
+                    paper,
+                    onCreated = { id -> onOpenPainting(id) },
+                    onFailed = {
+                        Toast.makeText(
+                            context,
+                            R.string.studio_create_failed,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                )
             },
         )
     }

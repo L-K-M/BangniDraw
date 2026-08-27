@@ -791,7 +791,9 @@ private fun CanvasContent(
             widthClass,
             railHeight,
             state.handedness,
-            paintCount = state.brushPresets.count { !it.eraseMode }.coerceAtLeast(1),
+            paintCount = BrushPresets.railOrder(state.brushPresets)
+                .count { !it.eraseMode }
+                .coerceAtLeast(1),
         )
         val undoAvailability =
             if (state.canUndo) ActionAvailability.ENABLED else ActionAvailability.DISABLED

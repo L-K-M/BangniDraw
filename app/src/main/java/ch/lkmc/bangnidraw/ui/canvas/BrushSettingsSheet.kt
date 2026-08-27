@@ -457,7 +457,7 @@ internal fun BrushSettingsSheet(
 }
 
 @Composable
-private fun SettingsGroup(title: String) {
+internal fun SettingsGroup(title: String) {
     Spacer(Modifier.height(GROUP_GAP))
     HorizontalDivider()
     Text(
@@ -468,7 +468,7 @@ private fun SettingsGroup(title: String) {
 }
 
 @Composable
-private fun ChoiceLabel(label: String) {
+internal fun ChoiceLabel(label: String) {
     Text(
         text = label,
         style = MaterialTheme.typography.labelLarge,
@@ -477,13 +477,14 @@ private fun ChoiceLabel(label: String) {
 }
 
 @Composable
-private fun SettingSlider(
+internal fun SettingSlider(
     label: String,
     value: Float,
     valueText: String,
     range: ClosedFloatingPointRange<Float>,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
+    steps: Int = 0,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -496,6 +497,7 @@ private fun SettingSlider(
         value = value.coerceIn(range.start, range.endInclusive),
         onValueChange = onValueChange,
         valueRange = range,
+        steps = steps,
         onValueChangeFinished = onValueChangeFinished,
         modifier = Modifier
             .fillMaxWidth()
@@ -504,7 +506,7 @@ private fun SettingSlider(
 }
 
 @Composable
-private fun ToggleRow(label: String, value: ToggleValue, onChanged: (ToggleValue) -> Unit) {
+internal fun ToggleRow(label: String, value: ToggleValue, onChanged: (ToggleValue) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
@@ -521,7 +523,7 @@ private fun ToggleRow(label: String, value: ToggleValue, onChanged: (ToggleValue
 }
 
 @Composable
-private fun CurveEditor(
+internal fun CurveEditor(
     title: String,
     curve: Curve,
     onChanged: (Curve) -> Unit,
@@ -599,7 +601,7 @@ private fun BufferChip(
     )
 }
 
-private enum class ToggleValue {
+internal enum class ToggleValue {
     Off,
     On,
     ;

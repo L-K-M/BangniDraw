@@ -62,6 +62,9 @@
     <string name="panel_color_opened">颜色面板已打开</string>
     <string name="panel_brush_opened">画笔设置已打开</string>
     <string name="panel_fill_opened">填充设置已打开</string>
+    <string name="panel_smudge_opened">涂抹设置已打开</string>
+    <string name="panel_blur_opened">模糊设置已打开</string>
+    <string name="panel_eyedropper_opened">吸管设置已打开</string>
     <string name="canvas_undo">撤销</string>
     <string name="canvas_redo">重做</string>
     <string name="canvas_more">更多操作</string>
@@ -160,6 +163,7 @@
     <string name="brush_jitter_position">位置抖动</string>
     <string name="brush_stabilizer">防抖</string>
     <string name="brush_group_paint">颜料</string>
+    <string name="brush_group_mixing">混色</string>
     <string name="brush_pigment">颜料混色</string>
     <string name="brush_dilution">稀释</string>
     <string name="brush_grain">纸张纹理</string>
@@ -167,6 +171,12 @@
     <string name="brush_buffer_max">封顶</string>
     <string name="brush_buffer_accumulate">逐渐叠加</string>
     <string name="brush_reset">恢复预设</string>
+    <string name="smudge_strength">强度</string>
+    <string name="smudge_pickup">吸色量</string>
+    <string name="smudge_pressure_strength">压力 → 强度</string>
+    <string name="blur_radius">半径</string>
+    <string name="eyedropper_sample">取样</string>
+    <string name="eyedropper_radius">取样半径</string>
     <string name="brush_value_px">%1$.1f 像素</string>
     <string name="brush_value_percent">%1$.0f%%</string>
     <string name="brush_value_number">%1$.2f</string>

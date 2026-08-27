@@ -52,6 +52,7 @@ import ch.lkmc.bangnidraw.engine.core.ColorUiState
 import ch.lkmc.bangnidraw.engine.core.DishState
 import ch.lkmc.bangnidraw.engine.core.DishWell
 import ch.lkmc.bangnidraw.engine.core.Document
+import ch.lkmc.bangnidraw.engine.core.EraserTogglePolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
 import ch.lkmc.bangnidraw.engine.core.FillParams
@@ -830,6 +831,16 @@ class CanvasViewModel @Inject constructor(
 
     internal fun selectEraser() {
         selectBrush(eraserBrushId)
+    }
+
+    /**
+     * The rail eraser slot's long-press: swap the rail eraser between the
+     * two shipped erasers. Session state like [selectBrush]; a preset set
+     * with fewer than two erasers has nothing to swap to.
+     */
+    internal fun toggleEraserPreset() {
+        val next = EraserTogglePolicy.next(eraserBrushId, brushPresets) ?: return
+        selectBrush(next)
     }
 
     fun selectSmudge() {

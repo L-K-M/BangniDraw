@@ -4,6 +4,7 @@ import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -42,7 +44,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -83,6 +88,7 @@ internal fun ToolRail(
     onEyedropperSelected: () -> Unit,
     onSettingsRequested: () -> Unit,
     onFillSettingsRequested: () -> Unit,
+    onEraserToggle: () -> Unit,
     onSizeChanged: (Float) -> Unit,
     onOpacityChanged: (Float) -> Unit,
     onTuningFinished: () -> Unit,
@@ -109,6 +115,7 @@ internal fun ToolRail(
             onEyedropperSelected = onEyedropperSelected,
             onSettingsRequested = onSettingsRequested,
             onFillSettingsRequested = onFillSettingsRequested,
+            onEraserToggle = onEraserToggle,
         )
     } else {
         groupedSlots(
@@ -124,6 +131,7 @@ internal fun ToolRail(
             onEyedropperSelected = onEyedropperSelected,
             onSettingsRequested = onSettingsRequested,
             onFillSettingsRequested = onFillSettingsRequested,
+            onEraserToggle = onEraserToggle,
         )
     }
 
@@ -205,7 +213,16 @@ private fun ToolColumn(
     gap: Dp,
 ) {
     for ((index, item) in slots.withIndex()) {
-        ToolButton(item.icon, item.description(), item.state, item.onClick, slot)
+        ToolButton(
+            item.icon,
+            item.description(),
+            item.state,
+            item.onClick,
+            slot,
+            item.onLongClick,
+            item.longClickLabel,
+            item.hapticsEnabled,
+        )
         if (index == slots.lastIndex) continue
 
         if (gap > 0.dp) Spacer(Modifier.height(gap))
@@ -228,7 +245,16 @@ private fun Dock(slots: List<ToolSlot>, slot: Dp, modifier: Modifier) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             for (item in slots) {
-                ToolButton(item.icon, item.description(), item.state, item.onClick, slot)
+                ToolButton(
+                    item.icon,
+                    item.description(),
+                    item.state,
+                    item.onClick,
+                    slot,
+                    item.onLongClick,
+                    item.longClickLabel,
+                    item.hapticsEnabled,
+                )
             }
         }
     }
@@ -289,6 +315,7 @@ private fun fullSlots(
     onEyedropperSelected: () -> Unit,
     onSettingsRequested: () -> Unit,
     onFillSettingsRequested: () -> Unit,
+    onEraserToggle: () -> Unit,
 ): List<ToolSlot> {
     val result = ArrayList<ToolSlot>()
     for (preset in paints) {
@@ -309,6 +336,7 @@ private fun fullSlots(
             hapticsMode,
             onBrushSelected,
             onSettingsRequested,
+            onEraserToggle = onEraserToggle,
         )
     }
     result +=
@@ -340,6 +368,7 @@ private fun groupedSlots(
     onEyedropperSelected: () -> Unit,
     onSettingsRequested: () -> Unit,
     onFillSettingsRequested: () -> Unit,
+    onEraserToggle: () -> Unit,
 ): List<ToolSlot> {
     val result = ArrayList<ToolSlot>()
     if (paint != null) {
@@ -360,6 +389,7 @@ private fun groupedSlots(
             hapticsMode,
             onBrushSelected,
             onSettingsRequested,
+            onEraserToggle = onEraserToggle,
         )
     }
     result +=
@@ -385,8 +415,10 @@ private fun brushSlot(
     hapticsMode: HapticsMode,
     onBrushSelected: (String) -> Unit,
     onSettingsRequested: () -> Unit,
+    onEraserToggle: (() -> Unit)? = null,
 ): ToolSlot {
     val active = (selection.kind as? ToolKind.Brush)?.preset?.id == preset.id
+    val toggleLabel = stringResource(R.string.cd_toggle_eraser)
     return ToolSlot(
         icon = if (preset.eraseMode) Icons.Filled.DeleteSweep else iconFor(preset.id),
         description = {
@@ -404,6 +436,18 @@ private fun brushSlot(
                 onBrushSelected(preset.id)
             }
         },
+        hapticsEnabled = hapticsMode == HapticsMode.ENABLED,
+        onLongClick = if (preset.eraseMode) {
+            {
+                if (hapticsMode == HapticsMode.ENABLED) {
+                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                }
+                onEraserToggle?.invoke()
+            }
+        } else {
+            null
+        },
+        longClickLabel = if (preset.eraseMode) toggleLabel else null,
     )
 }
 
@@ -425,40 +469,53 @@ private fun secondarySlots(
     val eyedropperActive = selection.kind is ToolKind.Eyedropper
     return listOf(
         ToolSlot(
-            Icons.Filled.Gesture,
-            { stringResource(R.string.tool_smudge) },
-            buttonState(
+            icon = Icons.Filled.Gesture,
+            description = { stringResource(R.string.tool_smudge) },
+            state = buttonState(
                 if (smudgeActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
                 selection,
             ),
-        ) { if (smudgeActive) onSettingsRequested() else switch(view, hapticsMode, onSmudgeSelected) },
+            onClick = {
+                if (smudgeActive) onSettingsRequested()
+                else switch(view, hapticsMode, onSmudgeSelected)
+            },
+        ),
         ToolSlot(
-            Icons.Filled.BlurOn,
-            { stringResource(R.string.tool_blur) },
-            buttonState(
+            icon = Icons.Filled.BlurOn,
+            description = { stringResource(R.string.tool_blur) },
+            state = buttonState(
                 if (blurActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
                 selection,
             ),
-        ) { if (blurActive) onSettingsRequested() else switch(view, hapticsMode, onBlurSelected) },
+            onClick = {
+                if (blurActive) onSettingsRequested()
+                else switch(view, hapticsMode, onBlurSelected)
+            },
+        ),
         ToolSlot(
-            Icons.Filled.FormatColorFill,
-            { stringResource(R.string.tool_fill) },
-            buttonState(
+            icon = Icons.Filled.FormatColorFill,
+            description = { stringResource(R.string.tool_fill) },
+            state = buttonState(
                 if (fillActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
                 selection,
             ),
-        ) {
-            if (fillActive) onFillSettingsRequested()
-            else switch(view, hapticsMode, onFillSelected)
-        },
+            onClick = {
+                if (fillActive) onFillSettingsRequested()
+                else switch(view, hapticsMode, onFillSelected)
+            },
+        ),
         ToolSlot(
-            Icons.Filled.Colorize,
-            { stringResource(R.string.tool_eyedropper) },
-            buttonState(
+            icon = Icons.Filled.Colorize,
+            description = { stringResource(R.string.tool_eyedropper) },
+            state = buttonState(
                 if (eyedropperActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
                 selection,
             ),
-        ) { if (eyedropperActive) onSettingsRequested() else switch(view, hapticsMode, onEyedropperSelected) },
+            onClick = {
+                if (eyedropperActive) onSettingsRequested()
+                else switch(view, hapticsMode, onEyedropperSelected)
+            },
+        ),
     )
 }
 
@@ -483,6 +540,9 @@ private fun ToolButton(
     state: ToolButtonState,
     onClick: () -> Unit,
     slot: Dp,
+    onLongClick: (() -> Unit)? = null,
+    longClickLabel: String? = null,
+    hapticsEnabled: Boolean = false,
 ) {
     val active = state != ToolButtonState.Inactive
     val selectedText = stringResource(R.string.cd_selected)
@@ -502,18 +562,50 @@ private fun ToolButton(
             shape = shape,
             modifier = border.size(visual),
         ) {}
-        IconButton(
-            onClick = onClick,
-            colors = IconButtonDefaults.iconButtonColors(contentColor = buttonColors.icon),
-            modifier = Modifier
-                .size(slot)
-                .semantics {
-                    role = Role.Button
-                    selected = active
-                    if (active) stateDescription = selectedText
+        // combinedClickable keeps tap and long-press mutually exclusive, and
+        // its built-in LongPress haptic knows nothing of HapticsMode — the
+        // provider silences it for haptics-off users, exactly as TopStrip's
+        // swatch does.
+        if (onLongClick == null) {
+            IconButton(
+                onClick = onClick,
+                colors = IconButtonDefaults.iconButtonColors(contentColor = buttonColors.icon),
+                modifier = Modifier
+                    .size(slot)
+                    .semantics {
+                        role = Role.Button
+                        selected = active
+                        if (active) stateDescription = selectedText
+                    },
+            ) {
+                Icon(icon, contentDescription = description, tint = buttonColors.icon)
+            }
+        } else {
+            CompositionLocalProvider(
+                LocalHapticFeedback provides if (hapticsEnabled) {
+                    LocalHapticFeedback.current
+                } else {
+                    SilentHapticFeedback
                 },
-        ) {
-            Icon(icon, contentDescription = description, tint = buttonColors.icon)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(slot)
+                        .combinedClickable(
+                            role = Role.Button,
+                            onClick = onClick,
+                            onLongClickLabel = longClickLabel,
+                            onLongClick = onLongClick,
+                        )
+                        .semantics {
+                            selected = active
+                            if (active) stateDescription = selectedText
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(icon, contentDescription = description, tint = buttonColors.icon)
+                }
+            }
         }
         if (state == ToolButtonState.Temporary) {
             Canvas(Modifier.size(visual)) {
@@ -545,6 +637,11 @@ private fun View.tick(mode: HapticsMode) {
     performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
 }
 
+/** Silences combinedClickable's built-in long-press haptic (HapticsMode.DISABLED). */
+private object SilentHapticFeedback : HapticFeedback {
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
+}
+
 private fun iconFor(id: String): ImageVector = when (id) {
     // One distinct glyph per tool: the pencil must not share Gesture with the
     // smudge tool, nor the airbrush BlurOn with blur — identical glyphs in one
@@ -562,6 +659,9 @@ private data class ToolSlot(
     val description: @Composable () -> String,
     val state: ToolButtonState,
     val onClick: () -> Unit,
+    val onLongClick: (() -> Unit)? = null,
+    val longClickLabel: String? = null,
+    val hapticsEnabled: Boolean = false,
 )
 
 private enum class ToolButtonState {

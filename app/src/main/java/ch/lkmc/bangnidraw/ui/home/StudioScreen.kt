@@ -57,6 +57,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -158,8 +159,9 @@ fun StudioScreen(
                 // 08 §2's readout: it answers the only question that ever
                 // justifies deleting.
                 Text(
-                    text = stringResource(
-                        R.string.studio_storage,
+                    text = pluralStringResource(
+                        R.plurals.studio_storage,
+                        state.paintings.size,
                         state.paintings.size,
                         Formatter.formatShortFileSize(context, state.totalBytes),
                         Formatter.formatShortFileSize(context, state.freeBytes),

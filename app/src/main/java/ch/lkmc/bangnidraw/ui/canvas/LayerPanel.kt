@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -739,7 +740,13 @@ private fun paperChoices(): List<PaperChoice> = listOf(
 
 @Composable
 private fun refusalMessage(refusal: Refusal?, canvas: CanvasSize, layerCap: Int): String? = when (refusal) {
-    Refusal.AT_CAP -> stringResource(R.string.layer_limit, canvas.width, canvas.height, layerCap)
+    Refusal.AT_CAP -> pluralStringResource(
+        R.plurals.layer_limit,
+        layerCap,
+        canvas.width,
+        canvas.height,
+        layerCap,
+    )
     Refusal.LAST_LAYER -> stringResource(R.string.layer_only)
     Refusal.LOCKED -> stringResource(R.string.layer_locked)
     Refusal.HIDDEN_PARTNER -> stringResource(R.string.layer_hidden_partner)

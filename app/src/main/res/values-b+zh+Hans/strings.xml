@@ -143,6 +143,7 @@
     <string name="palette_move_right">向右移动</string>
     <string name="tool_eyedropper">吸管</string>
     <string name="cd_selected">已选择</string>
+    <string name="cd_toggle_eraser">在硬橡皮擦和软橡皮擦之间切换</string>
     <string name="brush_settings">画笔设置</string>
     <string name="brush_group_stroke">笔触</string>
     <string name="brush_size">大小</string>
@@ -269,6 +270,8 @@
     <string name="settings_pressure_softer">较软</string>
     <string name="settings_pressure_linear">线性</string>
     <string name="settings_pressure_harder">较硬</string>
+    <string name="settings_snap_right_angles">旋转吸附到直角</string>
+    <string name="settings_snap_right_angles_help">双指旋转时自动对齐 0°、90°、180°、270°。</string>
     <string name="settings_feedback">反馈</string>
     <string name="settings_haptics">触觉反馈</string>
     <string name="settings_storage">存储</string>

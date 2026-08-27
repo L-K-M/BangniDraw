@@ -11,11 +11,14 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.DishState
+import ch.lkmc.bangnidraw.engine.core.Hand
+import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
 import ch.lkmc.bangnidraw.engine.core.PigmentAvailability
 import ch.lkmc.bangnidraw.engine.core.StoredColors
+import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -61,6 +64,34 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
 
     suspend fun setGallerySync(enabled: Boolean) {
         dataStore.edit { it[KEY_GALLERY_SYNC] = enabled }
+    }
+
+    internal val handedness: Flow<Hand> =
+        dataStore.data.map { Hand.fromStored(it[KEY_HANDEDNESS]) }
+
+    internal suspend fun setHandedness(hand: Hand) {
+        dataStore.edit { it[KEY_HANDEDNESS] = hand.name }
+    }
+
+    internal val touchDrawingMode: Flow<TouchDrawingMode> =
+        dataStore.data.map { TouchDrawingMode.fromStored(it[KEY_TOUCH_DRAWING]) }
+
+    internal suspend fun setTouchDrawingMode(mode: TouchDrawingMode) {
+        dataStore.edit { it[KEY_TOUCH_DRAWING] = mode.name }
+    }
+
+    internal val hapticsMode: Flow<HapticsMode> =
+        dataStore.data.map { HapticsMode.fromStored(it[KEY_HAPTICS]) }
+
+    internal suspend fun setHapticsMode(mode: HapticsMode) {
+        dataStore.edit { it[KEY_HAPTICS] = mode.name }
+    }
+
+    val hintShown: Flow<Boolean> =
+        dataStore.data.map { it[KEY_HINT_SHOWN] ?: false }
+
+    suspend fun markHintShown() {
+        dataStore.edit { it[KEY_HINT_SHOWN] = true }
     }
 
     /**
@@ -159,6 +190,10 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         const val STORE_NAME = "bangni"
         val KEY_NEXT_SKETCH = intPreferencesKey("nextSketchNumber")
         val KEY_GALLERY_SYNC = booleanPreferencesKey("gallerySync")
+        val KEY_HANDEDNESS = stringPreferencesKey("handedness")
+        val KEY_TOUCH_DRAWING = stringPreferencesKey("touchDrawing")
+        val KEY_HAPTICS = stringPreferencesKey("haptics")
+        val KEY_HINT_SHOWN = booleanPreferencesKey("hintShown")
         val KEY_DEBUG_LATENCY = booleanPreferencesKey("debugLatency")
         val KEY_PEN_BUTTON_ACTION = stringPreferencesKey("penButtonAction")
         val KEY_ERASER_END_PRESET = stringPreferencesKey("eraserEndPreset")

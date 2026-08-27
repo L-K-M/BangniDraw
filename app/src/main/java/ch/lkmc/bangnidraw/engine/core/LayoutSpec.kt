@@ -20,7 +20,14 @@ internal enum class WidthClass {
     }
 }
 
-internal enum class Hand { LEFT, RIGHT }
+internal enum class Hand {
+    LEFT,
+    RIGHT;
+
+    companion object {
+        fun fromStored(value: String?): Hand = entries.firstOrNull { it.name == value } ?: RIGHT
+    }
+}
 
 internal enum class RailMode { FULL, GROUPED, SHORT, DOCK }
 

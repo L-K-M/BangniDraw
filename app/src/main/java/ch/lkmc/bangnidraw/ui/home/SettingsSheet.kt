@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -98,18 +99,18 @@ internal fun SettingsSheet(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp),
         ) {
             item { SectionTitle(R.string.settings_drawing) }
-            item { SettingLabel(R.string.settings_handedness) }
             item {
-                ChoiceRow(
-                    R.string.settings_hand_right,
-                    state.handedness == Hand.RIGHT,
-                ) { onHandedness(Hand.RIGHT) }
-            }
-            item {
-                ChoiceRow(
-                    R.string.settings_hand_left,
-                    state.handedness == Hand.LEFT,
-                ) { onHandedness(Hand.LEFT) }
+                Column(Modifier.selectableGroup()) {
+                    SettingLabel(R.string.settings_handedness)
+                    ChoiceRow(
+                        R.string.settings_hand_right,
+                        state.handedness == Hand.RIGHT,
+                    ) { onHandedness(Hand.RIGHT) }
+                    ChoiceRow(
+                        R.string.settings_hand_left,
+                        state.handedness == Hand.LEFT,
+                    ) { onHandedness(Hand.LEFT) }
+                }
             }
             item {
                 SwitchRow(
@@ -123,43 +124,39 @@ internal fun SettingsSheet(
                     },
                 )
             }
-            item { SettingLabel(R.string.settings_pen_button) }
             item {
-                ChoiceRow(
-                    R.string.settings_pen_button_eraser,
-                    state.penButtonAction == PenButtonAction.Eraser,
-                ) { onPenButtonAction(PenButtonAction.Eraser) }
+                Column(Modifier.selectableGroup()) {
+                    SettingLabel(R.string.settings_pen_button)
+                    ChoiceRow(
+                        R.string.settings_pen_button_eraser,
+                        state.penButtonAction == PenButtonAction.Eraser,
+                    ) { onPenButtonAction(PenButtonAction.Eraser) }
+                    ChoiceRow(
+                        R.string.settings_pen_button_eyedropper,
+                        state.penButtonAction == PenButtonAction.Eyedropper,
+                    ) { onPenButtonAction(PenButtonAction.Eyedropper) }
+                    ChoiceRow(
+                        R.string.settings_pen_button_none,
+                        state.penButtonAction == PenButtonAction.None,
+                    ) { onPenButtonAction(PenButtonAction.None) }
+                }
             }
             item {
-                ChoiceRow(
-                    R.string.settings_pen_button_eyedropper,
-                    state.penButtonAction == PenButtonAction.Eyedropper,
-                ) { onPenButtonAction(PenButtonAction.Eyedropper) }
-            }
-            item {
-                ChoiceRow(
-                    R.string.settings_pen_button_none,
-                    state.penButtonAction == PenButtonAction.None,
-                ) { onPenButtonAction(PenButtonAction.None) }
-            }
-            item { SettingLabel(R.string.settings_pressure) }
-            item {
-                ChoiceRow(
-                    R.string.settings_pressure_softer,
-                    state.pressurePreference == PressurePreference.SOFTER,
-                ) { onPressurePreference(PressurePreference.SOFTER) }
-            }
-            item {
-                ChoiceRow(
-                    R.string.settings_pressure_linear,
-                    state.pressurePreference == PressurePreference.LINEAR,
-                ) { onPressurePreference(PressurePreference.LINEAR) }
-            }
-            item {
-                ChoiceRow(
-                    R.string.settings_pressure_harder,
-                    state.pressurePreference == PressurePreference.HARDER,
-                ) { onPressurePreference(PressurePreference.HARDER) }
+                Column(Modifier.selectableGroup()) {
+                    SettingLabel(R.string.settings_pressure)
+                    ChoiceRow(
+                        R.string.settings_pressure_softer,
+                        state.pressurePreference == PressurePreference.SOFTER,
+                    ) { onPressurePreference(PressurePreference.SOFTER) }
+                    ChoiceRow(
+                        R.string.settings_pressure_linear,
+                        state.pressurePreference == PressurePreference.LINEAR,
+                    ) { onPressurePreference(PressurePreference.LINEAR) }
+                    ChoiceRow(
+                        R.string.settings_pressure_harder,
+                        state.pressurePreference == PressurePreference.HARDER,
+                    ) { onPressurePreference(PressurePreference.HARDER) }
+                }
             }
 
             item { SectionTitle(R.string.settings_feedback) }
@@ -195,18 +192,18 @@ internal fun SettingsSheet(
 
             if (BuildConfig.MIXBOX) {
                 item { SectionTitle(R.string.settings_color) }
-                item { SettingLabel(R.string.settings_mixer) }
                 item {
-                    ChoiceRow(
-                        R.string.settings_mixer_pigment,
-                        state.mixerChoice == MixerChoice.PIGMENT,
-                    ) { onMixerChoice(MixerChoice.PIGMENT) }
-                }
-                item {
-                    ChoiceRow(
-                        R.string.settings_mixer_rgb,
-                        state.mixerChoice == MixerChoice.RGB,
-                    ) { onMixerChoice(MixerChoice.RGB) }
+                    Column(Modifier.selectableGroup()) {
+                        SettingLabel(R.string.settings_mixer)
+                        ChoiceRow(
+                            R.string.settings_mixer_pigment,
+                            state.mixerChoice == MixerChoice.PIGMENT,
+                        ) { onMixerChoice(MixerChoice.PIGMENT) }
+                        ChoiceRow(
+                            R.string.settings_mixer_rgb,
+                            state.mixerChoice == MixerChoice.RGB,
+                        ) { onMixerChoice(MixerChoice.RGB) }
+                    }
                 }
                 item {
                     Text(

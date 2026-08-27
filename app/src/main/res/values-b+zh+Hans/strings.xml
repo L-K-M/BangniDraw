@@ -61,6 +61,7 @@
 
     <string name="canvas_back">返回画室</string>
     <string name="canvas_reset_view">复位视图</string>
+    <string name="canvas_closing">正在关闭…</string>
     <string name="canvas_view_readout">%1$d %% · %2$d°</string>
     <string name="panel_layers_opened">图层面板已打开</string>
     <string name="panel_color_opened">颜色面板已打开</string>
@@ -205,6 +206,7 @@
     <string name="layer_move_down">下移</string>
     <string name="layer_move_top">移到顶层</string>
     <string name="layer_move_bottom">移到底层</string>
+    <string name="layer_reorder">排序</string>
     <string name="layer_show">显示图层</string>
     <string name="layer_hide">隐藏图层</string>
     <string name="layer_opacity">图层不透明度</string>
@@ -252,6 +254,7 @@
     <string name="err_tiles_unreadable">这张画的一部分无法读取。</string>
     <string name="err_layers_unreadable">这张画的一些图层无法读取。</string>
     <string name="err_storage_full">存储空间已满——请清理空间以保留更改。</string>
+    <string name="err_leave_failed">无法完成保存——画作保持打开。</string>
 
     <string name="settings_title">设置</string>
     <string name="settings_drawing">绘画</string>

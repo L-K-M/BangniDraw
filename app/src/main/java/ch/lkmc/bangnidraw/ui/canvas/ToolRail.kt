@@ -17,13 +17,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BlurOn
+import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.Highlight
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,6 +61,7 @@ import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.ToolKind
+import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.ToolButtonEmphasis
 import ch.lkmc.bangnidraw.engine.core.ToolSelection
 import ch.lkmc.bangnidraw.ui.theme.LocalThemeTone
@@ -86,7 +90,7 @@ internal fun ToolRail(
 ) {
     val view = LocalView.current
     val paints = BrushPresets.railOrder(presets).filterNot(BrushPreset::eraseMode)
-    val activeBrush = (selection.kind as? ToolKind.Brush)?.preset
+    val sliderPreset = ToolSliderPreset.forKind(selection.kind)
     val currentPaint = paints.firstOrNull { it.id == paintBrushId } ?: paints.firstOrNull()
     val eraser = presets.firstOrNull { it.id == eraserBrushId && it.eraseMode }
         ?: presets.firstOrNull { it.eraseMode }
@@ -142,17 +146,18 @@ internal fun ToolRail(
             ToolColumn(
                 slots = slots,
                 slot = layout.toolSlotDp.dp,
-                dividersAfter = when (layout.railMode) {
-                    RailMode.FULL -> setOf(FULL_PAINT_LAST_INDEX, FULL_ERASER_INDEX)
-                    RailMode.GROUPED -> setOf(GROUPED_ERASER_INDEX)
-                    RailMode.SHORT, RailMode.DOCK -> emptySet()
-                },
+                dividersAfter = dividersAfter(
+                    railMode = layout.railMode,
+                    paints = paints,
+                    paint = currentPaint,
+                    eraser = eraser,
+                ),
                 gap = if (layout.railMode == RailMode.SHORT) 0.dp else TOOL_GAP,
             )
 
-            if (activeBrush != null && layout.sliderLengthDp > 0) {
+            if (sliderPreset != null && layout.sliderLengthDp > 0) {
                 BrushSliders(
-                    preset = activeBrush,
+                    preset = sliderPreset,
                     length = layout.sliderLengthDp.dp,
                     view = view,
                     hapticsMode = hapticsMode,
@@ -163,6 +168,33 @@ internal fun ToolRail(
             }
         }
     }
+}
+
+/**
+ * Where the group dividers fall, derived from the slot lists rather than
+ * hardcoded indices — a preset set that is not exactly the built-in seven
+ * (corrupt JSON falls back to fewer; user presets append) must not put a
+ * divider through the middle of a group.
+ */
+private fun dividersAfter(
+    railMode: RailMode,
+    paints: List<BrushPreset>,
+    paint: BrushPreset?,
+    eraser: BrushPreset?,
+): Set<Int> = when (railMode) {
+    RailMode.FULL -> buildSet {
+        if (paints.isNotEmpty()) {
+            add(paints.lastIndex)
+            if (eraser != null) add(paints.size)
+        } else if (eraser != null) {
+            add(0)
+        }
+    }
+    RailMode.GROUPED -> {
+        val eraserIndex = if (paint != null) 1 else 0
+        if (eraser != null) setOf(eraserIndex) else if (paint != null) setOf(0) else emptySet()
+    }
+    RailMode.SHORT, RailMode.DOCK -> emptySet()
 }
 
 @Composable
@@ -288,6 +320,7 @@ private fun fullSlots(
             onBlurSelected,
             onFillSelected,
             onEyedropperSelected,
+            onSettingsRequested,
             onFillSettingsRequested,
         )
     return result
@@ -338,6 +371,7 @@ private fun groupedSlots(
             onBlurSelected,
             onFillSelected,
             onEyedropperSelected,
+            onSettingsRequested,
             onFillSettingsRequested,
         )
     return result
@@ -382,6 +416,7 @@ private fun secondarySlots(
     onBlurSelected: () -> Unit,
     onFillSelected: () -> Unit,
     onEyedropperSelected: () -> Unit,
+    onSettingsRequested: () -> Unit,
     onFillSettingsRequested: () -> Unit,
 ): List<ToolSlot> {
     val smudgeActive = selection.kind is ToolKind.Smudge
@@ -396,7 +431,7 @@ private fun secondarySlots(
                 if (smudgeActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
                 selection,
             ),
-        ) { if (!smudgeActive) switch(view, hapticsMode, onSmudgeSelected) },
+        ) { if (smudgeActive) onSettingsRequested() else switch(view, hapticsMode, onSmudgeSelected) },
         ToolSlot(
             Icons.Filled.BlurOn,
             { stringResource(R.string.tool_blur) },
@@ -404,7 +439,7 @@ private fun secondarySlots(
                 if (blurActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
                 selection,
             ),
-        ) { if (!blurActive) switch(view, hapticsMode, onBlurSelected) },
+        ) { if (blurActive) onSettingsRequested() else switch(view, hapticsMode, onBlurSelected) },
         ToolSlot(
             Icons.Filled.FormatColorFill,
             { stringResource(R.string.tool_fill) },
@@ -423,7 +458,7 @@ private fun secondarySlots(
                 if (eyedropperActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
                 selection,
             ),
-        ) { if (!eyedropperActive) switch(view, hapticsMode, onEyedropperSelected) },
+        ) { if (eyedropperActive) onSettingsRequested() else switch(view, hapticsMode, onEyedropperSelected) },
     )
 }
 
@@ -511,12 +546,15 @@ private fun View.tick(mode: HapticsMode) {
 }
 
 private fun iconFor(id: String): ImageVector = when (id) {
-    BrushPresets.PENCIL_ID -> Icons.Filled.Gesture
+    // One distinct glyph per tool: the pencil must not share Gesture with the
+    // smudge tool, nor the airbrush BlurOn with blur — identical glyphs in one
+    // rail defeat the glance-recognition the rail exists for.
+    BrushPresets.PENCIL_ID -> Icons.Filled.Draw
     BrushPresets.INK_PEN_ID -> Icons.Filled.Create
     BrushPresets.PAINTBRUSH_ID -> Icons.Filled.Brush
-    BrushPresets.AIRBRUSH_ID -> Icons.Filled.BlurOn
-    BrushPresets.MARKER_ID -> Icons.Filled.Edit
-    else -> Icons.Filled.Brush
+    BrushPresets.AIRBRUSH_ID -> Icons.Filled.Air
+    BrushPresets.MARKER_ID -> Icons.Filled.Highlight
+    else -> Icons.Filled.Tune
 }
 
 private data class ToolSlot(
@@ -545,7 +583,4 @@ private val TEMPORARY_BORDER = 2.dp
 private val DIVIDER_MARGIN = 4.dp
 private val DASH_ON = 6.dp
 private val DASH_OFF = 4.dp
-private const val FULL_PAINT_LAST_INDEX = 4
-private const val FULL_ERASER_INDEX = 5
-private const val GROUPED_ERASER_INDEX = 1
 private const val RAIL_ALPHA = 0.92f

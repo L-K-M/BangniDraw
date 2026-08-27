@@ -104,9 +104,11 @@ class CompositePass(
         // least able to afford it. This way the failure path allocates
         // nothing, and it needs no retry cache to say so.
         val bytes = tiles * VERTICES_PER_TILE * FLOATS_PER_VERTEX * 4
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo[0])
-        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, bytes, null, GLES30.GL_STREAM_DRAW)
-        if (GlErrors.checkAllocation("composite VBO grown to $tiles tiles") != GLES30.GL_NO_ERROR) {
+        val error = GlErrors.checkAllocation("composite VBO grown to $tiles tiles") {
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo[0])
+            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, bytes, null, GLES30.GL_STREAM_DRAW)
+        }
+        if (error != GLES30.GL_NO_ERROR) {
             return false
         }
         vertexBuffer = allocate(tiles)
@@ -116,20 +118,21 @@ class CompositePass(
 
     private fun ensureBuffers() {
         if (initialized) return
-        GLES30.glGenBuffers(1, vbo, 0)
-        GLES30.glGenVertexArrays(1, vao, 0)
-        GLES30.glBindVertexArray(vao[0])
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo[0])
         // GL_STREAM_DRAW: rewritten every frame and read once, which is
         // exactly what the hint describes. A STATIC buffer here makes some
         // drivers migrate the allocation on every upload.
-        GLES30.glBufferData(
-            GLES30.GL_ARRAY_BUFFER,
-            vertexBuffer.capacity() * 4,
-            null,
-            GLES30.GL_STREAM_DRAW,
-        )
-        GlErrors.checkAllocation("composite VBO")
+        GlErrors.checkAllocation("composite VBO") {
+            GLES30.glGenBuffers(1, vbo, 0)
+            GLES30.glGenVertexArrays(1, vao, 0)
+            GLES30.glBindVertexArray(vao[0])
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo[0])
+            GLES30.glBufferData(
+                GLES30.GL_ARRAY_BUFFER,
+                vertexBuffer.capacity() * 4,
+                null,
+                GLES30.GL_STREAM_DRAW,
+            )
+        }
         val stride = FLOATS_PER_VERTEX * 4
         GLES30.glEnableVertexAttribArray(Shaders.ATTR_POS)
         GLES30.glVertexAttribPointer(Shaders.ATTR_POS, 2, GLES30.GL_FLOAT, false, stride, 0)
@@ -303,19 +306,19 @@ class CompositePass(
      */
     private fun ensurePreviewBuffers(): Boolean {
         if (previewInitialized) return true
-        GLES30.glGenBuffers(1, previewVbo, 0)
-        GLES30.glGenVertexArrays(1, previewVao, 0)
-        GLES30.glBindVertexArray(previewVao[0])
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, previewVbo[0])
-        GLES30.glBufferData(
-            GLES30.GL_ARRAY_BUFFER,
-            previewCapacityTiles * VERTICES_PER_TILE * PREVIEW_FLOATS_PER_VERTEX * 4,
-            null,
-            GLES30.GL_STREAM_DRAW,
-        )
-        if (GlErrors.checkAllocation("preview VBO ($previewCapacityTiles tiles)") !=
-            GLES30.GL_NO_ERROR
-        ) {
+        val error = GlErrors.checkAllocation("preview VBO ($previewCapacityTiles tiles)") {
+            GLES30.glGenBuffers(1, previewVbo, 0)
+            GLES30.glGenVertexArrays(1, previewVao, 0)
+            GLES30.glBindVertexArray(previewVao[0])
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, previewVbo[0])
+            GLES30.glBufferData(
+                GLES30.GL_ARRAY_BUFFER,
+                previewCapacityTiles * VERTICES_PER_TILE * PREVIEW_FLOATS_PER_VERTEX * 4,
+                null,
+                GLES30.GL_STREAM_DRAW,
+            )
+        }
+        if (error != GLES30.GL_NO_ERROR) {
             GLES30.glBindVertexArray(0)
             GLES30.glDeleteBuffers(1, previewVbo, 0)
             GLES30.glDeleteVertexArrays(1, previewVao, 0)
@@ -514,14 +517,16 @@ class CompositePass(
 
     private fun ensurePreviewCapacity(tiles: Int): Boolean {
         if (tiles <= previewCapacityTiles) return true
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, previewVbo[0])
-        GLES30.glBufferData(
-            GLES30.GL_ARRAY_BUFFER,
-            tiles * VERTICES_PER_TILE * PREVIEW_FLOATS_PER_VERTEX * 4,
-            null,
-            GLES30.GL_STREAM_DRAW,
-        )
-        if (GlErrors.checkAllocation("preview VBO ($tiles tiles)") != GLES30.GL_NO_ERROR) return false
+        val error = GlErrors.checkAllocation("preview VBO ($tiles tiles)") {
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, previewVbo[0])
+            GLES30.glBufferData(
+                GLES30.GL_ARRAY_BUFFER,
+                tiles * VERTICES_PER_TILE * PREVIEW_FLOATS_PER_VERTEX * 4,
+                null,
+                GLES30.GL_STREAM_DRAW,
+            )
+        }
+        if (error != GLES30.GL_NO_ERROR) return false
         previewBuffer = allocatePreview(tiles)
         previewCapacityTiles = tiles
         return true

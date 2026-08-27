@@ -266,6 +266,11 @@ and the contradiction is noted here.
   Keep new pool logic on the core side; the `engine/gl` classes should stay
   "call the twin, then issue GL calls".
 
+- **`GlErrors.checkAllocation` owns the GL call it checks.** Release passes do
+  not drain `glGetError`, so a stale pass flag may remain queued. The wrapper
+  clears that flag before its operation and checks again after it; issuing the
+  allocation first can misattribute the stale error and refuse valid GPU work.
+
 - **graphics-core 1.0.4's callback is not the one `03-canvas-engine.md` §8.2
   names.** The plan writes `onDrawMultiDoubleBufferedLayer(eglManager,
   bufferInfo, transform, params)`; the pinned library actually declares
@@ -455,6 +460,13 @@ and the contradiction is noted here.
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.
   User names are literal; never resolve arbitrary stored `@string/` values.
+
+- **Redo-sidecar accounting can prune both sides of the history cursor.** A
+  first undo adds bytes after the original push, so `noteRedoBytes` enforces
+  the cap immediately. It drops the oldest applied entries first, then the
+  far redo tail if needed; keeping the nearest redo entry preserves a valid
+  transition from the current pixels. The returned seqs join `pendingDeletes`
+  and remain on disk until the next checkpoint commits their absence.
 
 - **What "`engine/core` is pure JVM" actually forbids.**
   `docs/plan/02-architecture.md` §1 writes the rule as "`kotlin.*` and

@@ -3,11 +3,13 @@ package ch.lkmc.bangnidraw.data
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import java.io.File
+import java.io.IOException
 import kotlin.io.path.createTempDirectory
 import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -61,7 +63,22 @@ class TileStoreTest {
         assertTrue(File(root, "4_4.tile").isFile)
         store.write(key, ByteArray(TILE_BYTES))
         assertTrue(!File(root, "4_4.tile").exists(), "erasing to nothing must reclaim the file")
+        store.write(key, ByteArray(TILE_BYTES))
         assertEquals(TileStore.Read.Empty, store.read(key))
+        assertTrue(!File(root, "4_4.tile").exists(), "erasing an absent tile must remain a no-op")
+    }
+
+    @Test
+    fun `writing an all-transparent tile reports a failed deletion`() {
+        val key = TileKey(5, 5)
+        val target = File(root, TileStore.fileName(key))
+        assertTrue(target.mkdir())
+        File(target, "blocker").writeBytes(ByteArray(1))
+
+        assertFailsWith<IOException> {
+            store.write(key, ByteArray(TILE_BYTES))
+        }
+        assertTrue(target.exists(), "a failed deletion must remain retryable")
     }
 
     @Test

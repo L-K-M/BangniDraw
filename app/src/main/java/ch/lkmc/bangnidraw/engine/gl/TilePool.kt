@@ -202,17 +202,18 @@ class TilePool(
             throw PoolExhausted(allocator.pageCount, maxPages, slicesPerPage)
         }
         val ids = IntArray(1)
-        GLES30.glGenTextures(1, ids, 0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, ids[0])
-        GLES30.glTexStorage3D(
-            GLES30.GL_TEXTURE_2D_ARRAY,
-            1, // no mip chain: §3.4 rejects mipmaps for tiles and supersamples instead
-            GLES30.GL_RGBA8,
-            TILE_SIZE,
-            TILE_SIZE,
-            slicesPerPage,
-        )
-        val error = GlErrors.checkAllocation("glTexStorage3D page ${allocator.pageCount}")
+        val error = GlErrors.checkAllocation("glTexStorage3D page ${allocator.pageCount}") {
+            GLES30.glGenTextures(1, ids, 0)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, ids[0])
+            GLES30.glTexStorage3D(
+                GLES30.GL_TEXTURE_2D_ARRAY,
+                1, // no mip chain: §3.4 rejects mipmaps for tiles and supersamples instead
+                GLES30.GL_RGBA8,
+                TILE_SIZE,
+                TILE_SIZE,
+                slicesPerPage,
+            )
+        }
         if (error != GLES30.GL_NO_ERROR) {
             GLES30.glDeleteTextures(1, ids, 0)
             throw PoolExhausted(allocator.pageCount, maxPages, slicesPerPage)

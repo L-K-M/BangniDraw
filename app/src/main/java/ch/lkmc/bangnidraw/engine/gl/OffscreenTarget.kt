@@ -44,10 +44,12 @@ class OffscreenTarget(val label: String) {
         if (width <= 0 || height <= 0) return false
         if (isAllocated && width == this.width && height == this.height) return true
         release(state)
-        GLES30.glGenTextures(1, ids, 0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, ids[0])
-        GLES30.glTexStorage2D(GLES30.GL_TEXTURE_2D, 1, GLES30.GL_RGBA8, width, height)
-        if (GlErrors.checkAllocation("$label glTexStorage2D ${width}x$height") != GLES30.GL_NO_ERROR) {
+        val error = GlErrors.checkAllocation("$label glTexStorage2D ${width}x$height") {
+            GLES30.glGenTextures(1, ids, 0)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, ids[0])
+            GLES30.glTexStorage2D(GLES30.GL_TEXTURE_2D, 1, GLES30.GL_RGBA8, width, height)
+        }
+        if (error != GLES30.GL_NO_ERROR) {
             GLES30.glDeleteTextures(1, ids, 0)
             ids[0] = 0
             return false

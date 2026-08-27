@@ -166,25 +166,26 @@ class LayerTextures(
         // clear = false: the glTexSubImage3D below writes every texel of the
         // slice, so allocateCleared's clear would be dead GPU work.
         val handle = sliceForWrite(k, clear = false)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, pool.textureOf(handle.page))
-        // Row alignment 1: the default of 4 happens to be right for RGBA8 at
-        // 256 px, but it is right by coincidence, and the coincidence breaks
-        // the day anything uploads a sub-rect or a different format.
-        GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1)
-        GLES30.glTexSubImage3D(
-            GLES30.GL_TEXTURE_2D_ARRAY,
-            0,
-            0,
-            0,
-            handle.slice,
-            TILE_SIZE,
-            TILE_SIZE,
-            1,
-            GLES30.GL_RGBA,
-            GLES30.GL_UNSIGNED_BYTE,
-            pixels,
-        )
-        GlErrors.checkAllocation("upload $k")
+        GlErrors.checkAllocation("upload $k") {
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D_ARRAY, pool.textureOf(handle.page))
+            // Row alignment 1: the default of 4 happens to be right for RGBA8 at
+            // 256 px, but it is right by coincidence, and the coincidence breaks
+            // the day anything uploads a sub-rect or a different format.
+            GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1)
+            GLES30.glTexSubImage3D(
+                GLES30.GL_TEXTURE_2D_ARRAY,
+                0,
+                0,
+                0,
+                handle.slice,
+                TILE_SIZE,
+                TILE_SIZE,
+                1,
+                GLES30.GL_RGBA,
+                GLES30.GL_UNSIGNED_BYTE,
+                pixels,
+            )
+        }
     }
 
     /** Frees every slice this layer holds — the layer is being deleted. */

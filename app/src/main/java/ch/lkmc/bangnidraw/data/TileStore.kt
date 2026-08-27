@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.data
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 
 /**
  * One layer's tiles on disk: `layers/<layerId>/<tx>_<ty>.tile`
@@ -41,14 +42,18 @@ class TileStore(private val layerDir: File) {
 
     /**
      * Writes one tile atomically, or deletes its file when [pixels] is all
-     * zero. Throws [IOException] on a failed write — `TileFlusher` owns
-     * turning that into the storage-full state (06 §6.3).
+     * zero. Throws [IOException] when either persistence operation fails —
+     * `TileFlusher` owns turning that into the storage-full state (06 §6.3).
      */
     @Throws(IOException::class)
     fun write(key: TileKey, pixels: ByteArray) {
         val target = file(key)
         if (TileCodec.isAllZero(pixels)) {
-            target.delete()
+            try {
+                Files.deleteIfExists(target.toPath())
+            } catch (e: IOException) {
+                throw IOException("could not delete $target", e)
+            }
             return
         }
         if (!layerDir.isDirectory && !layerDir.mkdirs()) {

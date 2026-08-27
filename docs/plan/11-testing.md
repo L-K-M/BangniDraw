@@ -216,10 +216,9 @@ entries with a cursor, capped by steps and bytes (`Limits`).
 - `` `undo at cursor zero and redo at the end are no-ops` ``
 - `` `prune by step count drops the oldest entries` ``
 - `` `prune by bytes drops oldest until under budget` ``
-- `` `prune never touches the cursor's reachable redo entries` `` —
-  property: after `prune()`, every entry at index ≥ cursor is still present,
-  and every entry from the original list that is still present is still
-  applicable (undo/redo replay the same as before the prune from the cursor forward)
+- `` `redo accounting preserves one applicable entry when its sidecar exceeds the cap` `` —
+  applied entries prune oldest-first, then the far redo tail; the nearest
+  redo transition survives and remains applicable from the cursor
 - `` `prune of a journal whose cursor is at zero keeps the cursor at zero` ``
 - `` `the journal reports counts and bytes for the UI` `` (`stats()` matches the sum)
 - Codec: `` `every entry kind round-trips through the on-disk encoding` ``

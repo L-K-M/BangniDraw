@@ -1690,22 +1690,41 @@ class CanvasRenderer(
      * The inverse image of the viewport's four corners, bounding-boxed — the
      * same "not two corners" reasoning as `ScreenTransform.screenBoundsOf`,
      * in the other direction.
+     *
+     * The corners are derived from [viewportWidth]/[viewportHeight] here
+     * rather than cached in a parallel array: two int reads and two `toFloat`
+     * calls cost the same (nothing) as a `FloatArray` read, and a second
+     * copy of the one viewport fact is exactly the kind of cache a future
+     * resize path forgets to update.
+     *
+     * Through the scalar `invertX`/`invertY` pair rather than `invert`, whose
+     * `Pair` would allocate four times on every frame — this runs inside
+     * `compositeIntoAccum`, on the §2.4 render path. The one allocation that
+     * remains is the returned `IntRect`, unchanged from before; "nothing may
+     * allocate" is the direction this walks, not a state it reaches.
      */
     private fun visibleCanvasRect(screenTransform: ScreenTransform): IntRect {
-        val corners = listOf(
-            screenTransform.invert(0f, 0f),
-            screenTransform.invert(viewportWidth.toFloat(), 0f),
-            screenTransform.invert(viewportWidth.toFloat(), viewportHeight.toFloat()),
-            screenTransform.invert(0f, viewportHeight.toFloat()),
-        )
+        val vw = viewportWidth.toFloat()
+        val vh = viewportHeight.toFloat()
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE
         var maxY = -Float.MAX_VALUE
-        for ((x, y) in corners) {
-            if (!x.isFinite() || !y.isFinite()) return IntRect(0, 0, canvas.width, canvas.height)
-            minX = minOf(minX, x); maxX = maxOf(maxX, x)
-            minY = minOf(minY, y); maxY = maxOf(maxY, y)
+        // The four corners as a 2×2 walk over the viewport's edges; the
+        // min/max accumulation below is order-independent, so no ordering
+        // comment has to stay in sync with index arithmetic.
+        for (right in 0..1) {
+            for (bottom in 0..1) {
+                val sx = if (right == 1) vw else 0f
+                val sy = if (bottom == 1) vh else 0f
+                val x = screenTransform.invertX(sx, sy)
+                val y = screenTransform.invertY(sx, sy)
+                if (!x.isFinite() || !y.isFinite()) {
+                    return IntRect(0, 0, canvas.width, canvas.height)
+                }
+                minX = minOf(minX, x); maxX = maxOf(maxX, x)
+                minY = minOf(minY, y); maxY = maxOf(maxY, y)
+            }
         }
         val margin = SANDWICH_MARGIN_PX
         return IntRect(

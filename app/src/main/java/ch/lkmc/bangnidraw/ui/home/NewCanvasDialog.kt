@@ -37,7 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -45,6 +44,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.CanvasOrientation
@@ -77,21 +77,23 @@ import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWhite
 @Composable
 fun NewCanvasDialog(
     budget: MemoryBudget.Result,
+    /** Captured by the screen because an AlertDialog reports its own window. */
+    screenSizePx: IntSize,
     onDismiss: () -> Unit,
     onCreate: (CanvasSize, paperColor: Int) -> Unit,
 ) {
     val presets = CanvasPresets.forDevice(budget)
-    val windowSize = LocalWindowInfo.current.containerSize
     val defaults = NewCanvasDefaultsPolicy.forWindow(
         presets = presets,
-        windowWidthPx = windowSize.width,
-        windowHeightPx = windowSize.height,
+        windowWidthPx = screenSizePx.width,
+        windowHeightPx = screenSizePx.height,
     )
     var selected by rememberSaveable { mutableIntStateOf(defaults.presetIndex) }
     var customW by rememberSaveable { mutableStateOf("2048") }
     var customH by rememberSaveable { mutableStateOf("2048") }
-    var orientation by rememberSaveable { mutableStateOf(defaults.orientation) }
+    var orientationOverride by rememberSaveable { mutableStateOf<CanvasOrientation?>(null) }
     var paper by rememberSaveable { mutableIntStateOf(PaperSwatchWhite.toArgb()) }
+    val orientation = orientationOverride ?: defaults.orientation
 
     val isCustom = selected == presets.size
     val chosenSize: CanvasSize? = if (isCustom) {
@@ -175,12 +177,12 @@ fun NewCanvasDialog(
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = orientation == CanvasOrientation.LANDSCAPE,
-                            onClick = { orientation = CanvasOrientation.LANDSCAPE },
+                            onClick = { orientationOverride = CanvasOrientation.LANDSCAPE },
                             label = { Text(stringResource(R.string.orientation_landscape)) },
                         )
                         FilterChip(
                             selected = orientation == CanvasOrientation.PORTRAIT,
-                            onClick = { orientation = CanvasOrientation.PORTRAIT },
+                            onClick = { orientationOverride = CanvasOrientation.PORTRAIT },
                             label = { Text(stringResource(R.string.orientation_portrait)) },
                         )
                     }

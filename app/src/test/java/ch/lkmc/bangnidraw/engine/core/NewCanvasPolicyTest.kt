@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.engine.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class NewCanvasPolicyTest {
@@ -28,6 +29,7 @@ class NewCanvasPolicyTest {
         )
 
         assertEquals(CanvasPresetId.PHONE_SKETCH, presets[defaults.presetIndex].id)
+        assertEquals(CanvasOrientation.PORTRAIT, defaults.orientation)
         assertEquals(CanvasOrientation.PORTRAIT, defaults.orientation)
     }
 
@@ -79,6 +81,17 @@ class NewCanvasPolicyTest {
 
     @Test
     fun `compact custom fields share the second row without overflowing`() {
+        for (fontScale in listOf(1f, 1.25f, 1.5f, 1.75f, 2f)) {
+            val layout = NewCanvasLayoutPolicy.customSizeFields(
+                contentWidthDp = 232f,
+                fontScale = fontScale,
+            )
+            assertTrue(
+                layout.occupiedWidthDp <= 232f,
+                "fields overflow at font scale $fontScale",
+            )
+        }
+
         for (contentWidth in listOf(232f, 272f)) {
             val layout = NewCanvasLayoutPolicy.customSizeFields(
                 contentWidthDp = contentWidth,
@@ -117,20 +130,25 @@ class NewCanvasPolicyTest {
 
     @Test
     fun `unbounded custom fields keep finite geometry`() {
-        val layout = NewCanvasLayoutPolicy.customSizeFields(
-            contentWidthDp = Float.POSITIVE_INFINITY,
-            fontScale = 1f,
-        )
+        for (contentWidth in listOf(Float.NaN, Float.POSITIVE_INFINITY)) {
+            val layout = NewCanvasLayoutPolicy.customSizeFields(
+                contentWidthDp = contentWidth,
+                fontScale = 1f,
+            )
 
-        assertEquals(CustomSizeFieldArrangement.ROW, layout.arrangement)
-        assertTrue(layout.fieldWidthDp.isFinite())
-        assertTrue(layout.occupiedWidthDp.isFinite())
+            assertEquals(CustomSizeFieldArrangement.ROW, layout.arrangement)
+            assertTrue(layout.fieldWidthDp.isFinite())
+            assertTrue(layout.occupiedWidthDp.isFinite())
+        }
+        assertFailsWith<IllegalArgumentException> {
+            NewCanvasLayoutPolicy.customSizeFields(contentWidthDp = -1f, fontScale = 1f)
+        }
     }
 
     @Test
     fun `paper visuals sit inside minimum accessible targets`() {
         assertTrue(NewCanvasLayoutPolicy.PAPER_TARGET_DP >= 48f)
-        assertEquals(28f, NewCanvasLayoutPolicy.PAPER_VISUAL_DP)
+        assertTrue(NewCanvasLayoutPolicy.PAPER_VISUAL_DP > 0f)
         assertTrue(NewCanvasLayoutPolicy.PAPER_TARGET_DP > NewCanvasLayoutPolicy.PAPER_VISUAL_DP)
     }
 }

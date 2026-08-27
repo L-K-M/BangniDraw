@@ -47,6 +47,9 @@ internal object NewCanvasDefaultsPolicy {
 
 internal enum class CustomSizeFieldArrangement { ROW, COLUMN }
 
+private const val CUSTOM_SIZE_FIELD_COUNT = 2
+private const val CUSTOM_SIZE_GAP_COUNT = 2
+
 internal data class CustomSizeFieldLayout(
     val arrangement: CustomSizeFieldArrangement,
     val fieldWidthDp: Float,
@@ -58,14 +61,11 @@ internal data class CustomSizeFieldLayout(
     val occupiedWidthDp: Float
         get() = when (arrangement) {
             CustomSizeFieldArrangement.ROW ->
-                FIELD_COUNT * fieldWidthDp + separatorWidthDp + GAP_COUNT * gapDp
+                CUSTOM_SIZE_FIELD_COUNT * fieldWidthDp +
+                    separatorWidthDp +
+                    CUSTOM_SIZE_GAP_COUNT * gapDp
             CustomSizeFieldArrangement.COLUMN -> fieldWidthDp
         }
-
-    private companion object {
-        const val FIELD_COUNT = 2
-        const val GAP_COUNT = 2
-    }
 }
 
 /** Pure compact-layout decisions for the New Canvas dialog. */
@@ -75,9 +75,6 @@ internal object NewCanvasLayoutPolicy {
     const val PAPER_VISUAL_DP = 28f
 
     fun customSizeFields(contentWidthDp: Float, fontScale: Float): CustomSizeFieldLayout {
-        require(!contentWidthDp.isNaN() && contentWidthDp >= 0f) {
-            "contentWidthDp must be non-negative"
-        }
         require(fontScale.isFinite() && fontScale > 0f) {
             "fontScale must be finite and positive"
         }
@@ -85,12 +82,14 @@ internal object NewCanvasLayoutPolicy {
         val scale = maxOf(1f, fontScale)
         val minimumFieldWidth = BASE_MIN_FIELD_WIDTH_DP * scale
         val separatorWidth = BASE_SEPARATOR_WIDTH_DP * scale
-        if (!contentWidthDp.isFinite()) {
+        // BoxWithConstraints reports an unbounded width as Dp.Unspecified (NaN).
+        if (contentWidthDp.isNaN() || contentWidthDp.isInfinite()) {
             return layout(CustomSizeFieldArrangement.ROW, minimumFieldWidth, separatorWidth)
         }
+        require(contentWidthDp >= 0f) { "contentWidthDp must be non-negative" }
 
-        val fixedWidth = separatorWidth + GAP_DP * GAP_COUNT
-        val rowFieldWidth = maxOf(0f, contentWidthDp - fixedWidth) / FIELD_COUNT
+        val fixedWidth = separatorWidth + GAP_DP * CUSTOM_SIZE_GAP_COUNT
+        val rowFieldWidth = maxOf(0f, contentWidthDp - fixedWidth) / CUSTOM_SIZE_FIELD_COUNT
         if (rowFieldWidth >= minimumFieldWidth) {
             return layout(CustomSizeFieldArrangement.ROW, rowFieldWidth, separatorWidth)
         }
@@ -109,8 +108,6 @@ internal object NewCanvasLayoutPolicy {
         separatorWidthDp = separatorWidthDp,
     )
 
-    private const val FIELD_COUNT = 2
-    private const val GAP_COUNT = 2
     private const val GAP_DP = 8f
     private const val BASE_SEPARATOR_WIDTH_DP = 24f
 

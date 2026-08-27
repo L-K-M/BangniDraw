@@ -250,7 +250,11 @@ class CanvasPresetsTest {
             val default = presets[defaults.presetIndex]
             assertTrue(default.enabled, "the dialog must not open on a disabled row")
             val oriented = default.oriented(defaults.orientation)
-            assertTrue(oriented.width <= 1080 && oriented.height <= 2400)
+            assertTrue(
+                oriented.width <= 1080 && oriented.height <= 2400,
+                "${default.id} at ${defaults.orientation} " +
+                    "(${oriented.width}x${oriented.height}) does not fit 1080x2400",
+            )
             assertTrue(
                 default.maxLayers >= PerfConstants.MIN_USEFUL_LAYERS,
                 "${default.id} only holds ${default.maxLayers} layers on a phone",

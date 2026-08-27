@@ -90,12 +90,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
@@ -243,6 +244,7 @@ private fun CanvasContent(
         ?.swatches
         .orEmpty()
     val recentScroll = rememberScrollState()
+    val recentPaletteFocusRequester = remember { FocusRequester() }
     var historyReadout by remember { mutableIntStateOf(0) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
 
@@ -260,6 +262,11 @@ private fun CanvasContent(
 
     fun updateView(next: ViewTransform) {
         view = next
+    }
+
+    fun dismissRecentSwatches() {
+        showRecentSwatches = false
+        runCatching { recentPaletteFocusRequester.requestFocus() }
     }
 
     // 06 §4's one honest toast per open, when something could not be read.
@@ -665,10 +672,11 @@ private fun CanvasContent(
     // Keyed on the handler, not Unit: a recreated handler starts from an
     // identity transform, and without re-seeding its first gesture would
     // measure from the wrong baseline and jump.
-    LaunchedEffect(touch, state.touchDrawingMode, state.pressurePreference) {
+    LaunchedEffect(touch, state.touchDrawingMode, state.pressurePreference, state.snapRightAngles) {
         touch.setView(view)
         touch.stylusOnly = state.touchDrawingMode == TouchDrawingMode.STYLUS_ONLY
         touch.pressureCurve = PressureCurve.of(preference = state.pressurePreference)
+        touch.snapRightAngles = state.snapRightAngles
     }
 
     val shortcutContext = if (
@@ -995,6 +1003,7 @@ private fun CanvasContent(
                 onFillSettingsRequested = {
                     viewModel.togglePanel(CanvasPanel.FILL_SETTINGS)
                 },
+                onEraserToggle = viewModel::toggleEraserPreset,
                 onSizeChanged = viewModel::updateActiveToolSize,
                 onOpacityChanged = viewModel::updateActiveToolOpacity,
                 onTuningFinished = viewModel::persistBrushTuning,
@@ -1034,8 +1043,9 @@ private fun CanvasContent(
                         showRecentSwatches = true
                     }
                 },
+                recentPaletteFocusRequester = recentPaletteFocusRequester,
                 onShare = {
-                    sharePainting(context, viewModel, ImageEncode.Format.PNG)
+                    sharePainting(context, viewModel, ImageEncode.Format.PNG, paintingName)
                 },
                 onExportPng = {
                     exportPainting(context, viewModel, ImageEncode.Format.PNG)
@@ -1053,7 +1063,7 @@ private fun CanvasContent(
             // from the strip's swatch. The scrim below it consumes the
             // dismissing tap so it never draws (the panel rule, §4.1).
             if (showRecentSwatches) {
-                BackHandler { showRecentSwatches = false }
+                BackHandler { dismissRecentSwatches() }
                 // The hoisted scroll state outlives the popover; each open
                 // starts at the newest swatches.
                 LaunchedEffect(Unit) { recentScroll.scrollTo(0) }
@@ -1069,7 +1079,7 @@ private fun CanvasContent(
                 LaunchedEffect(showRecentSwatches, recentScroll.isScrollInProgress) {
                     if (
                         !recentScroll.isScrollInProgress &&
-                        !accessibilityManager.hasActiveScreenReader()
+                        accessibilityManager?.hasActiveScreenReader() != true
                     ) {
                         // Switch Access (FEEDBACK_GENERIC) is missed by
                         // hasActiveScreenReader but is far slower than a
@@ -1085,12 +1095,13 @@ private fun CanvasContent(
                         // wait ran (its volume-key shortcut), and yanking the
                         // popover mid-traversal is the exact failure the
                         // guard exists to prevent.
-                        if (!accessibilityManager.hasActiveScreenReader()) {
-                            showRecentSwatches = false
+                        if (accessibilityManager?.hasActiveScreenReader() != true) {
+                            dismissRecentSwatches()
                         }
                     }
                 }
                 val interaction = remember { MutableInteractionSource() }
+                val recentDismissLabel = stringResource(R.string.palette_recent_dismiss)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1098,9 +1109,14 @@ private fun CanvasContent(
                         .clickable(
                             interactionSource = interaction,
                             indication = null,
-                            onClick = { showRecentSwatches = false },
+                            onClick = { dismissRecentSwatches() },
                         )
-                        .clearAndSetSemantics {},
+                        .clearAndSetSemantics {
+                            onClick(label = recentDismissLabel) {
+                                dismissRecentSwatches()
+                                true
+                            }
+                        },
                 )
                 RecentPopover(
                     colors = recentColors,
@@ -1108,7 +1124,7 @@ private fun CanvasContent(
                     scrollState = recentScroll,
                     onSelected = { color ->
                         viewModel.selectBrushColor(color)
-                        showRecentSwatches = false
+                        dismissRecentSwatches()
                     },
                 )
             }
@@ -1210,6 +1226,7 @@ private fun CanvasContent(
                     shape = MaterialTheme.shapes.medium,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
+                        .semantics { liveRegion = LiveRegionMode.Assertive }
                         .padding(16.dp),
                 ) {
                     Text(
@@ -1731,6 +1748,7 @@ private fun sharePainting(
     context: android.content.Context,
     viewModel: CanvasViewModel,
     format: ImageEncode.Format,
+    title: String,
 ) {
     viewModel.share(
         format = format,
@@ -1740,7 +1758,8 @@ private fun sharePainting(
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(send, null))
+            // The painting's name heads the chooser, as in the Studio.
+            context.startActivity(Intent.createChooser(send, title))
         },
         onFailure = {
             Toast.makeText(context, R.string.studio_share_failed, Toast.LENGTH_SHORT).show()

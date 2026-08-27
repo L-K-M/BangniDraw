@@ -246,6 +246,8 @@ fun StudioScreen(
                         }
                     }
                     items(state.paintings, key = { it.id }) { painting ->
+                        // Read in composition so a locale change re-renders it.
+                        val untitledName = stringResource(R.string.studio_untitled)
                         PaintingCell(
                             painting = painting,
                             hapticsMode = state.hapticsMode,
@@ -294,7 +296,10 @@ fun StudioScreen(
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                         }
                                         context.startActivity(
-                                            Intent.createChooser(send, painting.title),
+                                            Intent.createChooser(
+                                                send,
+                                                painting.title.ifBlank { untitledName },
+                                            ),
                                         )
                                     },
                                     onFailed = {
@@ -363,6 +368,7 @@ fun StudioScreen(
             onTouchDrawingMode = viewModel::setTouchDrawingMode,
             onPenButtonAction = viewModel::setPenButtonAction,
             onPressurePreference = viewModel::setPressurePreference,
+            onSnapRightAngles = viewModel::setSnapRightAngles,
             onHapticsMode = viewModel::setHapticsMode,
             onGallerySync = viewModel::setGallerySync,
             onMixerChoice = viewModel::setMixerChoice,
@@ -423,7 +429,7 @@ private fun PaintingCell(
     var renaming by remember { mutableStateOf(false) }
     var sharing by remember { mutableStateOf(false) }
     val view = LocalView.current
-    val title = painting.title.ifEmpty { stringResource(R.string.studio_untitled) }
+    val title = painting.title.ifBlank { stringResource(R.string.studio_untitled) }
     val cellShape = RoundedCornerShape(CELL_RADIUS_DP.dp)
 
     Column(

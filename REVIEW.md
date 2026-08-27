@@ -1733,3 +1733,32 @@ touchscreen hover too, not only a pen.
   and its readout updates live in the shipped v1.0.1+. A `withFrameNanos`
   sampling loop would double-represent state the snapshot system already
   invalidates.
+
+## PR #58 — Canvas share chooser title (2026-08-27)
+
+- **R-101 ⏸️ Round 1, major: "Empty painting name produces a blank chooser
+  title."** Refuted at the call site: the title handed to `sharePainting`
+  is `paintingName`, which `CanvasContent` builds as `state.title.ifBlank
+  { stringResource(R.string.studio_untitled) }` (already the a11y
+  description's value). A blank title cannot reach the chooser; adding a
+  second fallback inside `sharePainting` would guard a state the caller's
+  contract excludes.
+
+- **R-102 🟢 Round 1, minor: `ifEmpty` misses whitespace-only titles.**
+  Applied: the Studio chooser fallback and — for consistency with it — the
+  cell's own Untitled display now use `ifBlank`, so a blank-stored title
+  shows and shares the same name.
+
+- **R-103 ⏸️ Round 1, minor, outside diff: add `ClipData.newRawUri` so the
+  `EXTRA_STREAM` grant propagates.** Declined: the grant-propagation gap
+  the finding describes is pre-API-24 and OEM-specific below that band;
+  minSdk is 29 (ADR 0002) and `Intent.createChooser` propagates
+  `FLAG_GRANT_READ_URI_PERMISSION` on every API this app runs. The extra
+  ClipData would be dead defence here; revisit if a device report ever
+  shows a `SecurityException` out of a share.
+
+- **R-104 ⏸️ Round 1, minor, outside diff: a failed Canvas share toasts
+  the save-failure string.** Real, and applied in PR #62 ("Report Studio
+  action outcomes"), which adds `studio_share_failed` to both locales and
+  repoints both share paths at it. Keeping the string change out of this
+  PR's scope.

@@ -32,6 +32,7 @@ import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -81,6 +82,7 @@ class StudioViewModel @Inject constructor(
         val touchDrawingMode: TouchDrawingMode = TouchDrawingMode.ENABLED,
         val penButtonAction: PenButtonAction = PenButtonAction.Eraser,
         val pressurePreference: PressurePreference = PressurePreference.LINEAR,
+        val snapRightAngles: Boolean = false,
         val hapticsMode: HapticsMode = HapticsMode.ENABLED,
         val gallerySync: Boolean = true,
         val mixerChoice: MixerChoice = MixerChoice.PIGMENT,
@@ -120,6 +122,11 @@ class StudioViewModel @Inject constructor(
         viewModelScope.launch {
             prefs.pressurePreference.collect { value ->
                 _uiState.update { it.copy(pressurePreference = value) }
+            }
+        }
+        viewModelScope.launch {
+            prefs.snapRightAngles.collect { value ->
+                _uiState.update { it.copy(snapRightAngles = value) }
             }
         }
         viewModelScope.launch {
@@ -177,6 +184,10 @@ class StudioViewModel @Inject constructor(
         viewModelScope.launch { prefs.setPressurePreference(value) }
     }
 
+    internal fun setSnapRightAngles(value: Boolean) {
+        viewModelScope.launch { prefs.setSnapRightAngles(value) }
+    }
+
     internal fun setHapticsMode(value: HapticsMode) {
         viewModelScope.launch { prefs.setHapticsMode(value) }
     }
@@ -214,8 +225,13 @@ class StudioViewModel @Inject constructor(
             for (summary in stale) {
                 val doc = (store.load(summary.id) as? ProjectStore.LoadResult.Loaded)
                     ?.document ?: continue
-                val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
-                val png = ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
+                val png = try {
+                    val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+                    ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
+                } catch (e: Exception) {
+                    reportRenderFailure("sync render failed", e)
+                    continue
+                }
                 val outcome = exporter.sync(
                     recordedUri = doc.galleryUri,
                     recordedModifiedAt = doc.galleryModifiedAt,
@@ -254,8 +270,14 @@ class StudioViewModel @Inject constructor(
                 withContext(Dispatchers.Main) { onFailed() }
                 return@launch
             }
-            val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
-            val bytes = ImageEncode.encode(rgba, doc.width, doc.height, format, quality = 90)
+            val bytes = try {
+                val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+                ImageEncode.encode(rgba, doc.width, doc.height, format, quality = SHARE_QUALITY)
+            } catch (e: Exception) {
+                reportRenderFailure("share render failed", e)
+                withContext(Dispatchers.Main) { onFailed() }
+                return@launch
+            }
             val name = GalleryNames.sanitizeDisplayName(
                 doc.title,
                 context.getString(R.string.studio_untitled),
@@ -265,7 +287,7 @@ class StudioViewModel @Inject constructor(
             val uri = try {
                 shareCache.stage("$name.$ext", bytes)
             } catch (e: IOException) {
-                android.util.Log.w("StudioViewModel", "share staging failed", e)
+                android.util.Log.w(LOG_TAG, "share staging failed", e)
                 withContext(Dispatchers.Main) { onFailed() }
                 return@launch
             }
@@ -304,7 +326,7 @@ class StudioViewModel @Inject constructor(
             try {
                 store.create(document)
             } catch (e: IOException) {
-                android.util.Log.w("StudioViewModel", "create failed", e)
+                android.util.Log.w(LOG_TAG, "create failed", e)
                 withContext(Dispatchers.Main) { onFailed() }
                 return@launch
             }
@@ -322,15 +344,20 @@ class StudioViewModel @Inject constructor(
             val ok = if (doc == null) {
                 false
             } else {
-                val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
-                exporter.saveAs(
-                    GalleryNames.sanitizeDisplayName(
-                        doc.title,
-                        context.getString(R.string.studio_untitled),
-                    ),
-                    ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG),
-                    ImageEncode.Format.PNG,
-                )
+                try {
+                    val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+                    exporter.saveAs(
+                        GalleryNames.sanitizeDisplayName(
+                            doc.title,
+                            context.getString(R.string.studio_untitled),
+                        ),
+                        ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG),
+                        ImageEncode.Format.PNG,
+                    )
+                } catch (e: Exception) {
+                    reportRenderFailure("save-as render failed", e)
+                    false
+                }
             }
             val outcome = if (ok) GalleryExportOutcome.SUCCESS else GalleryExportOutcome.FAILURE
             withContext(Dispatchers.Main) { onDone(outcome) }
@@ -374,7 +401,7 @@ class StudioViewModel @Inject constructor(
     fun rename(id: String, title: String, onDone: (Boolean) -> Unit) {
         val trimmed = title.trim()
         if (trimmed.isEmpty()) {
-            onDone(false)
+            onDone(true)
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -382,5 +409,16 @@ class StudioViewModel @Inject constructor(
             refresh()
             withContext(Dispatchers.Main) { onDone(renamed) }
         }
+    }
+
+    private fun reportRenderFailure(message: String, error: Exception) {
+        if (error is CancellationException) throw error
+
+        android.util.Log.w(LOG_TAG, message, error)
+    }
+
+    private companion object {
+        const val LOG_TAG = "StudioViewModel"
+        const val SHARE_QUALITY = 90
     }
 }

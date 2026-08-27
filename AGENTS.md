@@ -133,6 +133,10 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - An `AlertDialog` owns a smaller, separate window. Capture activity-window
   dimensions in its caller before applying screen-fit defaults; do not read
   `LocalWindowInfo` from inside the dialog.
+- The full rail stays at ten tools as the brush library grows. Five paint
+  slots show the core set; selecting a library brush replaces the last core
+  paint until another is selected. Keep the full preset catalog in the brush
+  settings sheet, not in the fixed-height rail.
 - App display name lives ONLY in `strings.xml` (`app_name`). Never
   hardcode "帮你Draw" in a composable (rename checklist: PLAN.md "Renaming").
 - Colors come from `ui/theme/Color.kt` — no ad-hoc `Color(0x…)` in

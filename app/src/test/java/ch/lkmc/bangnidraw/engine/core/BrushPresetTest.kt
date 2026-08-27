@@ -42,6 +42,20 @@ class BrushPresetTest {
         )
     }
 
+    @Test
+    fun `a selected library brush replaces the last core rail paint`() {
+        val library = BrushPresets.DEFAULT.copy(id = BrushPresets.DRY_BRUSH_ID)
+        val presets = BrushPresets.RAIL_ORDER.map { id ->
+            BrushPresets.DEFAULT.copy(id = id, eraseMode = id.contains("eraser"))
+        }
+
+        val visible = BrushPresets.railPaints(presets, library.id)
+
+        assertEquals(5, visible.size)
+        assertEquals(library.id, visible.last().id)
+        assertTrue(visible.none { it.id == BrushPresets.MARKER_ID })
+    }
+
     private fun preset(id: String = "test.brush") = BrushPreset(id = id, name = "Test")
 
     @Test

@@ -205,7 +205,7 @@ class Dab(   // conceptually; eleven parallel FloatArrays in DabBatch
     val hardness: Float,
     val angle: Float,                // radians
     val aspect: Float,               // 1 = round
-    val seed: Float,                 // active phase; stable for one Chinese-ink stroke
+    val seed: Float,                 // per-dab Standard phase; fixed per Chinese-ink stroke
     val wetness: Float,              // contacted-tuft ink load, 0..1; ordinary dabs use 1
     val bristleAlong: Float,         // transported material coordinates
     val bristleAcross: Float,        // ordinary dabs use 0 for both
@@ -242,14 +242,16 @@ as at full pressure. Spacing is expressed in canvas px and the path is in
 canvas px, which is the "invariant under resolution" test in PLAN §7.
 
 **Chinese ink state.** `BrushModel.ChineseInk` gives `builtin.calligraphy`
-a flexible tuft rather than a rigid chisel. A directionless first touch is
-round. Once the stroke moves, its target axis follows the stabilized path,
+(the stable stored id retained from the display rename) a flexible tuft rather
+than a rigid chisel. A directionless first touch is round. Once the stroke moves,
+its target axis follows the stabilized path,
 nudged toward stylus azimuth as tilt rises; the tuft eases toward that target
 and preserves its incoming direction through a turn. Pressure splays the tuft
 from point to belly. A pressure increase at zero path length emits a new dab
 at the same centre, so pressing in place forms a stroke head.
 
-One stroke seed fixes the bristle lanes. `wetness` begins loaded and decays
+One stroke seed fixes the bristle lanes. A separate canvas-fixed hash gives
+every stroke the same paper tooth. `wetness` begins loaded and decays
 with swept canvas distance, accelerated by speed; it never decays per emitted
 dab, so changing spacing cannot change how soon the brush runs dry. Constant
 flow keeps retained hairs ink-black; pressure changes contact geometry. Its
@@ -357,7 +359,7 @@ alpha in one stroke however many times it crosses itself — exactly the
 ```kotlin
 class Stabilizer(strength: Float) {         // 0..1
     fun reset(p: StrokeInput)               // output = input
-    fun push(raw: StrokeInput, out: StrokeInput): Boolean  // changed position/dynamics
+    fun push(raw: StrokeInput, out: StrokeInput): Boolean  // moved ≥ 0.05 px, or ChineseInk dynamics changed
     fun finish(out: StrokeInput): Int       // emits catch-up samples toward the last raw point
 }
 ```

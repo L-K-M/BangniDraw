@@ -341,6 +341,50 @@ class DabGeneratorTest {
     }
 
     @Test
+    fun `Chinese ink contains malformed contact dynamics`() {
+        data class Contact(
+            val label: String,
+            val tilt: Float = 0f,
+            val orientation: Float = 0f,
+            val radius: Float = 10f,
+        )
+
+        val contacts = listOf(
+            Contact("tilt", tilt = Float.NaN),
+            Contact("orientation", orientation = Float.NaN),
+            Contact("radius", radius = Float.NaN),
+        )
+
+        for (contact in contacts) {
+            val dynamics = InkBrushDynamics(
+                baseRadius = 20f,
+                patternSeed = 0.4f,
+                tip = TipShape.Flat(0.58f),
+                orientation = TipOrientation.StrokeDirection,
+            )
+            val ink = InkBrushSample()
+            dynamics.reset(0.5f)
+            dynamics.prepareSegment(
+                pathAngle = 0f,
+                distance = 20f,
+                pressure = 0.5f,
+                tiltFraction = contact.tilt,
+                stylusAngle = contact.orientation,
+                contactRadius = contact.radius,
+                speedFraction = 0f,
+            )
+            dynamics.writeSampleAt(1f, ink)
+            dynamics.finishSegment(0.5f)
+
+            assertTrue(ink.angle.isFinite(), "${contact.label} poisoned the tuft angle")
+            assertTrue(ink.wetness.isFinite(), "${contact.label} poisoned the ink load")
+            assertTrue(ink.bristleAlong.isFinite(), "${contact.label} poisoned the along phase")
+            assertTrue(ink.bristleAcross.isFinite(), "${contact.label} poisoned the across phase")
+            assertTrue(dynamics.currentAngle().isFinite(), "${contact.label} poisoned later segments")
+        }
+    }
+
+    @Test
     fun `a stroke shorter than one step does not double-dot`() {
         // `04` §3.4: `begin` already placed a dab, so the residual carry must
         // not emit one on top of it.

@@ -67,12 +67,16 @@ internal class InkBrushDynamics(
         contactRadius: Float,
         speedFraction: Float,
     ) {
-        val stylusWeight = smoothUnit(tiltFraction) * STYLUS_AXIS_WEIGHT
+        // One malformed digitizer sample must not poison the remaining stroke.
+        val tilt = if (tiltFraction.isFinite()) tiltFraction.coerceIn(0f, 1f) else 0f
+        val penAngle = if (stylusAngle.isFinite()) stylusAngle else pathAngle
+        val radius = if (contactRadius.isFinite()) contactRadius.coerceAtLeast(0f) else baseRadius
+        val stylusWeight = smoothUnit(tilt) * STYLUS_AXIS_WEIGHT
         val target = when (orientation) {
             TipOrientation.Fixed -> 0f
-            TipOrientation.Stylus -> stylusAngle
+            TipOrientation.Stylus -> penAngle
             TipOrientation.StrokeDirection ->
-                pathAngle + axisDelta(pathAngle, stylusAngle) * stylusWeight
+                pathAngle + axisDelta(pathAngle, penAngle) * stylusWeight
         }
         if (!axisReady) {
             axis = target
@@ -87,15 +91,15 @@ internal class InkBrushDynamics(
         segmentBristleAcrossStart = bristleAcross
         responseLength = maxOf(
             MIN_RESPONSE_PX,
-            contactRadius * (RESPONSE_BASE + RESPONSE_PRESSURE * normalizedPressure(pressure)),
+            radius * (RESPONSE_BASE + RESPONSE_PRESSURE * normalizedPressure(pressure)),
         )
 
         segmentInkStart = inkUse
-        val radiusFraction = (contactRadius / maxOf(baseRadius, 1f)).coerceIn(0f, 1f)
+        val radiusFraction = (radius / maxOf(baseRadius, 1f)).coerceIn(0f, 1f)
         val contact = MIN_INK_CONTACT + (1f - MIN_INK_CONTACT) * radiusFraction
         segmentInkEnd = inkUse + distance / maxOf(baseRadius, 1f) * contact
 
-        val push = abs(cos(pathAngle - stylusAngle)) * tiltFraction
+        val push = abs(cos(pathAngle - penAngle)) * tilt
         val drying = 1f - FAST_DRYING * speedFraction.coerceIn(0f, 1f) - PUSH_DRYING * push
         segmentDrying = drying.coerceIn(MIN_DRYING, 1f)
     }

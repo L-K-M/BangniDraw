@@ -13,7 +13,9 @@ class DabPassDirtyContractTest {
     @Test
     fun `dab pass uploads the complete core dab layout`() {
         val source = File(repositoryRoot(), DAB_PASS_PATH).readText()
-        val compact = source.replace(Regex("""\s+"""), "")
+        val compact = source
+            .replace(Regex("""//[^\n]*|/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("""\s+"""), "")
 
         assertEquals(11, PerfConstants.DAB_STRIDE)
         assertTrue("constvalDAB_FLOATS=DAB_STRIDE" in compact)

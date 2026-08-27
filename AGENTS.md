@@ -200,7 +200,8 @@ and the contradiction is noted here.
   depletes `Dab.wetness` by swept distance rather than dab count. One seed
   persists for the stroke. CPU and GLSL derive the same stroke-local
   split-bristle lanes; dry gaps are zero coverage while surviving hairs stay
-  dark. Both phase coordinates integrate centre motion in the lagged tuft
+  dark. Paper tooth is one canvas-fixed hash shared by every stroke. Both
+  phase coordinates integrate centre motion in the lagged tuft
   frame; a scalar arc length cannot preserve lanes when the tuft moves across
   its own axis. Prediction must copy all of that state. `StrokeDriver` selects
   the dynamics-aware stabilizer

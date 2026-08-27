@@ -118,6 +118,7 @@ class BrushPresetStore internal constructor(
             decoded.id == BrushPresets.CALLIGRAPHY_ID &&
             MODEL_KEY !in element.jsonObject
         ) {
+            Log.i(TAG, "upgrading legacy user brush $source to ChineseInk")
             decoded.copy(model = BrushModel.ChineseInk)
         } else {
             decoded

@@ -606,7 +606,8 @@ eraser/button precedence is pinned in JVM tests. **The per-preset and S Pen
 device checks have not been run — no device has ever been available.**
 
 **Extended.** Seven specialty presets later joined the same JSON/dab path:
-charcoal, soft pastel, technical pen, Chinese ink brush (formerly Calligraphy),
+charcoal, soft pastel, technical pen, Chinese ink brush (formerly Calligraphy;
+stored id `builtin.calligraphy` retained for user overrides),
 dry brush, oil paint, and pigment wash. Chinese ink selects
 `BrushModel.ChineseInk`: stateful tuft direction and pressure splay on the CPU
 feed a stable stroke-local split-hair mask and distance-based wetness on

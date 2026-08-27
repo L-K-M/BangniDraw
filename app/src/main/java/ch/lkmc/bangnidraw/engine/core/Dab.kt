@@ -25,7 +25,7 @@ data class Dab(
     val angle: Float,
     /** Minor/major axis; 1 is round. */
     val aspect: Float,
-    /** Reserved texture-grain phase, derived from the stroke seed. */
+    /** Standard per-dab phase; fixed for one Chinese ink stroke. */
     val seed: Float,
     /** Ink remaining in the contacted tuft; 1 for ordinary dabs. */
     val wetness: Float = 1f,
@@ -163,12 +163,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         require(radius >= Dab.MIN_RADIUS && radius <= Dab.MAX_RADIUS) {
             "dab radius $radius is outside ${Dab.MIN_RADIUS}..${Dab.MAX_RADIUS}"
         }
-        require(wetness.isFinite() && wetness in 0f..1f) {
-            "dab wetness must be 0..1, was $wetness"
-        }
-        require(bristleAlong.isFinite() && bristleAcross.isFinite()) {
-            "dab bristle coordinates must be finite, were $bristleAlong, $bristleAcross"
-        }
+        requireExtendedState(seed, wetness, bristleAlong, bristleAcross)
         DabBounds.requireValid(x, y, radius)
         if (isFull) return false
         val i = count
@@ -200,12 +195,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         require(radius in Dab.MIN_RADIUS..Dab.MAX_RADIUS) {
             "dab radius $radius is outside ${Dab.MIN_RADIUS}..${Dab.MAX_RADIUS}"
         }
-        require(wetness.isFinite() && wetness in 0f..1f) {
-            "dab wetness must be 0..1, was $wetness"
-        }
-        require(bristleAlong.isFinite() && bristleAcross.isFinite()) {
-            "dab bristle coordinates must be finite, were $bristleAlong, $bristleAcross"
-        }
+        requireExtendedState(seed, wetness, bristleAlong, bristleAcross)
         DabBounds.requireValid(x, y, radius)
 
         write(
@@ -213,6 +203,23 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
             bristleAlong, bristleAcross,
         )
         includeDirtyDab(x, y, radius)
+    }
+
+    private fun requireExtendedState(
+        seed: Float,
+        wetness: Float,
+        bristleAlong: Float,
+        bristleAcross: Float,
+    ) {
+        require(seed.isFinite() && seed in 0f..1f) {
+            "dab seed must be 0..1, was $seed"
+        }
+        require(wetness.isFinite() && wetness in 0f..1f) {
+            "dab wetness must be 0..1, was $wetness"
+        }
+        require(bristleAlong.isFinite() && bristleAcross.isFinite()) {
+            "dab bristle coordinates must be finite, were $bristleAlong, $bristleAcross"
+        }
     }
 
     private fun includeDirtyDab(x: Float, y: Float, radius: Float) {

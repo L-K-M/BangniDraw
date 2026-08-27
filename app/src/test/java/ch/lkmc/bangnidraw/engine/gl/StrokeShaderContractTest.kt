@@ -371,6 +371,24 @@ class StrokeShaderContractTest {
     }
 
     @Test
+    fun `dab frag skips procedural work outside the footprint`() {
+        val fragment = stripped(dabFrag)
+        val coverage = fragment.indexOf("float m =")
+        val emptyReturn = fragment.indexOf("if (m <= 0.0)")
+        val transparentOutput = fragment.indexOf("o_color = vec4(0.0)", emptyReturn)
+        val returnStatement = fragment.indexOf("return", emptyReturn)
+        val grain = fragment.indexOf("if (u_grainMode")
+        val ink = fragment.indexOf("if (u_brushModel")
+
+        assertTrue(coverage >= 0, "the base dab mask is missing")
+        assertTrue(emptyReturn > coverage, "empty fragments must return after base coverage")
+        assertTrue(transparentOutput > emptyReturn, "empty fragments must write transparent output")
+        assertTrue(returnStatement > transparentOutput, "empty fragments must write before returning")
+        assertTrue(emptyReturn < grain, "empty fragments must skip procedural grain")
+        assertTrue(emptyReturn < ink, "empty fragments must skip the Chinese ink mask")
+    }
+
+    @Test
     fun `Chinese ink uploads persistent bristle state to the shader`() {
         val vertex = stripped(dabVert)
         val fragment = stripped(dabFrag)
@@ -382,7 +400,8 @@ class StrokeShaderContractTest {
         assertTrue(vertex.contains("v_axisMajor = axisMajor"), "bristle lanes need the transported brush axis")
         assertTrue(vertex.contains("v_center = i_center"), "the mask must use dab-local coordinates")
         assertTrue(
-            fragment.contains("u_brushModel == ${BrushModel.ChineseInk.shaderId}"),
+            Regex("u_brushModel == ${BrushModel.ChineseInk.shaderId}\\b")
+                .containsMatchIn(fragment),
             "the specialized mask must be selected from the preset model",
         )
         assertTrue(fragment.contains("v_bristleAlong"), "turns must transport along phase")
@@ -392,6 +411,14 @@ class StrokeShaderContractTest {
         assertTrue(fragment.contains("${InkBrushMask.BRISTLE_WIDTH_PX}"))
         assertTrue(fragment.contains("${InkBrushMask.BREAK_LENGTH_PX}"))
         assertTrue(fragment.contains("${InkBrushMask.DRY_THRESHOLD_MAX}"))
+        assertTrue(
+            fragment.contains("inkHashUnit(paperX, paperY, ${InkBrushMask.PAPER_SEED}u)"),
+            "paper tooth must stay fixed across strokes",
+        )
+        assertTrue(
+            !fragment.contains("seed ^ ${InkBrushMask.PAPER_SEED}u"),
+            "stroke seed must not move the paper tooth",
+        )
     }
 
     @Test

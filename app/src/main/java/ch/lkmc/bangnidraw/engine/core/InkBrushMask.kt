@@ -34,21 +34,23 @@ internal object InkBrushMask {
 
         // Anisotropic value noise yields irregular hair clusters without the
         // mechanical comb pattern of equally spaced stripes.
-        val seed = seedKey(dab.seed)
+        // Off-path CPU callers degrade malformed seeds to the zero phase.
+        val seedPhase = if (dab.seed.isFinite()) dab.seed else 0f
+        val seed = seedKey(seedPhase)
         val fiber = valueNoise2(
-            across / BRISTLE_WIDTH_PX + dab.seed * BRISTLE_PHASE,
-            along / BREAK_LENGTH_PX + dab.seed * BREAK_PHASE,
+            across / BRISTLE_WIDTH_PX + seedPhase * BRISTLE_PHASE,
+            along / BREAK_LENGTH_PX + seedPhase * BREAK_PHASE,
             seed,
         )
         val tuft = valueNoise1(
-            across / TUFT_WIDTH_PX + dab.seed * TUFT_PHASE,
+            across / TUFT_WIDTH_PX + seedPhase * TUFT_PHASE,
             seed.toInt(),
             seed xor TUFT_SALT,
         )
 
         val paperX = floor(px).toInt()
         val paperY = floor(py).toInt()
-        val paper = hashUnit(paperX, paperY, seed xor PAPER_SALT)
+        val paper = hashUnit(paperX, paperY, PAPER_SEED)
 
         var height = lerp(fiber, tuft, TUFT_WEIGHT)
         height -= dry * PAPER_TOOTH_DEPTH * (1f - paper)
@@ -62,10 +64,8 @@ internal object InkBrushMask {
         )
     }
 
-    private fun seedKey(seed: Float): UInt {
-        val finite = if (seed.isFinite()) seed else 0f
-        return floor(finite.coerceIn(0f, 1f) * SEED_SCALE).toUInt()
-    }
+    private fun seedKey(seed: Float): UInt =
+        floor(seed.coerceIn(0f, 1f) * SEED_SCALE).toUInt()
 
     private fun hashUnit(x: Int, y: Int, seed: UInt): Float {
         var hash = x.toUInt() * HASH_X + y.toUInt() * HASH_Y + seed * HASH_SEED
@@ -124,5 +124,5 @@ internal object InkBrushMask {
     const val HASH_SHIFT_A = 16
     const val HASH_SHIFT_B = 13
     const val TUFT_SALT = 2_891_336_453u
-    const val PAPER_SALT = 1_597_334_677u
+    const val PAPER_SEED = 1_597_334_677u
 }

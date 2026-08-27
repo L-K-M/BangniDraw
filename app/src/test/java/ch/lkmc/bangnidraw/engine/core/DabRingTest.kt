@@ -33,6 +33,19 @@ class DabRingTest {
     }
 
     @Test
+    fun `a batch keeps non-finite pattern seeds off the GPU`() {
+        val batch = DabBatch(capacity = 2)
+
+        assertFailsWith<IllegalArgumentException> {
+            batch.add(0f, 0f, 1f, 1f, 1f, 0f, 1f, Float.NaN)
+        }
+        assertTrue(batch.add(0f, 0f, 1f, 1f, 1f, 0f, 1f, 0f))
+        assertFailsWith<IllegalArgumentException> {
+            batch.replace(0, 0f, 0f, 1f, 1f, 1f, 0f, 1f, Float.POSITIVE_INFINITY)
+        }
+    }
+
+    @Test
     fun `a full batch reports it rather than throwing or overwriting`() {
         // A full batch is the normal rhythm of a long stroke: the producer
         // publishes and takes the next slot. Silently overwriting dab 0 would

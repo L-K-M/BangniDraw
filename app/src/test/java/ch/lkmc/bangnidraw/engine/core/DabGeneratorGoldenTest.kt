@@ -184,8 +184,11 @@ class DabGeneratorGoldenTest {
         .filter { it.isNotEmpty() }
         .map { line ->
             val f = line.split(' ').filter { it.isNotEmpty() }.map(String::toFloat)
-            require(f.size == PerfConstants.DAB_STRIDE) {
-                "a golden row must have ${PerfConstants.DAB_STRIDE} fields, was \"$line\""
+            require(PerfConstants.DAB_STRIDE == GOLDEN_FIELD_COUNT) {
+                "GoldenDab consumes $GOLDEN_FIELD_COUNT fields; update it with DAB_STRIDE"
+            }
+            require(f.size == GOLDEN_FIELD_COUNT) {
+                "a golden row must have $GOLDEN_FIELD_COUNT fields, was \"$line\""
             }
             GoldenDab(
                 f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8], f[9], f[10],
@@ -291,6 +294,8 @@ class DabGeneratorGoldenTest {
     private companion object {
         /** `11-testing.md` §6's comparison tolerance. */
         const val PX_EPS = 1e-3f
+
+        const val GOLDEN_FIELD_COUNT = 11
 
         const val INPUT_RESOURCE = "fixtures/golden-stroke/ink-pen-loop.json"
         const val GOLDEN_RESOURCE = "fixtures/golden-stroke/ink-pen-loop.dabs.txt"

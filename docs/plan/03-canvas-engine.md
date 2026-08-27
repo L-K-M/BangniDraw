@@ -544,7 +544,8 @@ class StrokeSpec(                   // fixed for the whole stroke
 )
 
 /** A dab is a slot in a DabBatch (SoA FloatArrays, 02 §3.2); the eleven fields are
- *  x, y, radius, flow, hardness, angle, aspect, seed, wetness,
+ *  x, y, radius, flow, hardness, angle, aspect,
+ *  seed (per dab for Standard; stroke-fixed for ChineseInk), wetness,
  *  bristleAlong, bristleAcross
  *  = DAB_STRIDE (10 §4).
  *  Colour, stroke opacity and brush model are per stroke (uniforms), never per dab.
@@ -626,7 +627,7 @@ layout(location = 3) in float i_hardness;  // 0..1
 layout(location = 4) in float i_flow;      // 0..1 (already through the curves)
 layout(location = 5) in float i_angle;     // radians, orientation of the major axis
 layout(location = 6) in float i_aspect;    // minor/major, 0 < aspect ≤ 1
-layout(location = 7) in float i_seed;      // active grain/bristle phase
+layout(location = 7) in float i_seed;      // per-dab Standard / stroke-fixed ChineseInk phase
 layout(location = 8) in float i_wetness;   // contacted-tuft ink load; ordinary dabs use 1
 layout(location = 9) in float i_bristleAlong;  // transported material phase; ordinary dabs use 0
 layout(location = 10) in float i_bristleAcross;

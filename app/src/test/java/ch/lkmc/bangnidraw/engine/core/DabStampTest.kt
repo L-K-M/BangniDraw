@@ -311,6 +311,25 @@ class DabStampTest {
     }
 
     @Test
+    fun `Chinese ink contains a non-finite pattern seed`() {
+        val reference = dab(
+            radius = 20f,
+            hardness = 1f,
+            aspect = 0.6f,
+            seed = 0f,
+            wetness = 0.18f,
+        )
+        val expected = InkBrushMask.weight(2.5f, 1.5f, reference)
+
+        for (seed in floatArrayOf(Float.NaN, Float.POSITIVE_INFINITY)) {
+            val actual = InkBrushMask.weight(2.5f, 1.5f, reference.copy(seed = seed))
+
+            assertTrue(actual.isFinite(), "seed $seed produced $actual")
+            assertEquals(expected, actual, 1e-6f, "non-finite seeds must use the zero phase")
+        }
+    }
+
+    @Test
     fun `a dry Chinese ink tuft leaves dark bristles and real paper gaps`() {
         val dry = dab(
             x = 40f,

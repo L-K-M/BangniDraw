@@ -82,7 +82,7 @@ class StrokeDriverTest {
     }
 
     @Test
-    fun `a stationary press reaches the flexible tuft through the stabilizer`() {
+    fun `a stationary press reaches the flexible tuft through the dynamics-aware gate`() {
         val brush = preset(stabilizer = 0f).copy(
             pressureSize = Curve.Linear,
             model = BrushModel.ChineseInk,

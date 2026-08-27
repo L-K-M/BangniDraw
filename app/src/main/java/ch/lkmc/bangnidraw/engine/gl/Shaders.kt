@@ -569,7 +569,7 @@ object Shaders {
 
             int paperX = int(floor(canvas.x));
             int paperY = int(floor(canvas.y));
-            float paper = inkHashUnit(paperX, paperY, seed ^ ${InkBrushMask.PAPER_SALT}u);
+            float paper = inkHashUnit(paperX, paperY, ${InkBrushMask.PAPER_SEED}u);
             float height = mix(fiber, tuft, ${InkBrushMask.TUFT_WEIGHT});
             height -= dry * ${InkBrushMask.PAPER_TOOTH_DEPTH} * (1.0 - paper);
 
@@ -592,6 +592,11 @@ object Shaders {
             float feather = max(fwidth(d), ${DabStamp.GRADIENT_EPSILON});
             float inner = clamp(min(r * v_hardness, r - feather), 0.0, r);
             float m = 1.0 - smoothstep(inner, r, d);
+            // Empty quad corners skip the procedural hashes.
+            if (m <= 0.0) {
+                o_color = vec4(0.0);
+                return;
+            }
             if (u_grainMode == ${GrainMode.Procedural.shaderId}) m *= proceduralGrain(v_canvas);
             if (u_brushModel == ${BrushModel.ChineseInk.shaderId}) {
                 m *= inkBrushMask(

@@ -134,6 +134,51 @@
          would reissue a live name. The display resolver (step 6) appends the
          number. -->
     <string name="layer_default" translatable="false">Layer</string>
+    <string name="layer_default_display">Layer</string>
+    <string name="layer_copy_suffix">" copy"</string>
+    <string name="layer_flattened">Flattened</string>
+    <string name="layers_title">Layers</string>
+    <string name="layers_count">%1$d / %2$d</string>
+    <string name="layer_add">Add layer</string>
+    <string name="layer_more">Layer actions</string>
+    <string name="layer_panel_more">Layer panel actions</string>
+    <string name="layer_drag">Reorder layer</string>
+    <string name="layer_show">Show layer</string>
+    <string name="layer_hide">Hide layer</string>
+    <string name="layer_opacity">Layer opacity</string>
+    <string name="layer_opacity_value">%1$d%%</string>
+    <string name="layer_rename">Rename</string>
+    <string name="layer_duplicate">Duplicate</string>
+    <string name="layer_merge_down">Merge down</string>
+    <string name="layer_clear">Clear</string>
+    <string name="layer_alpha_lock">Alpha lock</string>
+    <string name="layer_lock">Lock</string>
+    <string name="layer_blend_mode">Blend mode</string>
+    <string name="layer_delete">Delete</string>
+    <string name="layer_flatten">Flatten</string>
+    <string name="layer_paper">Paper</string>
+    <string name="layer_confirm">Continue</string>
+    <string name="layer_cancel">Cancel</string>
+    <string name="layer_rename_title">Rename layer</string>
+    <string name="layer_rename_hint">Layer name</string>
+    <string name="layer_merge_title">Merge these layers?</string>
+    <string name="layer_merge_body">Their blend modes will be baked into a Normal layer.</string>
+    <string name="layer_flatten_title">Flatten %1$d layers?</string>
+    <string name="layer_flatten_body">Hidden layers are discarded. You can undo this.</string>
+    <string name="layer_limit">This %1$d×%2$d canvas allows %3$d layers on this device. Merge or delete a layer to add one.</string>
+    <string name="layer_only">Can’t delete the only layer — clear it instead.</string>
+    <string name="layer_locked">Layer is locked.</string>
+    <string name="layer_hidden_partner">Show both layers to merge.</string>
+    <string name="layer_no_below">There is no layer below.</string>
+    <string name="layer_no_change">Nothing changed.</string>
+    <string name="blend_normal">Normal</string>
+    <string name="blend_multiply">Multiply</string>
+    <string name="blend_screen">Screen</string>
+    <string name="blend_overlay">Overlay</string>
+    <string name="blend_darken">Darken</string>
+    <string name="blend_lighten">Lighten</string>
+    <string name="blend_add">Add</string>
+    <string name="blend_difference">Difference</string>
     <string name="canvas_open_failed">This painting could not be opened. Its files are left untouched.</string>
     <string name="canvas_newer_version">This painting was made by a newer version of 帮你Draw.</string>
 

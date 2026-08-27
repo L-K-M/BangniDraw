@@ -44,6 +44,7 @@ import ch.lkmc.bangnidraw.engine.core.LayerHistory
 import ch.lkmc.bangnidraw.engine.core.LayerHistoryEdit
 import ch.lkmc.bangnidraw.engine.core.LayerHistoryResult
 import ch.lkmc.bangnidraw.engine.core.LayerId
+import ch.lkmc.bangnidraw.engine.core.LayerOpacityGesture
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.LayerTileUpdates
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
@@ -92,6 +93,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+
+private enum class DocumentWork {
+    START,
+    ALREADY_STARTED,
+}
 
 /**
  * The Canvas screen's persistence half (roadmap 3a + 3b): opens or creates
@@ -146,8 +152,10 @@ class CanvasViewModel @Inject constructor(
             val eraserEndPreset: String,
             val layerCap: Int,
             val strokeInFlight: Boolean = false,
+            val documentBusy: Boolean = false,
             val pendingActionCount: Int = 0,
             val layerRefusal: Refusal? = null,
+            val layerFeedbackRevision: Long = 0L,
         ) : UiState
     }
 
@@ -252,6 +260,8 @@ class CanvasViewModel @Inject constructor(
     private val applyBusy: Boolean get() = actionGate.busy
     private var layerCap = 1
     private var layerRefusal: Refusal? = null
+    private var layerFeedbackRevision = 0L
+    private var opacityGesture: LayerOpacityGesture? = null
 
     private var session: EngineSession? = null
 
@@ -413,8 +423,10 @@ class CanvasViewModel @Inject constructor(
             eraserEndPreset = eraserEndPreset,
             layerCap = layerCap,
             strokeInFlight = actionGate.strokeInFlight,
+            documentBusy = actionGate.busy,
             pendingActionCount = actionGate.pendingCount,
             layerRefusal = layerRefusal,
+            layerFeedbackRevision = layerFeedbackRevision,
         )
     }
 
@@ -437,8 +449,10 @@ class CanvasViewModel @Inject constructor(
 
         _uiState.value = state.copy(
             strokeInFlight = actionGate.strokeInFlight,
+            documentBusy = actionGate.busy,
             pendingActionCount = actionGate.pendingCount,
             layerRefusal = layerRefusal,
+            layerFeedbackRevision = layerFeedbackRevision,
         )
     }
 
@@ -727,6 +741,50 @@ class CanvasViewModel @Inject constructor(
     fun setLayerOpacity(index: Int, opacity: Float) =
         requestAction(CanvasDocumentAction.SetLayerOpacity(index, opacity))
 
+    /** Previews against the GPU stack; the document and journal stay unchanged. */
+    fun previewLayerOpacity(index: Int, opacity: Float): Boolean {
+        val doc = document ?: return false
+        val engine = session ?: return false
+        var gesture = opacityGesture
+        if (gesture == null) {
+            if (actionGate.busy || actionGate.strokeInFlight) return false
+
+            gesture = LayerOpacityGesture.begin(doc.stack, index) ?: return false
+            actionGate.beginWork()
+            updateHistoryUi()
+            updateInteractionUi()
+        }
+
+        val nextGesture = gesture.withValue(opacity)
+        val preview = nextGesture.preview(doc.stack) ?: return false
+        opacityGesture = nextGesture
+        engine.setStack(preview)
+        return true
+    }
+
+    /** Commits every preview from one drag as one `LayerProps` entry. */
+    fun finishLayerOpacity() {
+        val gesture = opacityGesture ?: return
+        opacityGesture = null
+        val doc = document
+        if (doc == null) {
+            finishDocumentWork()
+            return
+        }
+        if (session == null) {
+            finishDocumentWork()
+            return
+        }
+
+        when (val result = gesture.finish(doc.stack)) {
+            is StackResult.Ok -> applyStackEdit(result.edit, DocumentWork.ALREADY_STARTED)
+            is StackResult.Refused -> {
+                session?.setStack(doc.stack)
+                finishDocumentWork()
+            }
+        }
+    }
+
     fun toggleLayerVisibility(index: Int) =
         requestAction(CanvasDocumentAction.ToggleLayerVisibility(index))
 
@@ -832,14 +890,16 @@ class CanvasViewModel @Inject constructor(
         when (result) {
             is StackResult.Ok -> applyStackEdit(result.edit)
             is StackResult.Refused -> {
-                layerRefusal = result.reason
-                updateInteractionUi()
+                emitLayerFeedback(result.reason)
             }
             null -> Unit
         }
     }
 
-    private fun applyStackEdit(edit: StackEdit) {
+    private fun applyStackEdit(
+        edit: StackEdit,
+        work: DocumentWork = DocumentWork.START,
+    ) {
         val doc = document ?: return
         val engine = session ?: return
         val invalidation = LayerEditPolicy.invalidation(doc.stack, edit.entry) ?: return
@@ -851,7 +911,7 @@ class CanvasViewModel @Inject constructor(
             addAll(LayerEditPolicy.changedTiles(doc.stack, edit.pixels))
         }.toList()
 
-        actionGate.beginWork()
+        if (work == DocumentWork.START) actionGate.beginWork()
         updateHistoryUi()
         engine.applyLayerEdit(
             stack = edit.stack,
@@ -873,6 +933,8 @@ class CanvasViewModel @Inject constructor(
             },
         ) { result ->
             if (result == LayerEditResult.REFUSED) {
+                engine.setStack(doc.stack)
+                emitLayerFeedback(Refusal.NOOP)
                 finishDocumentWork()
                 return@applyLayerEdit
             }
@@ -883,6 +945,7 @@ class CanvasViewModel @Inject constructor(
             if (state is UiState.Ready) {
                 _uiState.value = state.copy(stack = edit.stack, paperColor = paperColor)
             }
+            emitLayerFeedback(refusal = null)
             if (paperColor != doc.paperColor) engine.setPaperColor(paperColor)
             dirty = true
             contentDirty = true
@@ -933,6 +996,12 @@ class CanvasViewModel @Inject constructor(
         updateHistoryUi()
         updateInteractionUi()
         if (next != null) executeAction(next)
+    }
+
+    private fun emitLayerFeedback(refusal: Refusal?) {
+        layerRefusal = refusal
+        layerFeedbackRevision += 1
+        updateInteractionUi()
     }
 
     /** Main thread. One apply at a time; later requests are parked. */

@@ -3,15 +3,25 @@ package ch.lkmc.bangnidraw.ui.canvas
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -127,6 +137,8 @@ private fun CanvasContent(
     var session by remember { mutableStateOf<EngineSession?>(null) }
     var hoverRevision by remember { mutableIntStateOf(0) }
     var showBrushSettings by remember { mutableStateOf(false) }
+    var showLayers by remember { mutableStateOf(false) }
+    BackHandler(enabled = showLayers) { showLayers = false }
 
     // The stroke in flight. Plain vars, not Compose state: they change several
     // hundred times a second on the input path and nothing draws from them, so
@@ -493,13 +505,18 @@ private fun CanvasContent(
                 brushColor = state.brushColor,
                 onBrushSelected = {
                     showBrushSettings = false
+                    showLayers = false
                     viewModel.selectBrush(it)
                 },
                 onEyedropperSelected = {
                     showBrushSettings = false
+                    showLayers = false
                     viewModel.selectEyedropper()
                 },
-                onSettingsRequested = { showBrushSettings = true },
+                onSettingsRequested = {
+                    showLayers = false
+                    showBrushSettings = true
+                },
                 onSizeChanged = viewModel::updateBrushSize,
                 onOpacityChanged = viewModel::updateBrushOpacity,
                 onTuningFinished = viewModel::persistBrushTuning,
@@ -538,6 +555,19 @@ private fun CanvasContent(
                         contentDescription = stringResource(R.string.canvas_redo),
                         tint = if (state.canRedo) MaterialTheme.colorScheme.onBackground
                         else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        showBrushSettings = false
+                        showLayers = !showLayers
+                    },
+                ) {
+                    Icon(
+                        Icons.Filled.Layers,
+                        contentDescription = stringResource(R.string.layers_title),
+                        tint = if (showLayers) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onBackground,
                     )
                 }
                 Text(
@@ -588,6 +618,58 @@ private fun CanvasContent(
                     )
                 }
             }
+
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val compact = maxWidth < COMPACT_WIDTH.dp
+                val panelWidth = if (compact) minOf(PANEL_MAX.dp, maxWidth * PANEL_COMPACT_FRACTION)
+                else if (maxWidth < EXPANDED_WIDTH.dp) PANEL_MEDIUM.dp else PANEL_MAX.dp
+                val railPadding = if (compact) 0.dp else PANEL_RAIL_GAP.dp
+                AnimatedVisibility(
+                    visible = showLayers,
+                    enter = slideInHorizontally(
+                        animationSpec = tween(PANEL_ANIMATION_MS),
+                        initialOffsetX = { it },
+                    ) + fadeIn(tween(PANEL_ANIMATION_MS)),
+                    exit = slideOutHorizontally(
+                        animationSpec = tween(PANEL_ANIMATION_MS),
+                        targetOffsetX = { it },
+                    ) + fadeOut(tween(PANEL_ANIMATION_MS)),
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = railPadding)
+                        .width(panelWidth)
+                        .fillMaxHeight(),
+                ) {
+                    LayerPanel(
+                        canvas = state.canvas,
+                        stack = state.stack,
+                        paperColor = state.paperColor,
+                        layerCap = state.layerCap,
+                        compact = compact,
+                        documentBusy = state.documentBusy,
+                        feedbackRevision = state.layerFeedbackRevision,
+                        refusal = state.layerRefusal,
+                        thumbnails = emptyMap(),
+                        onDismiss = { showLayers = false },
+                        onSelect = viewModel::selectLayer,
+                        onAdd = viewModel::addLayer,
+                        onDelete = viewModel::deleteLayer,
+                        onDuplicate = viewModel::duplicateLayer,
+                        onMove = viewModel::moveLayer,
+                        onMergeDown = viewModel::mergeLayerDown,
+                        onFlatten = viewModel::flattenLayers,
+                        onClear = viewModel::clearLayer,
+                        onRename = viewModel::renameLayer,
+                        onOpacityPreview = viewModel::previewLayerOpacity,
+                        onOpacityFinished = viewModel::finishLayerOpacity,
+                        onToggleVisibility = viewModel::toggleLayerVisibility,
+                        onBlendMode = viewModel::setLayerBlendMode,
+                        onToggleAlphaLock = viewModel::toggleLayerAlphaLock,
+                        onToggleLock = viewModel::toggleLayerLock,
+                        onPaperColor = viewModel::setPaperColor,
+                    )
+                }
+            }
         }
     }
 
@@ -609,6 +691,13 @@ private fun CanvasContent(
 
 /** 8 dp squares, per `03-canvas-engine.md` §3.2 step 1. */
 private const val CHECKER_DP = 8
+private const val COMPACT_WIDTH = 600
+private const val EXPANDED_WIDTH = 840
+private const val PANEL_MEDIUM = 300
+private const val PANEL_MAX = 320
+private const val PANEL_RAIL_GAP = 64
+private const val PANEL_ANIMATION_MS = 220
+private const val PANEL_COMPACT_FRACTION = 0.85f
 
 /**
  * The stroke in flight, plus the colour it paints with.

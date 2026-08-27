@@ -21,19 +21,33 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,6 +73,8 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
@@ -68,6 +84,8 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -89,6 +107,7 @@ import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasDialog
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
+import ch.lkmc.bangnidraw.engine.core.ColorText
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
@@ -99,6 +118,7 @@ import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.HintVisibility
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
+import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import ch.lkmc.bangnidraw.engine.core.PressureCurve
 import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
@@ -206,6 +226,12 @@ private fun CanvasContent(
     var session by remember { mutableStateOf<EngineSession?>(null) }
     var hoverRevision by remember { mutableIntStateOf(0) }
     var textInputFocus by remember { mutableStateOf(TextInputFocus.CLEAR) }
+    var showRecentSwatches by remember { mutableStateOf(false) }
+    val recentColors = state.color.palettes
+        .firstOrNull { it.id == PaletteCatalog.RECENT_ID }
+        ?.swatches
+        .orEmpty()
+    val recentScroll = rememberScrollState()
     var historyReadout by remember { mutableIntStateOf(0) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
 
@@ -931,6 +957,14 @@ private fun CanvasContent(
                 onUndoLongPress = { historyReadout++ },
                 onLayers = { viewModel.togglePanel(CanvasPanel.LAYERS) },
                 onColor = { viewModel.togglePanel(CanvasPanel.COLOR) },
+                onColorLongPress = {
+                    // No colours painted yet: the panel is the honest answer.
+                    if (recentColors.isEmpty()) {
+                        viewModel.togglePanel(CanvasPanel.COLOR)
+                    } else {
+                        showRecentSwatches = true
+                    }
+                },
                 onShare = {
                     sharePainting(context, viewModel, ImageEncode.Format.PNG)
                 },
@@ -943,6 +977,70 @@ private fun CanvasContent(
                 onFocus = viewModel::toggleFocus,
                 onRename = viewModel::requestRename,
                 onSettings = onSettings,
+                )
+            }
+
+            // The quick palette: the last colours painted with, one tap away
+            // from the strip's swatch. The scrim below it consumes the
+            // dismissing tap so it never draws (the panel rule, §4.1).
+            if (showRecentSwatches) {
+                BackHandler { showRecentSwatches = false }
+                // The hoisted scroll state outlives the popover; each open
+                // starts at the newest swatches.
+                LaunchedEffect(Unit) { recentScroll.scrollTo(0) }
+                // The auto-dismiss pauses while the user is scrolling the
+                // swatch list, and never runs while a screen reader is
+                // active — TalkBack traversal of a row of hex-named swatches
+                // cannot fit a fixed window (WCAG 2.2.1). Read fresh on
+                // every restart and again after the delay, so enabling
+                // TalkBack mid-session is honored.
+                val accessibilityManager = context.getSystemService(
+                    android.view.accessibility.AccessibilityManager::class.java,
+                )
+                LaunchedEffect(showRecentSwatches, recentScroll.isScrollInProgress) {
+                    if (
+                        !recentScroll.isScrollInProgress &&
+                        !accessibilityManager.hasActiveScreenReader()
+                    ) {
+                        // Switch Access (FEEDBACK_GENERIC) is missed by
+                        // hasActiveScreenReader but is far slower than a
+                        // fixed window; the platform's per-user "time to take
+                        // action" scales the wait for exactly that audience.
+                        delay(
+                            accessibilityManager?.getRecommendedTimeoutMillis(
+                                RECENT_POPOVER_MS.toInt(),
+                                android.view.accessibility.AccessibilityManager.FLAG_CONTENT_CONTROLS,
+                            )?.toLong() ?: RECENT_POPOVER_MS,
+                        )
+                        // Re-check: TalkBack may have been enabled while the
+                        // wait ran (its volume-key shortcut), and yanking the
+                        // popover mid-traversal is the exact failure the
+                        // guard exists to prevent.
+                        if (!accessibilityManager.hasActiveScreenReader()) {
+                            showRecentSwatches = false
+                        }
+                    }
+                }
+                val interaction = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(RECENT_SCRIM_Z)
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = null,
+                            onClick = { showRecentSwatches = false },
+                        )
+                        .clearAndSetSemantics {},
+                )
+                RecentPopover(
+                    colors = recentColors,
+                    current = state.color.current,
+                    scrollState = recentScroll,
+                    onSelected = { color ->
+                        viewModel.selectBrushColor(color)
+                        showRecentSwatches = false
+                    },
                 )
             }
 
@@ -1286,6 +1384,93 @@ private fun CanvasPanelContent(
     }
 }
 
+/**
+ * The strip swatch's long-press palette: the last colours painted with, as
+ * 48 dp targets in a wrapping row. Dismissed by its scrim, a selection, or
+ * the timeout.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BoxScope.RecentPopover(
+    colors: List<Int>,
+    current: Int,
+    scrollState: ScrollState,
+    onSelected: (Int) -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = MaterialTheme.shapes.large,
+        tonalElevation = 4.dp,
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .padding(top = RECENT_POPOVER_TOP.dp)
+            .zIndex(CHROME_Z)
+            .widthIn(max = RECENT_POPOVER_MAX.dp),
+    ) {
+        Column(Modifier.padding(8.dp)) {
+            Text(
+                text = stringResource(R.string.palette_recent),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier
+                    .heightIn(max = RECENT_POPOVER_MAX_HEIGHT.dp)
+                    .verticalScroll(scrollState),
+            ) {
+                for (color in colors) {
+                    val selected = color == current
+                    val border = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outline
+                    }
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(RECENT_TARGET.dp)
+                            .semantics {
+                                contentDescription = ColorText.hex(color)
+                                this.selected = selected
+                            }
+                            .clickable { onSelected(color) },
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(RECENT_VISUAL.dp)
+                                .clip(CircleShape)
+                                .border(
+                                    if (selected) 2.dp else 1.dp,
+                                    border,
+                                    CircleShape,
+                                ),
+                        ) {
+                            Canvas(Modifier.fillMaxSize()) { drawCircle(Color(color)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Whether a screen reader is driving this session: touch exploration
+ * (TalkBack's classic mode) or any enabled service that speaks. Deliberately
+ * NOT every accessibility service — a password manager or screen dimmer
+ * (FEEDBACK_GENERIC) must not freeze the popover's auto-dismiss. Slower
+ * non-spoken navigation (Switch Access) is not exempted.
+ */
+private fun android.view.accessibility.AccessibilityManager?.hasActiveScreenReader(): Boolean =
+    this?.let { am ->
+        am.isTouchExplorationEnabled ||
+            am.getEnabledAccessibilityServiceList(
+                android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_SPOKEN,
+            ).isNotEmpty()
+    } == true
+
 @Composable
 private fun panelAnnouncement(panel: CanvasPanel?, kind: ToolKind? = null): String = when (panel) {
     CanvasPanel.LAYERS -> stringResource(R.string.panel_layers_opened)
@@ -1500,6 +1685,13 @@ private const val CHROME_Z = 2f
 private const val HINT_Z = 3f
 private const val RESET_DAMPING_RATIO = 0.8f
 private const val CHROME_ANIMATION_MS = 180
+private const val RECENT_POPOVER_MS = 4_000L
+private const val RECENT_SCRIM_Z = CHROME_Z
+private const val RECENT_POPOVER_TOP = 56
+private const val RECENT_POPOVER_MAX = 336
+private const val RECENT_POPOVER_MAX_HEIGHT = 240
+private const val RECENT_TARGET = 48
+private const val RECENT_VISUAL = 34
 private const val HISTORY_READOUT_MS = 2_000L
 private const val HISTORY_READOUT_TOP = 56
 private val READOUT_GAP = 8.dp

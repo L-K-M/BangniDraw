@@ -64,7 +64,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusProperties
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -72,6 +74,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.traversalIndex
@@ -799,7 +802,14 @@ private fun CanvasContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .safeDrawingPadding(),
+                .safeDrawingPadding()
+                // While a leave is flushing, the chrome is off-limits to
+                // every input modality: pointer events hit the closing
+                // scrim, and this drops the chrome from focus traversal and
+                // the accessibility tree so keyboard/TalkBack cannot reach
+                // it either.
+                .focusProperties { canFocus = !state.closing }
+                .semantics { if (state.closing) invisibleToUser() },
         ) {
             val chromeVisible = state.chrome.focusMode == FocusMode.CHROME
             val chromeAnimationMs = if (ValueAnimator.areAnimatorsEnabled()) {
@@ -1124,8 +1134,8 @@ private fun CanvasContent(
                         // The scrim is the front-most hit node while visible:
                         // consume every change of every gesture, so no tap,
                         // drag or stroke can reach the chrome or the canvas
-                        // mid-flush. It also takes keyboard focus, so DeX and
-                        // TalkBack cannot activate the chrome beneath it.
+                        // mid-flush. Focus and a11y gating for the chrome
+                        // lives on the chrome box itself.
                         .focusRequester(scrimFocus)
                         .focusable()
                         .pointerInput(Unit) {

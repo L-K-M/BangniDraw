@@ -675,6 +675,16 @@ private fun CanvasContent(
             maxHeight.value - verticalInsetDp - LayoutSpec.TOP_STRIP_DP
             ).toInt().coerceAtLeast(0)
         val layout = LayoutSpec.forWindow(widthClass, railHeight, state.handedness)
+        val undoAvailability = if (state.canUndo) {
+            ActionAvailability.ENABLED
+        } else {
+            ActionAvailability.DISABLED
+        }
+        val redoAvailability = if (state.canRedo) {
+            ActionAvailability.ENABLED
+        } else {
+            ActionAvailability.DISABLED
+        }
         LaunchedEffect(state.chrome.openPanel) {
             if (state.chrome.openPanel != CanvasPanel.COLOR) {
                 textInputFocus = TextInputFocus.CLEAR
@@ -697,6 +707,8 @@ private fun CanvasContent(
             canvasDescription = canvasDescription,
             undoLabel = stringResource(R.string.canvas_undo),
             redoLabel = stringResource(R.string.canvas_redo),
+            undoAvailability = undoAvailability,
+            redoAvailability = redoAvailability,
             onUndo = viewModel::undo,
             onRedo = viewModel::redo,
             gestureExclusionSide = if (layout.railMode == RailMode.DOCK) null else layout.railSide,
@@ -900,16 +912,8 @@ private fun CanvasContent(
             ) {
                 TopStrip(
                 layout = layout,
-                undoAvailability = if (state.canUndo) {
-                    ActionAvailability.ENABLED
-                } else {
-                    ActionAvailability.DISABLED
-                },
-                redoAvailability = if (state.canRedo) {
-                    ActionAvailability.ENABLED
-                } else {
-                    ActionAvailability.DISABLED
-                },
+                undoAvailability = undoAvailability,
+                redoAvailability = redoAvailability,
                 activeLayer = state.stack.activeIndex + 1,
                 brushColor = state.color.current,
                 openPanel = state.chrome.openPanel,

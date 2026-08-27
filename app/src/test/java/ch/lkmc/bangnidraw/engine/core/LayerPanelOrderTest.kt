@@ -75,4 +75,18 @@ class LayerPanelOrderTest {
         assertNull(LayerPanelOrder.move(3, LayerReorderAction.UP, size = 4))
         assertNull(LayerPanelOrder.move(0, LayerReorderAction.DOWN, size = 4))
     }
+
+    @Test
+    fun `rejects stale accessibility indices`() {
+        assertEquals(
+            emptyList<LayerReorderAction>(),
+            LayerPanelOrder.actions(stackIndex = -1, size = 4),
+        )
+        assertEquals(
+            emptyList<LayerReorderAction>(),
+            LayerPanelOrder.actions(stackIndex = 4, size = 4),
+        )
+        assertNull(LayerPanelOrder.move(-1, LayerReorderAction.TOP, size = 4))
+        assertNull(LayerPanelOrder.move(4, LayerReorderAction.UP, size = 4))
+    }
 }

@@ -16,6 +16,7 @@ object BrushPresets {
     const val PENCIL_ID = "builtin.pencil"
     const val INK_PEN_ID = "builtin.ink_pen"
     const val PAINTBRUSH_ID = "builtin.paintbrush"
+    const val WATERCOLOR_ID = "builtin.watercolor"
     const val AIRBRUSH_ID = "builtin.airbrush"
     const val MARKER_ID = "builtin.marker"
     const val HARD_ERASER_ID = "builtin.hard_eraser"
@@ -26,6 +27,7 @@ object BrushPresets {
         PENCIL_ID,
         INK_PEN_ID,
         PAINTBRUSH_ID,
+        WATERCOLOR_ID,
         AIRBRUSH_ID,
         MARKER_ID,
         HARD_ERASER_ID,

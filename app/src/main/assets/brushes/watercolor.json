@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "builtin.watercolor",
+  "name": "@string/preset_watercolor",
+  "icon": "watercolor",
+  "size": 90.0,
+  "sizeMin": 10.0,
+  "sizeMax": 400.0,
+  "opacity": 0.85,
+  "flow": 0.12,
+  "hardness": 0.05,
+  "spacing": 0.15,
+  "pressureSize": { "p0": 0.55, "p1": 0.75, "p2": 0.9, "p3": 1.0 },
+  "pressureFlow": { "p0": 0.0, "p1": 0.33333334, "p2": 0.6666667, "p3": 1.0 },
+  "jitter": { "size": 0.0, "position": 0.08 },
+  "stabilizer": 0.15,
+  "mixing": true,
+  "dilution": 0.7,
+  "bufferMode": "Accumulate"
+}

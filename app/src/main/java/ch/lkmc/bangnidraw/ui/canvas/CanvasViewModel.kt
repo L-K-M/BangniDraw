@@ -2121,7 +2121,7 @@ class CanvasViewModel @Inject constructor(
         leaveJob = appScope.launch {
             // The app scope has no exception handler: an uncaught failure
             // here would crash the process on its way out the door. A failed
-            // flush keeps the canvas open — logged and tosted, not fatal —
+            // flush keeps the canvas open — logged and toasted, not fatal —
             // and only a successful handoff to navigation keeps the scrim up
             // (it covers the exit transition); a swallowed navigation gets a
             // grace-period reset instead of a stranded scrim.
@@ -2134,7 +2134,9 @@ class CanvasViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 android.util.Log.e(TAG, "leave failed; canvas stays open", e)
-                withContext(Dispatchers.Main) { noteLeaveFailure() }
+                // Only a failed flush is a failed save; a navigation-only
+                // failure owes no alarming toast.
+                if (!handedOff) withContext(Dispatchers.Main) { noteLeaveFailure() }
             } finally {
                 if (!handedOff) {
                     setClosing(false)
@@ -2142,8 +2144,11 @@ class CanvasViewModel @Inject constructor(
                     // If navigation was swallowed (a cancelled predictive-back
                     // gesture, an uncollected event), lift the scrim rather
                     // than stranding it. Harmless when navigation succeeded:
-                    // the cleared ViewModel has no observers left.
-                    delay(LEAVE_HANDOFF_GRACE_MS)
+                    // the cleared ViewModel has no observers left. The delay
+                    // runs NonCancellable because the rethrown cancellation
+                    // above makes this a cancelling coroutine — a bare delay
+                    // would throw and skip the reset.
+                    withContext(NonCancellable) { delay(LEAVE_HANDOFF_GRACE_MS) }
                     setClosing(false)
                 }
             }

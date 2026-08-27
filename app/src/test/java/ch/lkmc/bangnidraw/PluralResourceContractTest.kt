@@ -34,14 +34,18 @@ class PluralResourceContractTest {
         assertTrue(valueDirectories.isNotEmpty(), "no values directories found under $resources")
 
         for (directory in valueDirectories) {
-            val strings = File(directory, STRINGS_FILE).takeIf(File::isFile) ?: continue
-            val source = strings.readText()
-            for (name in COUNT_RESOURCES) {
-                val plainString = Regex("""<string\b[^>]*\bname="$name"[^>]*>""")
-                assertFalse(
-                    plainString.containsMatchIn(source),
-                    "$name is a plain string in ${directory.name}",
-                )
+            val xmlFiles = directory.listFiles { file ->
+                file.isFile && file.extension == XML_EXTENSION
+            }.orEmpty()
+            for (xmlFile in xmlFiles) {
+                val source = xmlFile.readText()
+                for (name in COUNT_RESOURCES) {
+                    val plainString = Regex("""<string\b[^>]*\bname="$name"[^>]*>""")
+                    assertFalse(
+                        plainString.containsMatchIn(source),
+                        "$name is a plain string in ${directory.name}/${xmlFile.name}",
+                    )
+                }
             }
         }
     }
@@ -70,7 +74,7 @@ class PluralResourceContractTest {
         const val ENGLISH_STRINGS = "app/src/main/res/values/strings.xml"
         const val CHINESE_STRINGS = "app/src/main/res/values-b+zh+Hans/strings.xml"
         const val VALUES_PREFIX = "values"
-        const val STRINGS_FILE = "strings.xml"
+        const val XML_EXTENSION = "xml"
 
         val COUNT_RESOURCES = listOf(
             "studio_storage",

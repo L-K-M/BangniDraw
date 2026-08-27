@@ -110,9 +110,6 @@ class CanvasRenderer(
         return readbackPending
     }
 
-    /** `(x, y)` viewport corners, flattened; written by [onSurfaceChanged]. */
-    private val viewportCorners = FloatArray(CORNER_COMPONENTS)
-
     private val grid = TileGrid(canvas.width, canvas.height)
     private val state = GlState()
 
@@ -704,10 +701,6 @@ class CanvasRenderer(
         val previous = fit
         viewportWidth = width
         viewportHeight = height
-        viewportCorners[0] = 0f; viewportCorners[1] = 0f
-        viewportCorners[2] = width.toFloat(); viewportCorners[3] = 0f
-        viewportCorners[4] = width.toFloat(); viewportCorners[5] = height.toFloat()
-        viewportCorners[6] = 0f; viewportCorners[7] = height.toFloat()
         val next = FitTransform(
             viewWidth = width.toFloat(),
             viewHeight = height.toFloat(),
@@ -1698,19 +1691,33 @@ class CanvasRenderer(
      * same "not two corners" reasoning as `ScreenTransform.screenBoundsOf`,
      * in the other direction.
      *
+     * The corners are derived from [viewportWidth]/[viewportHeight] here
+     * rather than cached in a parallel array: two int reads and two `toFloat`
+     * calls cost the same (nothing) as a `FloatArray` read, and a second
+     * copy of the one viewport fact is exactly the kind of cache a future
+     * resize path forgets to update.
+     *
      * Through the scalar `invertX`/`invertY` pair rather than `invert`, whose
      * `Pair` would allocate four times on every frame — this runs inside
-     * `compositeIntoAccum`, so it sits squarely on the §2.4 render path where
-     * nothing may allocate.
+     * `compositeIntoAccum`, on the §2.4 render path. The one allocation that
+     * remains is the returned `IntRect`, unchanged from before; "nothing may
+     * allocate" is the direction this walks, not a state it reaches.
      */
     private fun visibleCanvasRect(screenTransform: ScreenTransform): IntRect {
+        val vw = viewportWidth.toFloat()
+        val vh = viewportHeight.toFloat()
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE
         var maxY = -Float.MAX_VALUE
-        for (i in viewportCorners.indices step XY) {
-            val x = screenTransform.invertX(viewportCorners[i], viewportCorners[i + 1])
-            val y = screenTransform.invertY(viewportCorners[i], viewportCorners[i + 1])
+        // Corners in order: (0,0), (vw,0), (vw,vh), (0,vh).
+        for (corner in 0 until CORNER_COUNT) {
+            val right = corner == 1 || corner == 2
+            val bottom = corner >= 2
+            val sx = if (right) vw else 0f
+            val sy = if (bottom) vh else 0f
+            val x = screenTransform.invertX(sx, sy)
+            val y = screenTransform.invertY(sx, sy)
             if (!x.isFinite() || !y.isFinite()) return IntRect(0, 0, canvas.width, canvas.height)
             minX = minOf(minX, x); maxX = maxOf(maxX, x)
             minY = minOf(minY, y); maxY = maxOf(maxY, y)
@@ -1871,8 +1878,7 @@ class CanvasRenderer(
         const val CHANNEL_MAX = 255f
         const val FULL_OPACITY = 1f
 
-        /** Four corners, two components each. */
-        const val CORNER_COMPONENTS = 8
-        const val XY = 2
+        /** Four viewport corners, in the order [visibleCanvasRect] walks them. */
+        const val CORNER_COUNT = 4
     }
 }

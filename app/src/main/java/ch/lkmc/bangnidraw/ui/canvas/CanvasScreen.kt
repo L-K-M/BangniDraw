@@ -960,6 +960,9 @@ private fun CanvasContent(
             // dismissing tap so it never draws (the panel rule, §4.1).
             if (showRecentSwatches) {
                 BackHandler { showRecentSwatches = false }
+                // The hoisted scroll state outlives the popover; each open
+                // starts at the newest swatches.
+                LaunchedEffect(Unit) { recentScroll.scrollTo(0) }
                 // The auto-dismiss pauses while the user is scrolling the
                 // swatch list; the countdown restarts once the scroll settles.
                 LaunchedEffect(showRecentSwatches, recentScroll.isScrollInProgress) {

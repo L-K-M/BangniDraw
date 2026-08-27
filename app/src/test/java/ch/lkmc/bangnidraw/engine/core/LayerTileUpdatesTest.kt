@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.engine.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 
 class LayerTileUpdatesTest {
 
@@ -56,5 +57,17 @@ class LayerTileUpdatesTest {
 
         assertEquals(setOf(kept, added), applied.active.tiles)
         assertEquals(applied, reapplied, "the fold and a restore's re-derivation agree")
+    }
+
+    @Test
+    fun `both folds classify tile presence through one rule`() {
+        // The readback fold and the restore fold must derive the same
+        // presence from the same bytes; a divergence is the model-vs-pixels
+        // lag this rule exists to kill.
+        val painted = ByteArray(TILE_BYTES).also { it[0] = 1 }
+
+        assertEquals(TilePresence.EMPTY, presenceOf(null))
+        assertEquals(TilePresence.EMPTY, presenceOf(ByteArray(TILE_BYTES)))
+        assertEquals(TilePresence.PAINTED, presenceOf(painted))
     }
 }

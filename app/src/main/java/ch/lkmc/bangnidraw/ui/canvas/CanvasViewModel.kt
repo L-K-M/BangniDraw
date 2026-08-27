@@ -26,7 +26,6 @@ import ch.lkmc.bangnidraw.data.ProjectStore
 import ch.lkmc.bangnidraw.data.RmwHistoryCapture
 import ch.lkmc.bangnidraw.data.ShareCache
 import ch.lkmc.bangnidraw.data.TileBufferPool
-import ch.lkmc.bangnidraw.data.TileCodec
 import ch.lkmc.bangnidraw.data.TileFlusher
 import ch.lkmc.bangnidraw.data.TileStore
 import ch.lkmc.bangnidraw.data.Thumbnails
@@ -106,6 +105,7 @@ import ch.lkmc.bangnidraw.engine.core.TemporaryReason
 import ch.lkmc.bangnidraw.engine.core.TemporaryToolTarget
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.TilePresence
+import ch.lkmc.bangnidraw.engine.core.presenceOf
 import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ToolSelection
 import ch.lkmc.bangnidraw.engine.core.ToolSwitcher
@@ -1383,11 +1383,7 @@ class CanvasViewModel @Inject constructor(
         if (pixels.remaining() != TILE_BYTES) return
         val copy = pool.acquire()
         pixels.get(copy)
-        tileUpdates[layer to key] = if (TileCodec.isAllZero(copy)) {
-            TilePresence.EMPTY
-        } else {
-            TilePresence.PAINTED
-        }
+        tileUpdates[layer to key] = presenceOf(copy)
         dirty = true
         contentDirty = true
         thumbDirty = true
@@ -2080,17 +2076,7 @@ class CanvasViewModel @Inject constructor(
         // (payloadKeys), so no (layer, key) can repeat and order cannot matter.
         for (restore in restores) {
             for ((key, bytes) in restore.tiles) {
-                put(
-                    restore.layer to key,
-                    // All-zero bytes cannot survive the journal's EMPTY marker,
-                    // but the guard keeps this fold and the checkpoint's
-                    // zero-tile rule in agreement unconditionally.
-                    if (bytes == null || bytes.all { it == ZERO_BYTE }) {
-                        TilePresence.EMPTY
-                    } else {
-                        TilePresence.PAINTED
-                    },
-                )
+                put(restore.layer to key, presenceOf(bytes))
             }
         }
     }
@@ -2391,8 +2377,6 @@ class CanvasViewModel @Inject constructor(
         const val READBACK_WAIT_MS = 2_000L
 
         const val READY_WAIT_MS = 5_000L
-
-        const val ZERO_BYTE: Byte = 0
 
         const val LAYER_THUMBNAIL_POLL_MS = 100L
 

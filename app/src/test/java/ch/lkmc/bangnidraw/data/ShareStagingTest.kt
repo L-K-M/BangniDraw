@@ -36,7 +36,10 @@ class ShareStagingTest {
         val staging = ShareStaging(root) { "share-${next++}" }
         val files = List(ShareStaging.RETAINED_PREVIOUS_SHARES + 2) { index ->
             staging.stage("Sketch.png", byteArrayOf(index.toByte())).also {
-                requireNotNull(it.parentFile).setLastModified(index.toLong() + 1L)
+                assertTrue(
+                    requireNotNull(it.parentFile).setLastModified(index.toLong() + 1L),
+                    "could not set a deterministic share timestamp",
+                )
             }
         }
 
@@ -50,8 +53,11 @@ class ShareStagingTest {
     fun `a share name must be one path segment`() {
         val staging = ShareStaging(root) { "share" }
 
-        assertFailsWith<IllegalArgumentException> {
-            staging.stage("../project.json", byteArrayOf(1))
+        val invalidNames = listOf("", " ", ".", "..", "a/b", "a\\b", "a\u0000b")
+        for (invalidName in invalidNames) {
+            assertFailsWith<IllegalArgumentException>("name <$invalidName> was accepted") {
+                staging.stage(invalidName, byteArrayOf(1))
+            }
         }
     }
 

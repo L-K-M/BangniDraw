@@ -25,6 +25,8 @@ class ShareCache @Inject constructor(
      * Older staged files beyond the last few are rotated out first — the
      * receiving app of a *previous* share may still be reading its copy, so
      * the newest are kept rather than sweeping everything.
+     *
+     * @throws IllegalArgumentException if [fileName] is not one non-empty path segment
      */
     @Throws(IOException::class)
     fun stage(fileName: String, bytes: ByteArray): Uri {

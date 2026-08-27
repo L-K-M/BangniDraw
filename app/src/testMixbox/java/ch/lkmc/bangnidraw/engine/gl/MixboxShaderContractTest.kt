@@ -7,7 +7,12 @@ import kotlin.test.assertTrue
 
 class MixboxShaderContractTest {
     private val vendored = asset().readText()
-    private val mixing = listOf(Shaders.mergeMix(vendored), Shaders.previewMix(vendored))
+    private val mixing = listOf(
+        Shaders.mergeMix(vendored),
+        Shaders.previewMix(vendored),
+        Shaders.smudgeDepositMix(vendored),
+        Shaders.smudgeAbsorbMix(vendored),
+    )
 
     @Test
     fun `mixing programs contain the vendored source verbatim`() {
@@ -35,7 +40,12 @@ class MixboxShaderContractTest {
 
     @Test
     fun `plain programs have no Mixbox cost`() {
-        for (source in listOf(Shaders.MERGE, Shaders.PREVIEW)) {
+        for (source in listOf(
+            Shaders.MERGE,
+            Shaders.PREVIEW,
+            Shaders.SMUDGE_DEPOSIT,
+            Shaders.SMUDGE_ABSORB,
+        )) {
             assertTrue("mixbox_lut" !in source.fragment, source.name)
             assertTrue("mixbox_lerp" !in source.fragment, source.name)
         }

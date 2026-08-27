@@ -1,9 +1,11 @@
 package ch.lkmc.bangnidraw.engine.gl
 
 import ch.lkmc.bangnidraw.engine.core.BlendMode
+import ch.lkmc.bangnidraw.engine.core.BlurKernel
 import ch.lkmc.bangnidraw.engine.core.DabStamp
 import ch.lkmc.bangnidraw.engine.core.GrainMode
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
+import ch.lkmc.bangnidraw.engine.core.SmudgeKernel
 
 /**
  * Every GLSL source the engine uses, as Kotlin strings, plus the list of
@@ -449,6 +451,216 @@ object Shaders {
         ),
     )
 
+    /** Tile-space quad shared by merge and read-modify-write passes. */
+    val TILE_VERT = """
+        $VERSION_LINE
+        precision highp float;
+        layout(location = $ATTR_UV) in vec3 a_uvw;
+        out vec2 v_uv;
+        void main() {
+            v_uv = a_uvw.xy;
+            gl_Position = vec4(a_uvw.xy * 2.0 - 1.0, 0.0, 1.0);
+        }
+    """.trimIndent()
+
+    // ------------------------------------------- read-modify-write tools (§7.6)
+
+    private val RMW_MASK_GLSL = """
+        float rmwMask(vec2 canvas, vec4 dab) {
+            float d = distance(canvas, dab.xy);
+            float feather = max(fwidth(d), ${DabStamp.GRADIENT_EPSILON});
+            float inner = clamp(min(dab.z * dab.w, dab.z - feather), 0.0, dab.z);
+            return 1.0 - smoothstep(inner, dab.z, d);
+        }
+    """.trimIndent().prependIndent("        ")
+
+    private val SMUDGE_DEPOSIT_FRAG = """
+        $VERSION_LINE
+        precision highp float;
+        precision highp sampler2D;
+        #define MIXLERP mix
+        uniform sampler2D u_before;
+        uniform sampler2D u_pickup;
+        uniform vec2 u_tileOrigin;
+        uniform vec2 u_scratchOrigin;
+        uniform vec2 u_scratchSize;
+        uniform float u_pickupEdge;
+        uniform vec4 u_dab;
+        uniform float u_strength;
+        in vec2 v_uv;
+        out vec4 o_color;
+
+        $RMW_MASK_GLSL
+
+        void main() {
+            vec2 canvas = u_tileOrigin + v_uv * float($TILE_SIZE);
+            vec2 scratchUv = (canvas - u_scratchOrigin) / u_scratchSize;
+            vec2 pickupUv = (canvas - u_dab.xy) / u_pickupEdge + vec2(0.5);
+            vec4 D = texture(u_before, scratchUv);
+            vec4 P = texture(u_pickup, pickupUv);
+            float w = u_strength * rmwMask(canvas, u_dab);
+            float a = mix(D.a, P.a, w);
+            if (a < ${SmudgeKernel.ALPHA_EPSILON}) {
+                o_color = vec4(0.0);
+                return;
+            }
+            vec3 cD = D.rgb / max(D.a, ${SmudgeKernel.ALPHA_EPSILON});
+            vec3 cP = P.rgb / max(P.a, ${SmudgeKernel.ALPHA_EPSILON});
+            float t = w * P.a / a;
+            vec3 c = MIXLERP(cD, cP, clamp(t, 0.0, 1.0));
+            o_color = vec4(c * a, a);
+        }
+    """.trimIndent()
+
+    val SMUDGE_DEPOSIT = Source(
+        name = "smudge-deposit",
+        vertex = TILE_VERT,
+        fragment = SMUDGE_DEPOSIT_FRAG,
+        uniforms = listOf(
+            Uniform("u_before", "sampler2D"),
+            Uniform("u_pickup", "sampler2D"),
+            Uniform("u_tileOrigin", "vec2"),
+            Uniform("u_scratchOrigin", "vec2"),
+            Uniform("u_scratchSize", "vec2"),
+            Uniform("u_pickupEdge", "float"),
+            Uniform("u_dab", "vec4"),
+            Uniform("u_strength", "float"),
+        ),
+    )
+
+    private val SMUDGE_ABSORB_FRAG = """
+        $VERSION_LINE
+        precision highp float;
+        precision highp sampler2D;
+        #define MIXLERP mix
+        uniform sampler2D u_before;
+        uniform sampler2D u_pickup;
+        uniform vec2 u_scratchOrigin;
+        uniform vec2 u_scratchSize;
+        uniform float u_pickupEdge;
+        uniform vec4 u_dab;
+        uniform float u_pickupRate;
+        in vec2 v_uv;
+        out vec4 o_color;
+
+        $RMW_MASK_GLSL
+
+        void main() {
+            vec2 canvas = u_dab.xy + (v_uv - vec2(0.5)) * u_pickupEdge;
+            vec2 scratchUv = (canvas - u_scratchOrigin) / u_scratchSize;
+            vec4 P = texture(u_pickup, v_uv);
+            vec4 L = texture(u_before, scratchUv);
+            float w = u_pickupRate * rmwMask(canvas, u_dab);
+            float a = mix(P.a, L.a, w);
+            if (a < ${SmudgeKernel.ALPHA_EPSILON}) {
+                o_color = vec4(0.0);
+                return;
+            }
+            vec3 cP = P.rgb / max(P.a, ${SmudgeKernel.ALPHA_EPSILON});
+            vec3 cL = L.rgb / max(L.a, ${SmudgeKernel.ALPHA_EPSILON});
+            float t = w * L.a / a;
+            vec3 c = MIXLERP(cP, cL, clamp(t, 0.0, 1.0));
+            o_color = vec4(c * a, a);
+        }
+    """.trimIndent()
+
+    val SMUDGE_ABSORB = Source(
+        name = "smudge-absorb",
+        vertex = TILE_VERT,
+        fragment = SMUDGE_ABSORB_FRAG,
+        uniforms = listOf(
+            Uniform("u_before", "sampler2D"),
+            Uniform("u_pickup", "sampler2D"),
+            Uniform("u_scratchOrigin", "vec2"),
+            Uniform("u_scratchSize", "vec2"),
+            Uniform("u_pickupEdge", "float"),
+            Uniform("u_dab", "vec4"),
+            Uniform("u_pickupRate", "float"),
+        ),
+    )
+
+    private val BLUR_HORIZONTAL_FRAG = """
+        $VERSION_LINE
+        precision highp float;
+        precision highp sampler2D;
+        #define MAX_BLUR_RADIUS ${BlurKernel.MAX_RADIUS}
+        uniform sampler2D u_source;
+        uniform vec2 u_texel;
+        uniform int u_radius;
+        in vec2 v_uv;
+        out vec4 o_color;
+        void main() {
+            vec4 sum = vec4(0.0);
+            for (int i = -MAX_BLUR_RADIUS; i <= MAX_BLUR_RADIUS; i++) {
+                if (abs(i) > u_radius) continue;
+                sum += texture(u_source, v_uv + vec2(float(i) * u_texel.x, 0.0));
+            }
+            o_color = sum / float(u_radius * 2 + 1);
+        }
+    """.trimIndent()
+
+    val BLUR_HORIZONTAL = Source(
+        name = "blur-horizontal",
+        vertex = TILE_VERT,
+        fragment = BLUR_HORIZONTAL_FRAG,
+        uniforms = listOf(
+            Uniform("u_source", "sampler2D"),
+            Uniform("u_texel", "vec2"),
+            Uniform("u_radius", "int"),
+        ),
+    )
+
+    private val BLUR_VERTICAL_FRAG = """
+        $VERSION_LINE
+        precision highp float;
+        precision highp sampler2D;
+        #define MAX_BLUR_RADIUS ${BlurKernel.MAX_RADIUS}
+        uniform sampler2D u_before;
+        uniform sampler2D u_horizontal;
+        uniform vec2 u_tileOrigin;
+        uniform vec2 u_scratchOrigin;
+        uniform vec2 u_scratchSize;
+        uniform vec2 u_texel;
+        uniform vec4 u_dab;
+        uniform float u_strength;
+        uniform int u_radius;
+        in vec2 v_uv;
+        out vec4 o_color;
+
+        $RMW_MASK_GLSL
+
+        void main() {
+            vec2 canvas = u_tileOrigin + v_uv * float($TILE_SIZE);
+            vec2 scratchUv = (canvas - u_scratchOrigin) / u_scratchSize;
+            vec4 sum = vec4(0.0);
+            for (int i = -MAX_BLUR_RADIUS; i <= MAX_BLUR_RADIUS; i++) {
+                if (abs(i) > u_radius) continue;
+                sum += texture(u_horizontal, scratchUv + vec2(0.0, float(i) * u_texel.y));
+            }
+            vec4 blurred = sum / float(u_radius * 2 + 1);
+            vec4 original = texture(u_before, scratchUv);
+            float w = u_strength * rmwMask(canvas, u_dab);
+            o_color = mix(original, blurred, w);
+        }
+    """.trimIndent()
+
+    val BLUR_VERTICAL = Source(
+        name = "blur-vertical",
+        vertex = TILE_VERT,
+        fragment = BLUR_VERTICAL_FRAG,
+        uniforms = listOf(
+            Uniform("u_before", "sampler2D"),
+            Uniform("u_horizontal", "sampler2D"),
+            Uniform("u_tileOrigin", "vec2"),
+            Uniform("u_scratchOrigin", "vec2"),
+            Uniform("u_scratchSize", "vec2"),
+            Uniform("u_texel", "vec2"),
+            Uniform("u_dab", "vec4"),
+            Uniform("u_strength", "float"),
+            Uniform("u_radius", "int"),
+        ),
+    )
+
     // ----------------------------------------------------------- merge (§7.4)
 
     /**
@@ -501,32 +713,6 @@ object Shaders {
             vec3 cS = S.rgb / S.a;
             vec3 c = MIXLERP(cL, cS, clamp(t, 0.0, 1.0));
             return vec4(c * aOut, aOut);
-        }
-    """.trimIndent()
-
-    /**
-     * A tile-to-tile quad. No screen transform: a merge renders a tile into a
-     * tile and never touches the view.
-     *
-     * Driven by [FullRectQuad], whose uv runs `(0,0)..(1,1)` across a rect of
-     * `(0,0)..(w,h)` — so the uv **is** the normalized position and doubles as
-     * the clip coordinate, with no viewport uniform to keep in step. The
-     * position attribute the quad also supplies is left undeclared: this pass
-     * has no use for canvas pixels, and an attribute a shader does not consume
-     * costs nothing.
-     *
-     * The mapping is the identity in both directions — texel row 0 lands on
-     * target row 0 — so §3.1's y-down convention passes through untouched,
-     * which is what a tile-to-tile pass must do whichever way rows are stored.
-     */
-    val TILE_VERT = """
-        $VERSION_LINE
-        precision highp float;
-        layout(location = $ATTR_UV) in vec3 a_uvw;
-        out vec2 v_uv;
-        void main() {
-            v_uv = a_uvw.xy;
-            gl_Position = vec4(a_uvw.xy * 2.0 - 1.0, 0.0, 1.0);
         }
     """.trimIndent()
 
@@ -755,6 +941,12 @@ object Shaders {
     /** Builds the pigment live-preview variant from the same source. */
     fun previewMix(vendoredGlsl: String): Source = mixingSource(PREVIEW, vendoredGlsl)
 
+    /** Builds the pigment smudge-deposit variant. */
+    fun smudgeDepositMix(vendoredGlsl: String): Source = mixingSource(SMUDGE_DEPOSIT, vendoredGlsl)
+
+    /** Builds the pigment pickup variant. */
+    fun smudgeAbsorbMix(vendoredGlsl: String): Source = mixingSource(SMUDGE_ABSORB, vendoredGlsl)
+
     private fun mixingSource(plain: Source, vendoredGlsl: String): Source {
         require(vendoredGlsl.startsWith(MIXBOX_HEADER)) { "Mixbox license header is missing" }
         require(PLAIN_MIX_DEFINE in plain.fragment) { "${plain.name} has no plain mixing seam" }
@@ -773,7 +965,19 @@ object Shaders {
         )
     }
 
-    val ALL: List<Source> = listOf(COMPOSITE, PRESENT, CHECKER, DAB, MERGE, TILE_COMPOSITE, PREVIEW)
+    val ALL: List<Source> = listOf(
+        COMPOSITE,
+        PRESENT,
+        CHECKER,
+        DAB,
+        SMUDGE_DEPOSIT,
+        SMUDGE_ABSORB,
+        BLUR_HORIZONTAL,
+        BLUR_VERTICAL,
+        MERGE,
+        TILE_COMPOSITE,
+        PREVIEW,
+    )
 
     private const val PLAIN_MIX_DEFINE = "#define MIXLERP mix"
     private const val MIXING_DEFINE = "#define BANGNI_MIXING 1"

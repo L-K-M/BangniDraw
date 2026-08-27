@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.ContextWrapper
 import android.app.Activity
 import android.os.Build
+import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -89,6 +90,7 @@ import ch.lkmc.bangnidraw.engine.core.CanvasPanel
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.EyedropperSampleGate
 import ch.lkmc.bangnidraw.engine.core.FillParams
 import ch.lkmc.bangnidraw.engine.core.FocusMode
 import ch.lkmc.bangnidraw.engine.core.Hand
@@ -325,6 +327,9 @@ private fun CanvasContent(
                         strokeState.engine = engine
                         strokeState.pickParams = kind.params
                         strokeState.pickGeneration = pickGeneration
+                        // A fresh gate per stroke: the first sample must read,
+                        // wherever the previous drag's timing left it.
+                        strokeState.pickGate.reset()
                         return
                     }
                     if (kind is ToolKind.Fill) {
@@ -433,10 +438,18 @@ private fun CanvasContent(
                     val engine = strokeState.engine ?: return
                     val pick = strokeState.pickParams
                     if (pick != null) {
-                        val generation = strokeState.pickGeneration
-                        engine.sampleColor(x, y, pick) { color ->
-                            if (strokeState.pickGeneration == generation) {
-                                color?.let(viewModel::previewPickedColor)
+                        // Each read is a synchronous glReadPixels (a pipeline
+                        // sync), and unbuffered dispatch delivers hundreds of
+                        // samples a second — so intermediate samples are
+                        // dropped to one read per frame. Pen-up commits the
+                        // last color actually previewed, which is what the
+                        // user was shown.
+                        if (strokeState.pickGate.shouldRead(SystemClock.uptimeMillis())) {
+                            val generation = strokeState.pickGeneration
+                            engine.sampleColor(x, y, pick) { color ->
+                                if (strokeState.pickGeneration == generation) {
+                                    color?.let(viewModel::previewPickedColor)
+                                }
                             }
                         }
                         return
@@ -1411,6 +1424,9 @@ internal class StrokeUiState {
     var temporaryReason: TemporaryReason? = null
     var pickGeneration: Long = 0
 
+    /** Caps the eyedropper's per-sample GL reads; reset at every pen-down. */
+    val pickGate = EyedropperSampleGate(DEFAULT_PICK_INTERVAL_MS)
+
     /**
      * The session [driver] was opened against, so every later call reaches
      * *that* engine rather than whichever one happens to be current.
@@ -1470,5 +1486,8 @@ internal class StrokeUiState {
         const val CHANNEL_MASK = 0xFF
         const val CHANNEL_MAX = 255f
         const val OPAQUE_BLACK = 0xFF000000.toInt()
+
+        /** One eyedropper read per frame; see [EyedropperSampleGate]. */
+        const val DEFAULT_PICK_INTERVAL_MS = EyedropperSampleGate.DEFAULT_INTERVAL_MS
     }
 }

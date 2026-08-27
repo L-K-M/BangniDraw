@@ -381,6 +381,7 @@ class CanvasViewModel @Inject constructor(
     /** One journal mutation at a time; later chrome actions wait in order. */
     private val actionGate = CanvasActionGate()
     private val applyBusy: Boolean get() = actionGate.busy
+    private var leaveAfterWrite: (() -> Unit)? = null
     private var layerCap = 1
     private var layerRefusal: Refusal? = null
     private var layerFeedbackRevision = 0L
@@ -704,10 +705,18 @@ class CanvasViewModel @Inject constructor(
     internal fun handleBack(afterWrite: () -> Unit) {
         val result = CanvasUiPolicy.back(chrome)
         if (result.effect == CanvasBackEffect.LEAVE) {
-            leave(afterWrite)
+            requestLeave(afterWrite)
             return
         }
         applyChrome(result.state)
+    }
+
+    /** Parks navigation behind the active stroke and every earlier action. */
+    internal fun requestLeave(afterWrite: () -> Unit) {
+        if (leaveAfterWrite != null) return
+
+        leaveAfterWrite = afterWrite
+        requestAction(CanvasDocumentAction.Leave)
     }
 
     internal fun requestRename() {
@@ -1864,6 +1873,7 @@ class CanvasViewModel @Inject constructor(
                 applyStackResult(locked?.let { stack.setLocked(action.index, !it) })
             }
             is CanvasDocumentAction.SetPaperColor -> setPaperColorNow(action.color)
+            CanvasDocumentAction.Leave -> beginLeave()
         }
         if (!applyBusy) runNextPendingAction()
     }
@@ -2249,12 +2259,12 @@ class CanvasViewModel @Inject constructor(
         }
     }
 
-    /**
-     * The leave checkpoint (§6.2's Leave row): flush everything, then run
-     * [afterWrite] on the main thread — the caller navigates in it, so the
-     * Studio never lists a stale shelf.
-     */
-    fun leave(afterWrite: () -> Unit) {
+    /** Flushes the final stroke before navigation and blocks new document work. */
+    private fun beginLeave() {
+        val afterWrite = leaveAfterWrite ?: return
+        actionGate.beginWork()
+        updateInteractionUi()
+
         appScope.launch {
             withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
             withContext(Dispatchers.Main) { afterWrite() }
@@ -2273,7 +2283,7 @@ class CanvasViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        // Belt and braces behind [leave]: whatever is still unwritten when the
+        // Belt and braces behind [requestLeave]: whatever is still unwritten when the
         // screen is torn down gets one more drain. The session is gone by now,
         // so there is no readback left to wait on — release() already
         // delivered or dropped it.

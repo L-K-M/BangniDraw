@@ -103,4 +103,26 @@ class CanvasActionGateTest {
         assertNull(gate.endStrokeInput())
         assertNull(gate.completeStroke())
     }
+
+    @Test
+    fun `leave waits for stroke history and becomes terminal`() {
+        val gate = CanvasActionGate()
+        gate.beginStroke()
+
+        assertEquals(
+            CanvasActionDecision.Parked,
+            gate.request(CanvasDocumentAction.Leave),
+        )
+        assertEquals(
+            CanvasActionDecision.Parked,
+            gate.request(CanvasDocumentAction.Leave),
+        )
+        assertEquals(CanvasActionDecision.Parked, gate.request(CanvasDocumentAction.Undo))
+        assertEquals(1, gate.pendingCount)
+
+        assertNull(gate.endStrokeInput())
+        assertEquals(CanvasDocumentAction.Leave, gate.completeStroke())
+        assertNull(gate.next())
+        assertEquals(false, gate.beginStroke())
+    }
 }

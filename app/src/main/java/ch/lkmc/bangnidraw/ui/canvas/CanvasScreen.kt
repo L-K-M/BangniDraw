@@ -166,7 +166,6 @@ fun CanvasScreen(
     viewModel: CanvasViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val leave = { viewModel.leave(onBack) }
     BackHandler { viewModel.handleBack(onBack) }
 
     // §6.2's ON_STOP row: the last callback before the process may be
@@ -188,7 +187,10 @@ fun CanvasScreen(
                 .fillMaxSize()
                 .safeDrawingPadding(),
         ) {
-            IconButton(onClick = leave, modifier = Modifier.align(Alignment.TopStart)) {
+            IconButton(
+                onClick = { viewModel.requestLeave(onBack) },
+                modifier = Modifier.align(Alignment.TopStart),
+            ) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = stringResource(R.string.canvas_back),
@@ -206,8 +208,8 @@ fun CanvasScreen(
         is CanvasViewModel.UiState.Ready -> CanvasContent(
             state = current,
             viewModel = viewModel,
-            onLeave = leave,
-            onSettings = { viewModel.leave(onSettings) },
+            onBack = onBack,
+            onSettings = { viewModel.requestLeave(onSettings) },
         )
     }
 }
@@ -216,7 +218,7 @@ fun CanvasScreen(
 private fun CanvasContent(
     state: CanvasViewModel.UiState.Ready,
     viewModel: CanvasViewModel,
-    onLeave: () -> Unit,
+    onBack: () -> Unit,
     onSettings: () -> Unit,
 ) {
     var view by rememberSaveable(stateSaver = VIEW_TRANSFORM_SAVER) {
@@ -994,7 +996,7 @@ private fun CanvasContent(
                 brushColor = state.color.current,
                 openPanel = state.chrome.openPanel,
                 hapticsMode = state.hapticsMode,
-                onBack = { viewModel.handleBack(onLeave) },
+                onBack = { viewModel.handleBack(onBack) },
                 onUndo = viewModel::undo,
                 onRedo = viewModel::redo,
                 onUndoLongPress = { historyReadout++ },

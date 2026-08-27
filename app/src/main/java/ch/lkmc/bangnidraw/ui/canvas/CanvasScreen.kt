@@ -62,6 +62,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -1212,7 +1213,11 @@ private fun CanvasDialogHost(
             onDismiss = viewModel::dismissDialog,
         )
         CanvasDialog.FlattenLayers -> ConfirmationDialog(
-            title = stringResource(R.string.layer_flatten_title, state.stack.size),
+            title = pluralStringResource(
+                R.plurals.layer_flatten_title,
+                state.stack.size,
+                state.stack.size,
+            ),
             body = stringResource(R.string.layer_flatten_body),
             onConfirm = {
                 viewModel.dismissDialog()

@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -145,7 +146,11 @@ fun NewCanvasDialog(
                     )
                     else -> when (val v = validation) {
                         is CustomSizeResult.Ok ->
-                            stringResource(R.string.canvas_preset_fits, v.preset.maxLayers)
+                            pluralStringResource(
+                                R.plurals.canvas_preset_fits,
+                                v.preset.maxLayers,
+                                v.preset.maxLayers,
+                            )
                         is CustomSizeResult.Refused -> refusalText(v.reason, budget)
                         null -> null
                     }
@@ -231,7 +236,11 @@ private fun PresetRow(preset: CanvasPreset, selected: Boolean, onSelect: () -> U
             )
         }
         Text(
-            if (preset.enabled) stringResource(R.string.canvas_preset_fits, preset.maxLayers)
+            if (preset.enabled) pluralStringResource(
+                R.plurals.canvas_preset_fits,
+                preset.maxLayers,
+                preset.maxLayers,
+            )
             else stringResource(R.string.canvas_preset_too_large),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

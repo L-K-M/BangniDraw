@@ -16,7 +16,10 @@
          painting whose stored title is empty. -->
     <string name="studio_untitled">Sketch</string>
     <!-- {count} paintings · {bytes} on device · {free} free (08 §2). -->
-    <string name="studio_storage">%1$d paintings · %2$s on device · %3$s free</string>
+    <plurals name="studio_storage">
+        <item quantity="one">%1$d painting · %2$s on device · %3$s free</item>
+        <item quantity="other">%1$d paintings · %2$s on device · %3$s free</item>
+    </plurals>
     <string name="studio_open">Open</string>
     <string name="studio_rename">Rename</string>
     <string name="studio_duplicate">Duplicate</string>
@@ -44,7 +47,10 @@
     <string name="canvas_preset_tablet">Tablet</string>
     <string name="canvas_preset_large">Large 4096</string>
     <string name="canvas_preset_custom">Custom</string>
-    <string name="canvas_preset_fits">fits %1$d layers</string>
+    <plurals name="canvas_preset_fits">
+        <item quantity="one">fits %1$d layer</item>
+        <item quantity="other">fits %1$d layers</item>
+    </plurals>
     <string name="canvas_preset_too_large">Too large for this device</string>
     <string name="canvas_width">Width</string>
     <string name="canvas_height">Height</string>
@@ -223,9 +229,15 @@
     <string name="layer_rename_hint">Layer name</string>
     <string name="layer_merge_title">Merge these layers?</string>
     <string name="layer_merge_body">Their blend modes will be baked into a Normal layer.</string>
-    <string name="layer_flatten_title">Flatten %1$d layers?</string>
+    <plurals name="layer_flatten_title">
+        <item quantity="one">Flatten %1$d layer?</item>
+        <item quantity="other">Flatten %1$d layers?</item>
+    </plurals>
     <string name="layer_flatten_body">Hidden layers are discarded. You can undo this.</string>
-    <string name="layer_limit">This %1$d×%2$d canvas allows %3$d layers on this device. Merge or delete a layer to add one.</string>
+    <plurals name="layer_limit">
+        <item quantity="one">This %1$d×%2$d canvas allows %3$d layer on this device. Delete it to add another.</item>
+        <item quantity="other">This %1$d×%2$d canvas allows %3$d layers on this device. Merge or delete a layer to add one.</item>
+    </plurals>
     <string name="layer_only">Can’t delete the only layer — clear it instead.</string>
     <string name="layer_locked">Layer is locked.</string>
     <string name="layer_hidden">Layer is hidden. Your stroke is still added.</string>

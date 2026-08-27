@@ -13,7 +13,9 @@
     <string name="studio_about">关于</string>
     <string name="studio_settings">设置</string>
     <string name="studio_untitled">草图</string>
-    <string name="studio_storage">%1$d 张画 · 占用 %2$s · 可用 %3$s</string>
+    <plurals name="studio_storage">
+        <item quantity="other">%1$d 张画 · 占用 %2$s · 可用 %3$s</item>
+    </plurals>
     <string name="studio_open">打开</string>
     <string name="studio_rename">重命名</string>
     <string name="studio_duplicate">创建副本</string>
@@ -38,7 +40,9 @@
     <string name="canvas_preset_tablet">平板</string>
     <string name="canvas_preset_large">大幅 4096</string>
     <string name="canvas_preset_custom">自定义</string>
-    <string name="canvas_preset_fits">可容纳 %1$d 个图层</string>
+    <plurals name="canvas_preset_fits">
+        <item quantity="other">可容纳 %1$d 个图层</item>
+    </plurals>
     <string name="canvas_preset_too_large">对此设备来说太大</string>
     <string name="canvas_width">宽</string>
     <string name="canvas_height">高</string>
@@ -199,9 +203,13 @@
     <string name="layer_rename_hint">图层名称</string>
     <string name="layer_merge_title">合并这两个图层？</string>
     <string name="layer_merge_body">混合模式将烘焙到一个正常图层中。</string>
-    <string name="layer_flatten_title">拼合 %1$d 个图层？</string>
+    <plurals name="layer_flatten_title">
+        <item quantity="other">拼合 %1$d 个图层？</item>
+    </plurals>
     <string name="layer_flatten_body">隐藏图层将被丢弃。此操作可以撤销。</string>
-    <string name="layer_limit">此设备上的 %1$d×%2$d 画布最多允许 %3$d 个图层。请合并或删除一个图层后再添加。</string>
+    <plurals name="layer_limit">
+        <item quantity="other">此设备上的 %1$d×%2$d 画布最多允许 %3$d 个图层。请合并或删除一个图层后再添加。</item>
+    </plurals>
     <string name="layer_only">无法删除唯一图层——请改为清除。</string>
     <string name="layer_locked">图层已锁定。</string>
     <string name="layer_hidden">图层已隐藏。笔触仍会添加到图层中。</string>

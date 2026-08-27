@@ -321,6 +321,7 @@ private fun CanvasContent(
                 override fun onNavigateActive(active: Boolean) { navigating = active }
 
                 override fun onStrokeBegin(pointerId: Int, source: StrokeSource) {
+                    val staleFillStarted = strokeState.fillStarted
                     viewModel.cancelFill()
                     // A begin while one is already open means the previous
                     // stroke's end was lost — a gesture transition, a torn-down
@@ -335,6 +336,7 @@ private fun CanvasContent(
                     strokeState.pickParams = null
                     strokeState.fillParams = null
                     strokeState.fillTouch = false
+                    strokeState.fillStarted = false
                     val staleDriver = strokeState.driver
                     staleDriver?.cancel()
                     strokeState.driver = null
@@ -346,7 +348,12 @@ private fun CanvasContent(
                     strokeState.engine = null
                     strokeState.readModifyWrite = false
                     strokeState.colorUsage = StrokeColorUsage.IGNORE
-                    viewModel.endStrokeTool(staleReason)
+                    val staleDisposition = if (staleFillStarted) {
+                        StrokeEndDisposition.AWAIT_COMMIT
+                    } else {
+                        StrokeEndDisposition.COMPLETE
+                    }
+                    viewModel.endStrokeTool(staleReason, staleDisposition)
                     val pickGeneration = strokeState.nextPickGeneration()
 
                     val engine = session ?: return
@@ -376,7 +383,10 @@ private fun CanvasContent(
                         )
                         viewModel.noteStrokeLayerDecision(layerDecision)
                         if (layerDecision == StrokeLayerDecision.REFUSE_LOCKED) {
-                            viewModel.endStrokeTool(strokeState.temporaryReason)
+                            viewModel.endStrokeTool(
+                                strokeState.temporaryReason,
+                                StrokeEndDisposition.COMPLETE,
+                            )
                             strokeState.temporaryReason = null
                             return
                         }
@@ -394,7 +404,10 @@ private fun CanvasContent(
                         is ToolKind.Fill, is ToolKind.Eyedropper -> null
                     }
                     if (preset == null) {
-                        viewModel.endStrokeTool(strokeState.temporaryReason)
+                        viewModel.endStrokeTool(
+                            strokeState.temporaryReason,
+                            StrokeEndDisposition.COMPLETE,
+                        )
                         strokeState.temporaryReason = null
                         return
                     }
@@ -405,7 +418,10 @@ private fun CanvasContent(
                     )
                     viewModel.noteStrokeLayerDecision(layerDecision)
                     if (layerDecision == StrokeLayerDecision.REFUSE_LOCKED) {
-                        viewModel.endStrokeTool(strokeState.temporaryReason)
+                        viewModel.endStrokeTool(
+                            strokeState.temporaryReason,
+                            StrokeEndDisposition.COMPLETE,
+                        )
                         strokeState.temporaryReason = null
                         return
                     }
@@ -494,7 +510,13 @@ private fun CanvasContent(
                     val fill = strokeState.fillParams
                     if (fill != null) {
                         strokeState.fillParams = null
-                        viewModel.startFill(engine, x, y, fill, strokeState.colorArgb)
+                        strokeState.fillStarted = viewModel.startFill(
+                            engine,
+                            x,
+                            y,
+                            fill,
+                            strokeState.colorArgb,
+                        ) == FillStartResult.STARTED
                         return
                     }
 
@@ -516,20 +538,27 @@ private fun CanvasContent(
                         viewModel.commitPickedColor()
                         strokeState.pickParams = null
                         strokeState.engine = null
-                        viewModel.endStrokeTool(reason)
+                        viewModel.endStrokeTool(reason, StrokeEndDisposition.COMPLETE)
                         if (state.hapticsMode == HapticsMode.ENABLED) {
                             view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                         }
                         return
                     }
 
+                    val fillStarted = strokeState.fillStarted
                     strokeState.fillParams = null
                     strokeState.fillTouch = false
+                    strokeState.fillStarted = false
 
                     val driver = strokeState.driver
                     if (driver == null) {
                         strokeState.engine = null
-                        viewModel.endStrokeTool(reason)
+                        val disposition = if (fillStarted) {
+                            StrokeEndDisposition.AWAIT_COMMIT
+                        } else {
+                            StrokeEndDisposition.COMPLETE
+                        }
+                        viewModel.endStrokeTool(reason, disposition)
                         return
                     }
                     // Cleared before the session check, so no early return can
@@ -544,7 +573,7 @@ private fun CanvasContent(
                     strokeState.engine = null
                     if (engine == null) {
                         driver.cancel()
-                        viewModel.endStrokeTool(reason)
+                        viewModel.endStrokeTool(reason, StrokeEndDisposition.COMPLETE)
                         return
                     }
                     val batch = engine.acquireDabBatch()
@@ -558,7 +587,7 @@ private fun CanvasContent(
                     // The commit's pixels reach disk through the readback; the
                     // ViewModel only needs to know the document changed.
                     viewModel.onStrokeCommitted(colorUsage, strokeColor)
-                    viewModel.endStrokeTool(reason)
+                    viewModel.endStrokeTool(reason, StrokeEndDisposition.AWAIT_COMMIT)
                 }
 
                 override fun onStrokeCancel() {
@@ -569,12 +598,14 @@ private fun CanvasContent(
                         viewModel.cancelPickedColor()
                         strokeState.pickParams = null
                         strokeState.engine = null
-                        viewModel.endStrokeTool(reason)
+                        viewModel.endStrokeTool(reason, StrokeEndDisposition.COMPLETE)
                         return
                     }
                     val wasFill = strokeState.fillTouch
+                    val fillStarted = strokeState.fillStarted
                     strokeState.fillParams = null
                     strokeState.fillTouch = false
+                    strokeState.fillStarted = false
                     viewModel.cancelFill()
                     strokeState.driver?.cancel()
                     strokeState.driver = null
@@ -582,7 +613,12 @@ private fun CanvasContent(
                     strokeState.engine = null
                     strokeState.readModifyWrite = false
                     strokeState.colorUsage = StrokeColorUsage.IGNORE
-                    viewModel.endStrokeTool(reason)
+                    val disposition = if (wasFill && fillStarted) {
+                        StrokeEndDisposition.AWAIT_COMMIT
+                    } else {
+                        StrokeEndDisposition.COMPLETE
+                    }
+                    viewModel.endStrokeTool(reason, disposition)
                 }
 
                 // Roadmap 2.5b: §9's predicted tail. The same ring and the same
@@ -787,6 +823,7 @@ private fun CanvasContent(
                 // fact about another class: whatever runs below, the pin is
                 // already gone.
                 val stale = strokeState.driver
+                val fillStarted = strokeState.fillStarted
                 if (strokeState.pickParams != null) {
                     strokeState.nextPickGeneration()
                     viewModel.cancelPickedColor()
@@ -794,13 +831,19 @@ private fun CanvasContent(
                 strokeState.pickParams = null
                 strokeState.fillParams = null
                 strokeState.fillTouch = false
+                strokeState.fillStarted = false
                 viewModel.cancelFill()
                 strokeState.driver = null
                 strokeState.engine = null
                 strokeState.readModifyWrite = false
                 strokeState.colorUsage = StrokeColorUsage.IGNORE
                 stale?.cancel()
-                viewModel.endStrokeTool(strokeState.temporaryReason)
+                val disposition = if (fillStarted) {
+                    StrokeEndDisposition.AWAIT_COMMIT
+                } else {
+                    StrokeEndDisposition.COMPLETE
+                }
+                viewModel.endStrokeTool(strokeState.temporaryReason, disposition)
                 strokeState.temporaryReason = null
                 session = attached
                 // The ViewModel streams the painting's tiles into an arriving
@@ -1731,6 +1774,7 @@ internal class StrokeUiState {
     var pickParams: EyedropperParams? = null
     var fillParams: FillParams? = null
     var fillTouch = false
+    var fillStarted = false
     var temporaryReason: TemporaryReason? = null
     var pickGeneration: Long = 0
 

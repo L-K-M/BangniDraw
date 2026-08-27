@@ -254,6 +254,9 @@ class EngineSession(
     /** Exactly one completion survives an apply/release race. */
     private val fillResult = AtomicReference<((Boolean) -> Unit)?>(null)
 
+    /** Fallback for an end command dropped by surface release. */
+    private val pendingStrokeFallback = AtomicReference<(() -> Unit)?>(null)
+
     // ------------------------------------------------------------- callbacks
 
     /**
@@ -764,6 +767,7 @@ class EngineSession(
             completeFill(false)
             return
         }
+        val mergedListener = onStrokeMerged
         glRenderer.execute {
             val pending = renderer.finishReadback()
             if (ReadbackPolicy.strokeCommit(pending) == StrokeCommitDecision.CANCEL) {
@@ -775,7 +779,7 @@ class EngineSession(
 
             val revision = revisions.incrementAndGet()
             val applied = renderer.applyFill(spec, coverage, color, revision) { merged, keys ->
-                onStrokeMerged?.invoke(merged, keys, revision)
+                mergedListener?.invoke(merged, keys, revision)
             }
             pendingMirror = renderer.readbackPending
             if (pendingMirror > 0) pumpReadback()
@@ -931,6 +935,9 @@ class EngineSession(
      */
     var onStrokeMerged: ((StrokeSpec, List<TileKey>, revision: Int) -> Unit)? = null
 
+    /** Reports an empty, refused, failed, or released commit on Main, once. */
+    var onStrokeNotMerged: (() -> Unit)? = null
+
     /**
      * Merges the stroke into its layer (§7.4) and enqueues §10.1's readback of
      * the merged tiles. The fences usually signal a frame or two later, so
@@ -942,6 +949,19 @@ class EngineSession(
         activeStrokeRmw = false
         activeStrokeSpec = null
         val thisRevision = revisions.incrementAndGet()
+        val mergedListener = onStrokeMerged
+        val notMergedListener = onStrokeNotMerged
+        val fallback: () -> Unit = {
+            if (notMergedListener != null) notMergedListener()
+        }
+        if (!pendingStrokeFallback.compareAndSet(null, fallback)) {
+            fallback()
+            return
+        }
+        if (!isLive()) {
+            completeStrokeWithoutMerge(fallback)
+            return
+        }
         // §8.3's order, and it holds because the FIFO assumption §8.3 flags was
         // verified against graphics-core 1.0.4 (AGENTS.md): this block runs
         // before the multi-buffered draw `commit()` schedules, so the layer
@@ -960,6 +980,7 @@ class EngineSession(
                 pumpReadback()
                 drainPending(stamp = false, scope = PendingBatchDrainScope.EXHAUSTIVE)
                 renderer.cancelStroke()
+                completeStrokeWithoutMerge(fallback)
                 return@execute
             }
             // §8.3's `dabPass.drain(untilStrokeEnd)`: any batch published but
@@ -967,14 +988,25 @@ class EngineSession(
             // be lost — and its slot would still be checked out when the replay
             // arrives, where nothing releases it any more.
             drainPending(stamp = true, scope = PendingBatchDrainScope.EXHAUSTIVE)
-            renderer.endStroke(revision = thisRevision, opacityCeiling = opacityCeiling) { spec, keys ->
-                onStrokeMerged?.invoke(spec, keys, thisRevision)
+            val merged = renderer.endStroke(
+                revision = thisRevision,
+                opacityCeiling = opacityCeiling,
+            ) { spec, keys ->
+                if (pendingStrokeFallback.compareAndSet(fallback, null)) {
+                    mergedListener?.invoke(spec, keys, thisRevision)
+                }
             }
+            if (merged == 0) completeStrokeWithoutMerge(fallback)
         }
         // A scene commit hides the front layer. If the surface is detached,
         // the gate latches it until graphics-core has rebuilt its targets.
         dispatch(attachmentGate.endStroke())
         pumpReadback()
+    }
+
+    private fun completeStrokeWithoutMerge(fallback: () -> Unit) {
+        if (!pendingStrokeFallback.compareAndSet(fallback, null)) return
+        pollHandler.post(fallback)
     }
 
     /**
@@ -1193,7 +1225,11 @@ class EngineSession(
         }
         glRenderer.execute {
             renderer.release()
-            pollHandler.post { completeFill(false) }
+            val droppedStroke = pendingStrokeFallback.getAndSet(null)
+            pollHandler.post {
+                droppedStroke?.invoke()
+                completeFill(false)
+            }
         }
         glRenderer.stop(false)
     }

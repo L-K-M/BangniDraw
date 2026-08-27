@@ -151,9 +151,15 @@ private enum class DocumentWork {
 
 private enum class FillPhase { IDLE, SNAPSHOT, COMPUTE, APPLY }
 
+private enum class FillCompletion { ENTRY_PENDING, NO_ENTRY }
+
 private data class EncodedPainting(val name: String, val bytes: ByteArray)
 
 internal enum class StrokeColorUsage { RECORD, IGNORE }
+
+internal enum class StrokeEndDisposition { COMPLETE, AWAIT_COMMIT }
+
+internal enum class FillStartResult { STARTED, REFUSED }
 
 /**
  * The Canvas screen's persistence half (roadmap 3a + 3b): opens the routed
@@ -1013,9 +1019,9 @@ class CanvasViewModel @Inject constructor(
         y: Float,
         params: FillParams,
         color: Int,
-    ) {
-        if (fillPhase != FillPhase.IDLE || session !== engine) return
-        val doc = document ?: return
+    ): FillStartResult {
+        if (fillPhase != FillPhase.IDLE || session !== engine) return FillStartResult.REFUSED
+        val doc = document ?: return FillStartResult.REFUSED
         val active = doc.stack.active
         val canvas = CanvasSize(doc.width, doc.height)
         val generation = ++fillGeneration
@@ -1029,7 +1035,7 @@ class CanvasViewModel @Inject constructor(
         engine.requestFillReference(params.reference) { reference ->
             if (generation != fillGeneration || fillPhase != FillPhase.SNAPSHOT) return@requestFillReference
             if (reference == null) {
-                finishFill(generation)
+                finishFill(generation, FillCompletion.NO_ENTRY)
                 return@requestFillReference
             }
 
@@ -1045,7 +1051,7 @@ class CanvasViewModel @Inject constructor(
                 withContext(Dispatchers.Main) {
                     if (generation != fillGeneration || fillPhase != FillPhase.COMPUTE) return@withContext
                     if (coverage == null || coverage.bounds.isEmpty) {
-                        finishFill(generation)
+                        finishFill(generation, FillCompletion.NO_ENTRY)
                         return@withContext
                     }
 
@@ -1061,11 +1067,17 @@ class CanvasViewModel @Inject constructor(
                     engine.applyFill(spec, coverage, color) { applied ->
                         if (generation != fillGeneration || fillPhase != FillPhase.APPLY) return@applyFill
                         if (applied) onStrokeCommitted(StrokeColorUsage.RECORD, color)
-                        finishFill(generation)
+                        val completion = if (applied) {
+                            FillCompletion.ENTRY_PENDING
+                        } else {
+                            FillCompletion.NO_ENTRY
+                        }
+                        finishFill(generation, completion)
                     }
                 }
             }
         }
+        return FillStartResult.STARTED
     }
 
     /** Cancels only pre-commit fill work; an APPLY is already atomic. */
@@ -1079,6 +1091,7 @@ class CanvasViewModel @Inject constructor(
         fillIndicatorJob = null
         fillPhase = FillPhase.IDLE
         updateFillProgress(null)
+        finishStrokeTransaction()
         finishDocumentWork()
     }
 
@@ -1093,7 +1106,7 @@ class CanvasViewModel @Inject constructor(
         }
     }
 
-    private fun finishFill(generation: Long) {
+    private fun finishFill(generation: Long, completion: FillCompletion) {
         if (generation != fillGeneration || fillPhase == FillPhase.IDLE) return
 
         fillJob?.cancel()
@@ -1102,6 +1115,7 @@ class CanvasViewModel @Inject constructor(
         fillIndicatorJob = null
         fillPhase = FillPhase.IDLE
         updateFillProgress(null)
+        if (completion == FillCompletion.NO_ENTRY) finishStrokeTransaction()
         finishDocumentWork()
     }
 
@@ -1384,13 +1398,30 @@ class CanvasViewModel @Inject constructor(
         return toolSwitcher.selection.value
     }
 
-    fun endStrokeTool(reason: TemporaryReason?) {
+    internal fun endStrokeTool(reason: TemporaryReason?, disposition: StrokeEndDisposition) {
         if (reason != null) {
             toolSwitcher.popTemporary(reason)
             updateToolUi()
         }
-        val nextAction = actionGate.endStroke()
+        val inputWasOpen = actionGate.strokeInputInFlight
+        val inputAction = actionGate.endStrokeInput()
+        val completionAction = if (
+            inputWasOpen && disposition == StrokeEndDisposition.COMPLETE
+        ) {
+            actionGate.completeStroke()
+        } else {
+            null
+        }
+        val nextAction = inputAction ?: completionAction
         chrome = CanvasUiPolicy.onStrokeEnd(chrome)
+        updateInteractionUi()
+        if (nextAction != null) executeAction(nextAction)
+    }
+
+    /** Main thread: releases one stroke only after its history outcome is final. */
+    private fun finishStrokeTransaction() {
+        val nextAction = actionGate.completeStroke()
+        updateHistoryUi()
         updateInteractionUi()
         if (nextAction != null) executeAction(nextAction)
     }
@@ -1472,11 +1503,18 @@ class CanvasViewModel @Inject constructor(
      */
     private fun onStrokeMerged(spec: StrokeSpec, keys: List<TileKey>, @Suppress("UNUSED_PARAMETER") revision: Int) {
         val rmwSnapshot = if (spec.rmw != null) rmwHistoryCapture.finish(spec.layerId) else null
-        if (keys.isEmpty()) return
+        if (keys.isEmpty()) {
+            appScope.launch(Dispatchers.Main) { finishStrokeTransaction() }
+            return
+        }
         val payloadKeys = keys.map { spec.layerId to it }
         val mirrorBefore = flusher.captureMirror(payloadKeys).toMutableMap()
         rmwSnapshot?.mirrorBefore?.let(mirrorBefore::putAll)
-        val doc = document ?: return
+        val doc = document
+        if (doc == null) {
+            appScope.launch(Dispatchers.Main) { finishStrokeTransaction() }
+            return
+        }
         val activeId = doc.stack.active.id
         val entry = PixelHistoryEntry.create(
             kind = spec.commitKind,
@@ -1493,18 +1531,30 @@ class CanvasViewModel @Inject constructor(
         )
         if (!flusher.enqueueNow(job)) {
             appScope.launch(Dispatchers.Main) {
-                truncateRedoAfterUnjournaledEdit()
-                updateHistoryUi()
+                try {
+                    truncateRedoAfterUnjournaledEdit()
+                } finally {
+                    finishStrokeTransaction()
+                }
             }
             return
         }
         appScope.launch {
             val stamped = job.result.await()
             withContext(Dispatchers.Main) {
-                if (stamped == null) truncateRedoAfterUnjournaledEdit()
-                else pushHistory(stamped)
-                updateHistoryUi()
+                try {
+                    if (stamped == null) truncateRedoAfterUnjournaledEdit()
+                    else pushHistory(stamped)
+                } finally {
+                    finishStrokeTransaction()
+                }
             }
+        }
+    }
+
+    private fun onStrokeNotMerged() {
+        appScope.launch(Dispatchers.Main) {
+            finishStrokeTransaction()
         }
     }
 
@@ -2171,6 +2221,7 @@ class CanvasViewModel @Inject constructor(
      */
     fun attachSession(next: EngineSession?) {
         session?.onStrokeMerged = null
+        session?.onStrokeNotMerged = null
         session?.onRmwStarted = null
         session?.onRmwTilesTouched = null
         session?.onRmwCancelled = null
@@ -2185,6 +2236,7 @@ class CanvasViewModel @Inject constructor(
         val doc = document ?: return
         if (next != null) {
             next.onStrokeMerged = { spec, keys, revision -> onStrokeMerged(spec, keys, revision) }
+            next.onStrokeNotMerged = ::onStrokeNotMerged
             next.onRmwStarted = ::onRmwStarted
             next.onRmwTilesTouched = ::onRmwTilesTouched
             next.onRmwCancelled = { spec, keys -> onRmwCancelled(next, spec, keys) }
@@ -2226,6 +2278,7 @@ class CanvasViewModel @Inject constructor(
         // so there is no readback left to wait on — release() already
         // delivered or dropped it.
         session?.onStrokeMerged = null
+        session?.onStrokeNotMerged = null
         session?.onRmwStarted = null
         session?.onRmwTilesTouched = null
         session?.onRmwCancelled = null

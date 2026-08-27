@@ -514,6 +514,10 @@ and the contradiction is noted here.
   immutable stack refuses structural pixel edits, but strokes bypass those
   operations. `StrokeLayerPolicy` is the matching input-boundary guard; a
   hidden active layer remains drawable and previews until pen-up.
+- **Pen-up ends input, not the stroke transaction.** `CanvasActionGate` stays
+  closed until the entry is pushed or the unjournaled fallback finishes.
+  Every engine end path must report merged or not-merged exactly once; the
+  not-merged callback returns on Main.
 - **RMW tile coordinates are canvas-top-first.** Unlike window-space and
   accumulation scissors, an RMW tile target maps canvas row zero directly to
   GL row zero; do not Y-flip `RmwTileScissor`.

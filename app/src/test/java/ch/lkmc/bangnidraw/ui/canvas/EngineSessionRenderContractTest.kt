@@ -162,6 +162,22 @@ class EngineSessionRenderContractTest {
     }
 
     @Test
+    fun `not merged completions return on the main thread`() {
+        val source = source(ENGINE_SESSION_PATH)
+        val completion = section(source, STROKE_FALLBACK_START, STROKE_FALLBACK_END)
+        val release = section(source, RELEASE_START, RELEASE_END)
+
+        assertTrue(
+            POST_FALLBACK.containsMatchIn(completion),
+            "ordinary fallback must post to main",
+        )
+        assertTrue(
+            POST_DROPPED_FALLBACK.containsMatchIn(release),
+            "release fallback must post to main",
+        )
+    }
+
+    @Test
     fun `all scene and front entry points use the gate`() {
         val source = source(ENGINE_SESSION_PATH)
         val redraw = section(source, REDRAW_START, REDRAW_END)
@@ -315,6 +331,8 @@ class EngineSessionRenderContractTest {
         const val DISPATCH_END = "// ---------------------------------------------------------------- façade"
         const val RELEASE_START = "fun release()"
         const val RELEASE_END = "private companion object"
+        const val STROKE_FALLBACK_START = "private fun completeStrokeWithoutMerge("
+        const val STROKE_FALLBACK_END = "/**\n     * §10.1's between-frame poll"
         const val DRIVER_FACTORY_START = "private fun scheduleDriverCreation("
         const val DRIVER_FACTORY_END = "private inner class GenerationCallback"
         const val CREATE_DRIVER_START = "private fun createDriver("
@@ -393,6 +411,10 @@ class EngineSessionRenderContractTest {
         const val RENDERER_RELEASE_CALL = "renderer.release()"
         const val SHARED_GL_STOP_CALL = "glRenderer.stop(false)"
         const val ABANDON_REDRAW_COMPLETIONS = "abandonRedrawCompletions()"
+        val POST_FALLBACK = Regex("""pollHandler\.post\(fallback\)""")
+        val POST_DROPPED_FALLBACK = Regex(
+            """pollHandler\.post\s*\{\s*droppedStroke\?\.invoke\(\)""",
+        )
         const val SCENE_GATE_CALL = "attachmentGate.requestScene()"
         const val FRONT_GATE_CALL = "attachmentGate.requestFront()"
         const val END_GATE_CALL = "attachmentGate.endStroke()"

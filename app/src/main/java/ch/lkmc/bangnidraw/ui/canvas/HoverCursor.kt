@@ -94,8 +94,10 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCrosshair(cente
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPipette(center: Offset) {
-    // A centered ring plus crosshair: the sample point is exactly the cursor
-    // position, and the tip of a diagonal pipette glyph would sit 8 px off it.
+    // A centered ring: the sample point is exactly the cursor position, and
+    // the tip of a diagonal pipette glyph would sit 8 px off it. No
+    // crosshair inside — its strokes would cover the very pixel being
+    // sampled; the ring's hole keeps it visible.
     drawCircle(
         color = PaperSwatchBlack,
         radius = PIPETTE_RING_PX,
@@ -108,7 +110,6 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPipette(center:
         center = center,
         style = Stroke(width = INNER_STROKE_PX),
     )
-    drawCrosshair(center)
 }
 
 private const val OUTER_STROKE_PX = 3f

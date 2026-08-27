@@ -85,6 +85,7 @@
     <string name="canvas_export_png">导出 PNG</string>
     <string name="canvas_export_jpeg">导出 JPEG</string>
     <string name="canvas_focus">专注模式</string>
+    <string name="canvas_guides">构图参考线</string>
     <string name="canvas_settings">设置</string>
     <string name="cd_color">颜色，%1$s</string>
     <string name="cd_quick_palette">显示最近颜色</string>

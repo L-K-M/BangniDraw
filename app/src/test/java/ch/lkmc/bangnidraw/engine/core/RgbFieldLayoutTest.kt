@@ -43,8 +43,53 @@ class RgbFieldLayoutTest {
         }
     }
 
+    @Test
+    fun `row survives at its exact field width floor`() {
+        val contentWidth = 3 * BASE_FIELD_WIDTH_DP + 2 * FIELD_GAP_DP
+
+        val layout = RgbFieldLayoutPolicy.forContentWidth(contentWidth, fontScale = 1f)
+
+        assertEquals(RgbFieldArrangement.ROW, layout.arrangement)
+        assertEquals(BASE_FIELD_WIDTH_DP, layout.fieldWidthDp, FLOAT_TOLERANCE)
+    }
+
+    @Test
+    fun `width below the row floor stacks fields`() {
+        val contentWidth = 3 * BASE_FIELD_WIDTH_DP + 2 * FIELD_GAP_DP - 0.5f
+
+        val layout = RgbFieldLayoutPolicy.forContentWidth(contentWidth, fontScale = 1f)
+
+        assertEquals(RgbFieldArrangement.COLUMN, layout.arrangement)
+        assertEquals(contentWidth, layout.fieldWidthDp, FLOAT_TOLERANCE)
+    }
+
+    @Test
+    fun `content narrower than the gaps stacks full width fields`() {
+        val contentWidth = 5f
+
+        val layout = RgbFieldLayoutPolicy.forContentWidth(contentWidth, fontScale = 1f)
+
+        assertEquals(RgbFieldArrangement.COLUMN, layout.arrangement)
+        assertEquals(contentWidth, layout.fieldWidthDp, FLOAT_TOLERANCE)
+    }
+
+    @Test
+    fun `unbounded content keeps a finite readable row`() {
+        val layout = RgbFieldLayoutPolicy.forContentWidth(
+            contentWidthDp = Float.POSITIVE_INFINITY,
+            fontScale = 2f,
+        )
+
+        assertEquals(RgbFieldArrangement.ROW, layout.arrangement)
+        assertEquals(2 * BASE_FIELD_WIDTH_DP, layout.fieldWidthDp, FLOAT_TOLERANCE)
+        assertTrue(layout.occupiedWidthDp.isFinite())
+    }
+
     private companion object {
+        // ColorPanel reserves 20 dp on each horizontal edge.
         const val PANEL_HORIZONTAL_PADDING_DP = 20f
+        const val BASE_FIELD_WIDTH_DP = 64f
+        const val FIELD_GAP_DP = 6f
         const val FLOAT_TOLERANCE = 0.001f
     }
 }

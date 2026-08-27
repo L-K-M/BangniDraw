@@ -20,32 +20,36 @@ internal data class RgbFieldLayout(
 internal object RgbFieldLayoutPolicy {
 
     fun forContentWidth(contentWidthDp: Float, fontScale: Float): RgbFieldLayout {
-        require(contentWidthDp.isFinite() && contentWidthDp > 0f) {
-            "contentWidthDp must be finite and positive"
+        require(!contentWidthDp.isNaN() && contentWidthDp > 0f) {
+            "contentWidthDp must be positive"
         }
         require(fontScale.isFinite() && fontScale > 0f) {
             "fontScale must be finite and positive"
         }
 
-        val totalGap = GAP_DP * (FIELD_COUNT - 1)
-        val rowFieldWidth = maxOf(0f, contentWidthDp - totalGap) / FIELD_COUNT
         val minimumFieldWidth = BASE_MIN_FIELD_WIDTH_DP * maxOf(1f, fontScale)
-        if (rowFieldWidth >= minimumFieldWidth) {
-            return RgbFieldLayout(
-                arrangement = RgbFieldArrangement.ROW,
-                fieldWidthDp = rowFieldWidth,
-                gapDp = GAP_DP,
-                fieldCount = FIELD_COUNT,
-            )
+        if (!contentWidthDp.isFinite()) {
+            return layout(RgbFieldArrangement.ROW, minimumFieldWidth)
         }
 
-        return RgbFieldLayout(
-            arrangement = RgbFieldArrangement.COLUMN,
-            fieldWidthDp = contentWidthDp,
-            gapDp = GAP_DP,
-            fieldCount = FIELD_COUNT,
-        )
+        val totalGap = GAP_DP * (FIELD_COUNT - 1)
+        val rowFieldWidth = maxOf(0f, contentWidthDp - totalGap) / FIELD_COUNT
+        if (rowFieldWidth >= minimumFieldWidth) {
+            return layout(RgbFieldArrangement.ROW, rowFieldWidth)
+        }
+
+        return layout(RgbFieldArrangement.COLUMN, contentWidthDp)
     }
+
+    private fun layout(
+        arrangement: RgbFieldArrangement,
+        fieldWidthDp: Float,
+    ): RgbFieldLayout = RgbFieldLayout(
+        arrangement = arrangement,
+        fieldWidthDp = fieldWidthDp,
+        gapDp = GAP_DP,
+        fieldCount = FIELD_COUNT,
+    )
 
     private const val FIELD_COUNT = 3
     private const val GAP_DP = 6f

@@ -42,6 +42,22 @@ class BrushPresetTest {
         )
     }
 
+    @Test
+    fun `the core paints keep full rail priority`() {
+        val paints = BrushPresets.RAIL_ORDER
+            .filterNot { it == BrushPresets.HARD_ERASER_ID || it == BrushPresets.SOFT_ERASER_ID }
+            .map { BrushPresets.DEFAULT.copy(id = it) }
+
+        val core = RailSlotPolicy.visible(paints, BrushPresets.MARKER_ID, budget = 5)
+        val specialty = RailSlotPolicy.visible(paints, BrushPresets.PIGMENT_WASH_ID, budget = 5)
+
+        assertEquals(BrushPresets.CORE_PAINT_IDS, core.map { it.id })
+        assertEquals(
+            BrushPresets.CORE_PAINT_IDS.dropLast(1) + BrushPresets.PIGMENT_WASH_ID,
+            specialty.map { it.id },
+        )
+    }
+
     private fun preset(id: String = "test.brush") = BrushPreset(id = id, name = "Test")
 
     @Test

@@ -3,11 +3,8 @@ package ch.lkmc.bangnidraw.engine.core
 /**
  * The built-in brushes (`docs/plan/04-tools.md` §5).
  *
- * Only the ink pen ships here, which is what roadmap 2.2 scopes ("the one
- * round preset"). The other six of §5's table arrive with `BrushPresetStore`
- * and their JSON under `assets/brushes/`, because that is the PR that can also
- * check a preset *file* parses — declaring them as Kotlin constants now would
- * pin the numbers in the one place the shipped format is not.
+ * Stable IDs live here; shipped values live in `assets/brushes/`. The ink pen
+ * remains the code fallback used before the asset store finishes loading.
  *
  * §5's table is the spec either way, and these values are copied from it.
  */
@@ -19,17 +16,34 @@ object BrushPresets {
     const val AIRBRUSH_ID = "builtin.airbrush"
     const val SPRAY_CAN_ID = "builtin.spray_can"
     const val MARKER_ID = "builtin.marker"
+    const val CHARCOAL_ID = "builtin.charcoal"
+    const val SOFT_PASTEL_ID = "builtin.soft_pastel"
+    const val TECHNICAL_PEN_ID = "builtin.technical_pen"
+    const val CALLIGRAPHY_ID = "builtin.calligraphy"
+    const val DRY_BRUSH_ID = "builtin.dry_brush"
+    const val OIL_PAINT_ID = "builtin.oil_paint"
+    const val PIGMENT_WASH_ID = "builtin.pigment_wash"
     const val HARD_ERASER_ID = "builtin.hard_eraser"
     const val SOFT_ERASER_ID = "builtin.soft_eraser"
     const val HARD_ERASER_NAME = "@string/preset_hard_eraser"
 
-    val RAIL_ORDER: List<String> = listOf(
+    internal val CORE_PAINT_IDS: List<String> = listOf(
         PENCIL_ID,
         INK_PEN_ID,
         PAINTBRUSH_ID,
         AIRBRUSH_ID,
-        SPRAY_CAN_ID,
         MARKER_ID,
+    )
+
+    val RAIL_ORDER: List<String> = CORE_PAINT_IDS + listOf(
+        SPRAY_CAN_ID,
+        CHARCOAL_ID,
+        SOFT_PASTEL_ID,
+        TECHNICAL_PEN_ID,
+        CALLIGRAPHY_ID,
+        DRY_BRUSH_ID,
+        OIL_PAINT_ID,
+        PIGMENT_WASH_ID,
         HARD_ERASER_ID,
         SOFT_ERASER_ID,
     )

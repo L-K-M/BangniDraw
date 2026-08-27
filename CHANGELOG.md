@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.8 - 2026-08-27
+
+- Remember the last custom canvas size.
+- Let users choose which eraser the S Pen eraser end activates.
+- Expose HSV controls to accessibility services.
+- Wait for a live stroke to commit before leaving the canvas.
+- Fix quarter-turn canvas presentation.
+- Improve quick-palette focus and touch feedback.
+- Hide unavailable layer-reorder commands.
+- Enlarge and harden the eraser toggle.
+
 ## 1.0.7 - 2026-08-27
 
 - Long-press the eraser slot to switch between the hard and soft erasers.

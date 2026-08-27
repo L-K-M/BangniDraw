@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.data
 
 import ch.lkmc.bangnidraw.engine.core.HistoryEntry
 import ch.lkmc.bangnidraw.engine.core.LayerId
+import ch.lkmc.bangnidraw.engine.core.LayerRecord
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.CPU_MIRROR_CAP_BYTES
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.TileKey
@@ -248,6 +249,44 @@ class TileFlusherTest {
         assertTrue(
             (TileCodec.decode(payload.encoded) as TileCodec.Decoded.Ok)
                 .pixels.contentEquals(current),
+        )
+    }
+
+    @Test
+    fun `merge redo captures rewritten tiles from the lower layer`() = runBlocking {
+        val store = HistoryStore(historyDir)
+        val upper = LayerId("upper")
+        val key = TileKey(5, 5)
+        val entry = HistoryEntry.LayerMerge(
+            activeBefore = upper,
+            activeAfter = layer,
+            upper = LayerRecord(upper.value, "upper"),
+            upperIndex = 1,
+            upperTiles = listOf(key),
+            lower = LayerRecord(layer.value, "lower"),
+            lowerTiles = emptyList(),
+        )
+        val stamped = store.append(
+            entry,
+            seq = 1,
+            ts = 1,
+            payloads = listOf(HistoryStore.Payload(upper, key, ByteArray(0))),
+        )
+        val merged = Random(8).nextBytes(TILE_BYTES)
+        val job = TileFlusher.FlushJob.WriteRedo(
+            entry = stamped,
+            mirrorCurrent = mapOf((layer to key) to merged),
+        )
+
+        flusher.enqueue(job)
+        flusher.runQueued()
+        assertNotNull(job.result.await())
+
+        val payload = store.readPayloads(1, sidecar = true)!!.single()
+        assertEquals(layer, payload.layer)
+        assertTrue(
+            (TileCodec.decode(payload.encoded) as TileCodec.Decoded.Ok)
+                .pixels.contentEquals(merged),
         )
     }
 

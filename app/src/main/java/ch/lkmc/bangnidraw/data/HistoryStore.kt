@@ -38,7 +38,7 @@ internal class HistoryStore(private val dir: File) {
      */
     @Throws(IOException::class)
     fun append(entry: HistoryEntry, seq: Long, ts: Long, payloads: List<Payload>): HistoryEntry {
-        val bytes = encode(entry, seq, ts, payloads)
+        val bytes = encode(entry, seq, ts, payloads, PayloadSide.BEFORE)
         ensureDir()
         AtomicFiles.write(entryFile(seq), bytes)
         return entry.stamp(seq = seq, timestamp = ts, bytes = bytes.size.toLong())
@@ -52,7 +52,7 @@ internal class HistoryStore(private val dir: File) {
     @Throws(IOException::class)
     fun writeRedo(entry: HistoryEntry, payloads: List<Payload>): Long {
         require(entry.isStamped) { "a redo sidecar belongs to a written entry" }
-        val bytes = encode(entry, entry.seq, entry.timestamp, payloads)
+        val bytes = encode(entry, entry.seq, entry.timestamp, payloads, PayloadSide.REDO)
         ensureDir()
         AtomicFiles.write(redoFile(entry.seq), bytes)
         return bytes.size.toLong()
@@ -263,7 +263,13 @@ internal class HistoryStore(private val dir: File) {
         return header to (newline + 1).toLong()
     }
 
-    private fun encode(entry: HistoryEntry, seq: Long, ts: Long, payloads: List<Payload>): ByteArray {
+    private fun encode(
+        entry: HistoryEntry,
+        seq: Long,
+        ts: Long,
+        payloads: List<Payload>,
+        side: PayloadSide,
+    ): ByteArray {
         val refs = ArrayList<HistoryCodec.PayloadRef>(payloads.size)
         var off = 0L
         for (payload in payloads) {
@@ -276,7 +282,10 @@ internal class HistoryStore(private val dir: File) {
             )
             off += payload.encoded.size
         }
-        val expected = HistoryCodec.payloadKeys(entry)
+        val expected = when (side) {
+            PayloadSide.BEFORE -> HistoryCodec.payloadKeys(entry)
+            PayloadSide.REDO -> HistoryCodec.redoPayloadKeys(entry)
+        }
         require(expected == payloads.map { it.layer to it.key }) {
             "payloads must match the entry's tiles in order"
         }
@@ -290,6 +299,8 @@ internal class HistoryStore(private val dir: File) {
         for (payload in payloads) out.write(payload.encoded)
         return out.toByteArray()
     }
+
+    private enum class PayloadSide { BEFORE, REDO }
 
     private fun ensureDir() {
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("could not create $dir")

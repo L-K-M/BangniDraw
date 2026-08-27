@@ -366,6 +366,16 @@ and the contradiction is noted here.
 
 ## Conventions the plan leaves open
 
+- **Redo sidecars use post-edit tile owners.** A merge entry's before payload
+  names upper and lower layers, but its redo payload names only the merged
+  lower layer. A flatten redo payload names only the flattened result. Never
+  derive `.redo` keys from `HistoryCodec.payloadKeys`; use
+  `redoPayloadKeys`.
+- **All-zero readback removes a sparse tile key.** GPU slices may stay
+  resident, but `TileStore` deletes zero tiles, so the immutable layer model
+  must drop the key at checkpoint too. History validation accepts subsets of
+  recorded keys because this fold can happen between undo/redo cycles.
+
 - **What "`engine/core` is pure JVM" actually forbids.**
   `docs/plan/02-architecture.md` §1 writes the rule as "`kotlin.*` and
   `java.util` only", but the plan itself puts `@Serializable` on two

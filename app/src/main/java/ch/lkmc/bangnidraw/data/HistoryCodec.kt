@@ -91,6 +91,29 @@ internal object HistoryCodec {
         -> emptyList()
     }
 
+    /** Keys holding the entry's current pixels when its redo sidecar is born. */
+    fun redoPayloadKeys(entry: HistoryEntry): List<Pair<LayerId, TileKey>> = when (entry) {
+        is HistoryEntry.Stroke,
+        is HistoryEntry.Fill,
+        -> payloadKeys(entry)
+        is HistoryEntry.LayerMerge -> {
+            val lower = LayerId(entry.lower.id)
+            (entry.upperTiles + entry.lowerTiles)
+                .distinct()
+                .map { lower to it }
+        }
+        is HistoryEntry.Flatten -> {
+            val result = LayerId(entry.result.id)
+            val keys = LinkedHashSet<TileKey>()
+            for (record in entry.layers) {
+                if (!record.visible) continue
+                keys += entry.tilesPerLayer[LayerId(record.id)].orEmpty()
+            }
+            keys.map { result to it }
+        }
+        else -> emptyList()
+    }
+
     /**
      * True when *redoing* [entry] needs pixel payloads — the kinds whose
      * `.redo` sidecar exists at all (§5.4). Everything else redoes from its

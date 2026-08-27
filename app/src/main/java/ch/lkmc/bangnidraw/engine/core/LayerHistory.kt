@@ -7,6 +7,7 @@ internal enum class HistoryDirection { UNDO, REDO }
 internal data class LayerHistoryEdit(
     val stack: LayerStack,
     val pixelOps: List<PixelOp> = emptyList(),
+    val paperColor: Int? = null,
 )
 
 internal sealed interface LayerHistoryResult {
@@ -59,7 +60,15 @@ internal object LayerHistory {
         } catch (_: IllegalArgumentException) {
             return LayerHistoryResult.Corrupt
         }
-        return LayerHistoryResult.Applied(LayerHistoryEdit(next, pixels))
+        val paperColor = if (entry is HistoryEntry.PaperColor) {
+            when (direction) {
+                HistoryDirection.UNDO -> entry.before
+                HistoryDirection.REDO -> entry.after
+            }
+        } else {
+            null
+        }
+        return LayerHistoryResult.Applied(LayerHistoryEdit(next, pixels, paperColor))
     }
 
     private fun applyAdd(
@@ -103,7 +112,8 @@ internal object LayerHistory {
             }
             HistoryDirection.REDO -> {
                 if (layers.size <= 1 || !layers.matches(entry.index, props.id)) return false
-                if (layers[entry.index] != Layer(props, entry.tiles.toSet())) return false
+                val current = layers[entry.index]
+                if (current.props != props || !entry.tiles.toSet().containsAll(current.tiles)) return false
 
                 layers.removeAt(entry.index)
                 pixels += PixelOp.Delete(props.id)
@@ -166,7 +176,8 @@ internal object LayerHistory {
             HistoryDirection.UNDO -> {
                 if (!layers.matches(entry.index, props.id)) return false
                 val source = layers.firstOrNull { it.id == entry.sourceId } ?: return false
-                if (layers[entry.index] != Layer(props, source.tiles)) return false
+                val copy = layers[entry.index]
+                if (copy.props != props || !source.tiles.containsAll(copy.tiles)) return false
 
                 layers.removeAt(entry.index)
                 pixels += PixelOp.Delete(props.id)
@@ -200,7 +211,7 @@ internal object LayerHistory {
                 current.copy(tiles = entry.tiles.toSet())
             }
             HistoryDirection.REDO -> {
-                if (current.tiles != entry.tiles.toSet()) return false
+                if (!entry.tiles.toSet().containsAll(current.tiles)) return false
 
                 pixels += PixelOp.Clear(entry.layerId)
                 current.copy(tiles = emptySet())
@@ -220,13 +231,14 @@ internal object LayerHistory {
         if (entry.upperIndex <= 0) return false
 
         return when (direction) {
-            HistoryDirection.UNDO -> undoMerge(layers, entry, upper, lower)
+            HistoryDirection.UNDO -> undoMerge(layers, pixels, entry, upper, lower)
             HistoryDirection.REDO -> redoMerge(layers, pixels, entry, upper, lower)
         }
     }
 
     private fun undoMerge(
         layers: MutableList<Layer>,
+        pixels: MutableList<PixelOp>,
         entry: HistoryEntry.LayerMerge,
         upper: LayerProps,
         lower: LayerProps,
@@ -243,11 +255,17 @@ internal object LayerHistory {
             alphaLock = false,
             locked = false,
         )
-        if (merged.props != expectedProps || !merged.tiles.containsAll(upperTiles)) return false
+        if (merged.props != expectedProps) return false
 
         val lowerTiles = (merged.tiles - upperTiles) + entry.lowerTiles
         layers[lowerIndex] = Layer(lower, lowerTiles)
         layers.add(entry.upperIndex, Layer(upper, upperTiles))
+        val lowerBefore = entry.lowerTiles.toSet()
+        val removed = LinkedHashMap<TileKey, ByteArray?>()
+        for (key in entry.upperTiles) {
+            if (key !in lowerBefore) removed[key] = null
+        }
+        if (removed.isNotEmpty()) pixels += PixelOp.Restore(lower.id, removed)
         return true
     }
 
@@ -294,7 +312,7 @@ internal object LayerHistory {
                 val resultTiles = original
                     .filter { it.visible }
                     .flatMapTo(LinkedHashSet()) { entry.tilesPerLayer.getValue(it.id) }
-                if (layers.single().tiles != resultTiles) return false
+                if (!resultTiles.containsAll(layers.single().tiles)) return false
 
                 pixels += PixelOp.Delete(result.id)
                 layers.clear()
@@ -307,7 +325,9 @@ internal object LayerHistory {
             HistoryDirection.REDO -> {
                 if (layers.map { it.props } != original) return false
                 if (original.any { it.id !in entry.tilesPerLayer }) return false
-                if (layers.any { it.tiles != entry.tilesPerLayer.getValue(it.id).toSet() }) return false
+                if (layers.any { !entry.tilesPerLayer.getValue(it.id).toSet().containsAll(it.tiles) }) {
+                    return false
+                }
                 val visibleTiles = original
                     .filter { it.visible }
                     .flatMapTo(LinkedHashSet()) { entry.tilesPerLayer.getValue(it.id) }

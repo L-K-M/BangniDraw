@@ -48,7 +48,7 @@ internal class HistoryPixels(
         require(entry.isStamped)
         var redoBytes: CompletableDeferred<Long?>? = null
         if (HistoryCodec.redoNeedsPixels(entry) && !store.hasRedo(entry.seq)) {
-            val keys = HistoryCodec.payloadKeys(entry)
+            val keys = HistoryCodec.redoPayloadKeys(entry)
             val job = TileFlusher.FlushJob.WriteRedo(
                 entry = entry,
                 mirrorCurrent = flusher.captureMirror(keys),
@@ -79,7 +79,14 @@ internal class HistoryPixels(
      */
     suspend fun flushRestored(restores: List<Restore>) {
         val keys = restores.flatMap { r -> r.tiles.keys.map { r.layer to it } }
-        if (keys.isNotEmpty()) flusher.enqueue(TileFlusher.FlushJob.FlushKeys(keys))
+        flushChanged(keys)
+    }
+
+    /** Flushes every tile emitted by one applied history transition. */
+    suspend fun flushChanged(keys: Collection<Pair<LayerId, TileKey>>) {
+        if (keys.isNotEmpty()) {
+            flusher.enqueue(TileFlusher.FlushJob.FlushKeys(keys.distinct()))
+        }
     }
 
     private fun restores(seq: Long, sidecar: Boolean): List<Restore>? {

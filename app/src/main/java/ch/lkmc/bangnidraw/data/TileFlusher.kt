@@ -300,7 +300,7 @@ class TileFlusher(
             job.result.complete(null)
             return
         }
-        val keys = HistoryCodec.payloadKeys(job.entry)
+        val keys = HistoryCodec.redoPayloadKeys(job.entry)
         val payloads = keys.map { key ->
             val raw = job.mirrorCurrent[key]
             val encoded = when {

@@ -80,12 +80,7 @@ class HistoryJournal(
             "seq ${entry.seq} is not after ${list.last().seq}"
         }
 
-        val truncated = ArrayList<Long>(list.size - cursor)
-        while (list.size > cursor) {
-            val dropped = list.removeAt(list.size - 1)
-            truncated.add(dropped.seq)
-            bytes -= dropped.bytes
-        }
+        val truncated = truncateRedo()
 
         list.add(entry)
         bytes += entry.bytes
@@ -99,6 +94,17 @@ class HistoryJournal(
             cursor -= 1
         }
         return PushResult(truncated, pruned)
+    }
+
+    /** Drops a divergent redo branch even when the new edit could not be journaled. */
+    fun truncateRedo(): List<Long> {
+        val truncated = ArrayList<Long>(list.size - cursor)
+        while (list.size > cursor) {
+            val dropped = list.removeAt(list.size - 1)
+            truncated.add(dropped.seq)
+            bytes -= dropped.bytes
+        }
+        return truncated
     }
 
     /** The entry to un-apply, or null at the beginning. Only the cursor moves. */

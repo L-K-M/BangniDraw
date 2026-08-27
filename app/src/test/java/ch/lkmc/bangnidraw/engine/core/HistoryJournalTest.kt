@@ -54,6 +54,22 @@ class HistoryJournalTest {
     }
 
     @Test
+    fun `an unjournaled edit still discards its obsolete redo branch`() {
+        val j = journal()
+        j.push(entry(1))
+        j.push(entry(2))
+        j.push(entry(3))
+        j.undo()
+        j.undo()
+
+        val truncated = j.truncateRedo()
+
+        assertEquals(listOf(3L, 2L), truncated)
+        assertTrue(!j.canRedo())
+        assertEquals(listOf(1L), j.entries.map { it.seq })
+    }
+
+    @Test
     fun `undo then redo is identity on the journal`() {
         // Property over random push/undo/redo sequences: wherever the walk
         // lands, one undo();redo() pair leaves (cursor, entries) unchanged.

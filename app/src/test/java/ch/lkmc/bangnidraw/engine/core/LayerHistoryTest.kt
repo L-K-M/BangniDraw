@@ -9,6 +9,7 @@ class LayerHistoryTest {
     private val a = LayerId("a")
     private val b = LayerId("b")
     private val key = TileKey(1, 2)
+    private val emptyKey = TileKey(2, 3)
 
     @Test
     fun `undo and redo restore the active-layer hint`() {
@@ -89,6 +90,108 @@ class LayerHistoryTest {
         assertEquals(setOf(key), undone.stack.active.tiles)
         assertEquals(emptySet(), redone.stack.active.tiles)
         assertEquals(listOf(PixelOp.Clear(a)), redone.pixelOps)
+    }
+
+    @Test
+    fun `undo merge removes upper-only tiles from the lower layer`() {
+        val shared = TileKey(2, 2)
+        val entry = HistoryEntry.LayerMerge(
+            activeBefore = b,
+            activeAfter = a,
+            upper = LayerRecord(id = b.value, name = "upper"),
+            upperIndex = 1,
+            upperTiles = listOf(key, shared),
+            lower = LayerRecord(id = a.value, name = "lower"),
+            lowerTiles = listOf(shared),
+        )
+        val merged = stack(
+            Layer(
+                LayerProps(a, "lower"),
+                tiles = setOf(key, shared),
+            ),
+        )
+
+        val undone = applied(merged, entry, HistoryDirection.UNDO)
+
+        assertEquals(
+            listOf(PixelOp.Restore(a, mapOf(key to null))),
+            undone.pixelOps,
+        )
+    }
+
+    @Test
+    fun `paper history returns the selected side without changing layers`() {
+        val entry = HistoryEntry.PaperColor(
+            activeBefore = a,
+            activeAfter = a,
+            before = 0xFF112233.toInt(),
+            after = 0xFF445566.toInt(),
+        )
+
+        val undone = applied(stack(layer(a)), entry, HistoryDirection.UNDO)
+        val redone = applied(stack(layer(a)), entry, HistoryDirection.REDO)
+
+        assertEquals(entry.before, undone.paperColor)
+        assertEquals(entry.after, redone.paperColor)
+    }
+
+    @Test
+    fun `redo clear accepts restored keys later proven empty`() {
+        val entry = HistoryEntry.LayerClear(
+            activeBefore = a,
+            activeAfter = a,
+            layerId = a,
+            tiles = listOf(key, emptyKey),
+        )
+
+        val redone = applied(
+            stack(layer(a, tiles = setOf(key))),
+            entry,
+            HistoryDirection.REDO,
+        )
+
+        assertEquals(emptySet(), redone.stack.active.tiles)
+    }
+
+    @Test
+    fun `undo flatten accepts result keys later proven empty`() {
+        val result = LayerRecord(id = b.value, name = "Flattened")
+        val entry = HistoryEntry.Flatten(
+            activeBefore = a,
+            activeAfter = b,
+            layers = listOf(LayerRecord(id = a.value, name = "original")),
+            tilesPerLayer = mapOf(a to listOf(key, emptyKey)),
+            result = result,
+        )
+
+        val undone = applied(
+            stack(Layer(result.toProps(), setOf(key))),
+            entry,
+            HistoryDirection.UNDO,
+        )
+
+        assertEquals(listOf(a), undone.stack.layers.map { it.id })
+    }
+
+    @Test
+    fun `undo duplicate accepts copied keys later proven empty`() {
+        val source = layer(a, tiles = setOf(key, emptyKey))
+        val copy = LayerRecord(id = b.value, name = "copy")
+        val entry = HistoryEntry.LayerDuplicate(
+            activeBefore = a,
+            activeAfter = b,
+            sourceId = a,
+            copy = copy,
+            index = 1,
+        )
+
+        val undone = applied(
+            stack(source, Layer(copy.toProps(), setOf(key)), active = 1),
+            entry,
+            HistoryDirection.UNDO,
+        )
+
+        assertEquals(listOf(a), undone.stack.layers.map { it.id })
     }
 
     @Test

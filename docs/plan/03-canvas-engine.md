@@ -863,7 +863,9 @@ replay (02 §3.2).
    new predicted tail's rect (§9). Map it to window px through
    `ScreenTransform` (rotated → take the bounding box of the four corners),
    inflate by 1 px, clip to the viewport, then through `transform`
-   (graphics-core's pre-rotation matrix) to buffer px for the scissor.
+   (graphics-core's pre-rotation matrix) to buffer px for the scissor. Inverse
+   map the inflated window rect back to canvas px for tile selection; otherwise
+   the clear crosses a tile edge while the neighboring tile is omitted.
 4. Composite that rect exactly as §3.2/§4: Below (paper baked in) →
    (active ⊕ stroke buffer) → Above (or per-layer above), into `Accum`,
    then draw `Accum` into the front buffer (§3.2 step 3: a textured quad
@@ -876,23 +878,26 @@ replay (02 §3.2).
 
 Since the multi-buffered layer beneath shows the pre-stroke composite and
 the front layer shows the post-dab composite for the touched rects, the
-screen is correct everywhere at all times, and the front layer "grows" as
-the stroke grows.
+two layers contain the correct pixels everywhere, and the front layer
+"grows" as the stroke grows. Scan-line racing can expose only the current
+incremental damage while that small region is being written.
 
-A multi-buffer completion hides the front layer, and its later buffer release
-may clear a newer front frame. The path does not count or wait for callbacks.
-An active completion recomposites the cumulative preview once; protected
-frames then composite only new dirt into `Accum` while presenting cumulative
-pixels from it. A completion between strokes protects the next stroke. Redraws
-during a stroke are deferred, and equal Compose inputs are filtered before
-they request one.
+Every app redraw uses `commit()`, whose pending-commit count holds front
+requests until the multi-buffer release has cleared the front buffer. An active
+completion recomposites and presents the cumulative preview once; later frames
+return to incremental damage. Re-presenting the growing cumulative preview on
+every sample defeats scan-line racing and produces a moving cutoff. Redraws
+during a stroke are deferred, and equal Compose inputs are filtered before they
+request one.
 
 ### 8.2 `onDrawMultiDoubleBufferedLayer(eglManager, bufferInfo, transform, params)`
 
 Draws the **full viewport** from committed state (stroke buffer already
 merged, caches valid): Below (paper baked in) → active → Above into
 `Accum`, then the full-rect `Accum` quad into `bufferInfo.frameBufferId`
-(§3.2 step 3). `params` is only iterated to release the ring slots
+(§3.2 step 3). The quad starts at the logical `Accum` dimensions; `transform`
+maps it into a pre-rotated buffer whose dimensions may be swapped. `params` is
+only iterated to release the ring slots
 (`docs/plan/02-architecture.md` §3.2); the current `ScreenTransform` is
 always used. This callback also serves every non-stroke redraw (§5).
 
@@ -960,8 +965,8 @@ is drawn in view space, a changed view invalidates every pixel of it, and
 redrawing the whole front buffer per gesture step would defeat the
 low-latency path. Non-stroke redraws (gesture steps, the reset spring)
 render the full viewport into the multi-buffered layer via
-`renderMultiBufferedLayer` if graphics-core exposes it in the pinned
-version (to verify), else via an empty-param `commit()`.
+an empty-param `commit()` so later front input waits for its release-time
+clear.
 
 Surface size changes (rotation, fold, multi-window) arrive through the
 `SurfaceHolder`; `ViewTransform.rebase(oldFit, newFit)` keeps the canvas

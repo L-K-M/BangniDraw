@@ -38,6 +38,14 @@ class BufferScissorTest {
         sourceHeight, 0f, 0f, 1f,
     )
 
+    /** `(x, y) -> (y, W - x)`, the opposite pre-rotation. */
+    private fun rotate270(sourceWidth: Float) = floatArrayOf(
+        0f, -1f, 0f, 0f,
+        1f, 0f, 0f, 0f,
+        0f, 0f, 1f, 0f,
+        0f, sourceWidth, 0f, 1f,
+    )
+
     @Test
     fun `the identity maps a rect to itself`() {
         val r = IntRect(10, 20, 40, 50)
@@ -57,6 +65,22 @@ class BufferScissorTest {
             mapped != IntRect(10, 20, 40, 50),
             "a rotated buffer must not reuse the window-space rect",
         )
+    }
+
+    @Test
+    fun `a pre-rotated quad starts in logical dimensions in both directions`() {
+        val logical = IntRect(0, 0, 100, 200)
+        val fullBuffer = IntRect(0, 0, 200, 100)
+
+        assertEquals(fullBuffer, BufferScissor.bounds(logical, rotate90(200f), 200, 100))
+        assertEquals(fullBuffer, BufferScissor.bounds(logical, rotate270(100f), 200, 100))
+
+        val clockwise = BufferScissor.bounds(fullBuffer, rotate90(200f), 200, 100)
+        val counterClockwise = BufferScissor.bounds(fullBuffer, rotate270(100f), 200, 100)
+        assertEquals(IntRect(100, 0, 200, 100), clockwise)
+        assertEquals(IntRect(0, 0, 100, 100), counterClockwise)
+        assertTrue(clockwise != fullBuffer, "buffer dimensions clip the clockwise quad")
+        assertTrue(counterClockwise != fullBuffer, "buffer dimensions clip the opposite quad")
     }
 
     @Test

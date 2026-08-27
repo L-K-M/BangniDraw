@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2 - 2026-08-27
+
+- Remove moving live-stroke cutoffs and tile-edge seams.
+
 ## 1.0.1 - 2026-08-27
 
 - Keep the complete stroke visible while drawing.

@@ -126,9 +126,7 @@ internal fun CanvasSurface(
                     revisions = revisions,
                 )
                 sessionHolder[0] = session
-                session.setStack(stack)
-                session.setPaperColor(paperColor)
-                session.setView(view)
+                session.configure(stack, paperColor, view)
                 appliedStack[0] = stack
                 appliedPaperColor[0] = paperColor
                 appliedView[0] = view

@@ -219,6 +219,48 @@ class ScreenTransformTest {
     }
 
     @Test
+    fun `inflated front damage includes every neighboring tile it clears`() {
+        val screen = ScreenTransform(a = 0.5f, b = 0f, tx = 0f, ty = 0f)
+        val dirty = IntRect(256, 256, 512, 512)
+        val window = screen.screenBoundsOf(dirty, 1024, 1024)
+        val coverage = screen.canvasBoundsOf(window, 1024, 1024)
+
+        assertEquals(IntRect(127, 127, 257, 257), window)
+        assertEquals(IntRect(254, 254, 514, 514), coverage)
+
+        val keys = TileGrid(1024, 1024).keysFor(coverage).toSet()
+        assertEquals(
+            setOf(
+                TileKey(0, 0), TileKey(1, 0), TileKey(2, 0),
+                TileKey(0, 1), TileKey(1, 1), TileKey(2, 1),
+                TileKey(0, 2), TileKey(1, 2), TileKey(2, 2),
+            ),
+            keys,
+        )
+    }
+
+    @Test
+    fun `rotated front damage covers the whole scissor rather than its source rect`() {
+        val halfRootTwo = kotlin.math.sqrt(0.5f)
+        val screen = ScreenTransform(
+            a = halfRootTwo,
+            b = halfRootTwo,
+            tx = 512f,
+            ty = 0f,
+        )
+        val dirty = IntRect(256, 256, 768, 512)
+        val window = screen.screenBoundsOf(dirty, 1200, 1200)
+        val coverage = screen.canvasBoundsOf(window, 1024, 1024)
+
+        // The screen-space AABB's corners map well outside the rotated source
+        // rect. Clearing that AABB while redrawing only `dirty` leaves wedges.
+        assertTrue(coverage.left < dirty.left)
+        assertTrue(coverage.top < dirty.top)
+        assertTrue(coverage.right > dirty.right)
+        assertTrue(coverage.bottom > dirty.bottom)
+    }
+
+    @Test
     fun `an empty rect or viewport scissors to nothing`() {
         val screen = ScreenTransform.of(fit, ViewTransform())
         assertEquals(IntRect.EMPTY, screen.screenBoundsOf(IntRect.EMPTY, 1200, 800))

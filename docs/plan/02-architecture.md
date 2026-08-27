@@ -150,16 +150,15 @@ updates); frames go through `renderFrontBufferedLayer(batch)` while the pen
 is down and `commit()` on pen-up. Redraws with no stroke in flight — pan/
 zoom/rotate, layer panel edits, undo/redo uploads, the view rebase after a
 resize, the first frame after open — go through
-`renderer.renderMultiBufferedLayer(emptyList())` — to verify that the pinned
-graphics-core exposes it; the fallback is an empty-param `commit()`
-(docs/plan/03-canvas-engine.md §8.6) — after the view/fit uniforms
-have been set via `execute {}`; `EngineSession.redraw()` wraps this and is
-called by `setView`, `applyPixelOp`, `uploadTiles`, `setActiveLayer` and
-after resize. During a two-finger gesture the redraw is throttled to one per
-`Choreographer` frame. graphics-core calls used, in full:
+an empty-param `commit()` after the view/fit uniforms have been set via
+`execute {}`. Unlike `renderMultiBufferedLayer`, `commit()` holds later front
+requests until the multi-buffer release has cleared the front buffer.
+`EngineSession.redraw()` wraps this and is called by `setView`,
+`applyPixelOp`, `uploadTiles`, `setActiveLayer` and after resize. During a
+two-finger gesture the redraw is throttled to one per `Choreographer` frame.
+graphics-core calls used, in full:
 `renderFrontBufferedLayer`, `commit`, `cancel`, `execute`,
-`release(cancelPending, onReleaseComplete)`, plus `renderMultiBufferedLayer`
-/ `clear` if present. The rule
+`release(cancelPending, onReleaseComplete)`. The rule
 "every `gl*` call is on this thread" is what lets `engine/gl` be lock-free.
 
 ### 3.2 Main → GL: the dab ring
@@ -333,7 +332,7 @@ class EngineSession(surface: SurfaceView, doc: Document, tiles: TileStore,
                     pool: TilePool.Config, clock: Clock) {
     val renderer: GLFrontBufferedRenderer<DabBatch>
     fun setView(t: ViewTransform, fit: FitTransform)  // uniforms via execute {} + redraw()
-    fun redraw()                                   // renderMultiBufferedLayer(emptyList())
+    fun redraw()                                   // empty-param commit()
     fun setActiveLayer(id: LayerId)
     fun applyPixelOp(op: PixelOp)                  // 05 §3.3: copy/merge/clear/delete/flatten/restore → sandwich invalidation
     fun beginStroke(tool: Tool, strokeId: Long)

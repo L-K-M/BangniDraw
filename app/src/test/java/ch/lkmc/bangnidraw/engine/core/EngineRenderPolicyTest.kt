@@ -14,25 +14,28 @@ class EngineRenderPolicyTest {
             MultiDrawCompletion.RESUME_FRONT,
             policy.onMultiDrawCompleted(),
         )
+        assertEquals(MultiDrawCompletion.RESUME_FRONT, policy.resumeFront())
         assertEquals(FrontFramePlan.RECOVER, policy.frontFrame())
         policy.frontFramePresented(FrontFramePlan.RECOVER)
-        assertEquals(FrontFramePlan.PROTECTED, policy.frontFrame())
-        assertEquals(MultiDrawCompletion.RESUME_FRONT, policy.resumeFront())
+        repeat(3) {
+            assertEquals(FrontFramePlan.INCREMENTAL, policy.frontFrame())
+        }
+        assertEquals(MultiDrawCompletion.NONE, policy.resumeFront())
     }
 
     @Test
-    fun `a completion before the stroke protects its front buffer`() {
+    fun `a completion before the stroke leaves incremental rendering`() {
         val policy = EngineRenderPolicy()
 
         assertEquals(MultiDrawCompletion.NONE, policy.onMultiDrawCompleted())
         policy.beginStroke()
 
         assertEquals(MultiDrawCompletion.NONE, policy.resumeFront())
-        assertEquals(FrontFramePlan.PROTECTED, policy.frontFrame())
+        assertEquals(FrontFramePlan.INCREMENTAL, policy.frontFrame())
     }
 
     @Test
-    fun `protected present includes an old tail outside the current preview`() {
+    fun `incremental and recovery plans select their matching damage`() {
         val incremental = IntRect(10, 20, 30, 40)
         val preview = IntRect(100, 120, 130, 140)
         val cumulative = incremental.union(preview)
@@ -44,10 +47,6 @@ class EngineRenderPolicyTest {
         assertEquals(
             FrontFrameDirty(composite = cumulative, present = cumulative),
             FrontFramePlan.RECOVER.dirty(incremental, preview),
-        )
-        assertEquals(
-            FrontFrameDirty(composite = incremental, present = cumulative),
-            FrontFramePlan.PROTECTED.dirty(incremental, preview),
         )
     }
 
@@ -62,7 +61,7 @@ class EngineRenderPolicyTest {
 
         policy.frontFramePresented(FrontFramePlan.RECOVER)
 
-        assertEquals(FrontFramePlan.PROTECTED, policy.frontFrame())
+        assertEquals(FrontFramePlan.INCREMENTAL, policy.frontFrame())
     }
 
     @Test
@@ -89,7 +88,7 @@ class EngineRenderPolicyTest {
     }
 
     @Test
-    fun `an active completion also protects the next stroke`() {
+    fun `an active completion does not change the next stroke`() {
         val policy = EngineRenderPolicy()
         policy.beginStroke()
         policy.onMultiDrawCompleted()
@@ -97,7 +96,7 @@ class EngineRenderPolicyTest {
 
         policy.beginStroke()
 
-        assertEquals(FrontFramePlan.PROTECTED, policy.frontFrame())
+        assertEquals(FrontFramePlan.INCREMENTAL, policy.frontFrame())
     }
 
     @Test

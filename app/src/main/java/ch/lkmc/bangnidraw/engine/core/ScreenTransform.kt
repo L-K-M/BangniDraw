@@ -168,6 +168,42 @@ data class ScreenTransform(
         else IntRect(left, top, right, bottom)
     }
 
+    /**
+     * The canvas-space AABB covered by a window-space [rect], clipped to the
+     * canvas. Front damage uses this after [screenBoundsOf]: its inflated,
+     * rotated screen AABB can cover neighboring tiles that must be redrawn
+     * after the paper clear.
+     */
+    fun canvasBoundsOf(rect: IntRect, canvasWidth: Int, canvasHeight: Int): IntRect {
+        if (rect.isEmpty || canvasWidth <= 0 || canvasHeight <= 0) return IntRect.EMPTY
+
+        val x0 = rect.left.toFloat()
+        val y0 = rect.top.toFloat()
+        val x1 = rect.right.toFloat()
+        val y1 = rect.bottom.toFloat()
+        val cx00 = invertX(x0, y0); val cy00 = invertY(x0, y0)
+        val cx10 = invertX(x1, y0); val cy10 = invertY(x1, y0)
+        val cx11 = invertX(x1, y1); val cy11 = invertY(x1, y1)
+        val cx01 = invertX(x0, y1); val cy01 = invertY(x0, y1)
+        if (!cx00.isFinite() || !cy00.isFinite() || !cx10.isFinite() || !cy10.isFinite() ||
+            !cx11.isFinite() || !cy11.isFinite() || !cx01.isFinite() || !cy01.isFinite()
+        ) {
+            return IntRect.EMPTY
+        }
+
+        val left = floor(min(min(cx00, cx10), min(cx11, cx01))).toInt()
+            .coerceIn(0, canvasWidth)
+        val top = floor(min(min(cy00, cy10), min(cy11, cy01))).toInt()
+            .coerceIn(0, canvasHeight)
+        val right = ceil(max(max(cx00, cx10), max(cx11, cx01))).toInt()
+            .coerceIn(0, canvasWidth)
+        val bottom = ceil(max(max(cy00, cy10), max(cy11, cy01))).toInt()
+            .coerceIn(0, canvasHeight)
+
+        return if (left >= right || top >= bottom) IntRect.EMPTY
+        else IntRect(left, top, right, bottom)
+    }
+
     companion object {
         /**
          * `view ∘ fit`, per §3.1.

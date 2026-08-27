@@ -15,7 +15,6 @@ internal enum class FrontFramePlan(
 ) {
     INCREMENTAL(FrontDirtySource.INCREMENTAL, FrontDirtySource.INCREMENTAL),
     RECOVER(FrontDirtySource.CUMULATIVE, FrontDirtySource.CUMULATIVE),
-    PROTECTED(FrontDirtySource.INCREMENTAL, FrontDirtySource.CUMULATIVE),
     ;
 
     fun dirty(incremental: IntRect, preview: IntRect): FrontFrameDirty {
@@ -38,15 +37,13 @@ internal enum class MultiDrawCompletion { NONE, RESUME_FRONT }
 
 internal enum class StrokeFinish { COMMIT, CANCEL_BUFFERED, CANCEL_READ_MODIFY_WRITE }
 
-/** Keeps a multi-buffer completion from erasing a newer front-buffer stroke. */
+/** Recovers a live stroke once after a multi-buffer transition. */
 internal class EngineRenderPolicy {
 
     private var released = false
     private var strokeActive = false
     private var deferredRedraw = false
     private var recoverCumulative = false
-    private var protectCurrentStroke = false
-    private var protectNextStroke = false
     private var resumeQueued = false
     private var rmwCancelPending = false
 
@@ -56,8 +53,6 @@ internal class EngineRenderPolicy {
 
         strokeActive = true
         recoverCumulative = false
-        protectCurrentStroke = protectNextStroke
-        protectNextStroke = false
         resumeQueued = false
     }
 
@@ -76,7 +71,6 @@ internal class EngineRenderPolicy {
 
         strokeActive = false
         recoverCumulative = false
-        protectCurrentStroke = false
         resumeQueued = false
         val redrawWasDeferred = deferredRedraw
 
@@ -111,13 +105,9 @@ internal class EngineRenderPolicy {
     @Synchronized
     fun onMultiDrawCompleted(): MultiDrawCompletion {
         if (released) return MultiDrawCompletion.NONE
-
-        // Release can clear the front later, after a new stroke has begun.
-        protectNextStroke = true
         if (!strokeActive) return MultiDrawCompletion.NONE
 
         recoverCumulative = true
-        protectCurrentStroke = true
         if (resumeQueued) return MultiDrawCompletion.NONE
 
         resumeQueued = true
@@ -137,15 +127,7 @@ internal class EngineRenderPolicy {
     fun frontFrame(): FrontFramePlan {
         if (released) return FrontFramePlan.INCREMENTAL
         if (!strokeActive) return FrontFramePlan.INCREMENTAL
-        if (!recoverCumulative) {
-            return if (protectCurrentStroke) {
-                FrontFramePlan.PROTECTED
-            } else {
-                FrontFramePlan.INCREMENTAL
-            }
-        }
-
-        return FrontFramePlan.RECOVER
+        return if (recoverCumulative) FrontFramePlan.RECOVER else FrontFramePlan.INCREMENTAL
     }
 
     @Synchronized
@@ -160,8 +142,6 @@ internal class EngineRenderPolicy {
         strokeActive = false
         deferredRedraw = false
         recoverCumulative = false
-        protectCurrentStroke = false
-        protectNextStroke = false
         resumeQueued = false
         rmwCancelPending = false
     }

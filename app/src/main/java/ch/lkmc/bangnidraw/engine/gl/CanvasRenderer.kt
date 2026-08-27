@@ -231,17 +231,8 @@ class CanvasRenderer(
     /** Reused across strokes: the merge walks it and the readback reads it. */
     private val mergedKeys = ArrayList<TileKey>()
     private val mergeQuad = FullRectQuad()
-    /**
-     * One per pass, not one shared.
-     *
-     * `FullRectQuad` caches the last size it uploaded, and these two draw at
-     * different sizes: the present quad spans the window buffer, the
-     * checkerboard spans `Accum`. Those differ whenever the buffer is
-     * pre-rotated, so one shared instance would re-upload its geometry twice a
-     * frame, for every frame, on a transparent-paper canvas.
-     */
-    private val presentQuad = FullRectQuad()
-    private val checkerQuad = FullRectQuad()
+    /** Present and checker passes share `Accum`'s logical full-screen quad. */
+    private val screenQuad = FullRectQuad()
     private var sandwich: SandwichCache? = null
 
     private val layers = LinkedHashMap<LayerId, LayerTextures>()
@@ -1308,19 +1299,25 @@ class CanvasRenderer(
                 viewportWidth,
                 viewportHeight,
             )
-            if (
-                !compositeWindowRect.isEmpty &&
-                !compositeIntoAccum(
-                    current,
-                    screenTransform,
-                    pass,
-                    compositeDirtyCanvas,
-                    compositeWindowRect,
-                    spec,
-                )
-            ) {
-                return false
-            }
+            if (compositeWindowRect.isEmpty) return false
+
+            // The inflated window AABB can clear across a tile boundary. Draw
+            // every tile under it so the margin cannot cut white grid lines.
+            val compositeCanvasRect = screenTransform.canvasBoundsOf(
+                compositeWindowRect,
+                canvas.width,
+                canvas.height,
+            )
+            if (compositeCanvasRect.isEmpty) return false
+            val composited = compositeIntoAccum(
+                current,
+                screenTransform,
+                pass,
+                compositeCanvasRect,
+                compositeWindowRect,
+                spec,
+            )
+            if (!composited) return false
         }
         if (!presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform, bufferRect)) {
             return false
@@ -1595,7 +1592,7 @@ class CanvasRenderer(
         setColorUniform(program, "u_checkerA", checkerA)
         setColorUniform(program, "u_checkerB", checkerB)
         state.blendOff()
-        checkerQuad.draw(accum.width.toFloat(), accum.height.toFloat())
+        screenQuad.draw(accum.width.toFloat(), accum.height.toFloat())
     }
 
     private fun setColorUniform(program: GlProgram, name: String, argb: Int) {
@@ -1662,10 +1659,9 @@ class CanvasRenderer(
         program.uniform4f("u_screen", 1f, 0f, 0f, 0f)
         program.uniformMatrix4("u_projection", bufferProjection)
         program.uniformMatrix4("u_bufferTransform", bufferTransform)
-        // The quad spans the BUFFER, not Accum: when graphics-core hands us a
-        // pre-rotated buffer its width and height are swapped relative to the
-        // viewport, and u_bufferTransform is what maps one onto the other.
-        presentQuad.draw(bufferWidth.toFloat(), bufferHeight.toFloat())
+        // The transform maps logical Accum coordinates into the pre-rotated
+        // buffer. Starting with buffer dimensions clips one side after a 90°.
+        screenQuad.draw(accum.width.toFloat(), accum.height.toFloat())
         // The scissor is per-frame state on a target the next callback reuses;
         // leaving it set would clip whatever graphics-core draws next to this
         // stroke's dirty rect.
@@ -1803,8 +1799,7 @@ class CanvasRenderer(
         layerPixelPass?.release()
         strokeBuffer?.reset()
         tailBuffer?.reset()
-        presentQuad.release()
-        checkerQuad.release()
+        screenQuad.release()
         mergeQuad.release()
         composite?.release()
         present?.release()

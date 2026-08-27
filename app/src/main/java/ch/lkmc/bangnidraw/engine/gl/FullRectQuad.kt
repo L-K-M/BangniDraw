@@ -17,12 +17,9 @@ import android.opengl.GLES30
  * The vertex layout matches [Shaders.COMPOSITE_VERT]'s attributes, so any
  * program built on that shader can draw it.
  *
- * **One instance per rect size.** The geometry cache remembers only the last
- * size drawn, so a single instance shared between two passes at different
- * sizes re-uploads on every call — and the present pass draws at the *buffer*
- * size while the checkerboard draws at `Accum`'s, which differ exactly when the
- * compositor hands over a pre-rotated buffer. That is the configuration where
- * the thrash would be permanent and per-frame.
+ * Reuse one instance where callers share a stable rect size. The geometry
+ * cache remembers only the last size drawn, so alternating sizes re-upload on
+ * every call.
  */
 class FullRectQuad {
 

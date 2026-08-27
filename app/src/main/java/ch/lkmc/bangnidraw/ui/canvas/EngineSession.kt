@@ -278,8 +278,8 @@ class EngineSession(
      *
      * [width] and [height] are the surface's; `bufferInfo.width/height` are the
      * **buffer's**, which may be swapped relative to them when the compositor
-     * hands us a pre-rotated buffer. The present quad spans the buffer and goes
-     * through [transform], which is why §3.2 step 3 forbids a blit here.
+     * hands us a pre-rotated buffer. The logical present quad goes through
+     * [transform], which is why §3.2 step 3 forbids a blit here.
      */
     override fun onDrawMultiBufferedLayer(
         eglManager: EGLManager,
@@ -335,6 +335,16 @@ class EngineSession(
     }
 
     // ---------------------------------------------------------------- façade
+
+    /** Applies initial document state before scheduling one scene redraw. */
+    internal fun configure(stack: LayerStack, paperColor: Int, view: ViewTransform) {
+        frontBuffered.execute {
+            renderer.setStack(stack)
+            renderer.setPaperColor(paperColor)
+            renderer.setView(view)
+        }
+        redraw()
+    }
 
     /**
      * Sets the view transform and redraws.
@@ -841,14 +851,7 @@ class EngineSession(
         redraw()
     }
 
-    /**
-     * One full-viewport redraw through the multi-buffered layer.
-     *
-     * `renderMultiBufferedLayer(emptyList())` — verified present in the pinned
-     * 1.0.4, which `03-canvas-engine.md` §8.6 left as an open question with an
-     * `empty-param commit()` as the fallback. It is exposed, so the fallback
-     * is not needed.
-     */
+    /** One full-viewport redraw through the multi-buffered layer. */
     fun redraw() {
         if (renderPolicy.requestRedraw() != RedrawDecision.DRAW) return
         redrawNow()
@@ -856,7 +859,10 @@ class EngineSession(
 
     private fun redrawNow() {
         if (!frontBuffered.isValid()) return
-        frontBuffered.renderMultiBufferedLayer(emptyList())
+
+        // commit() holds new front renders until the old front buffer is
+        // released and cleared. Direct multi rendering bypasses that barrier.
+        frontBuffered.commit()
     }
 
     /** Runs [block] on the GL thread. */

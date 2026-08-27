@@ -275,17 +275,26 @@ and the contradiction is noted here.
   **surface's** and `bufferInfo.width`/`height` are the **buffer's**, which are
   swapped when the compositor hands over a pre-rotated buffer — which is the
   whole reason the present step is a quad through `u_bufferTransform` and not
-  a blit.
-- **`renderMultiBufferedLayer(Collection<T>)` exists** in 1.0.4, which
-  `03-canvas-engine.md` §8.6 left open ("if graphics-core exposes it in the
-  pinned version (to verify)"). It does, so `EngineSession.redraw()` calls it
-  and the `empty-param commit()` fallback the plan describes is not needed.
-- **A multi-buffer completion hides the front layer; release can clear it.**
-  Do not count callbacks or wait for them: release clears the front later.
-  `EngineRenderPolicy` rebuilds a live preview once, then re-presents cached
-  cumulative pixels while compositing only new dirt. A completion between
-  strokes protects the next one. Equal Compose state is filtered before it can
-  request another multi-buffer redraw.
+  a blit. That quad starts at `Accum`'s logical dimensions; starting at the
+  swapped buffer dimensions clips a band after the transform.
+- **Front damage has two bounds.** The inflated window-space scissor decides
+  which `Accum` pixels are cleared. Tile selection uses that scissor
+  inverse-mapped to canvas space, not the original dab rect. Otherwise the
+  clear crosses a tile edge without redrawing its neighbor and leaves 1 px
+  white grid seams until pen-up.
+- **`renderMultiBufferedLayer(Collection<T>)` exists in 1.0.4 but bypasses
+  commit coordination.** It does not increment the library's `mCommitCount`,
+  so a new front render can race the later release-time clear.
+  `EngineSession.redraw()` uses `commit()` with an empty active segment instead.
+  Equal Compose state is filtered before it can request another redraw, and
+  initial stack, paper, and view configuration schedules one commit.
+- **A commit-backed multi-buffer completion hides the front layer before its
+  buffer is released.** Front requests stay queued while `mCommitCount` is
+  nonzero. Release marks the front buffer dirty; the next front callback clears
+  it before app drawing. `EngineRenderPolicy` therefore rebuilds the cumulative
+  live preview once after an active completion, then returns to incremental
+  front-buffer drawing. Re-presenting the cumulative stroke every frame defeats
+  scan-line racing and produces a moving horizontal cutoff.
 - **`execute` blocks and render requests ARE FIFO on the GL thread.**
   `03-canvas-engine.md` §8.3 flags this as an assumption "to verify against
   graphics-core", with a prepared fallback (do the merge at the top of the

@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.ui.canvas
 import android.graphics.Bitmap
 import android.view.HapticFeedbackConstants
 import androidx.annotation.StringRes
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -33,8 +34,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
@@ -535,6 +540,7 @@ internal fun CurveEditor(
     valueText: @Composable (Float) -> String,
 ) {
     ChoiceLabel(title)
+    CurvePlot(curve)
     SettingSlider(
         stringResource(R.string.brush_curve_knot, 1),
         curve.p0,
@@ -567,6 +573,60 @@ internal fun CurveEditor(
         { onChanged(curve.copy(p3 = it)) },
         onFinished,
     )
+}
+
+/**
+ * The curve the four knot sliders below own, drawn so the control is legible:
+ * pressure in on x, mapped value on y, the sampled spline and its four knots.
+ *
+ * Read-only on purpose — the sliders stay the editing surface, this is the
+ * shape they add up to. Sampled through [Curve.eval] rather than interpolated
+ * between the knots: a polyline would hide the Catmull-Rom overshoot the
+ * knots are being tuned for.
+ */
+@Composable
+private fun CurvePlot(curve: Curve) {
+    val line = MaterialTheme.colorScheme.primary
+    val grid = MaterialTheme.colorScheme.outlineVariant
+    val knot = MaterialTheme.colorScheme.secondary
+    val description = stringResource(R.string.brush_curve_plot)
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(PLOT_HEIGHT)
+            .padding(vertical = PLOT_VERTICAL_PADDING)
+            .semantics { contentDescription = description },
+    ) {
+        drawRect(color = grid, style = Stroke(width = GRID_STROKE_PX))
+        for (k in 1 until KNOT_X.size - 1) {
+            val x = size.width * KNOT_X[k]
+            drawLine(grid, Offset(x, 0f), Offset(x, size.height), GRID_STROKE_PX)
+        }
+        val mid = size.height / 2f
+        drawLine(grid, Offset(0f, mid), Offset(size.width, mid), GRID_STROKE_PX)
+
+        val path = Path()
+        for (i in 0..PLOT_SAMPLES) {
+            val x = i.toFloat() / PLOT_SAMPLES
+            val px = x * size.width
+            val py = (1f - curve.eval(x)) * size.height
+            if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+        }
+        drawPath(
+            path,
+            color = line,
+            style = Stroke(width = CURVE_STROKE_PX, cap = StrokeCap.Round),
+        )
+
+        val knotY = floatArrayOf(curve.p0, curve.p1, curve.p2, curve.p3)
+        for (k in KNOT_X.indices) {
+            drawCircle(
+                color = knot,
+                radius = KNOT_RADIUS_PX,
+                center = Offset(size.width * KNOT_X[k], (1f - knotY[k]) * size.height),
+            )
+        }
+    }
 }
 
 @Composable
@@ -627,3 +687,12 @@ private const val DIAMETER_TO_RADIUS = 2f
 private const val DEFAULT_FLAT_ASPECT = 0.5f
 private const val MIN_FAST_PX_PER_MS = 0.1f
 private const val MAX_FAST_PX_PER_MS = 16f
+private val PLOT_HEIGHT = 64.dp
+private val PLOT_VERTICAL_PADDING = 4.dp
+private const val PLOT_SAMPLES = 64
+private const val GRID_STROKE_PX = 1f
+private const val CURVE_STROKE_PX = 3f
+private const val KNOT_RADIUS_PX = 4f
+
+/** The four knots' fixed x positions — `Curve`'s contract (04 §2). */
+private val KNOT_X = floatArrayOf(0f, 1f / 3f, 2f / 3f, 1f)

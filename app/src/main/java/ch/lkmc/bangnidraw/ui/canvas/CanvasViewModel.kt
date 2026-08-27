@@ -362,7 +362,12 @@ class CanvasViewModel @Inject constructor(
 
     private var gallerySyncJob: Job? = null
 
-    /** One leave at a time: the guard lets a failed leave retry. */
+    /**
+     * One leave at a time: the guard lets a failed leave retry. Read on the
+     * app scope's dispatcher by the grace-delay ownership check, hence
+     * volatile like its siblings.
+     */
+    @Volatile
     private var leaveJob: Job? = null
 
     /** True once the running leaveJob has handed off to navigation. */
@@ -2118,6 +2123,10 @@ class CanvasViewModel @Inject constructor(
      * [afterWrite] on the main thread — the caller navigates in it, so the
      * Studio never lists a stale shelf. The closing flag drives 08 §4.8's
      * scrim: shown only if the flush takes longer than 300 ms.
+     *
+     * [afterWrite] may run again if a fresh leave supersedes a handed-off
+     * job whose navigation was cancelled (predictive back) — keep it
+     * idempotent.
      */
     fun leave(afterWrite: () -> Unit) {
         // After a handoff the job is only running its grace delay; a second

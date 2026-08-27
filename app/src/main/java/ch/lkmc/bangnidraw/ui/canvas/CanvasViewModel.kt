@@ -225,6 +225,7 @@ class CanvasViewModel @Inject constructor(
             @StringRes val strokeLayerNotice: Int? = null,
             val strokeLayerNoticeRevision: Long = 0L,
             val fillProgress: Float? = null,
+            val keepScreenOn: Boolean = true,
         ) : UiState
     }
 
@@ -248,6 +249,7 @@ class CanvasViewModel @Inject constructor(
     private var hapticsMode = HapticsMode.ENABLED
     private var pressurePreference = PressurePreference.LINEAR
     private var debugLatency = false
+    private var keepScreenOn = true
     private var chrome = CanvasChromeState()
     private var brushColor = OPAQUE_BLACK
     private var previousBrushColor = OPAQUE_BLACK
@@ -421,6 +423,12 @@ class CanvasViewModel @Inject constructor(
         viewModelScope.launch {
             prefs.debugLatency.collect { enabled ->
                 debugLatency = enabled
+                updateChromeUi()
+            }
+        }
+        viewModelScope.launch {
+            prefs.keepScreenOn.collect { enabled ->
+                keepScreenOn = enabled
                 updateChromeUi()
             }
         }
@@ -608,6 +616,7 @@ class CanvasViewModel @Inject constructor(
             hapticsMode = hapticsMode,
             pressurePreference = pressurePreference,
             debugLatency = debugLatency,
+            keepScreenOn = keepScreenOn,
             layerCap = layerCap,
             strokeInFlight = actionGate.strokeInFlight,
             documentBusy = actionGate.busy,
@@ -646,6 +655,7 @@ class CanvasViewModel @Inject constructor(
             hapticsMode = hapticsMode,
             pressurePreference = pressurePreference,
             debugLatency = debugLatency,
+            keepScreenOn = keepScreenOn,
         )
     }
 

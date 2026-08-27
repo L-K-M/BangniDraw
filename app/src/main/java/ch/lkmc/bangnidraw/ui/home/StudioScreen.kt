@@ -275,6 +275,7 @@ fun StudioScreen(
             onGallerySync = viewModel::setGallerySync,
             onMixerChoice = viewModel::setMixerChoice,
             onDebugLatency = viewModel::setDebugLatency,
+            onKeepScreenOn = viewModel::setKeepScreenOn,
             onDismiss = { showSettings = false },
         )
     }

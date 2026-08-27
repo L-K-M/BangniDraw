@@ -267,6 +267,8 @@
     <string name="settings_pressure_harder">Harder</string>
     <string name="settings_feedback">Feedback</string>
     <string name="settings_haptics">Haptics</string>
+    <string name="settings_keep_screen_on">Keep screen on while drawing</string>
+    <string name="settings_keep_screen_on_help">The display stays awake while a painting is open.</string>
     <string name="settings_storage">Storage</string>
     <string name="settings_gallery_sync">Gallery copies</string>
     <string name="settings_gallery_sync_help">Keep a copy of every painting in the gallery (Pictures/帮你Draw).</string>

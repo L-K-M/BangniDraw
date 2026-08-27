@@ -240,6 +240,8 @@
     <string name="settings_pressure_harder">较硬</string>
     <string name="settings_feedback">反馈</string>
     <string name="settings_haptics">触觉反馈</string>
+    <string name="settings_keep_screen_on">绘画时保持屏幕常亮</string>
+    <string name="settings_keep_screen_on_help">画布打开时屏幕不会自动熄灭。</string>
     <string name="settings_storage">存储</string>
     <string name="settings_gallery_sync">相册副本</string>
     <string name="settings_gallery_sync_help">在相册中保留每张画的副本（Pictures/帮你Draw）。</string>

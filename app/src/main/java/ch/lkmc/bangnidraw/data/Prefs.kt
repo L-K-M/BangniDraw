@@ -115,6 +115,14 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         dataStore.edit { it[KEY_DEBUG_LATENCY] = enabled }
     }
 
+    /** Keep the display awake while the Canvas is open; default on. */
+    val keepScreenOn: Flow<Boolean> =
+        dataStore.data.map { it[KEY_KEEP_SCREEN_ON] ?: true }
+
+    suspend fun setKeepScreenOn(enabled: Boolean) {
+        dataStore.edit { it[KEY_KEEP_SCREEN_ON] = enabled }
+    }
+
     val penButtonAction: Flow<PenButtonAction> =
         dataStore.data.map { PenButtonAction.fromStored(it[KEY_PEN_BUTTON_ACTION]) }
 
@@ -204,6 +212,7 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         val KEY_PRESSURE_PREFERENCE = stringPreferencesKey("pressurePreference")
         val KEY_HINT_SHOWN = booleanPreferencesKey("hintShown")
         val KEY_DEBUG_LATENCY = booleanPreferencesKey("debugLatency")
+        val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keepScreenOn")
         val KEY_PEN_BUTTON_ACTION = stringPreferencesKey("penButtonAction")
         val KEY_ERASER_END_PRESET = stringPreferencesKey("eraserEndPreset")
         val KEY_MIXER = stringPreferencesKey("mixer")

@@ -65,6 +65,7 @@ internal fun SettingsSheet(
     onGallerySync: (Boolean) -> Unit,
     onMixerChoice: (MixerChoice) -> Unit,
     onDebugLatency: (Boolean) -> Unit,
+    onKeepScreenOn: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var showAbout by remember { mutableStateOf(false) }
@@ -170,6 +171,14 @@ internal fun SettingsSheet(
                     onCheckedChange = {
                         onHapticsMode(if (it) HapticsMode.ENABLED else HapticsMode.DISABLED)
                     },
+                )
+            }
+            item {
+                SwitchRow(
+                    title = R.string.settings_keep_screen_on,
+                    body = R.string.settings_keep_screen_on_help,
+                    checked = state.keepScreenOn,
+                    onCheckedChange = onKeepScreenOn,
                 )
             }
 

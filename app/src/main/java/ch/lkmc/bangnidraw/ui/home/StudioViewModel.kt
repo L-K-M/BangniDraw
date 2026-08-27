@@ -85,6 +85,7 @@ class StudioViewModel @Inject constructor(
         val gallerySync: Boolean = true,
         val mixerChoice: MixerChoice = MixerChoice.PIGMENT,
         val debugLatency: Boolean = false,
+        val keepScreenOn: Boolean = true,
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -133,6 +134,9 @@ class StudioViewModel @Inject constructor(
         }
         viewModelScope.launch {
             prefs.debugLatency.collect { value -> _uiState.update { it.copy(debugLatency = value) } }
+        }
+        viewModelScope.launch {
+            prefs.keepScreenOn.collect { value -> _uiState.update { it.copy(keepScreenOn = value) } }
         }
     }
 
@@ -196,6 +200,10 @@ class StudioViewModel @Inject constructor(
 
     internal fun setDebugLatency(value: Boolean) {
         viewModelScope.launch { prefs.setDebugLatency(value) }
+    }
+
+    internal fun setKeepScreenOn(value: Boolean) {
+        viewModelScope.launch { prefs.setKeepScreenOn(value) }
     }
 
     /**

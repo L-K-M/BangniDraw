@@ -48,7 +48,9 @@ class TileStore(private val layerDir: File) {
     fun write(key: TileKey, pixels: ByteArray) {
         val target = file(key)
         if (TileCodec.isAllZero(pixels)) {
-            target.delete()
+            if (!target.delete() && target.exists()) {
+                throw IOException("could not delete $target")
+            }
             return
         }
         if (!layerDir.isDirectory && !layerDir.mkdirs()) {

@@ -135,6 +135,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -234,6 +235,10 @@ class CanvasViewModel @Inject constructor(
             @StringRes val strokeLayerNotice: Int? = null,
             val strokeLayerNoticeRevision: Long = 0L,
             val fillProgress: Float? = null,
+            /** True while the leave checkpoint runs; the closing scrim shows. */
+            val closing: Boolean = false,
+            /** Bumped when a leave fails; the screen toasts once per bump. */
+            val leaveNoticeRevision: Long = 0L,
         ) : UiState
     }
 
@@ -371,6 +376,14 @@ class CanvasViewModel @Inject constructor(
     private var lastSyncedRevision = 0
 
     private var gallerySyncJob: Job? = null
+
+    /** Active leave job; ownership prevents an older grace timer clearing a retry. */
+    @Volatile
+    private var leaveJob: Job? = null
+
+    /** True once the running leaveJob has handed off to navigation. */
+    @Volatile
+    private var leaveHandedOff = false
 
     /** When the document first differed from disk — the ceiling clock's anchor. */
     @Volatile
@@ -713,7 +726,11 @@ class CanvasViewModel @Inject constructor(
 
     /** Parks navigation behind the active stroke and every earlier action. */
     internal fun requestLeave(afterWrite: () -> Unit) {
-        if (leaveAfterWrite != null) return
+        if (leaveAfterWrite != null) {
+            if (!leaveHandedOff) return
+
+            releaseLeaveGate()
+        }
 
         leaveAfterWrite = afterWrite
         requestAction(CanvasDocumentAction.Leave)
@@ -2260,26 +2277,99 @@ class CanvasViewModel @Inject constructor(
         }
     }
 
-    /** Flushes the final stroke before navigation and blocks new document work. */
+    /** Flushes the final committed stroke before navigation. */
     private fun beginLeave() {
         val afterWrite = checkNotNull(leaveAfterWrite) {
             "Leave dispatched without requestLeave"
         }
+
         actionGate.beginWork()
         updateInteractionUi()
-
-        appScope.launch {
-            CanvasLeaveCoordinator.run(
-                checkpoint = {
-                    withContext(NonCancellable) {
-                        checkpoint(GallerySyncDecision.Trigger.LEAVE)
+        leaveHandedOff = false
+        setClosing(true)
+        leaveJob = appScope.launch {
+            // The app scope has no exception handler: an uncaught failure
+            // here would crash the process on its way out the door. A failed
+            // flush keeps the canvas open — logged and toasted, not fatal —
+            // and only a successful handoff to navigation keeps the scrim up
+            // (it covers the exit transition); a swallowed navigation gets a
+            // grace-period reset instead of a stranded scrim.
+            var handedOff = false
+            var flushed = false
+            try {
+                withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
+                flushed = true
+                withContext(Dispatchers.Main) { afterWrite() }
+                handedOff = true
+                leaveHandedOff = true
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "leave failed; canvas stays open", e)
+                // Only a failed flush is a failed save; a navigation-only
+                // failure owes no alarming toast. `handedOff` cannot tell the
+                // two apart here — it is only set after afterWrite() — so the
+                // flush carries its own flag.
+                if (!flushed) withContext(Dispatchers.Main) { noteLeaveFailure() }
+            } finally {
+                val self = coroutineContext[Job]
+                if (!handedOff) {
+                    // Ownership-guarded like the success branch: on a
+                    // rethrown cancellation this coroutine is already
+                    // inactive while its finally runs, so a newer request
+                    // may have started and only that job may clear. Runs on
+                    // the main thread so the check and the clear cannot
+                    // interleave with beginLeave() reassigning leaveJob.
+                    withContext(NonCancellable + Dispatchers.Main) {
+                        if (leaveJob === self) finishLeaveAttempt()
                     }
-                },
-                onCheckpointFailure = {
-                    android.util.Log.e(TAG, "leave checkpoint failed", it)
-                },
-                navigate = { withContext(Dispatchers.Main) { afterWrite() } },
-            )
+                } else {
+                    // If navigation was swallowed (a cancelled predictive-back
+                    // gesture, an uncollected event), lift the scrim rather
+                    // than stranding it. Harmless when navigation succeeded:
+                    // the cleared ViewModel has no observers left. The delay
+                    // runs NonCancellable because the rethrown cancellation
+                    // above makes this a cancelling coroutine — a bare delay
+                    // would throw and skip the reset.
+                    withContext(NonCancellable) { delay(LEAVE_HANDOFF_GRACE_MS) }
+                    // A newer leave may have started during the grace window;
+                    // only the latest job owns clearing the scrim. Main-thread
+                    // for the same atomicity reason as the failure branch.
+                    withContext(NonCancellable + Dispatchers.Main) {
+                        if (leaveJob === self) finishLeaveAttempt()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun finishLeaveAttempt() {
+        setClosing(false)
+        releaseLeaveGate()
+    }
+
+    private fun releaseLeaveGate() {
+        leaveAfterWrite = null
+        leaveHandedOff = false
+        actionGate.finishLeave()
+        updateInteractionUi()
+    }
+
+    private fun noteLeaveFailure() {
+        _uiState.update { state ->
+            if (state is UiState.Ready) {
+                state.copy(leaveNoticeRevision = state.leaveNoticeRevision + 1)
+            } else {
+                state
+            }
+        }
+    }
+
+    private fun setClosing(closing: Boolean) {
+        // Atomic update, not read-copy-write: the finally above can run off
+        // the main thread while the flusher's tickers emit state.
+        _uiState.update { state ->
+            if (state is UiState.Ready) state.copy(closing = closing) else state
         }
     }
 
@@ -2513,6 +2603,9 @@ class CanvasViewModel @Inject constructor(
 
         /** ≥ [ch.lkmc.bangnidraw.engine.gl.Readback]'s 1 s fence timeout. */
         const val READBACK_WAIT_MS = 2_000L
+
+        /** Well past the ~300 ms exit transition; lifts a stranded scrim. */
+        const val LEAVE_HANDOFF_GRACE_MS = 3_000L
 
         const val READY_WAIT_MS = 5_000L
 

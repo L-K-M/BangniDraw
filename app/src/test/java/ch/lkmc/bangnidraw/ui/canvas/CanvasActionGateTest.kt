@@ -136,4 +136,15 @@ class CanvasActionGateTest {
         assertEquals(CanvasDocumentAction.Leave, gate.endStrokeInput())
         assertNull(gate.next())
     }
+
+    @Test
+    fun `failed leave reopens the action gate`() {
+        val gate = CanvasActionGate()
+        assertIs<CanvasActionDecision.Run>(gate.request(CanvasDocumentAction.Leave))
+        gate.beginWork()
+
+        gate.finishLeave()
+
+        assertTrue(gate.beginStroke())
+    }
 }

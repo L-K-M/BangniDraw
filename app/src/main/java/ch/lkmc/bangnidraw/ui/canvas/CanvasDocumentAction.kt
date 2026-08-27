@@ -108,6 +108,17 @@ internal class CanvasActionGate {
         return next()
     }
 
+    /** Reopens the terminal gate after a leave failed or navigation was cancelled. */
+    @MainThread
+    fun finishLeave() {
+        check(leaveRequested) { "no leave is pending" }
+        check(busy) { "leave work is not running" }
+        check(pending.isEmpty()) { "actions cannot follow a terminal leave" }
+
+        busy = false
+        leaveRequested = false
+    }
+
     @MainThread
     fun next(): CanvasDocumentAction? {
         if (strokeInFlight || busy) return null

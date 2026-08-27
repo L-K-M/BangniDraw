@@ -1807,23 +1807,12 @@ class CanvasViewModel @Inject constructor(
         work: DocumentWork = DocumentWork.START,
     ) {
         // An ALREADY_STARTED caller (the opacity gesture) holds the action
-        // gate open; every early return below must hand it back or every
+        // gate open; every early return here must hand it back or every
         // later document action parks forever.
-        val doc = document
-        if (doc == null) {
-            if (work == DocumentWork.ALREADY_STARTED) finishDocumentWork()
-            return
-        }
-        val engine = session
-        if (engine == null) {
-            if (work == DocumentWork.ALREADY_STARTED) finishDocumentWork()
-            return
-        }
+        val doc = document ?: return abortStartedWork(work)
+        val engine = session ?: return abortStartedWork(work)
         val invalidation = LayerEditPolicy.invalidation(doc.stack, edit.entry)
-        if (invalidation == null) {
-            if (work == DocumentWork.ALREADY_STARTED) finishDocumentWork()
-            return
-        }
+            ?: return abortStartedWork(work)
         val deleted = LayerEditPolicy.deletedLayers(doc.stack, edit.stack)
         val jobRef = AtomicReference<TileFlusher.FlushJob.WriteEntry?>()
         val pixelOps = listOfNotNull(edit.pixels)
@@ -1922,6 +1911,10 @@ class CanvasViewModel @Inject constructor(
         updateHistoryUi()
         updateInteractionUi()
         if (next != null) executeAction(next)
+    }
+
+    private fun abortStartedWork(work: DocumentWork) {
+        if (work == DocumentWork.ALREADY_STARTED) finishDocumentWork()
     }
 
     private fun emitLayerFeedback(refusal: Refusal?) {
@@ -2083,11 +2076,20 @@ class CanvasViewModel @Inject constructor(
     private fun restoreOutcomes(
         restores: List<HistoryPixels.Restore>,
     ): Map<Pair<LayerId, TileKey>, TilePresence> = buildMap {
+        // One entry's restores are per-layer maps whose keys are distinct
+        // (payloadKeys), so no (layer, key) can repeat and order cannot matter.
         for (restore in restores) {
             for ((key, bytes) in restore.tiles) {
                 put(
                     restore.layer to key,
-                    if (bytes == null) TilePresence.EMPTY else TilePresence.PAINTED,
+                    // All-zero bytes cannot survive the journal's EMPTY marker,
+                    // but the guard keeps this fold and the checkpoint's
+                    // zero-tile rule in agreement unconditionally.
+                    if (bytes == null || bytes.all { it == ZERO_BYTE }) {
+                        TilePresence.EMPTY
+                    } else {
+                        TilePresence.PAINTED
+                    },
                 )
             }
         }
@@ -2389,6 +2391,8 @@ class CanvasViewModel @Inject constructor(
         const val READBACK_WAIT_MS = 2_000L
 
         const val READY_WAIT_MS = 5_000L
+
+        const val ZERO_BYTE: Byte = 0
 
         const val LAYER_THUMBNAIL_POLL_MS = 100L
 

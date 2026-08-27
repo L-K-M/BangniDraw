@@ -107,7 +107,6 @@ class StudioViewModel @Inject constructor(
 
     /** Records a Custom-row creation so the next dialog pre-fills it. */
     internal fun rememberCustomSize(size: CanvasSize) {
-        _uiState.update { it.copy(lastCustomSize = size) }
         viewModelScope.launch { prefs.setLastCustomSize(size) }
     }
 

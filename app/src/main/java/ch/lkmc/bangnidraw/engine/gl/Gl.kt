@@ -20,10 +20,8 @@ class GlProgramException(message: String) : IllegalStateException(message)
  *   that mean something the caller must handle, and `GL_OUT_OF_MEMORY` becomes
  *   a refused operation rather than a torn frame.
  * - After **every pass** in debug builds only, where [checkGlDebug] throws.
- *
- * Anything else in a release build is logged once per session with the pass
- * name and ignored: a torn frame beats a crashed painting, and the next frame
- * redraws everything touched anyway.
+ *   Release passes do not query the driver: some implementations synchronize
+ *   `glGetError`, and a release frame cannot act on the result.
  */
 object GlErrors {
 
@@ -31,15 +29,6 @@ object GlErrors {
     @JvmStatic
     var strict: Boolean = false
 
-    private var loggedThisSession = false
-
-    /**
-     * Separate from [loggedThisSession] on purpose. Sharing one flag would let
-     * a drain-exhaustion notice silence the first real pass error of the
-     * session, or the reverse — two unrelated conditions, each worth exactly
-     * one line. `GlFbo.loggedIncomplete` and `TilePool.loggedClearBindFailure`
-     * are the same shape for the same reason.
-     */
     private var loggedDrainExhausted = false
 
     /**
@@ -95,38 +84,37 @@ object GlErrors {
     private const val MAX_DRAIN = 32
 
     /**
-     * Checks after an allocation or a link. Returns the error so the caller can
-     * turn `GL_OUT_OF_MEMORY` into a refusal (§2.1) rather than a crash; never
-     * throws by itself, because those are device conditions, not bugs.
+     * Runs an allocation, link, or upload with an attributable error check.
+     *
+     * The first drain discards flags left by unchecked release passes. The
+     * second therefore belongs to [operation], so a stale pass error cannot
+     * refuse a valid allocation. Returns the fresh error for callers that turn
+     * `GL_OUT_OF_MEMORY` into a refusal (§2.1); never throws by itself because
+     * those are device conditions, not bugs.
      */
-    fun checkAllocation(what: String): Int {
+    fun checkAllocation(what: String, operation: () -> Unit): Int {
+        drain()
+        operation()
         val e = drain()
         if (e != GLES30.GL_NO_ERROR) Log.w(GL_TAG, "$what: ${name(e)}")
         return e
     }
 
     /**
-     * Checks after a pass. Throws in strict (debug) builds; in a release build
-     * logs **once per session** and returns.
-     *
-     * Once per session rather than once per call: a driver that raises an
-     * error in the compositor raises it sixty times a second, and a log line
-     * per frame turns a torn frame into an unusable device.
+     * Checks after a pass in strict (debug) builds. Release builds return
+     * before querying the driver, keeping the render loop asynchronous.
      */
     fun checkGlDebug(pass: String) {
+        if (!strict) return
+
         val e = drain()
         if (e == GLES30.GL_NO_ERROR) return
-        val message = "$pass: ${name(e)}"
-        if (strict) throw IllegalStateException(message)
-        if (!loggedThisSession) {
-            loggedThisSession = true
-            Log.w(GL_TAG, "$message (further GL errors this session are suppressed)")
-        }
+
+        throw IllegalStateException("$pass: ${name(e)}")
     }
 
-    /** Forgets the once-per-session suppression; a new context starts a new session. */
+    /** Forgets session-scoped diagnostics when a new GL context starts. */
     fun reset() {
-        loggedThisSession = false
         loggedDrainExhausted = false
     }
 

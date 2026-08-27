@@ -63,8 +63,8 @@ class CanvasPresetsTest {
     fun `every preset has even sides and can be turned both ways`() {
         for (p in CanvasPresets.forDevice(budget(8.0))) {
             assertTrue(p.size.width % 2 == 0 && p.size.height % 2 == 0, "${p.id} has an odd side")
-            val landscape = p.oriented(landscape = true)
-            val portrait = p.oriented(landscape = false)
+            val landscape = p.oriented(CanvasOrientation.LANDSCAPE)
+            val portrait = p.oriented(CanvasOrientation.PORTRAIT)
             assertTrue(landscape.width >= landscape.height, "${p.id} landscape is not wide")
             assertTrue(portrait.height >= portrait.width, "${p.id} portrait is not tall")
             assertEquals(landscape.width, portrait.height, "orientation only swaps the sides")
@@ -239,11 +239,22 @@ class CanvasPresetsTest {
     }
 
     @Test
-    fun `the default preset for a phone fits a phone budget`() {
+    fun `the default preset for a phone fits its screen and budget`() {
         for (result in listOf(budget(2.0), budget(2.0, lowRam = true))) {
             val presets = CanvasPresets.forDevice(result)
-            val default = presets[CanvasPresets.defaultIndex(presets)]
+            val defaults = NewCanvasDefaultsPolicy.forWindow(
+                presets = presets,
+                windowWidthPx = 1080,
+                windowHeightPx = 2400,
+            )
+            val default = presets[defaults.presetIndex]
             assertTrue(default.enabled, "the dialog must not open on a disabled row")
+            val oriented = default.oriented(defaults.orientation)
+            assertTrue(
+                oriented.width <= 1080 && oriented.height <= 2400,
+                "${default.id} at ${defaults.orientation} " +
+                    "(${oriented.width}x${oriented.height}) does not fit 1080x2400",
+            )
             assertTrue(
                 default.maxLayers >= PerfConstants.MIN_USEFUL_LAYERS,
                 "${default.id} only holds ${default.maxLayers} layers on a phone",

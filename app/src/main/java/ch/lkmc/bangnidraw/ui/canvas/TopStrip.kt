@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.ui.canvas
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,11 +34,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
@@ -57,6 +62,7 @@ internal fun TopStrip(
     onBack: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onUndoLongPress: () -> Unit,
     onLayers: () -> Unit,
     onColor: () -> Unit,
     onShare: () -> Unit,
@@ -75,6 +81,7 @@ internal fun TopStrip(
             onBack,
             onUndo,
             onRedo,
+            onUndoLongPress,
         )
     }
     val tools: @Composable () -> Unit = {
@@ -125,8 +132,12 @@ private fun NavigationCluster(
     onBack: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onUndoLongPress: () -> Unit,
 ) {
     val view = LocalView.current
+    val undoEnabled = undoAvailability == ActionAvailability.ENABLED
+    val iconColor = LocalContentColor.current
+    val unavailableText = stringResource(R.string.cd_unavailable)
     Row(horizontalArrangement = Arrangement.Start) {
         IconButton(onClick = onBack) {
             Icon(
@@ -134,18 +145,41 @@ private fun NavigationCluster(
                 contentDescription = stringResource(R.string.canvas_back),
             )
         }
-        IconButton(
-            enabled = undoAvailability == ActionAvailability.ENABLED,
-            onClick = {
-                if (hapticsMode == HapticsMode.ENABLED) {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                }
-                onUndo()
-            },
+        // Long-press = the §3.1 readout: how deep the undo history is and
+        // how close to the cap. combinedClickable keeps tap and long-press
+        // mutually exclusive — checking the budget never costs a stroke —
+        // and the node stays enabled either way, so the readout also works
+        // with nothing to undo (the click itself is gated below).
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(ICON_BUTTON)
+                .combinedClickable(
+                    role = Role.Button,
+                    onClick = {
+                        if (!undoEnabled) return@combinedClickable
+                        if (hapticsMode == HapticsMode.ENABLED) {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        }
+                        onUndo()
+                    },
+                    onLongClick = {
+                        if (hapticsMode == HapticsMode.ENABLED) {
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        }
+                        onUndoLongPress()
+                    },
+                )
+                // The node stays enabled so the long-press readout works with
+                // nothing to undo; the state says why a tap does nothing.
+                .semantics {
+                    if (!undoEnabled) stateDescription = unavailableText
+                },
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.Undo,
                 contentDescription = stringResource(R.string.canvas_undo),
+                tint = if (undoEnabled) iconColor else iconColor.copy(alpha = DISABLED_ALPHA),
             )
         }
         IconButton(
@@ -276,6 +310,8 @@ private fun OverflowItem(label: Int, action: () -> Unit, dismiss: () -> Unit) {
 }
 
 private val STRIP_HEIGHT = 48.dp
+private val ICON_BUTTON = 48.dp
+private const val DISABLED_ALPHA = 0.38f
 private val COLOR_SWATCH = 24.dp
 private val COLOR_RADIUS = 6.dp
 private val BADGE_RADIUS = 8.dp

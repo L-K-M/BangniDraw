@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import ch.lkmc.bangnidraw.engine.core.CanvasVoidColorPolicy
 import ch.lkmc.bangnidraw.engine.core.ThemeTone
 import ch.lkmc.bangnidraw.engine.core.ToolButtonEmphasis
 import ch.lkmc.bangnidraw.engine.core.ToolRailColorPolicy
@@ -60,6 +61,9 @@ internal fun railButtonColors(tone: ThemeTone, emphasis: ToolButtonEmphasis): Ra
         icon = Color(colors.iconArgb),
     )
 }
+
+/** Compose wrapper over the pure theme policy; no colour decision lives here. */
+internal fun canvasVoidColor(tone: ThemeTone): Color = Color(CanvasVoidColorPolicy.argb(tone))
 
 // The New Canvas dialog's paper swatches (docs/plan/08-ui-and-layout.md
 // §2.1): white, warm white, mid-gray, black; transparent is

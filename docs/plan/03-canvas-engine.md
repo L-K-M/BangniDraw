@@ -252,15 +252,17 @@ into the window buffer as a textured quad (step 3 — not a blit: the buffer
 may be pre-rotated, §8.5). Per frame, in order, all scissored to the dirty
 rect in window space (steps 1–2) or in buffer space (step 3):
 
-1. **Paper.** Clear `Accum` to the paper color (premultiplied, opaque). If
-   the paper is transparent, draw a full-rect quad with the checkerboard
-   shader instead: 8 dp squares in **screen** space (canvas-space squares
-   would shrink to noise when zoomed out and become slabs when zoomed in).
-   When the sandwich is in use (§4) the paper is already baked into
-   `Below`, so this step clears `Accum` to transparent (opaque paper) or
-   draws the checkerboard (transparent paper) and `Below` is drawn Normal
-   over it; the paper is painted here only on the per-layer path (§12
-   step 3, sandwich unavailable).
+1. **Canvas void, then paper.** Clear viewport-sized `Accum` to the theme's
+   `canvasVoid` colour (`08-ui-and-layout.md` §5.1), then draw a
+   **canvas-sized** quad through `u_screen`, so the paper boundary follows the
+   same pan, zoom and rotation as every tile. Opaque paper draws that quad in
+   its solid colour. Transparent paper draws the checkerboard there instead:
+   8 dp squares in **screen** space (canvas-space squares would shrink to noise
+   when zoomed out and become slabs when zoomed in), clipped by the transformed
+   canvas quad. When the sandwich is in use (§4), opaque paper is already baked
+   into `Below`, so the paper quad is skipped and `Below` is drawn Normal over
+   the void. Transparent `Below` still needs the transformed checkerboard
+   beneath it because the checker is a display backdrop, not document pixels.
 2. **Layers bottom to top.** For each visible layer (or cache, §4): if its
    blend mode is Normal, draw its tile quads with GL blending
    `glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)` — hardware source-over,
@@ -832,6 +834,15 @@ journal entry for an RMW stroke is opened at pen-down (§10.3), after the
 §10.1 wait on the previous stroke's readback so its "before" tiles are
 current.
 
+The pressure-sized `Scratch` and blur-work targets retain their per-session
+high-water allocation. A smaller dab changes only their logical width/height,
+viewport and quad; it does not delete immutable storage. Shader coordinates
+remain in logical pixels and multiply by the inverse allocated dimensions,
+so a retained larger texture samples the same texels. Taps beyond a
+canvas-clipped logical rect clamp to its edge, never into retained stale
+texels. Memory reporting uses the allocated capacity, not the current logical
+viewport.
+
 **Cost model.** Per dab: ≈2 × (2r+2)² px of work (copy + draw) × tiles
 touched, plus one FBO bind per tile. At r = 32 and 4 tiles that is ≈36 K
 px; at 200 dabs per frame ≈7 M px — trivial. At r = 256 a single dab is
@@ -848,15 +859,18 @@ write, which is what makes smudge drag.
 (`androidx.graphics:graphics-core`, coordinates in
 `libs.versions.toml`). The `param` is the `DabBatch` ring slot itself
 (`docs/plan/02-architecture.md` §3.2): the dabs plus a header — stroke id,
-`predictedFrom`, the dirty rect (canvas px). The main thread calls
-`renderer.renderFrontBufferedLayer(batch)` per input batch while a stroke
-is live; slots are released on the GL thread after the multi-buffered
-replay (02 §3.2).
+`predictedFrom`, the dirty rect (canvas px). The main thread publishes every
+batch, but keeps at most one raw `renderFrontBufferedLayer` request outstanding:
+graphics-core 1.0.4 holds its parameter lock throughout the app callback, so a
+request per batch can block input behind GL work. Completion dispatches one
+coalesced follow-up when more batches arrived. Slots are released by the GL
+thread after the front callback consumes them (02 §3.2).
 
 ### 8.1 `onDrawFrontBufferedLayer(eglManager, bufferInfo, transform, param)`
 
-1. Consume `param` (and any batch already published behind it — one frame,
-   all dabs, §11).
+1. Consume the batches present when this callback begins. Batches published
+   while it draws stay queued for the coalesced next frame; otherwise returning
+   ring slots lets the producer refill an unbounded drain and delays present.
 2. `DabPass` stamps committed (non-predicted) dabs into the stroke buffer
    (or `SmudgePass` into the layer for RMW).
 3. Dirty rect in canvas px = dabs' rects ∪ previous predicted tail's rect ∪
@@ -882,13 +896,19 @@ two layers contain the correct pixels everywhere, and the front layer
 "grows" as the stroke grows. Scan-line racing can expose only the current
 incremental damage while that small region is being written.
 
-Every app redraw uses `commit()`, whose pending-commit count holds front
-requests until the multi-buffer release has cleared the front buffer. An active
+After one direct multi-buffered baseline per surface generation, every app
+redraw uses `commit()`, whose pending-commit count holds front requests until
+the previous multi-buffer release has cleared the front buffer. The baseline is
+required by graphics-core 1.0.4: the first committed buffer has no previous
+buffer to release, so its commit count otherwise never falls. An active
 completion recomposites and presents the cumulative preview once; later frames
 return to incremental damage. Re-presenting the growing cumulative preview on
 every sample defeats scan-line racing and produces a moving cutoff. Redraws
 during a stroke are deferred, and equal Compose inputs are filtered before they
-request one.
+request one. A target-generation gate prevents front renders and commits before
+the baseline completes. Surface changes replace only the
+`GLFrontBufferedRenderer`; the shared `GLRenderer`, EGL context, and canvas
+textures remain alive.
 
 ### 8.2 `onDrawMultiDoubleBufferedLayer(eglManager, bufferInfo, transform, params)`
 
@@ -949,6 +969,14 @@ expected to render into — "useful for re-binding to the original target
 after rendering to intermediate frame buffer objects", which is exactly
 what the present step does after our per-tile binds. The contract test
 pins the uniform names.
+
+One real Samsung tablet reports the canonical 180° transform but displays
+producer-transformed pixels as though both axes were transformed again. A
+half-turn does not swap the buffer dimensions, so that exact matrix takes a
+correctness fallback: the present shader and front damage use identity, and
+the matching front or multi-buffer transaction replaces graphics-core's
+consumer transform with identity before commit. Quarter-turns still use the
+library transform because their buffer dimensions are swapped.
 
 ### 8.6 View changes during a stroke
 

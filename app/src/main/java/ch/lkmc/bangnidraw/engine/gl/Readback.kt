@@ -234,13 +234,16 @@ class Readback(
     private fun ensureBuilt() {
         if (built) return
         for (chunk in chunks) {
-            GLES30.glGenBuffers(1, chunk.pbo, 0)
-            GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, chunk.pbo[0])
-            GLES30.glBufferData(
-                GLES30.GL_PIXEL_PACK_BUFFER, READBACK_CHUNK * TILE_BYTES, null,
-                GLES30.GL_STREAM_READ,
-            )
-            GlErrors.checkAllocation("readback PBO ($READBACK_CHUNK tiles)")
+            GlErrors.checkAllocation("readback PBO ($READBACK_CHUNK tiles)") {
+                GLES30.glGenBuffers(1, chunk.pbo, 0)
+                GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, chunk.pbo[0])
+                GLES30.glBufferData(
+                    GLES30.GL_PIXEL_PACK_BUFFER,
+                    READBACK_CHUNK * TILE_BYTES,
+                    null,
+                    GLES30.GL_STREAM_READ,
+                )
+            }
         }
         GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, 0)
         built = true

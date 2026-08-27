@@ -27,15 +27,18 @@ data class CanvasPreset(
     val isSquare: Boolean get() = size.width == size.height
 
     /**
-     * This preset's *size* with its longer side horizontal ([landscape]) or
-     * vertical — not a preset: `id`, `maxLayers` and `enabled` are dropped.
+     * This preset's *size* with its longer side horizontal or vertical — not
+     * a preset: `id`, `maxLayers` and `enabled` are dropped.
      * Feed the result through [CanvasPresets.custom] to get a validated,
      * annotated preset back.
      */
-    fun oriented(landscape: Boolean): CanvasSize {
+    fun oriented(orientation: CanvasOrientation): CanvasSize {
         val long = maxOf(size.width, size.height)
         val short = minOf(size.width, size.height)
-        return if (landscape) CanvasSize(long, short) else CanvasSize(short, long)
+        return when (orientation) {
+            CanvasOrientation.LANDSCAPE -> CanvasSize(long, short)
+            CanvasOrientation.PORTRAIT -> CanvasSize(short, long)
+        }
     }
 }
 
@@ -96,30 +99,6 @@ object CanvasPresets {
             maxLayers = MemoryBudget.maxLayersFor(result.poolCapacityBytes, size),
             enabled = fits(size, result),
         )
-    }
-
-    /**
-     * The row the dialog selects when it opens: the largest preset this device
-     * can hold, measured in tiles because that is what the budget spends. The
-     * dialog narrows that further to what fits the screen — a pixel
-     * measurement `engine/core` has no business knowing.
-     *
-     * Deliberately not "the last enabled row": that would silently depend on
-     * [SIZES] staying sorted, and on the caller not having reordered or
-     * filtered the list first. Falls back to 0 only when nothing is enabled,
-     * which no real device produces (the smallest preset fits every budget).
-     */
-    fun defaultIndex(presets: List<CanvasPreset>): Int {
-        // The `?: 0` below is only an index if there is a row 0. An empty list
-        // is a caller bug, not a device with nothing enabled, and returning 0
-        // for it hands back an index that throws at `presets[it]` far from
-        // whoever built the empty list.
-        require(presets.isNotEmpty()) { "defaultIndex needs at least one preset" }
-        return presets.withIndex()
-            .filter { it.value.enabled }
-            .maxByOrNull { it.value.size.tilesPerLayer }
-            ?.index
-            ?: 0
     }
 
     /** A user-typed size, validated against the format and this device's budget. */

@@ -5,8 +5,10 @@ import android.content.Intent
 import android.content.ContextWrapper
 import android.app.Activity
 import android.os.Build
+import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
+import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -62,6 +64,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -89,6 +92,7 @@ import ch.lkmc.bangnidraw.engine.core.CanvasPanel
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.EyedropperSampleGate
 import ch.lkmc.bangnidraw.engine.core.FillParams
 import ch.lkmc.bangnidraw.engine.core.FocusMode
 import ch.lkmc.bangnidraw.engine.core.Hand
@@ -109,13 +113,18 @@ import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TemporaryReason
 import ch.lkmc.bangnidraw.engine.core.ToolKind
+import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.core.WidthClass
 import ch.lkmc.bangnidraw.input.CanvasInputHost
 import ch.lkmc.bangnidraw.input.CanvasTouchHandler
+import ch.lkmc.bangnidraw.ui.theme.LocalThemeTone
+import ch.lkmc.bangnidraw.ui.theme.canvasVoidColor
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * The Canvas: where one painting is painted (PLAN.md §5).
@@ -197,12 +206,14 @@ private fun CanvasContent(
     var session by remember { mutableStateOf<EngineSession?>(null) }
     var hoverRevision by remember { mutableIntStateOf(0) }
     var textInputFocus by remember { mutableStateOf(TextInputFocus.CLEAR) }
+    var historyReadout by remember { mutableIntStateOf(0) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
 
     // The stroke in flight. Plain vars, not Compose state: they change several
     // hundred times a second on the input path and nothing draws from them, so
     // making them observable would recompose the whole screen per pen sample.
     val strokeState = remember { StrokeUiState() }
+    var navigating by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val view0 = LocalView.current
     val context = LocalContext.current
@@ -276,10 +287,12 @@ private fun CanvasContent(
                 }
                 override fun onColorPick(x: Float, y: Float) {
                     val engine = session ?: return
-                    engine.sampleColor(x, y, EyedropperParams()) { color ->
+                    engine.sampleColor(x, y, viewModel.currentEyedropperParams()) { color ->
                         color?.let(viewModel::selectBrushColor)
                     }
                 }
+
+                override fun onNavigateActive(active: Boolean) { navigating = active }
 
                 override fun onStrokeBegin(pointerId: Int, source: StrokeSource) {
                     val staleFillStarted = strokeState.fillStarted
@@ -332,6 +345,9 @@ private fun CanvasContent(
                         strokeState.engine = engine
                         strokeState.pickParams = kind.params
                         strokeState.pickGeneration = pickGeneration
+                        // A fresh gate per stroke: the first sample must read,
+                        // wherever the previous drag's timing left it.
+                        strokeState.pickGate.reset()
                         return
                     }
                     if (kind is ToolKind.Fill) {
@@ -449,10 +465,18 @@ private fun CanvasContent(
                     val engine = strokeState.engine ?: return
                     val pick = strokeState.pickParams
                     if (pick != null) {
-                        val generation = strokeState.pickGeneration
-                        engine.sampleColor(x, y, pick) { color ->
-                            if (strokeState.pickGeneration == generation) {
-                                color?.let(viewModel::previewPickedColor)
+                        // Each read is a synchronous glReadPixels (a pipeline
+                        // sync), and unbuffered dispatch delivers hundreds of
+                        // samples a second — so intermediate samples are
+                        // dropped to one read per frame. Pen-up commits the
+                        // last color actually previewed, which is what the
+                        // user was shown.
+                        if (strokeState.pickGate.shouldRead(SystemClock.uptimeMillis())) {
+                            val generation = strokeState.pickGeneration
+                            engine.sampleColor(x, y, pick) { color ->
+                                if (strokeState.pickGeneration == generation) {
+                                    color?.let(viewModel::previewPickedColor)
+                                }
                             }
                         }
                         return
@@ -484,6 +508,7 @@ private fun CanvasContent(
                     val reason = strokeState.temporaryReason
                     strokeState.temporaryReason = null
                     if (strokeState.pickParams != null) {
+                        strokeState.nextPickGeneration()
                         viewModel.commitPickedColor()
                         strokeState.pickParams = null
                         strokeState.engine = null
@@ -591,6 +616,7 @@ private fun CanvasContent(
     }
     val checkerA = MaterialTheme.colorScheme.surface.toArgb()
     val checkerB = MaterialTheme.colorScheme.surfaceVariant.toArgb()
+    val canvasVoid = canvasVoidColor(LocalThemeTone.current).toArgb()
 
     // Keyed on the handler, not Unit: a recreated handler starts from an
     // identity transform, and without re-seeding its first gesture would
@@ -697,6 +723,10 @@ private fun CanvasContent(
             maxHeight.value - verticalInsetDp - LayoutSpec.TOP_STRIP_DP
             ).toInt().coerceAtLeast(0)
         val layout = LayoutSpec.forWindow(widthClass, railHeight, state.handedness)
+        val undoAvailability =
+            if (state.canUndo) ActionAvailability.ENABLED else ActionAvailability.DISABLED
+        val redoAvailability =
+            if (state.canRedo) ActionAvailability.ENABLED else ActionAvailability.DISABLED
         LaunchedEffect(state.chrome.openPanel) {
             if (state.chrome.openPanel != CanvasPanel.COLOR) {
                 textInputFocus = TextInputFocus.CLEAR
@@ -719,6 +749,8 @@ private fun CanvasContent(
             canvasDescription = canvasDescription,
             undoLabel = stringResource(R.string.canvas_undo),
             redoLabel = stringResource(R.string.canvas_redo),
+            undoAvailability = undoAvailability,
+            redoAvailability = redoAvailability,
             onUndo = viewModel::undo,
             onRedo = viewModel::redo,
             gestureExclusionSide = if (layout.railMode == RailMode.DOCK) null else layout.railSide,
@@ -799,14 +831,15 @@ private fun CanvasContent(
         )
 
         // Not in `onSession`: that fires once, from the AndroidView factory, so
-        // a dark-mode toggle kept the old theme's checkerboard until the screen
-        // was torn down and a density change kept the old square size. These
-        // three recompose; the engine has to be told.
-        LaunchedEffect(session, checkerA, checkerB, density) {
-            session?.setCheckerboard(
+        // a dark-mode toggle kept the old theme's checkerboard and canvas void
+        // until the screen was torn down, while a density change kept the old
+        // square size. These values recompose; the engine has to be told.
+        LaunchedEffect(session, checkerA, checkerB, canvasVoid, density) {
+            session?.setCanvasAppearance(
                 checkerPx = with(density) { CHECKER_DP.dp.toPx() },
                 colorA = checkerA,
                 colorB = checkerB,
+                canvasVoid = canvasVoid,
             )
         }
 
@@ -910,8 +943,8 @@ private fun CanvasContent(
                 onFillSettingsRequested = {
                     viewModel.togglePanel(CanvasPanel.FILL_SETTINGS)
                 },
-                onSizeChanged = viewModel::updateBrushSize,
-                onOpacityChanged = viewModel::updateBrushOpacity,
+                onSizeChanged = viewModel::updateActiveToolSize,
+                onOpacityChanged = viewModel::updateActiveToolOpacity,
                 onTuningFinished = viewModel::persistBrushTuning,
                 )
             }
@@ -929,16 +962,8 @@ private fun CanvasContent(
             ) {
                 TopStrip(
                 layout = layout,
-                undoAvailability = if (state.canUndo) {
-                    ActionAvailability.ENABLED
-                } else {
-                    ActionAvailability.DISABLED
-                },
-                redoAvailability = if (state.canRedo) {
-                    ActionAvailability.ENABLED
-                } else {
-                    ActionAvailability.DISABLED
-                },
+                undoAvailability = undoAvailability,
+                redoAvailability = redoAvailability,
                 activeLayer = state.stack.activeIndex + 1,
                 brushColor = state.color.current,
                 openPanel = state.chrome.openPanel,
@@ -946,6 +971,7 @@ private fun CanvasContent(
                 onBack = { viewModel.handleBack(onLeave) },
                 onUndo = viewModel::undo,
                 onRedo = viewModel::redo,
+                onUndoLongPress = { historyReadout++ },
                 onLayers = { viewModel.togglePanel(CanvasPanel.LAYERS) },
                 onColor = { viewModel.togglePanel(CanvasPanel.COLOR) },
                 onShare = {
@@ -961,6 +987,78 @@ private fun CanvasContent(
                 onRename = viewModel::requestRename,
                 onSettings = onSettings,
                 )
+            }
+
+            // §3.1's long-press readout: the undo depth and the cap, shown
+            // under the strip for a moment — the one place the history budget
+            // is visible where undo is actually used. An incrementing token
+            // rather than a boolean, so a repeat long-press restarts the timer.
+            if (historyReadout > 0) {
+                LaunchedEffect(historyReadout) {
+                    delay(HISTORY_READOUT_MS)
+                    historyReadout = 0
+                }
+                Surface(
+                    color = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    shape = MaterialTheme.shapes.large,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = HISTORY_READOUT_TOP.dp)
+                        .zIndex(CHROME_Z),
+                ) {
+                    Text(
+                        text = pluralStringResource(
+                            R.plurals.canvas_history_readout,
+                            state.historySteps,
+                            state.historySteps,
+                            Formatter.formatShortFileSize(context, state.historyBytes),
+                            Formatter.formatShortFileSize(context, state.historyMaxBytes),
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
+            }
+
+            // A live readout while the fingers steer the view: the reset pill
+            // only appears once they lift, so the gesture itself owes the
+            // zoom/angle feedback. Delayed like the pill, so the navigation
+            // blip inside a two-finger tap-undo never flashes it.
+            var readoutVisible by remember { mutableStateOf(false) }
+            LaunchedEffect(navigating) {
+                readoutVisible = false
+                if (!navigating) return@LaunchedEffect
+                delay(READOUT_APPEAR_DELAY_MS)
+                readoutVisible = true
+            }
+            AnimatedVisibility(
+                visible = readoutVisible && navigating,
+                enter = fadeIn(tween(chromeAnimationMs)),
+                exit = fadeOut(tween(chromeAnimationMs)),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = LayoutSpec.TOP_STRIP_DP.dp + READOUT_GAP)
+                    .zIndex(CHROME_Z),
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = MaterialTheme.shapes.medium,
+                    tonalElevation = 3.dp,
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.canvas_view_readout,
+                            (view.scale * READOUT_PERCENT).roundToInt(),
+                            Math.toDegrees(view.rotation.toDouble()).roundToInt(),
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(
+                            horizontal = READOUT_PADDING_H,
+                            vertical = READOUT_PADDING_V,
+                        ),
+                    )
+                }
             }
 
             val resetBottomPadding = when (layout.railMode) {
@@ -1046,7 +1144,7 @@ private fun CanvasContent(
             PanelHost(
                 layout = layout,
                 windowWidth = windowWidth,
-                announcement = panelAnnouncement(panel),
+                announcement = panelAnnouncement(panel, state.toolSelection.kind),
                 visibility = if (panel == null) {
                     PanelVisibility.HIDDEN
                 } else {
@@ -1064,7 +1162,7 @@ private fun CanvasContent(
                 )
             }
 
-            val ledgePreset = (state.toolSelection.kind as? ToolKind.Brush)?.preset
+            val ledgePreset = ToolSliderPreset.forKind(state.toolSelection.kind)
             if (ledgePreset != null) {
                 val ledgeModifier = when (layout.railMode) {
                     RailMode.DOCK -> Modifier
@@ -1093,8 +1191,8 @@ private fun CanvasContent(
                         layout = layout,
                         preset = ledgePreset,
                         hapticsMode = state.hapticsMode,
-                        onSizeChanged = viewModel::updateBrushSize,
-                        onOpacityChanged = viewModel::updateBrushOpacity,
+                        onSizeChanged = viewModel::updateActiveToolSize,
+                        onOpacityChanged = viewModel::updateActiveToolOpacity,
                         onTuningFinished = viewModel::persistBrushTuning,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1193,18 +1291,34 @@ private fun CanvasPanelContent(
             onTextInputFocus = onTextInputFocus,
             hapticsMode = state.hapticsMode,
         )
-        CanvasPanel.BRUSH_SETTINGS -> {
-            val preset = (state.toolSelection.kind as? ToolKind.Brush)?.preset ?: return
-            BrushSettingsSheet(
-                active = preset,
+        CanvasPanel.BRUSH_SETTINGS -> when (val kind = state.toolSelection.kind) {
+            is ToolKind.Brush -> BrushSettingsSheet(
+                active = kind.preset,
                 presets = state.brushPresets,
                 brushColor = state.color.current,
                 paperColor = state.paperColor,
                 hapticsMode = state.hapticsMode,
+                mixerChoice = state.color.mixerChoice,
                 onPresetSelected = viewModel::selectBrush,
                 onPresetChanged = viewModel::updateActiveBrush,
                 onPresetPersisted = viewModel::persistActiveBrush,
                 onReset = viewModel::resetActiveBrush,
+            )
+            is ToolKind.Smudge -> SmudgeSettingsSheet(
+                active = kind.params,
+                onChanged = viewModel::updateSmudgeParams,
+            )
+            is ToolKind.Blur -> BlurSettingsSheet(
+                active = kind.params,
+                onChanged = viewModel::updateBlurParams,
+            )
+            is ToolKind.Eyedropper -> EyedropperSettingsSheet(
+                active = kind.params,
+                onChanged = viewModel::updateEyedropperParams,
+            )
+            is ToolKind.Fill -> FillSettingsSheet(
+                active = state.fillParams,
+                onChanged = viewModel::updateFillParams,
             )
         }
         CanvasPanel.FILL_SETTINGS -> FillSettingsSheet(
@@ -1216,10 +1330,16 @@ private fun CanvasPanelContent(
 }
 
 @Composable
-private fun panelAnnouncement(panel: CanvasPanel?): String = when (panel) {
+private fun panelAnnouncement(panel: CanvasPanel?, kind: ToolKind? = null): String = when (panel) {
     CanvasPanel.LAYERS -> stringResource(R.string.panel_layers_opened)
     CanvasPanel.COLOR -> stringResource(R.string.panel_color_opened)
-    CanvasPanel.BRUSH_SETTINGS -> stringResource(R.string.panel_brush_opened)
+    CanvasPanel.BRUSH_SETTINGS -> when (kind) {
+        is ToolKind.Smudge -> stringResource(R.string.panel_smudge_opened)
+        is ToolKind.Blur -> stringResource(R.string.panel_blur_opened)
+        is ToolKind.Eyedropper -> stringResource(R.string.panel_eyedropper_opened)
+        is ToolKind.Fill -> stringResource(R.string.panel_fill_opened)
+        else -> stringResource(R.string.panel_brush_opened)
+    }
     CanvasPanel.FILL_SETTINGS -> stringResource(R.string.panel_fill_opened)
     CanvasPanel.OVERFLOW, null -> ""
 }
@@ -1255,7 +1375,11 @@ private fun CanvasDialogHost(
             onDismiss = viewModel::dismissDialog,
         )
         CanvasDialog.FlattenLayers -> ConfirmationDialog(
-            title = stringResource(R.string.layer_flatten_title, state.stack.size),
+            title = pluralStringResource(
+                R.plurals.layer_flatten_title,
+                state.stack.size,
+                state.stack.size,
+            ),
             body = stringResource(R.string.layer_flatten_body),
             onConfirm = {
                 viewModel.dismissDialog()
@@ -1419,6 +1543,13 @@ private const val CHROME_Z = 2f
 private const val HINT_Z = 3f
 private const val RESET_DAMPING_RATIO = 0.8f
 private const val CHROME_ANIMATION_MS = 180
+private const val HISTORY_READOUT_MS = 2_000L
+private const val HISTORY_READOUT_TOP = 56
+private val READOUT_GAP = 8.dp
+private const val READOUT_PERCENT = 100f
+private const val READOUT_APPEAR_DELAY_MS = 150L
+private val READOUT_PADDING_H = 12.dp
+private val READOUT_PADDING_V = 6.dp
 private const val TOP_STRIP_TRAVERSAL = 0f
 private const val RAIL_TRAVERSAL = 1f
 private const val SLIDER_TRAVERSAL = 2f
@@ -1454,6 +1585,9 @@ internal class StrokeUiState {
     var fillStarted = false
     var temporaryReason: TemporaryReason? = null
     var pickGeneration: Long = 0
+
+    /** Caps the eyedropper's per-sample GL reads; reset at every pen-down. */
+    val pickGate = EyedropperSampleGate(DEFAULT_PICK_INTERVAL_MS)
 
     /**
      * The session [driver] was opened against, so every later call reaches
@@ -1514,5 +1648,8 @@ internal class StrokeUiState {
         const val CHANNEL_MASK = 0xFF
         const val CHANNEL_MAX = 255f
         const val OPAQUE_BLACK = 0xFF000000.toInt()
+
+        /** One eyedropper read per frame; see [EyedropperSampleGate]. */
+        const val DEFAULT_PICK_INTERVAL_MS = EyedropperSampleGate.DEFAULT_INTERVAL_MS
     }
 }

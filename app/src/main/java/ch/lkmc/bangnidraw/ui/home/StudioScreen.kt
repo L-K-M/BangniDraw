@@ -191,6 +191,7 @@ fun StudioScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 8.dp),
                         )
                     }
                 }
@@ -230,6 +231,7 @@ fun StudioScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(top = 8.dp),
                                     )
                                 }
                             }

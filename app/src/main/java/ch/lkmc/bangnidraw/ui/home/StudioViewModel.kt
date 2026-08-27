@@ -60,6 +60,14 @@ class StudioViewModel @Inject constructor(
 
     private var staleSyncJob: Job? = null
 
+    /**
+     * The Custom row's pre-fill for the New Canvas dialog. Seeded once from
+     * [Prefs] at startup; a dialog opened before the seed lands starts from
+     * the dialog's own default, as before.
+     */
+    internal var lastCustomSize: CanvasSize? = null
+        private set
+
     internal data class Painting(
         val id: String,
         val title: String,
@@ -101,6 +109,15 @@ class StudioViewModel @Inject constructor(
 
     init {
         collectPreferences()
+        viewModelScope.launch {
+            lastCustomSize = prefs.lastCustomSize.first()
+        }
+    }
+
+    /** Records a Custom-row creation so the next dialog pre-fills it. */
+    internal fun rememberCustomSize(size: CanvasSize) {
+        lastCustomSize = size
+        viewModelScope.launch { prefs.setLastCustomSize(size) }
     }
 
     private fun collectPreferences() {

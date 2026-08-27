@@ -295,11 +295,13 @@ fun StudioScreen(
         NewCanvasDialog(
             budget = viewModel.budget,
             screenSizePx = screenSizePx,
+            lastCustomSize = viewModel.lastCustomSize,
             onDismiss = { showNewCanvas = false },
             onCreate = { size, paper ->
                 showNewCanvas = false
                 viewModel.createPainting(size, paper) { id -> onOpenPainting(id) }
             },
+            onCustomSizeCreated = viewModel::rememberCustomSize,
         )
     }
 

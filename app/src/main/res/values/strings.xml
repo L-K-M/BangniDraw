@@ -303,6 +303,21 @@
     <!-- Persistence errors (docs/plan/06-document-and-persistence.md §4, §6.3;
          key names are the ones 02-architecture.md §9 assigns). -->
     <string name="err_tiles_unreadable">Some parts of this painting could not be read.</string>
+    <string name="err_reference_unreadable">The tracing image could not be read.</string>
+    <string name="err_reference_import">The tracing image could not be imported.</string>
+    <string name="err_reference_layer_budget">Remove a layer before adding a tracing image.</string>
+    <string name="err_reference_memory">Not enough memory to add a tracing image.</string>
+    <string name="reference_image">Tracing image</string>
+    <string name="reference_edit_help">Use two fingers on the canvas to move, scale, or rotate it.</string>
+    <string name="reference_opacity">Opacity</string>
+    <string name="reference_visible">Visible</string>
+    <string name="reference_replace">Replace</string>
+    <string name="reference_reset">Reset</string>
+    <string name="reference_remove">Remove</string>
+    <string name="reference_done">Done</string>
+    <string name="reference_panel_opened">Tracing image controls opened</string>
+    <string name="reference_remove_title">Remove tracing image?</string>
+    <string name="reference_remove_body">The private copy will be deleted after autosave.</string>
     <string name="err_layers_unreadable">Some layers of this painting could not be read.</string>
     <string name="err_storage_full">Storage full — free up space to keep your work.</string>
     <string name="err_leave_failed">Couldn’t finish saving — the painting stays open.</string>

@@ -4,6 +4,9 @@ import ch.lkmc.bangnidraw.engine.core.Document
 import ch.lkmc.bangnidraw.engine.core.HistoryEntry
 import ch.lkmc.bangnidraw.engine.core.LayerRecord
 import ch.lkmc.bangnidraw.engine.core.LayerStack
+import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
+import ch.lkmc.bangnidraw.engine.core.ReferenceVisibility
+import ch.lkmc.bangnidraw.engine.core.TracingReference
 import kotlinx.serialization.Serializable
 
 /**
@@ -33,6 +36,7 @@ internal data class ProjectFile(
     val dpi: Int = Document.DEFAULT_DPI,
     /** ARGB; alpha 0 = transparent paper. */
     val paperColor: Int = 0,
+    val tracingReference: TracingReferenceRecord? = null,
     /** Bottom → top. */
     val layers: List<LayerRecord> = emptyList(),
     val activeLayerId: String = "",
@@ -65,6 +69,22 @@ internal data class HistoryRecord(
     val entries: Int = 0,
     /** Sum of `.entry` + `.redo` sizes, same purpose. */
     val bytes: Long = 0L,
+)
+
+/** App-private tracing image metadata. Pixels live under `references/`. */
+@Serializable
+internal data class TracingReferenceRecord(
+    val assetName: String = "",
+    val imageWidth: Int = 0,
+    val imageHeight: Int = 0,
+    val xx: Float = 1f,
+    val xy: Float = 0f,
+    val yx: Float = 0f,
+    val yy: Float = 1f,
+    val tx: Float = 0f,
+    val ty: Float = 0f,
+    val opacity: Float = TracingReference.DEFAULT_OPACITY,
+    val visible: Boolean = true,
 )
 
 /** Zoom/rotation to restore on reopen; null = fit (§3). Written from step 3c on. */
@@ -103,6 +123,7 @@ internal fun Document.toProjectFile(
     height = height,
     dpi = dpi,
     paperColor = paperColor,
+    tracingReference = tracingReference?.toRecord(),
     layers = stack.layers.map { it.props.toRecord() },
     activeLayerId = stack.active.id.value,
     nextLayerName = stack.nextName,
@@ -111,6 +132,29 @@ internal fun Document.toProjectFile(
     lastGallerySyncAt = lastGallerySyncAt,
     galleryModifiedAt = galleryModifiedAt,
     galleryBytes = galleryBytes,
+)
+
+internal fun TracingReference.toRecord(): TracingReferenceRecord = TracingReferenceRecord(
+    assetName = assetName,
+    imageWidth = imageWidth,
+    imageHeight = imageHeight,
+    xx = transform.xx,
+    xy = transform.xy,
+    yx = transform.yx,
+    yy = transform.yy,
+    tx = transform.tx,
+    ty = transform.ty,
+    opacity = opacity,
+    visible = visibility == ReferenceVisibility.VISIBLE,
+)
+
+internal fun TracingReferenceRecord.toModel(): TracingReference = TracingReference(
+    assetName = assetName,
+    imageWidth = imageWidth,
+    imageHeight = imageHeight,
+    transform = ReferenceTransform(xx, xy, yx, yy, tx, ty),
+    opacity = opacity,
+    visibility = if (visible) ReferenceVisibility.VISIBLE else ReferenceVisibility.HIDDEN,
 )
 
 /**

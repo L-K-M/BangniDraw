@@ -10,6 +10,9 @@ import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -131,6 +134,7 @@ import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.HintVisibility
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
+import ch.lkmc.bangnidraw.engine.core.NavigationTarget
 import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import ch.lkmc.bangnidraw.engine.core.PressureCurve
 import ch.lkmc.bangnidraw.engine.core.RailMode
@@ -259,9 +263,20 @@ private fun CanvasContent(
     val density = LocalDensity.current
     val view0 = LocalView.current
     val context = LocalContext.current
+    val referencePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) viewModel.importTracingReference(uri)
+    }
+    val pickReference = {
+        referencePicker.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+        )
+    }
     CanvasImmersiveEffect()
     var seenStrokeNotice by remember { mutableLongStateOf(state.strokeLayerNoticeRevision) }
     var seenLeaveNotice by remember { mutableLongStateOf(state.leaveNoticeRevision) }
+    var seenReferenceNotice by remember { mutableLongStateOf(state.referenceNoticeRevision) }
 
     fun updateView(next: ViewTransform) {
         view = next
@@ -295,6 +310,12 @@ private fun CanvasContent(
             else -> HapticFeedbackConstants.CLOCK_TICK
         }
         view0.performHapticFeedback(haptic)
+    }
+    LaunchedEffect(state.referenceNoticeRevision) {
+        if (state.referenceNoticeRevision == seenReferenceNotice) return@LaunchedEffect
+        seenReferenceNotice = state.referenceNoticeRevision
+        val notice = state.referenceNotice ?: return@LaunchedEffect
+        Toast.makeText(context, notice, Toast.LENGTH_SHORT).show()
     }
 
     // Roadmap 2.4a: real two-finger navigation. The handler owns the view
@@ -356,6 +377,24 @@ private fun CanvasContent(
                 }
 
                 override fun onNavigateActive(active: Boolean) { navigating = active }
+
+                override fun onReferenceGesture(
+                    pivotX: Float,
+                    pivotY: Float,
+                    panX: Float,
+                    panY: Float,
+                    zoom: Float,
+                    rotationDelta: Float,
+                ) {
+                    viewModel.transformTracingReference(
+                        pivotX = pivotX,
+                        pivotY = pivotY,
+                        panX = panX,
+                        panY = panY,
+                        zoom = zoom,
+                        rotationDelta = rotationDelta,
+                    )
+                }
 
                 override fun onStrokeBegin(pointerId: Int, source: StrokeSource) {
                     val staleFillStarted = strokeState.fillStarted
@@ -684,11 +723,25 @@ private fun CanvasContent(
     // Keyed on the handler, not Unit: a recreated handler starts from an
     // identity transform, and without re-seeding its first gesture would
     // measure from the wrong baseline and jump.
-    LaunchedEffect(touch, state.touchDrawingMode, state.pressurePreference, state.snapRightAngles) {
+    LaunchedEffect(
+        touch,
+        state.touchDrawingMode,
+        state.pressurePreference,
+        state.snapRightAngles,
+        state.chrome.openPanel,
+        state.tracingReference != null,
+    ) {
         touch.setView(view)
         touch.stylusOnly = state.touchDrawingMode == TouchDrawingMode.STYLUS_ONLY
         touch.pressureCurve = PressureCurve.of(preference = state.pressurePreference)
         touch.snapRightAngles = state.snapRightAngles
+        touch.navigationTarget = if (
+            state.chrome.openPanel == CanvasPanel.REFERENCE && state.tracingReference != null
+        ) {
+            NavigationTarget.TRACING_REFERENCE
+        } else {
+            NavigationTarget.CANVAS
+        }
     }
 
     val shortcutContext = if (
@@ -817,6 +870,7 @@ private fun CanvasContent(
             canvas = state.canvas,
             stack = stack,
             paperColor = state.paperColor,
+            tracingReference = state.tracingReference,
             view = view,
             canvasDescription = canvasDescription,
             undoLabel = stringResource(R.string.canvas_undo),
@@ -1084,6 +1138,12 @@ private fun CanvasContent(
                 },
                 onFocus = viewModel::toggleFocus,
                 onRename = viewModel::requestRename,
+                onTracingReference = {
+                    if (state.referenceImportState == ReferenceImportState.IDLE) {
+                        if (state.tracingReference == null) pickReference()
+                        else viewModel.togglePanel(CanvasPanel.REFERENCE)
+                    }
+                },
                 guideVisibility = state.compositionGuideVisibility,
                 onToggleGuides = {
                     viewModel.setCompositionGuideVisibility(
@@ -1311,7 +1371,7 @@ private fun CanvasContent(
             }
 
             val panel = state.chrome.openPanel
-            if (panel != null) {
+            if (panel != null && panel != CanvasPanel.REFERENCE) {
                 val interaction = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
@@ -1343,6 +1403,7 @@ private fun CanvasContent(
                     state = state,
                     layerThumbnails = layerThumbnails,
                     viewModel = viewModel,
+                    onPickReference = pickReference,
                     onTextInputFocus = { textInputFocus = it },
                 )
             }
@@ -1480,6 +1541,7 @@ private fun CanvasPanelContent(
     state: CanvasViewModel.UiState.Ready,
     layerThumbnails: Map<ch.lkmc.bangnidraw.engine.core.LayerId, ch.lkmc.bangnidraw.engine.core.LayerThumbnail>,
     viewModel: CanvasViewModel,
+    onPickReference: () -> Unit,
     onTextInputFocus: (TextInputFocus) -> Unit,
 ) {
     when (panel) {
@@ -1570,6 +1632,20 @@ private fun CanvasPanelContent(
             active = state.fillParams,
             onChanged = viewModel::updateFillParams,
         )
+        CanvasPanel.REFERENCE -> state.tracingReference?.let { reference ->
+            TracingReferencePanel(
+                reference = reference,
+                importState = state.referenceImportState,
+                onOpacity = viewModel::setTracingReferenceOpacity,
+                onToggleVisibility = viewModel::toggleTracingReferenceVisibility,
+                onReplace = onPickReference,
+                onReset = viewModel::resetTracingReference,
+                onRemove = {
+                    viewModel.requestDialog(CanvasDialog.RemoveTracingReference)
+                },
+                onDone = viewModel::dismissPanel,
+            )
+        }
         CanvasPanel.OVERFLOW, null -> Unit
     }
 }
@@ -1673,6 +1749,7 @@ private fun panelAnnouncement(panel: CanvasPanel?, kind: ToolKind? = null): Stri
         else -> stringResource(R.string.panel_brush_opened)
     }
     CanvasPanel.FILL_SETTINGS -> stringResource(R.string.panel_fill_opened)
+    CanvasPanel.REFERENCE -> stringResource(R.string.reference_panel_opened)
     CanvasPanel.OVERFLOW, null -> ""
 }
 
@@ -1717,6 +1794,12 @@ private fun CanvasDialogHost(
                 viewModel.dismissDialog()
                 viewModel.flattenLayers()
             },
+            onDismiss = viewModel::dismissDialog,
+        )
+        CanvasDialog.RemoveTracingReference -> ConfirmationDialog(
+            title = stringResource(R.string.reference_remove_title),
+            body = stringResource(R.string.reference_remove_body),
+            onConfirm = viewModel::removeTracingReference,
             onDismiss = viewModel::dismissDialog,
         )
         null -> Unit

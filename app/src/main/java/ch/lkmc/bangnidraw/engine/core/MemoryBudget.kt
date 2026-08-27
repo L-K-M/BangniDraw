@@ -70,6 +70,18 @@ data class CanvasSize(val width: Int, val height: Int) {
     val tilesY: Int get() = tilesFor(height)
     val tilesPerLayer: Long get() = tilesX.toLong() * tilesY
 
+    val pixelBytes: Long
+        get() {
+            if (width <= 0 || height <= 0) return 0L
+            val pixels = width.toLong() * height
+
+            return if (pixels > Long.MAX_VALUE / RGBA8_BYTES_PER_PIXEL) {
+                Long.MAX_VALUE
+            } else {
+                pixels * RGBA8_BYTES_PER_PIXEL
+            }
+        }
+
     /**
      * Saturates rather than wraps. `tilesPerLayer` fits a `Long` for every
      * `Int` side, but multiplying it by [TILE_BYTES] does not — and a budget
@@ -84,6 +96,8 @@ data class CanvasSize(val width: Int, val height: Int) {
         }
 
     private companion object {
+        const val RGBA8_BYTES_PER_PIXEL = 4L
+
         /**
          * `ceil(px / 256)` for a positive side, and **zero** for a side that
          * is not positive — a canvas with no area has no tiles. Kotlin's `/`
@@ -124,6 +138,8 @@ object MemoryBudget {
         val historyMaxSteps: Int,
         val historyMaxBytes: Long,
         val thumbnailCacheBytes: Long,
+        /** Full decoded RGBA8 image allowed during a private image import. */
+        val transientImageBytes: Long,
         /** Slices per texture array `TilePool` creates; never above `glMaxArrayLayers`. */
         val poolArraySlices: Int,
         /** How many texture arrays fit the budget. */
@@ -242,6 +258,7 @@ object MemoryBudget {
         // painted, still holds MIN_USEFUL_LAYERS plus the stroke-buffer
         // reserve — so a size the dialog offers can always be painted on.
         val perLayerLimit = poolCapacityBytes / (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)
+        val transientImageBytes = minOf(canvas.pixelBytes, perLayerLimit)
         // The loop tests TILE_SIZE + TILE_SIZE and up; the starting value is
         // returned untested, so the "always paintable" promise holds at the
         // floor only through a coupling between the minimum tile budget,
@@ -280,6 +297,7 @@ object MemoryBudget {
             historyMaxSteps = historySteps,
             historyMaxBytes = historyBytes,
             thumbnailCacheBytes = thumbBytes,
+            transientImageBytes = transientImageBytes,
             poolArraySlices = slices,
             poolArrayCount = arrays,
         )

@@ -1,6 +1,6 @@
 # 0001 — Tracing reference image
 
-- **Status:** proposed
+- **Status:** accepted — roadmap #11
 - **Date:** 2026-08-27
 
 ## Problem

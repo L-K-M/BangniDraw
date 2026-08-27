@@ -96,17 +96,19 @@ object Shaders {
         precision highp float;
         layout(location = $ATTR_POS) in vec2 a_canvas;
         layout(location = $ATTR_UV) in vec3 a_uvw;
-        // Packed similarity (a, b, tx, ty), i.e. the four floats of
-        // ScreenTransform: p = (a*x - b*y + tx, b*x + a*y + ty). The binder
-        // uploads them in this order; any other order compiles, passes the
-        // uniform contract test, and renders garbage.
-        uniform vec4 u_screen;
+        // Affine basis (xx, xy, yx, yy) plus translation. Ordinary canvas
+        // draws upload ScreenTransform's similarity; tracing references use
+        // the same pass with their independent affine mapping.
+        uniform vec4 u_screenBasis;
+        uniform vec2 u_screenTranslation;
         uniform mat4 u_projection;
         uniform mat4 u_bufferTransform;
         out vec3 v_uvw;
         void main() {
-            vec2 p = vec2(u_screen.x * a_canvas.x - u_screen.y * a_canvas.y + u_screen.z,
-                          u_screen.y * a_canvas.x + u_screen.x * a_canvas.y + u_screen.w);
+            vec2 p = vec2(
+                u_screenBasis.x * a_canvas.x + u_screenBasis.y * a_canvas.y,
+                u_screenBasis.z * a_canvas.x + u_screenBasis.w * a_canvas.y
+            ) + u_screenTranslation;
             gl_Position = u_projection * u_bufferTransform * vec4(p, 0.0, 1.0);
             v_uvw = a_uvw;
         }
@@ -238,8 +240,8 @@ object Shaders {
             // binder can send, rather than resting on a range nothing enforces.
             int taps = clamp(u_taps, 1, MAX_TAPS);
             if (taps == 1) return texture(u_tiles, v_uvw);
-            // Box filter over a taps x taps grid spanning one screen pixel,
-            // offsets in canvas px converted to tile uv (TILE_SIZE px per tile).
+            // Box filter over a taps x taps grid spanning one target pixel,
+            // converted into source tile pixels per affine axis.
             vec4 acc = vec4(0.0);
             float n = float(taps);
             for (int j = 0; j < MAX_TAPS; j++) {
@@ -317,7 +319,8 @@ object Shaders {
         vertex = COMPOSITE_VERT,
         fragment = COMPOSITE_FRAG,
         uniforms = listOf(
-            Uniform("u_screen", "vec4"),
+            Uniform("u_screenBasis", "vec4"),
+            Uniform("u_screenTranslation", "vec2"),
             Uniform("u_projection", "mat4"),
             Uniform("u_bufferTransform", "mat4"),
             Uniform("u_tiles", "sampler2DArray"),
@@ -346,7 +349,8 @@ object Shaders {
         vertex = COMPOSITE_VERT,
         fragment = CHECKER_FRAG,
         uniforms = listOf(
-            Uniform("u_screen", "vec4"),
+            Uniform("u_screenBasis", "vec4"),
+            Uniform("u_screenTranslation", "vec2"),
             Uniform("u_projection", "mat4"),
             Uniform("u_bufferTransform", "mat4"),
             Uniform("u_checkerPx", "float"),

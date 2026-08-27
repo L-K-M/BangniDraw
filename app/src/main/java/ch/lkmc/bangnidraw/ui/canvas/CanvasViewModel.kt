@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
 import android.content.Context
+import android.net.Uri
 import android.os.SystemClock
 import androidx.annotation.StringRes
 import androidx.lifecycle.SavedStateHandle
@@ -23,6 +24,7 @@ import ch.lkmc.bangnidraw.data.HistoryPixels
 import ch.lkmc.bangnidraw.data.HistoryRecord
 import ch.lkmc.bangnidraw.data.HistoryStore
 import ch.lkmc.bangnidraw.data.ProjectStore
+import ch.lkmc.bangnidraw.data.ReferenceImageCodec
 import ch.lkmc.bangnidraw.data.RmwHistoryCapture
 import ch.lkmc.bangnidraw.data.ShareCache
 import ch.lkmc.bangnidraw.data.TileBufferPool
@@ -100,6 +102,10 @@ import ch.lkmc.bangnidraw.engine.core.PenButtonAction
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PressurePreference
 import ch.lkmc.bangnidraw.engine.core.ReadbackDrainResult
+import ch.lkmc.bangnidraw.engine.core.ReferenceImportDecision
+import ch.lkmc.bangnidraw.engine.core.ReferenceLayerReserve
+import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
+import ch.lkmc.bangnidraw.engine.core.ReferenceVisibility
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.StrokeMode
@@ -115,6 +121,8 @@ import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ToolSelection
 import ch.lkmc.bangnidraw.engine.core.ToolSwitcher
 import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
+import ch.lkmc.bangnidraw.engine.core.TracingReference
+import ch.lkmc.bangnidraw.engine.core.TracingReferencePolicy
 import ch.lkmc.bangnidraw.ui.navigation.CanvasRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -154,6 +162,10 @@ private enum class DocumentWork {
 
 private enum class FillPhase { IDLE, SNAPSHOT, COMPUTE, APPLY }
 
+internal enum class ReferenceImportState { IDLE, IMPORTING }
+
+private enum class ReferenceRecovery { CLEAN, UNREADABLE }
+
 private enum class FillCompletion { ENTRY_PENDING, NO_ENTRY }
 
 private data class EncodedPainting(val name: String, val bytes: ByteArray)
@@ -184,6 +196,7 @@ internal enum class FillStartResult { STARTED, REFUSED }
 class CanvasViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val store: ProjectStore,
+    private val referenceImageCodec: ReferenceImageCodec,
     private val presetStore: BrushPresetStore,
     private val paletteStore: PaletteStore,
     private val exporter: GalleryExporter,
@@ -205,6 +218,7 @@ class CanvasViewModel @Inject constructor(
             val canvas: CanvasSize,
             val stack: LayerStack,
             val paperColor: Int,
+            val tracingReference: TracingReference?,
             /** One honest toast about degraded content, or null (06 §4). */
             @StringRes val warning: Int? = null,
             val canUndo: Boolean = false,
@@ -244,6 +258,9 @@ class CanvasViewModel @Inject constructor(
             val closing: Boolean = false,
             /** Bumped when a leave fails; the screen toasts once per bump. */
             val leaveNoticeRevision: Long = 0L,
+            val referenceImportState: ReferenceImportState = ReferenceImportState.IDLE,
+            @StringRes val referenceNotice: Int? = null,
+            val referenceNoticeRevision: Long = 0L,
         ) : UiState
     }
 
@@ -403,6 +420,8 @@ class CanvasViewModel @Inject constructor(
     private val applyBusy: Boolean get() = actionGate.busy
     private var leaveAfterWrite: (() -> Unit)? = null
     private var layerCap = 1
+    private var budgetLayerCap = 1
+    private var transientImageBytes = 0L
     private var layerRefusal: Refusal? = null
     private var layerFeedbackRevision = 0L
     private var opacityGesture: LayerOpacityGesture? = null
@@ -411,6 +430,7 @@ class CanvasViewModel @Inject constructor(
     private val layerThumbnailPolicy = LayerThumbnailPolicy()
     private var layerPanelOpen = false
     private var layerThumbnailJob: Job? = null
+    private var referenceNoticeRevision = 0L
 
     private var session: EngineSession? = null
 
@@ -561,7 +581,15 @@ class CanvasViewModel @Inject constructor(
         wireHistory(doc, loadedHistory, result.history)
         _uiState.value = readyState(
             doc,
-            warningFor(unreadableLayers = result.unreadableLayers, unreadableTiles = 0),
+            warningFor(
+                unreadableLayers = result.unreadableLayers,
+                unreadableTiles = 0,
+                referenceRecovery = if (result.unreadableReference) {
+                    ReferenceRecovery.UNREADABLE
+                } else {
+                    ReferenceRecovery.CLEAN
+                },
+            ),
         )
     }
 
@@ -589,7 +617,13 @@ class CanvasViewModel @Inject constructor(
             readDeviceMemory(context),
             CanvasSize(doc.width, doc.height),
         )
-        layerCap = budget.maxLayers
+        budgetLayerCap = budget.maxLayers
+        transientImageBytes = budget.transientImageBytes
+        layerCap = TracingReferencePolicy.layerCap(
+            layerCount = doc.stack.layers.size,
+            maxLayers = budgetLayerCap,
+            reference = doc.tracingReference,
+        )
         journalLimits = HistoryJournal.Limits(budget.historyMaxSteps, budget.historyMaxBytes)
         journal = HistoryJournal(journalLimits, loaded.entries, loaded.cursor)
         nextSeq.set(maxOf(record.nextSeq, (loaded.entries.lastOrNull()?.seq ?: 0L) + 1L))
@@ -605,6 +639,7 @@ class CanvasViewModel @Inject constructor(
             canvas = CanvasSize(doc.width, doc.height),
             stack = doc.stack,
             paperColor = doc.paperColor,
+            tracingReference = doc.tracingReference,
             warning = warning,
             canUndo = j?.canUndo() == true && !applyBusy,
             canRedo = j?.canRedo() == true && !applyBusy,
@@ -788,6 +823,206 @@ class CanvasViewModel @Inject constructor(
         if (state is UiState.Ready) _uiState.value = state.copy(title = clean)
         dismissDialog()
         noteChange()
+    }
+
+    internal fun importTracingReference(uri: Uri) {
+        val doc = document ?: return
+        val ready = _uiState.value
+        if (ready is UiState.Ready && ready.referenceImportState == ReferenceImportState.IMPORTING) {
+            return
+        }
+
+        val decision = referenceImportDecision(doc)
+        if (decision != ReferenceImportDecision.ACCEPT) {
+            showReferenceRefusal(decision)
+            return
+        }
+        updateReferenceImporting(ReferenceImportState.IMPORTING)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val assetName = "reference-${UUID.randomUUID()}.png"
+            val imported = try {
+                referenceImageCodec.importAsset(
+                    projectId = doc.id,
+                    assetName = assetName,
+                    uri = uri,
+                    canvas = CanvasSize(doc.width, doc.height),
+                    maxPixelBytes = transientImageBytes,
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "tracing reference import failed", e)
+                null
+            }
+            if (imported == null) {
+                withContext(Dispatchers.Main) {
+                    updateReferenceImporting(ReferenceImportState.IDLE)
+                    showReferenceNotice(R.string.err_reference_import)
+                }
+                return@launch
+            }
+
+            val reference = TracingReference(
+                assetName = assetName,
+                imageWidth = imported.width,
+                imageHeight = imported.height,
+                transform = ReferenceTransform.fit(
+                    imageWidth = imported.width,
+                    imageHeight = imported.height,
+                    canvasWidth = doc.width,
+                    canvasHeight = doc.height,
+                ),
+            )
+            val accepted = withContext(Dispatchers.Main) {
+                val current = document ?: return@withContext false
+                updateReferenceImporting(ReferenceImportState.IDLE)
+                val currentDecision = referenceImportDecision(current)
+                if (currentDecision != ReferenceImportDecision.ACCEPT) {
+                    showReferenceRefusal(currentDecision)
+                    return@withContext false
+                }
+
+                // Queue metadata before its IO uploader so the GL thread
+                // cannot reject the first batches as stale.
+                session?.setTracingReference(reference)
+                applyTracingReference(reference)
+                if (chrome.openPanel != CanvasPanel.REFERENCE) {
+                    togglePanel(CanvasPanel.REFERENCE)
+                }
+                session?.let { engine ->
+                    viewModelScope.launch(Dispatchers.IO) {
+                        streamTracingReference(engine, doc.id, reference)
+                    }
+                }
+
+                true
+            }
+            if (!accepted) referenceImageCodec.discardAsset(doc.id, assetName)
+        }
+    }
+
+    private fun referenceImportDecision(doc: Document): ReferenceImportDecision {
+        val reserve = if (doc.tracingReference == null) {
+            ReferenceLayerReserve.REQUIRED
+        } else {
+            ReferenceLayerReserve.HELD
+        }
+
+        return TracingReferencePolicy.importDecision(
+            layerCount = doc.stack.layers.size,
+            maxLayers = budgetLayerCap,
+            transientImageBytes = transientImageBytes,
+            layerReserve = reserve,
+        )
+    }
+
+    private fun showReferenceRefusal(decision: ReferenceImportDecision) {
+        val notice = when (decision) {
+            ReferenceImportDecision.ACCEPT -> return
+            ReferenceImportDecision.REFUSE_LAYER_BUDGET -> R.string.err_reference_layer_budget
+            ReferenceImportDecision.REFUSE_TRANSIENT_BUDGET -> R.string.err_reference_memory
+        }
+
+        showReferenceNotice(notice)
+    }
+
+    internal fun setTracingReferenceOpacity(opacity: Float) {
+        val reference = document?.tracingReference ?: return
+        applyTracingReference(reference.copy(opacity = opacity.coerceIn(0f, 1f)))
+    }
+
+    internal fun toggleTracingReferenceVisibility() {
+        val reference = document?.tracingReference ?: return
+        val visibility = when (reference.visibility) {
+            ReferenceVisibility.VISIBLE -> ReferenceVisibility.HIDDEN
+            ReferenceVisibility.HIDDEN -> ReferenceVisibility.VISIBLE
+        }
+        applyTracingReference(reference.copy(visibility = visibility))
+    }
+
+    internal fun resetTracingReference() {
+        val doc = document ?: return
+        val reference = doc.tracingReference ?: return
+        applyTracingReference(
+            reference.copy(
+                transform = ReferenceTransform.fit(
+                    imageWidth = reference.imageWidth,
+                    imageHeight = reference.imageHeight,
+                    canvasWidth = doc.width,
+                    canvasHeight = doc.height,
+                ),
+            ),
+        )
+    }
+
+    internal fun transformTracingReference(
+        pivotX: Float,
+        pivotY: Float,
+        panX: Float,
+        panY: Float,
+        zoom: Float,
+        rotationDelta: Float,
+    ) {
+        val reference = document?.tracingReference ?: return
+        applyTracingReference(
+            reference.copy(
+                transform = reference.transform.gesture(
+                    pivotX = pivotX,
+                    pivotY = pivotY,
+                    panX = panX,
+                    panY = panY,
+                    zoom = zoom,
+                    rotationDelta = rotationDelta,
+                ),
+            ),
+        )
+    }
+
+    internal fun removeTracingReference() {
+        applyTracingReference(null)
+        dismissDialog()
+        dismissCanvasOverlay()
+    }
+
+    private fun applyTracingReference(reference: TracingReference?) {
+        val doc = document ?: return
+        if (doc.tracingReference == reference) return
+
+        val next = doc.copy(tracingReference = reference)
+        document = next
+        layerCap = TracingReferencePolicy.layerCap(
+            layerCount = next.stack.layers.size,
+            maxLayers = budgetLayerCap,
+            reference = reference,
+        )
+        val state = _uiState.value
+        if (state is UiState.Ready) {
+            _uiState.value = state.copy(
+                tracingReference = reference,
+                layerCap = layerCap,
+            )
+        }
+        dirty = true
+        noteChange()
+    }
+
+    private fun updateReferenceImporting(state: ReferenceImportState) {
+        val ready = _uiState.value
+        if (ready !is UiState.Ready) return
+
+        _uiState.value = ready.copy(referenceImportState = state)
+    }
+
+    private fun showReferenceNotice(@StringRes notice: Int) {
+        referenceNoticeRevision += 1
+        val ready = _uiState.value
+        if (ready !is UiState.Ready) return
+
+        _uiState.value = ready.copy(
+            referenceNotice = notice,
+            referenceNoticeRevision = referenceNoticeRevision,
+        )
     }
 
     internal fun share(
@@ -1518,11 +1753,16 @@ class CanvasViewModel @Inject constructor(
     }
 
     @StringRes
-    private fun warningFor(unreadableLayers: Int, unreadableTiles: Int): Int? = when {
+    private fun warningFor(
+        unreadableLayers: Int,
+        unreadableTiles: Int,
+        referenceRecovery: ReferenceRecovery = ReferenceRecovery.CLEAN,
+    ): Int? = when {
         // The layer message wins when both apply: a lost layer is the larger
         // loss, and one toast per open is the ceiling (06 §4).
         unreadableLayers > 0 -> R.string.err_layers_unreadable
         unreadableTiles > 0 -> R.string.err_tiles_unreadable
+        referenceRecovery == ReferenceRecovery.UNREADABLE -> R.string.err_reference_unreadable
         else -> null
     }
 
@@ -2024,10 +2264,19 @@ class CanvasViewModel @Inject constructor(
             }
 
             val paperColor = (edit.entry as? HistoryEntry.PaperColor)?.after ?: doc.paperColor
+            layerCap = TracingReferencePolicy.layerCap(
+                layerCount = edit.stack.layers.size,
+                maxLayers = budgetLayerCap,
+                reference = doc.tracingReference,
+            )
             document = doc.copy(stack = edit.stack, paperColor = paperColor)
             val state = _uiState.value
             if (state is UiState.Ready) {
-                _uiState.value = state.copy(stack = edit.stack, paperColor = paperColor)
+                _uiState.value = state.copy(
+                    stack = edit.stack,
+                    paperColor = paperColor,
+                    layerCap = layerCap,
+                )
             }
             updateLayerThumbnailState(
                 before = doc.stack,
@@ -2197,6 +2446,11 @@ class CanvasViewModel @Inject constructor(
                 historyEdit.stack,
                 restoreOutcomes(restores),
             )
+            layerCap = TracingReferencePolicy.layerCap(
+                layerCount = foldedStack.layers.size,
+                maxLayers = budgetLayerCap,
+                reference = doc.tracingReference,
+            )
             document = doc.copy(
                 stack = foldedStack,
                 paperColor = paperColor,
@@ -2204,7 +2458,11 @@ class CanvasViewModel @Inject constructor(
             )
             val state = _uiState.value
             if (state is UiState.Ready) {
-                _uiState.value = state.copy(stack = foldedStack, paperColor = paperColor)
+                _uiState.value = state.copy(
+                    stack = foldedStack,
+                    paperColor = paperColor,
+                    layerCap = layerCap,
+                )
             }
             updateLayerThumbnailState(
                 before = doc.stack,
@@ -2624,6 +2882,7 @@ class CanvasViewModel @Inject constructor(
             }
             engine.uploadTiles(layer.id, batch, last = index == layers.lastIndex)
         }
+        doc.tracingReference?.let { streamTracingReference(engine, doc.id, it) }
         if (corruptTiles > 0) {
             val state = _uiState.value
             if (state is UiState.Ready && state.warning == null) {
@@ -2631,6 +2890,33 @@ class CanvasViewModel @Inject constructor(
                     warning = warningFor(unreadableLayers = 0, unreadableTiles = corruptTiles),
                 )
             }
+        }
+    }
+
+    private suspend fun streamTracingReference(
+        engine: EngineSession,
+        projectId: String,
+        reference: TracingReference,
+    ) {
+        withTimeoutOrNull(READY_WAIT_MS) {
+            while (!engine.isEngineReady()) delay(16)
+        } ?: return
+
+        val read = referenceImageCodec.streamTiles(
+            projectId = projectId,
+            reference = reference,
+            batchSize = UPLOAD_BATCH,
+        ) { batch ->
+            engine.uploadReferenceTiles(reference.assetName, batch)
+        }
+        if (read) return
+
+        withContext(Dispatchers.Main) {
+            if (document?.tracingReference?.assetName != reference.assetName) return@withContext
+
+            applyTracingReference(null)
+            dismissPanel()
+            showReferenceNotice(R.string.err_reference_unreadable)
         }
     }
 

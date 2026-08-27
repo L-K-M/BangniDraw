@@ -270,6 +270,21 @@
     <string name="canvas_newer_version">这张画由更新版本的 帮你Draw 创建。</string>
 
     <string name="err_tiles_unreadable">这张画的一部分无法读取。</string>
+    <string name="err_reference_unreadable">描图图像无法读取。</string>
+    <string name="err_reference_import">无法导入描图图像。</string>
+    <string name="err_reference_layer_budget">添加描图图像前请先移除一个图层。</string>
+    <string name="err_reference_memory">内存不足，无法添加描图图像。</string>
+    <string name="reference_image">描图图像</string>
+    <string name="reference_edit_help">在画布上用双指移动、缩放或旋转图像。</string>
+    <string name="reference_opacity">不透明度</string>
+    <string name="reference_visible">显示</string>
+    <string name="reference_replace">替换</string>
+    <string name="reference_reset">重置</string>
+    <string name="reference_remove">移除</string>
+    <string name="reference_done">完成</string>
+    <string name="reference_panel_opened">已打开描图图像控件</string>
+    <string name="reference_remove_title">移除描图图像？</string>
+    <string name="reference_remove_body">自动保存后将删除应用内的图像副本。</string>
     <string name="err_layers_unreadable">这张画的一些图层无法读取。</string>
     <string name="err_storage_full">存储空间已满——请清理空间以保留更改。</string>
     <string name="err_leave_failed">无法完成保存——画作保持打开。</string>

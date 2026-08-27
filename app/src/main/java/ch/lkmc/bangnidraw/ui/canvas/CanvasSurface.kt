@@ -25,6 +25,7 @@ import ch.lkmc.bangnidraw.engine.core.EngineUpdatePolicy
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
+import ch.lkmc.bangnidraw.engine.core.TracingReference
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import kotlin.math.roundToInt
 
@@ -47,6 +48,7 @@ internal fun CanvasSurface(
     canvas: CanvasSize,
     stack: LayerStack,
     paperColor: Int,
+    tracingReference: TracingReference?,
     view: ViewTransform,
     canvasDescription: String,
     undoLabel: String,
@@ -76,6 +78,7 @@ internal fun CanvasSurface(
     val surfaceHolder = remember { arrayOfNulls<SurfaceView>(1) }
     val appliedStack = remember { arrayOfNulls<LayerStack>(1) }
     val appliedPaperColor = remember { arrayOfNulls<Int>(1) }
+    val appliedTracingReference = remember { arrayOfNulls<TracingReference>(1) }
     val appliedView = remember { arrayOfNulls<ViewTransform>(1) }
     val density = context.resources.displayMetrics.density
     val historyActions = availableCanvasHistoryActions(undoAvailability, redoAvailability)
@@ -132,9 +135,10 @@ internal fun CanvasSurface(
                     revisions = revisions,
                 )
                 sessionHolder[0] = session
-                session.configure(stack, paperColor, view)
+                session.configure(stack, paperColor, view, tracingReference)
                 appliedStack[0] = stack
                 appliedPaperColor[0] = paperColor
+                appliedTracingReference[0] = tracingReference
                 appliedView[0] = view
                 onSession(session)
             }
@@ -171,6 +175,10 @@ internal fun CanvasSurface(
                 ) {
                     appliedPaperColor[0] = paperColor
                     session.setPaperColor(paperColor)
+                }
+                if (appliedTracingReference[0] != tracingReference) {
+                    appliedTracingReference[0] = tracingReference
+                    session.setTracingReference(tracingReference)
                 }
                 if (EngineUpdatePolicy.decide(appliedView[0], view) == EngineUpdate.APPLY) {
                     appliedView[0] = view

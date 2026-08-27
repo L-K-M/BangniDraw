@@ -134,7 +134,13 @@ class SandwichCache(
      * `SANDWICH_MARGIN_PX`), so a "rebuild all" costs one composite of what is
      * on screen and the rest arrives as it is scrolled into view.
      */
-    fun rebuild(rect: IntRect, stack: LayerStack, paper: Int, layerTextures: (Int) -> LayerTextures) {
+    fun rebuild(
+        rect: IntRect,
+        stack: LayerStack,
+        paper: Int,
+        layerTextures: (Int) -> LayerTextures,
+        drawBelowBase: (TileKey) -> Unit,
+    ) {
         // An unavailable half never fills its built set, so its stale flag can
         // never clear — without the availability terms this early return never
         // fires again and every frame pays a keysFor allocation and a walk for
@@ -155,6 +161,7 @@ class SandwichCache(
                     indices = 0 until activeIndex,
                     stack = stack,
                     layerTextures = layerTextures,
+                    drawBase = drawBelowBase,
                 )
                 if (built) belowBuilt.add(key.packed)
             }
@@ -168,6 +175,7 @@ class SandwichCache(
                     indices = (activeIndex + 1) until stack.layers.size,
                     stack = stack,
                     layerTextures = layerTextures,
+                    drawBase = null,
                 )
                 if (built) aboveBuilt.add(key.packed)
             }
@@ -191,6 +199,7 @@ class SandwichCache(
         indices: IntRange,
         stack: LayerStack,
         layerTextures: (Int) -> LayerTextures,
+        drawBase: ((TileKey) -> Unit)?,
     ): Boolean {
         var current = try {
             pool.allocate()
@@ -207,6 +216,8 @@ class SandwichCache(
             premultiplied(paper, 16), premultiplied(paper, 8), premultiplied(paper, 0),
             ((paper ushr 24) and 0xFF) / 255f,
         )
+        drawBase?.invoke(key)
+
         for (i in indices) {
             val props = stack.layers[i].props
             if (!props.visible || props.opacity <= 0f) continue

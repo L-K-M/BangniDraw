@@ -12,6 +12,7 @@ import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.GestureListener
 import ch.lkmc.bangnidraw.engine.core.LatencyTrace
 import ch.lkmc.bangnidraw.engine.core.NavigationStep
+import ch.lkmc.bangnidraw.engine.core.NavigationTarget
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PredictionGate
 import ch.lkmc.bangnidraw.engine.core.PressureCurve
@@ -58,6 +59,16 @@ interface CanvasInputHost {
      * disappear when they lift.
      */
     fun onNavigateActive(active: Boolean) {}
+
+    /** A tracing-reference gesture, already converted from window to canvas px. */
+    fun onReferenceGesture(
+        pivotX: Float,
+        pivotY: Float,
+        panX: Float,
+        panY: Float,
+        zoom: Float,
+        rotationDelta: Float,
+    ) {}
 
     /** Roadmap 2.4b. A stroke began with [source] at this pointer. */
     fun onStrokeBegin(pointerId: Int, source: StrokeSource) {}
@@ -123,6 +134,8 @@ class CanvasTouchHandler(
 
     var view: ViewTransform = ViewTransform()
         private set
+
+    var navigationTarget: NavigationTarget = NavigationTarget.CANVAS
 
     private var fit: FitTransform? = null
     private var screen: ScreenTransform? = null
@@ -219,6 +232,8 @@ class CanvasTouchHandler(
     private val decisions = object : GestureListener {
         override fun onDraw(pointerId: Int, source: StrokeSource) {
             navigating = false
+            if (navigationTarget == NavigationTarget.TRACING_REFERENCE) return
+
             strokeLive = true
             drawingId = pointerId
             drawingSource = source
@@ -247,12 +262,22 @@ class CanvasTouchHandler(
             stopPredicting()
             host.onStrokeCancel()
         }
-        override fun onTapUndo() = host.onUndoRequested()
-        override fun onTapRedo() = host.onRedoRequested()
+        override fun onTapUndo() {
+            if (navigationTarget == NavigationTarget.CANVAS) host.onUndoRequested()
+        }
+        override fun onTapRedo() {
+            if (navigationTarget == NavigationTarget.CANVAS) host.onRedoRequested()
+        }
         override fun onLongPressPick(x: Float, y: Float) =
-            host.onColorPick(canvasX(x, y), canvasY(x, y))
+            if (navigationTarget == NavigationTarget.CANVAS) {
+                host.onColorPick(canvasX(x, y), canvasY(x, y))
+            } else {
+                Unit
+        }
         override fun onIgnore(pointerId: Int) = Unit
         override fun onStrokeEnd(pointerId: Int) {
+            if (!strokeLive) return
+
             strokeLive = false
             drawingId = NO_POINTER
             drawingSource = null
@@ -530,6 +555,11 @@ class CanvasTouchHandler(
             prevX[0] = trackX[ai]; prevY[0] = trackY[ai]
             prevX[1] = trackX[bi]; prevY[1] = trackY[bi]
         }
+        if (navigationTarget == NavigationTarget.TRACING_REFERENCE) {
+            applyReferenceNavigation()
+            return
+        }
+
         rawRotation += step.rotation
         // The angle to DISPLAY, which is the snap's target — zero, or the
         // nearest right angle when Prefs.snapRightAngles is on. Hardcoding 0f
@@ -542,6 +572,22 @@ class CanvasTouchHandler(
         updateScreen()
         if (snap.justEntered) host.onRotationSnapped()
         host.onViewChanged(view)
+    }
+
+    private fun applyReferenceNavigation() {
+        val current = screen ?: return
+        val pivotX = current.invertX(step.anchorX, step.anchorY)
+        val pivotY = current.invertY(step.anchorX, step.anchorY)
+        val movedX = current.invertX(step.anchorX + step.panX, step.anchorY + step.panY)
+        val movedY = current.invertY(step.anchorX + step.panX, step.anchorY + step.panY)
+        host.onReferenceGesture(
+            pivotX = pivotX,
+            pivotY = pivotY,
+            panX = movedX - pivotX,
+            panY = movedY - pivotY,
+            zoom = step.zoom,
+            rotationDelta = step.rotation,
+        )
     }
 
     private fun captureNavPointers() {

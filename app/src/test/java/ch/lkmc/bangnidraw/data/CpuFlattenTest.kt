@@ -6,12 +6,15 @@ import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerProps
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
+import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
 import ch.lkmc.bangnidraw.engine.core.TileKey
+import ch.lkmc.bangnidraw.engine.core.TracingReference
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Step 4's "PNG bytes from Composite flatten of a fixture"
@@ -139,5 +142,25 @@ class CpuFlattenTest {
         for (c in listOf(r, g, b2)) {
             kotlin.test.assertTrue(c in 0x7F..0x81, "mid-gray, was $c")
         }
+    }
+
+    @Test
+    fun `tracing reference is excluded from flatten`() {
+        val base = document(
+            layers = listOf(Layer(LayerProps(id = a, name = "n"))),
+            paper = 0xFF102030.toInt(),
+        )
+        val reference = TracingReference(
+            assetName = "reference.png",
+            imageWidth = 100,
+            imageHeight = 100,
+            transform = ReferenceTransform.IDENTITY,
+        )
+
+        assertTrue(
+            CpuFlatten.flatten(base) { layerDir(it) }.contentEquals(
+                CpuFlatten.flatten(base.copy(tracingReference = reference)) { layerDir(it) },
+            ),
+        )
     }
 }

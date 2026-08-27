@@ -155,6 +155,12 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   pre-decision docs (same Status/Date header as ADRs); an accepted proposal
   graduates into `docs/plan/12-roadmap.md`, a declined one stays with its
   status flipped so the reasoning isn't lost.
+- Tracing references are private project assets, not paint. They reserve one
+  layer of tile budget, render in `SandwichCache.Below` above paper, and never
+  enter thumbnails, flatten, gallery sync, sharing, export, or painting undo.
+  Photo Picker is the import boundary; do not add storage permission or retain
+  the picked URI. Checkpoints delete only the superseded committed asset;
+  reopen sweeps other orphans so autosave cannot delete an in-flight import.
 
 ## Deviations discovered while building
 

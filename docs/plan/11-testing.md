@@ -270,8 +270,9 @@ from `05-layers.md` §4, in a table-driven test
 Inputs: `totalMem` bytes, `isLowRamDevice`, `largeMemoryClass` MB, GL limits
 (`glMaxTextureSize`, `glMaxArrayLayers`), canvas size — `DeviceMemory` and
 `CanvasSize` of `10-performance.md` §4. Outputs: `Result(maxLayers,
-maxCanvasEdge, poolArraySlices, poolArrayCount, history caps, thumbnail
-cache)`; the pinned worked table is 10 §4's (`05-layers.md` §6).
+maxCanvasEdge, poolArraySlices, poolArrayCount, history caps, thumbnail cache,
+transient image bytes)`; the pinned worked table is 10 §4's (`05-layers.md`
+§6).
 
 - `` `the layer cap is monotone non-decreasing in totalMem` `` (property over sorted random memory sizes, fixed canvas)
 - `` `the layer cap is monotone non-increasing in canvas area` ``

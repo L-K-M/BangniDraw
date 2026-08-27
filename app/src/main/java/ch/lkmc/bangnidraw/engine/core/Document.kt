@@ -18,6 +18,8 @@ data class Document(
     /** ARGB; alpha 0 means transparent paper. The paper is a document colour, not a layer. */
     val paperColor: Int,
     val stack: LayerStack,
+    /** Optional tracing aid. It is never part of the paint stack or exports. */
+    val tracingReference: TracingReference? = null,
     /**
      * How many journal entries are *applied*: `[oldestSeq, oldestSeq + cursor)`
      * are in effect and the rest are redoable

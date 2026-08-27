@@ -1,8 +1,10 @@
 package ch.lkmc.bangnidraw.tools
 
+import ch.lkmc.bangnidraw.engine.core.BlurParams
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.SmudgeParams
 import ch.lkmc.bangnidraw.engine.core.StrokeInput
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -41,6 +43,30 @@ class ToolTest {
         assertEquals(listOf("pick:1", "pick-sample", "pick-cancel"), context.events)
     }
 
+    @Test
+    fun `smudge routes one RMW stroke`() {
+        val context = RecordingContext()
+        val tool = SmudgeTool(SmudgeParams(size = 55f))
+
+        tool.onStrokeBegin(sample, context)
+        tool.onStrokeSample(sample, context)
+        tool.onStrokeEnd(context)
+
+        assertEquals(listOf("smudge:55.0", "rmw-sample", "rmw-commit"), context.events)
+    }
+
+    @Test
+    fun `blur cancel restores its direct writes`() {
+        val context = RecordingContext()
+        val tool = BlurTool(BlurParams(size = 70f))
+
+        tool.onStrokeBegin(sample, context)
+        tool.onStrokeSample(sample, context)
+        tool.onStrokeCancel(context)
+
+        assertEquals(listOf("blur:70.0", "rmw-sample", "rmw-cancel"), context.events)
+    }
+
     private class RecordingContext : StrokeContext {
         val events = ArrayList<String>()
 
@@ -58,6 +84,26 @@ class ToolTest {
 
         override fun cancelBrush() {
             events += "brush-cancel"
+        }
+
+        override fun beginSmudge(params: SmudgeParams, input: StrokeInput) {
+            events += "smudge:${params.size}"
+        }
+
+        override fun beginBlur(params: BlurParams, input: StrokeInput) {
+            events += "blur:${params.size}"
+        }
+
+        override fun sampleRmw(input: StrokeInput) {
+            events += "rmw-sample"
+        }
+
+        override fun commitRmw() {
+            events += "rmw-commit"
+        }
+
+        override fun cancelRmw() {
+            events += "rmw-cancel"
         }
 
         override fun beginColorPick(params: EyedropperParams, input: StrokeInput) {

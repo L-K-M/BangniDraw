@@ -30,9 +30,10 @@ class StrokeDriver(
      */
     seed: Long,
     zoom: Float = 1f,
+    spacingPolicy: DabSpacingPolicy = DabSpacingPolicy.Brush,
 ) {
 
-    private val generator = DabGenerator(preset, seed)
+    private val generator = DabGenerator(preset, seed, spacingPolicy)
     private val stabilizer = Stabilizer(preset.stabilizer, zoom)
 
     /** The sample the stabilizer produces; fed to the generator. */

@@ -28,6 +28,7 @@ import kotlin.math.sqrt
 class DabGenerator(
     private val preset: BrushPreset,
     private val seed: Long,
+    private val spacingPolicy: DabSpacingPolicy = DabSpacingPolicy.Brush,
 ) {
     private val sizeLut = preset.pressureSize.lut()
     private val opacityLut = preset.pressureOpacity.lut()
@@ -239,7 +240,7 @@ class DabGenerator(
      * on the layer. The tail never calls [end], so nulling it costs nothing
      * and closes the one way a copy could touch anything but itself.
      */
-    fun copy(): DabGenerator = DabGenerator(preset, seed).also { copyInto(it) }
+    fun copy(): DabGenerator = DabGenerator(preset, seed, spacingPolicy).also { copyInto(it) }
 
     /**
      * [copy] into a generator that already exists, so the tail costs no
@@ -257,8 +258,10 @@ class DabGenerator(
      * tail that is subtly the wrong size or jitter and nothing that says so.
      */
     fun copyInto(other: DabGenerator) {
-        require(other.preset === preset && other.seed == seed) {
-            "a tail generator must share the stroke's preset and seed"
+        require(
+            other.preset === preset && other.seed == seed && other.spacingPolicy == spacingPolicy,
+        ) {
+            "a tail generator must share the stroke's preset, seed and spacing policy"
         }
         other.last.set(last)
         other.started = started
@@ -361,10 +364,16 @@ class DabGenerator(
         return true
     }
 
-    /** `step = max(spacing · radius, 0.5)`: never denser than half a pixel. */
-    private fun stepFor(pressure: Float, tilt: Float): Float =
-        (preset.spacing * radiusFor(pressure, tilt, jitterIndex = -1))
+    /** RMW tools stay at least `0.25·r` apart because every dab copies pixels. */
+    private fun stepFor(pressure: Float, tilt: Float): Float {
+        val spacing = when (spacingPolicy) {
+            DabSpacingPolicy.Brush -> preset.spacing
+            DabSpacingPolicy.ReadModifyWrite -> maxOf(preset.spacing, RMW_MIN_SPACING)
+        }
+
+        return (spacing * radiusFor(pressure, tilt, jitterIndex = -1))
             .coerceAtLeast(MIN_STEP_PX)
+    }
 
     /**
      * `r = size/2 · curveSize(p) · tiltMul · velMul · (1 ± jitter)`, clamped
@@ -489,6 +498,9 @@ class DabGenerator(
         /** `04-tools.md` §3.1: never denser than half a pixel. */
         const val MIN_STEP_PX = 0.5f
 
+        /** `03-canvas-engine.md` §7.6's copy-cost floor. */
+        const val RMW_MIN_SPACING = 0.25f
+
         /** `2 / (N + 1)` for N = 3, the window `04` §3.3 specifies. */
         const val VELOCITY_EMA_ALPHA = 0.5f
 
@@ -501,4 +513,10 @@ class DabGenerator(
         const val SALT_JITTER_Y = 2
         const val SALT_JITTER_SIZE = 3
     }
+}
+
+/** The spacing cost model fixed for one stroke. */
+enum class DabSpacingPolicy {
+    Brush,
+    ReadModifyWrite,
 }

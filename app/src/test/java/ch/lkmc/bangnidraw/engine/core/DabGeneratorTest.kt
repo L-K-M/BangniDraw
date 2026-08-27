@@ -45,13 +45,27 @@ class DabGeneratorTest {
         seed: Long = 1L,
         capacity: Int = 4096,
         end: Boolean = true,
+        spacingPolicy: DabSpacingPolicy = DabSpacingPolicy.Brush,
     ): List<Dab> {
-        val generator = DabGenerator(preset, seed)
+        val generator = DabGenerator(preset, seed, spacingPolicy)
         val batch = DabBatch(capacity)
         generator.begin(path.first(), batch)
         for (i in 1 until path.size) generator.advance(path[i], batch)
         if (end) generator.end(batch)
         return batch.toList()
+    }
+
+    @Test
+    fun `RMW spacing never falls below one quarter radius`() {
+        val dense = plain.copy(spacing = BrushPreset.MIN_SPACING)
+        val path = straightPath(0f, 100f, steps = 20)
+        val brush = run(dense, path)
+        val rmw = run(dense, path, spacingPolicy = DabSpacingPolicy.ReadModifyWrite)
+
+        assertTrue(rmw.size < brush.size, "RMW must reduce dense dab traffic")
+        for ((a, b) in rmw.zipWithNext()) {
+            assertTrue(b.x - a.x >= 2.5f - pxEps, "RMW gap was ${b.x - a.x}")
+        }
     }
 
     private fun straightPath(

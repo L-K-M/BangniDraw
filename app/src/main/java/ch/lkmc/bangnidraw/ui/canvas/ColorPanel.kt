@@ -53,7 +53,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.ColorText
@@ -61,6 +63,7 @@ import ch.lkmc.bangnidraw.engine.core.ColorUiState
 import ch.lkmc.bangnidraw.engine.core.Composite
 import ch.lkmc.bangnidraw.engine.core.DishWell
 import ch.lkmc.bangnidraw.engine.core.HsvColor
+import ch.lkmc.bangnidraw.engine.core.HsvChannel
 import ch.lkmc.bangnidraw.engine.core.HsvPicker
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.HueMilestone
@@ -132,9 +135,15 @@ internal fun ColorPanel(
                 onPreview = ::preview,
                 onCommit = { select(it.toArgb()) },
             )
+            HsvControls(
+                hsv = hsv,
+                onPreview = ::preview,
+                onCommit = { select(it.toArgb()) },
+            )
             ColorChips(
                 current = draft,
                 previous = state.previous,
+                hapticsMode = hapticsMode,
                 onAddCurrent = { onAddToPalette(draft) },
                 onSwap = onSwapColors,
             )
@@ -273,23 +282,123 @@ private fun HsvRingSquare(
     }
 }
 
+@Composable
+private fun HsvControls(
+    hsv: HsvColor,
+    onPreview: (HsvColor) -> Unit,
+    onCommit: (HsvColor) -> Unit,
+) {
+    val latestHsv = rememberUpdatedState(hsv)
+    val latestPreview = rememberUpdatedState(onPreview)
+    val latestCommit = rememberUpdatedState(onCommit)
+    var pendingHsv by remember(hsv) { mutableStateOf(hsv) }
+
+    // Finish commits the last preview for touch, keyboard, and accessibility.
+    Column(
+        verticalArrangement = Arrangement.spacedBy(FIELD_GAP),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        HsvChannel.entries.forEach { channel ->
+            val label = stringResource(
+                when (channel) {
+                    HsvChannel.HUE -> R.string.color_hue
+                    HsvChannel.SATURATION -> R.string.color_saturation
+                    HsvChannel.VALUE -> R.string.color_value
+                },
+            )
+            val value = channel.read(hsv)
+            val valueText = when (channel) {
+                HsvChannel.HUE -> stringResource(R.string.color_hue_value, value)
+                HsvChannel.SATURATION,
+                HsvChannel.VALUE,
+                -> stringResource(R.string.color_percent_value, value)
+            }
+
+            HsvChannelSlider(
+                label = label,
+                value = value,
+                valueText = valueText,
+                range = channel.range,
+                steps = channel.steps,
+                onChanged = {
+                    val next = channel.replace(latestHsv.value, it)
+                    pendingHsv = next
+                    latestPreview.value(next)
+                },
+                onFinished = { latestCommit.value(pendingHsv) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun HsvChannelSlider(
+    label: String,
+    value: Float,
+    valueText: String,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onChanged: (Float) -> Unit,
+    onFinished: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(label, modifier = Modifier.weight(1f))
+        Text(valueText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Slider(
+        value = value,
+        onValueChange = onChanged,
+        onValueChangeFinished = onFinished,
+        valueRange = range,
+        steps = steps,
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = label
+                stateDescription = valueText
+            },
+    )
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ColorChips(
     current: Int,
     previous: Int,
+    hapticsMode: HapticsMode,
     onAddCurrent: () -> Unit,
     onSwap: () -> Unit,
 ) {
+    val view = LocalView.current
     val currentLabel = stringResource(R.string.color_current)
     val previousLabel = stringResource(R.string.color_previous)
+    val addLabel = stringResource(R.string.mixing_add_palette)
+
+    fun addCurrent() {
+        if (hapticsMode == HapticsMode.ENABLED) {
+            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        }
+        onAddCurrent()
+    }
+
     Row(horizontalArrangement = Arrangement.spacedBy(PANEL_GAP), verticalAlignment = Alignment.CenterVertically) {
         ColorCircle(
             current,
             Modifier
                 .size(CURRENT_CHIP_SIZE)
-                .semantics { contentDescription = currentLabel }
-                .combinedClickable(onClick = {}, onLongClick = onAddCurrent),
+                .semantics {
+                    contentDescription = currentLabel
+                    onLongClick(label = addLabel) {
+                        addCurrent()
+                        true
+                    }
+                }
+                .pointerInput(onAddCurrent, hapticsMode) {
+                    detectTapGestures(onLongPress = { addCurrent() })
+                },
         )
         ColorCircle(
             previous,

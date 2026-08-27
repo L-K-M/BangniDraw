@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.input
 
 import android.os.Build
+import android.os.SystemClock
 import android.view.Choreographer
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -13,6 +14,9 @@ import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.GestureListener
 import ch.lkmc.bangnidraw.engine.core.LatencyTrace
 import ch.lkmc.bangnidraw.engine.core.MouseNavigationPolicy
+import ch.lkmc.bangnidraw.engine.core.MouseButton
+import ch.lkmc.bangnidraw.engine.core.MouseButtonPolicy
+import ch.lkmc.bangnidraw.engine.core.MouseGesture
 import ch.lkmc.bangnidraw.engine.core.MouseScrollMode
 import ch.lkmc.bangnidraw.engine.core.NavigationStep
 import ch.lkmc.bangnidraw.engine.core.PointerTool
@@ -192,6 +196,7 @@ class CanvasTouchHandler(
 
     /** Generic mouse button events and mouse touch events share this drag. */
     private var middleDragging = false
+    private var mouseTouchGesture = MouseGesture.NONE
     private var previousMouseX = 0f
     private var previousMouseY = 0f
 
@@ -286,6 +291,10 @@ class CanvasTouchHandler(
             null
         }
         val previous = fit
+        if (previous != next) {
+            // A live driver cannot connect samples across two coordinate maps.
+            handleCancel(uptimeNs())
+        }
         if (previous != null && next != null) {
             val resized = ViewportResizePolicy.resize(
                 ViewportResizeState(view, previous),
@@ -296,6 +305,21 @@ class CanvasTouchHandler(
         }
         fit = next
         updateScreen()
+    }
+
+    /** Ends every input stream before this handler loses its view listeners. */
+    internal fun detach() {
+        val publishHoverExit = stylus.isHovering || hoverFramePosted
+        handleCancel(uptimeNs())
+        stopPredicting()
+        if (hoverFramePosted) {
+            hoverFramePosted = false
+            Choreographer.getInstance().removeFrameCallback(hoverFrameCallback)
+        }
+        predictor = null
+        predictorView = null
+        stylus.reset()
+        if (publishHoverExit) host.onHoverChanged()
     }
 
     private fun updateScreen() {
@@ -392,8 +416,8 @@ class CanvasTouchHandler(
             canvasX(x, y),
             canvasY(x, y),
             pressureFor(drawingSource, pressure),
-            tilt,
-            canvasOrientation(orientation),
+            tiltFor(drawingSource, tilt),
+            orientationFor(drawingSource, orientation),
             timeNs,
         )
     }
@@ -453,6 +477,16 @@ class CanvasTouchHandler(
         StrokeSource.FINGER, StrokeSource.MOUSE, null -> 1f
     }
 
+    private fun tiltFor(source: StrokeSource?, raw: Float): Float = when (source) {
+        StrokeSource.STYLUS, StrokeSource.ERASER_END, StrokeSource.FINGER -> raw
+        StrokeSource.MOUSE, null -> 0f
+    }
+
+    private fun orientationFor(source: StrokeSource?, raw: Float): Float = when (source) {
+        StrokeSource.STYLUS, StrokeSource.ERASER_END, StrokeSource.FINGER -> canvasOrientation(raw)
+        StrokeSource.MOUSE, null -> 0f
+    }
+
     /** Applies one navigation step from every pointer's position in this event. */
     internal fun handleMoveEnd(timeNs: Long) {
         arbiter.tick(timeNs, decisions)
@@ -505,6 +539,8 @@ class CanvasTouchHandler(
         for (i in trackIds.indices) trackIds[i] = NO_POINTER
         navIds[0] = NO_POINTER
         navIds[1] = NO_POINTER
+        mouseTouchGesture = MouseGesture.NONE
+        middleDragging = false
     }
 
     /** Drives the pending window and the long press when no event arrives. */
@@ -864,9 +900,9 @@ class CanvasTouchHandler(
                 },
             ),
             timeNs = if (current) {
-                e.eventTime * 1_000_000L
+                e.eventTime * NANOS_PER_MILLISECOND
             } else {
-                e.getHistoricalEventTime(history) * 1_000_000L
+                e.getHistoricalEventTime(history) * NANOS_PER_MILLISECOND
             },
             source = predictedSource,
             predicted = true,
@@ -884,11 +920,18 @@ class CanvasTouchHandler(
      */
     override fun onTouch(v: View?, event: MotionEvent?): Boolean {
         val e = event ?: return false
+        val timeNs = e.eventTime * NANOS_PER_MILLISECOND
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            e.flags and MotionEvent.FLAG_CANCELED != 0
+        ) {
+            handleCancel(timeNs)
+            return true
+        }
         if (handleMouseTouch(e)) return true
 
         val index = e.actionIndex
         val id = e.getPointerId(index)
-        val timeNs = e.eventTime * 1_000_000L
         // §8: one predictor per surface, recreated with it. `v` is the
         // SurfaceView the session draws into, so building it from here means
         // nothing has to be plumbed through the composable that owns both.
@@ -913,7 +956,7 @@ class CanvasTouchHandler(
 
             MotionEvent.ACTION_MOVE -> {
                 for (h in 0 until e.historySize) {
-                    val hNs = e.getHistoricalEventTime(h) * 1_000_000L
+                    val hNs = e.getHistoricalEventTime(h) * NANOS_PER_MILLISECOND
                     for (p in 0 until e.pointerCount) {
                         // Axes read at index `p`, the same pointer handleMove
                         // is given. For ACTION_MOVE the action's pointer-index
@@ -1005,26 +1048,37 @@ class CanvasTouchHandler(
     }
 
     private fun handleMiddleMouse(event: MotionEvent): Boolean {
-        if (strokeLive) return false
-
         when (event.actionMasked) {
             MotionEvent.ACTION_BUTTON_PRESS -> {
-                if (event.actionButton != MotionEvent.BUTTON_TERTIARY) return false
-                beginMiddleDrag(event.x, event.y)
-                return true
+                return when (MouseButtonPolicy.begin(event.actionMouseButton())) {
+                    MouseGesture.PAN -> {
+                        if (!strokeLive) beginMiddleDrag(event.x, event.y)
+                        true
+                    }
+                    MouseGesture.IGNORE -> true
+                    MouseGesture.DRAW, MouseGesture.NONE -> false
+                }
             }
             MotionEvent.ACTION_MOVE, MotionEvent.ACTION_HOVER_MOVE -> {
+                if (event.hasSecondaryButton()) return true
                 if (!event.hasMiddleButton()) {
                     middleDragging = false
                     return false
                 }
+                if (strokeLive) return true
+
                 moveMiddleDrag(event.x, event.y)
                 return true
             }
             MotionEvent.ACTION_BUTTON_RELEASE -> {
-                if (event.actionButton != MotionEvent.BUTTON_TERTIARY) return false
-                middleDragging = false
-                return true
+                return when (MouseButtonPolicy.begin(event.actionMouseButton())) {
+                    MouseGesture.PAN -> {
+                        middleDragging = false
+                        true
+                    }
+                    MouseGesture.IGNORE -> true
+                    MouseGesture.DRAW, MouseGesture.NONE -> false
+                }
             }
             else -> return false
         }
@@ -1032,31 +1086,55 @@ class CanvasTouchHandler(
 
     private fun handleMouseTouch(event: MotionEvent): Boolean {
         if (event.getToolType(event.actionIndex) != MotionEvent.TOOL_TYPE_MOUSE) return false
-        if (strokeLive) return false
 
         return when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if (!event.hasMiddleButton()) return false
-                beginMiddleDrag(event.x, event.y)
-                true
-            }
-            MotionEvent.ACTION_MOVE -> {
-                if (!event.hasMiddleButton()) {
-                    if (!middleDragging) return false
-                    middleDragging = false
-                    return true
+                mouseTouchGesture = MouseButtonPolicy.begin(event.stateMouseButton())
+                when (mouseTouchGesture) {
+                    MouseGesture.DRAW -> false
+                    MouseGesture.PAN -> {
+                        if (!strokeLive) beginMiddleDrag(event.x, event.y)
+                        true
+                    }
+                    MouseGesture.IGNORE, MouseGesture.NONE -> true
                 }
-                moveMiddleDrag(event.x, event.y)
-                true
+            }
+            MotionEvent.ACTION_MOVE -> when (mouseTouchGesture) {
+                MouseGesture.DRAW -> false
+                MouseGesture.PAN -> {
+                    if (!strokeLive) moveMiddleDrag(event.x, event.y)
+                    true
+                }
+                MouseGesture.IGNORE -> true
+                MouseGesture.NONE -> false
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (!middleDragging) return false
-                middleDragging = false
-                true
+                val completed = mouseTouchGesture
+                mouseTouchGesture = MouseGesture.NONE
+                if (completed == MouseGesture.PAN) middleDragging = false
+
+                completed == MouseGesture.PAN || completed == MouseGesture.IGNORE
             }
             else -> false
         }
     }
+
+    private fun MotionEvent.actionMouseButton(): MouseButton = when (actionButton) {
+        MotionEvent.BUTTON_PRIMARY -> MouseButton.PRIMARY
+        MotionEvent.BUTTON_TERTIARY -> MouseButton.MIDDLE
+        MotionEvent.BUTTON_SECONDARY -> MouseButton.SECONDARY
+        else -> MouseButton.NONE
+    }
+
+    private fun MotionEvent.stateMouseButton(): MouseButton = when {
+        hasMiddleButton() -> MouseButton.MIDDLE
+        hasSecondaryButton() -> MouseButton.SECONDARY
+        buttonState and MotionEvent.BUTTON_PRIMARY != 0 -> MouseButton.PRIMARY
+        else -> MouseButton.NONE
+    }
+
+    private fun MotionEvent.hasSecondaryButton(): Boolean =
+        buttonState and MotionEvent.BUTTON_SECONDARY != 0
 
     private fun beginMiddleDrag(x: Float, y: Float) {
         middleDragging = true
@@ -1257,8 +1335,11 @@ class CanvasTouchHandler(
 
     private companion object {
         const val NO_POINTER = -1
+        const val NANOS_PER_MILLISECOND = 1_000_000L
 
         /** [fill]'s "not a historical sample, the event's own". */
         const val CURRENT = -1
     }
+
+    private fun uptimeNs(): Long = SystemClock.uptimeMillis() * NANOS_PER_MILLISECOND
 }

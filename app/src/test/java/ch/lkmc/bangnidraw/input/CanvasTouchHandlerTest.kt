@@ -53,6 +53,7 @@ class CanvasTouchHandlerTest {
         override fun onUndoRequested() { events += "undo" }
         override fun onRedoRequested() { events += "redo" }
         override fun onColorPick(x: Float, y: Float) { events += "pick" }
+        override fun onHoverChanged() { events += "hover" }
         override fun onStrokeBegin(pointerId: Int, source: StrokeSource) { events += "begin($source)" }
         override fun onStrokeSample(
             x: Float, y: Float, pressure: Float, tilt: Float, orientation: Float, timeNs: Long,
@@ -92,6 +93,52 @@ class CanvasTouchHandlerTest {
         assertEquals(oldUv.first, newUv.first, 1e-5f)
         assertEquals(oldUv.second, newUv.second, 1e-5f)
         assertTrue(host.events.contains("view"), "the host must receive the rebased transform")
+    }
+
+    @Test
+    fun `viewport changes cancel input before rebasing`() {
+        val host = Host()
+        val h = handler(host)
+        val canvas = CanvasSize(1000, 500)
+        h.setViewport(canvas, width = 1000, height = 1000)
+        h.handleDown(9, PointerTool.STYLUS, 100f, 100f, ms(0))
+        host.events.clear()
+        val samplesBeforeResize = host.samples.size
+
+        h.setViewport(canvas, width = 600, height = 1000)
+        h.handleMove(9, 120f, 100f, ms(20))
+        h.handleMoveEnd(ms(20))
+
+        assertEquals("cancel", host.events.firstOrNull())
+        assertEquals(samplesBeforeResize, host.samples.size)
+    }
+
+    @Test
+    fun `detach cancels a stroke and rejects its trailing move`() {
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(9, PointerTool.STYLUS, 100f, 100f, ms(0))
+        host.events.clear()
+        val samplesBeforeDetach = host.samples.size
+
+        h.detach()
+        h.handleMove(9, 120f, 100f, ms(20))
+        h.handleMoveEnd(ms(20))
+
+        assertEquals(listOf("cancel"), host.events)
+        assertEquals(samplesBeforeDetach, host.samples.size)
+    }
+
+    @Test
+    fun `detach publishes hover exit`() {
+        val host = Host()
+        val h = handler(host)
+        h.stylus.onHoverEnter(10f, 20f, 0f, PointerTool.MOUSE)
+
+        h.detach()
+
+        assertEquals(listOf("hover"), host.events)
+        assertTrue(!h.stylus.isHovering)
     }
 
     @Test
@@ -215,6 +262,27 @@ class CanvasTouchHandlerTest {
         h.handleDown(1, PointerTool.FINGER, 50f, 50f, ms(fingerDownMs), pressure = 0.25f)
         h.handleTick(ms(fingerDownMs + GestureArbiter.PENDING_MS))
         assertEquals(1f, host.lastPressure, "finger drawing ignores capacitive pressure")
+    }
+
+    @Test
+    fun `mouse samples use full pressure and no pen axes`() {
+        val host = Host()
+        val h = handler(host)
+
+        h.handleDown(
+            pointerId = 1,
+            tool = PointerTool.MOUSE,
+            x = 10f,
+            y = 20f,
+            timeNs = ms(0),
+            pressure = 0.25f,
+            tilt = 0.4f,
+            orientation = 0.7f,
+        )
+
+        assertEquals(1f, host.lastPressure)
+        assertEquals(0f, host.lastTilt)
+        assertEquals(0f, host.lastOrientation)
     }
 
     @Test

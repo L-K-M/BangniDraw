@@ -353,57 +353,59 @@ class HistoryAfterRecoveryTest {
     }
 
     @Test
-    fun `a corrupt later payload writes no earlier payload`() {
+    fun `a corrupt payload keeps structural replay and becomes empty`() {
         val root = createTempDirectory("bangni-after-corrupt").toFile()
         try {
-            val layerId = LayerId("layer-a")
-            val keys = listOf(TileKey(0, 0), TileKey(1, 0))
+            val sourceId = LayerId("source")
+            val copyId = LayerId("copy")
+            val key = TileKey(0, 0)
+            val source = Layer(LayerProps(sourceId, "Source"), setOf(key))
             val document = Document(
                 id = "painting",
-                width = 512,
+                width = 256,
                 height = 256,
                 paperColor = 0,
                 stack = LayerStack(
-                    listOf(Layer(LayerProps(layerId, "Layer"), keys.toSet())),
+                    listOf(source),
                     activeIndex = 0,
                     nextName = 2,
                 ),
             )
             val history = HistoryStore(root.resolve("history"))
             val entry = history.append(
-                HistoryEntry.Stroke(
-                    activeBefore = layerId,
-                    activeAfter = layerId,
-                    layerId = layerId,
-                    tiles = keys,
+                HistoryEntry.LayerDuplicate(
+                    activeBefore = sourceId,
+                    activeAfter = copyId,
+                    sourceId = sourceId,
+                    copy = LayerProps(copyId, "Copy").toRecord(),
+                    index = 1,
                 ),
                 seq = 1,
                 ts = 10,
-                payloads = keys.map { HistoryStore.Payload(layerId, it, ByteArray(0)) },
+                payloads = emptyList(),
             )
             history.writeRecoveryAfter(
                 seq = 1,
                 payloads = listOf(
-                    HistoryStore.Payload(
-                        layerId,
-                        keys[0],
-                        TileCodec.encode(ByteArray(TILE_BYTES) { 9 }),
-                    ),
-                    HistoryStore.Payload(layerId, keys[1], byteArrayOf(1)),
+                    HistoryStore.Payload(copyId, key, byteArrayOf(1)),
                 ),
             )
-            var writes = 0
+            val writes = LinkedHashMap<Pair<LayerId, TileKey>, ByteArray>()
 
             val recovered = HistoryAfterRecovery.apply(
                 document = document,
                 entries = listOf(entry),
                 history = history,
-                writer = HistoryAfterRecovery.Writer { _, _, _ -> writes += 1 },
+                writer = HistoryAfterRecovery.Writer { layer, tile, pixels ->
+                    writes[layer to tile] = pixels
+                },
             )
 
-            assertEquals(HistoryAfterRecovery.Failure.INCONSISTENT, recovered.failure)
-            assertEquals(0, recovered.appliedCount)
-            assertEquals(0, writes)
+            assertEquals(null, recovered.failure)
+            assertEquals(1, recovered.appliedCount)
+            assertEquals(listOf(sourceId, copyId), recovered.document.stack.layers.map(Layer::id))
+            assertEquals(emptySet(), recovered.document.stack.layers[1].tiles)
+            assertTrue(writes.getValue(copyId to key).all { it == 0.toByte() })
         } finally {
             root.deleteRecursively()
         }

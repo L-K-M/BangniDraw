@@ -382,12 +382,12 @@ device; the class-B manual run (§8) decides whether 512 MiB is survivable
 there or `GPU_TILE_FRACTION` needs a 4 GB step. Either way the constant
 changes, not the interface.
 
-`TilePool` allocates its texture arrays lazily, one at a time, up to
-`poolArrayCount`; a slice is 256 KiB, an array of 256 slices is 64 MiB.
-Allocating lazily means an empty 4096² painting costs one array, not the
-whole budget, and that a budget the device cannot actually honour fails at
-the *N*th array (caught, reported as "layer limit reached early", the
-cap lowered for the session) instead of at startup.
+The pre-context table assumes 256 slices per array. `TilePool` probes the real
+depth, then recomputes how many whole pages fit `gpuTileBudgetBytes`; runtime
+transient admission uses that exact slice capacity. Arrays are allocated
+lazily, so an empty 4096² painting costs one page rather than the whole budget.
+A budget the device cannot honour fails at the *N*th page (caught and reported
+as "layer limit reached early") instead of at startup.
 
 `CanvasPresets.forDevice(result)` returns the presets the New Canvas
 dialog offers: `Phone sketch 1080×1920`, `Square 2048²`, `Tablet 2560×1600

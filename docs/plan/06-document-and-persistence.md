@@ -399,15 +399,21 @@ Load (`HistoryStore.load(dir, record)`):
 
 - list `history/`, parse seqs; a non-null `HistoryRecord.seqs` is the exact checkpointed
   membership. Its count must equal `entries` before omitted files can be deleted or later entries
-  recovered. Missing `seqs` identifies format 1: load the legacy contiguous range, or infer a
-  gapped membership only when the saved count matches every readable in-range file (and saved
-  bytes, when nonzero). Seqs below `oldestSeq` → delete and log (orphans of a pruning the
+  recovered. Missing `seqs` identifies format 1: load the legacy contiguous range only when its
+  length matches the saved count, or infer a gapped membership only when the saved count matches
+  every readable in-range file (and saved bytes, when nonzero). Failed proof exposes no speculative
+  prefix. Invalid numeric bounds or exact membership preserve every file and choose the next
+  sequence above all present `.entry`, `.redo`, and `.after` artifacts when representable.
+  `Long.MAX_VALUE` is an exhaustion sentinel that append refuses; append also refuses a sequence
+  reserved by any of those artifacts. An absent history directory retains a positive checkpointed
+  `nextSeq`. Seqs below `oldestSeq` → delete and log (orphans of a pruning the
   checkpoint never saw). Entries with `seq ≥ nextSeq` are *not* orphans: truncation orphans
   always have seqs allocated before the checkpoint, so anything at or past `nextSeq` was pushed
   after it. A contiguous run of them (from `nextSeq` upward, no gap) is appended to the *undo*
   branch as applied only when each pixel-changing entry has a valid `.after`. The first recovered
   commit replaces the checkpoint's redo tail before it is appended. Recovery replays
   structure and rolls those after-images into the tile store before sparse tiles are relisted;
+  a corrupt after-image tile degrades to transparent without discarding that structural replay;
   an entry missing that commit marker and the tail after it are excluded. `nextSeq` advances
   past the proven run; the first gap ends the run and the rest are deleted. A hard crash therefore
   keeps undo for every committed stroke, not only up to the last checkpoint;

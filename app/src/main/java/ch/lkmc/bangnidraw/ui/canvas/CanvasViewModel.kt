@@ -172,6 +172,12 @@ private data class CheckpointSnapshot(
 
 internal enum class StrokeColorUsage { RECORD, IGNORE }
 
+/** Tool and active layer accepted under the same document/action snapshot. */
+data class StrokeAdmission(
+    val selection: ToolSelection,
+    val activeLayer: Layer,
+)
+
 /**
  * The Canvas screen's persistence half (roadmap 3a + 3b): opens the routed
  * project, streams its tiles into the engine, funnels §10.1's
@@ -557,6 +563,7 @@ class CanvasViewModel @Inject constructor(
         val recoveredHistory = HistoryStore.Loaded(
             entries = loaded.entries.take(validCount),
             cursor = minOf(loaded.cursor, validCount),
+            nextSeq = loaded.nextSeq,
         )
         if (recovery.failure == HistoryAfterRecovery.Failure.INCONSISTENT) {
             val invalid = recoveredEntries.drop(recovery.appliedCount).map { it.seq }
@@ -598,7 +605,7 @@ class CanvasViewModel @Inject constructor(
             thumbDirty = true
         }
         transitionToCheckpoint = transitions.pending().takeIf { transition.applied }
-        wireHistory(doc, loadedHistory, result.history)
+        wireHistory(doc, loadedHistory)
         _uiState.value = readyState(
             doc,
             warningFor(unreadableLayers = result.unreadableLayers, unreadableTiles = 0),
@@ -615,7 +622,6 @@ class CanvasViewModel @Inject constructor(
     private fun wireHistory(
         doc: Document,
         loaded: HistoryStore.Loaded,
-        record: HistoryRecord,
     ) {
         val history = HistoryStore(historyDir(doc.id))
         historyStore = history
@@ -638,7 +644,7 @@ class CanvasViewModel @Inject constructor(
         layerCap = budget.maxLayers
         journalLimits = HistoryJournal.Limits(budget.historyMaxSteps, budget.historyMaxBytes)
         journal = HistoryJournal(journalLimits, loaded.entries, loaded.cursor)
-        nextSeq.reset(maxOf(record.nextSeq, (loaded.entries.lastOrNull()?.seq ?: 0L) + 1L))
+        nextSeq.reset(loaded.nextSeq)
     }
 
     @Volatile
@@ -1413,7 +1419,7 @@ class CanvasViewModel @Inject constructor(
         updateToolUi()
     }
 
-    fun beginStrokeTool(source: StrokeSource, button: ButtonState): ToolSelection? {
+    fun beginStrokeTool(source: StrokeSource, button: ButtonState): StrokeAdmission? {
         if (!actionGate.beginStroke()) return null
 
         chrome = CanvasUiPolicy.onStrokeBegin(chrome)
@@ -1444,8 +1450,11 @@ class CanvasViewModel @Inject constructor(
 
         val selection = toolSwitcher.selection.value
         val stack = document?.stack
+        if (stack == null) {
+            endStrokeTool(selection.temporaryReason)
+            return null
+        }
         if (selection.kind !is ToolKind.Eyedropper &&
-            stack != null &&
             !TileCapacityPolicy.withinLayerCap(stack.layers.size, layerCap)
         ) {
             strokeLayerNotice = R.string.layer_over_capacity
@@ -1454,7 +1463,8 @@ class CanvasViewModel @Inject constructor(
             return null
         }
 
-        return selection
+        val activeLayer = stack.active
+        return StrokeAdmission(selection, activeLayer)
     }
 
     internal fun endStrokeTool(

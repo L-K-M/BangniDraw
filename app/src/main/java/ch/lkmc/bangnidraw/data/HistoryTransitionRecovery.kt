@@ -41,7 +41,14 @@ internal object HistoryTransitionRecovery {
 
         // A checkpoint landed and only marker deletion was interrupted.
         if (loaded.cursor == pending.toCursor && document.historyCursor == pending.toCursor) {
-            transitions.complete(pending)
+            if (!transitions.complete(pending)) {
+                return Result(
+                    document,
+                    loaded.cursor,
+                    applied = false,
+                    failure = Failure.WRITE_FAILED,
+                )
+            }
             return Result(document, loaded.cursor, applied = false)
         }
         if (loaded.cursor != pending.fromCursor) return inconsistent(document, loaded.cursor)
@@ -108,8 +115,12 @@ internal object HistoryTransitionRecovery {
         for (op in pixelOps) {
             when (op) {
                 is PixelOp.Copy -> for (key in op.keys) {
-                    val pixels = readPixels(tileStore(op.src), key) ?: return null
-                    writes[op.dst to key] = pixels
+                    val source = readCopySource(tileStore(op.src), key)
+                    writes[op.dst to key] = when (source) {
+                        is CopySource.Painted -> source.pixels
+                        CopySource.Transparent -> null
+                        CopySource.Missing -> return null
+                    }
                 }
                 is PixelOp.Clear -> clearLayer(before, op.layer, writes)
                 is PixelOp.Delete -> clearLayer(before, op.layer, writes)
@@ -133,8 +144,8 @@ internal object HistoryTransitionRecovery {
         }
         if (payloads.map { it.layer to it.key } != expected) return null
         for (payload in payloads) {
-            val pixels = decode(payload.encoded) ?: return null
-            writes[payload.layer to payload.key] = pixels
+            // Match ordinary undo: one corrupt tile degrades to transparent.
+            writes[payload.layer to payload.key] = decode(payload.encoded)
         }
         return writes
     }
@@ -149,18 +160,30 @@ internal object HistoryTransitionRecovery {
     }
 
     private fun decode(encoded: ByteArray): ByteArray? {
-        if (encoded.isEmpty()) return EMPTY_TILE
+        if (encoded.isEmpty()) return null
         return when (val decoded = TileCodec.decode(encoded)) {
             is TileCodec.Decoded.Ok -> decoded.pixels
             TileCodec.Decoded.Corrupt -> null
         }
     }
 
-    private fun readPixels(store: TileStore, key: TileKey): ByteArray? = when (val read = store.read(key)) {
-        is TileStore.Read.Pixels -> read.pixels.takeUnless(TileCodec::isAllZero)
-        TileStore.Read.Corrupt,
-        TileStore.Read.Empty,
-        -> null
+    private fun readCopySource(store: TileStore, key: TileKey): CopySource = when (
+        val read = store.read(key)
+    ) {
+        is TileStore.Read.Pixels -> if (TileCodec.isAllZero(read.pixels)) {
+            CopySource.Transparent
+        } else {
+            CopySource.Painted(read.pixels)
+        }
+        // Project loading displays corrupt tiles as transparent.
+        TileStore.Read.Corrupt -> CopySource.Transparent
+        TileStore.Read.Empty -> CopySource.Missing
+    }
+
+    private sealed interface CopySource {
+        data class Painted(val pixels: ByteArray) : CopySource
+        data object Transparent : CopySource
+        data object Missing : CopySource
     }
 
     private fun write(

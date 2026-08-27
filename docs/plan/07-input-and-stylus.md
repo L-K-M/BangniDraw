@@ -236,13 +236,14 @@ one finger goes straight to NAVIGATE (pan only) after slop, or to TAP_WAIT
 | --- | --- |
 | `ACTION_DOWN`, stylus | `requestUnbufferedDispatch`; `predictor.record`; arbiter `down` → `Draw`; `onStrokeBegin`; read button state (§6) |
 | `ACTION_DOWN`, eraser | as stylus, with `source = ERASER_END` → ViewModel swaps to eraser preset |
+| `ACTION_DOWN`, mouse | classify first: primary → immediate `Draw(MOUSE)`, middle → pan, secondary → consume |
 | `ACTION_DOWN`, finger | `requestUnbufferedDispatch`; arbiter `down` → pending (buffer sample) or `Ignore` (stylus active / palm) |
 | `ACTION_POINTER_DOWN` | arbiter `down` for the new pointer → `Navigate` / `Ignore` |
 | `ACTION_MOVE` | for each pointer: historical + current samples → arbiter `move`; drawing pointer → `onStrokeSamples` (+ `predictor.record`); navigating pointers → `NavigationStep` (§7) |
 | `ACTION_POINTER_UP` | arbiter `up`; navigation continues with the remaining pointer as pan-only until it lifts (no zoom from one finger) |
 | `ACTION_UP` | arbiter `up` → `onStrokeEnd` / `TapUndo` / `TapRedo` / `onNavigateEnd` |
 | `ACTION_CANCEL`, or any event with `FLAG_CANCELED` (API 33+) | `onStrokeCancel` (front buffer `cancel()`, stroke buffer discarded, no `HistoryEntry`), arbiter reset, navigation ended without a step |
-| `ACTION_HOVER_ENTER/MOVE` (generic motion) | `HoverState(x, y, distance?, source)` → `onHover`; palm-rejection "stylus near" flag set |
+| `ACTION_HOVER_ENTER/MOVE` (generic motion) | `HoverState(x, y, distance?, source)` → `onHover`; only stylus/eraser sets pen proximity |
 | `ACTION_HOVER_EXIT` | `onHover(NONE)`; start the `HOVER_GRACE_MS` timer (§5) |
 | `ACTION_BUTTON_PRESS/RELEASE` (generic motion, API 23+) | `onStylusButton` (§6) |
 | `ACTION_SCROLL` (mouse wheel) | zoom step about the pointer (§9) |
@@ -252,8 +253,7 @@ one finger goes straight to NAVIGATE (pan only) after slop, or to TAP_WAIT
 
 A cancelled stroke leaves **no trace**: `GLFrontBufferedRenderer.cancel()`
 drops the front-buffered content, the `StrokeBuffer` is discarded without
-merging, and no `HistoryEntry` is written. This is the same path for all
-three causes:
+merging, and no `HistoryEntry` is written. The same path handles:
 
 - the platform's `ACTION_CANCEL` (the window lost the gesture, e.g. a
   system back-swipe took over — see §10);
@@ -261,7 +261,9 @@ three causes:
   rejects the pointer — "handle by rolling back the stroke since
   ACTION_DOWN", which for us is exactly `cancel()`);
 - the arbiter's own `CancelStroke` (a second finger arriving inside the
-  pending window; a stylus landing while a finger stroke is pending).
+  pending window; a stylus landing while a finger stroke is pending);
+- a listener replacement or viewport resize, so no active stream or stroke
+  spans two handlers or two screen-to-canvas transforms.
 
 Because `Draw` for fingers is only issued after the pending window or after
 slop, and the stroke buffer is separate from the layer until pen-up

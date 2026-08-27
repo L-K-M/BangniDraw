@@ -315,10 +315,7 @@ private fun CanvasContent(
     // view0 is in the key because the host below captures it for the snap
     // haptic: a composition that moved to a different View would otherwise keep
     // ticking the old one. Safe now that CanvasSurface re-attaches on update.
-    // `stack` is in the key for the same capture reason: the host reads the
-    // active layer at pen-down, and 3a's stack is fixed per open, so a changed
-    // stack means a different painting.
-    val touch = remember(density, view0, stack, state.hapticsMode) {
+    val touch = remember(density, view0, state.hapticsMode) {
         lateinit var handler: CanvasTouchHandler
         handler = CanvasTouchHandler(
             density = density.density,
@@ -394,13 +391,14 @@ private fun CanvasContent(
                     val pickGeneration = strokeState.nextPickGeneration()
 
                     val engine = session ?: return
-                    val active = stack.layers.getOrNull(stack.activeIndex) ?: return
                     val button = if (handler.stylus.buttonPressed) {
                         ButtonState.Pressed
                     } else {
                         ButtonState.Released
                     }
-                    val selection = viewModel.beginStrokeTool(source, button) ?: return
+                    val admission = viewModel.beginStrokeTool(source, button) ?: return
+                    val selection = admission.selection
+                    val active = admission.activeLayer
                     strokeState.temporaryReason = selection.temporaryReason
                     val kind = selection.kind
                     if (kind is ToolKind.Eyedropper) {
@@ -649,14 +647,16 @@ private fun CanvasContent(
                 }
             },
         )
+        handler.setView(view)
+        handler.stylusOnly = state.touchDrawingMode == TouchDrawingMode.STYLUS_ONLY
+        handler.pressureCurve = PressureCurve.of(preference = state.pressurePreference)
         handler
     }
     val checkerA = MaterialTheme.colorScheme.surface.toArgb()
     val checkerB = MaterialTheme.colorScheme.surfaceVariant.toArgb()
 
-    // Keyed on the handler, not Unit: a recreated handler starts from an
-    // identity transform, and without re-seeding its first gesture would
-    // measure from the wrong baseline and jump.
+    // Later preference changes update the already-attached handler. Its
+    // factory seeds these synchronously before CanvasSurface can attach it.
     LaunchedEffect(touch, state.touchDrawingMode, state.pressurePreference) {
         touch.setView(view)
         touch.stylusOnly = state.touchDrawingMode == TouchDrawingMode.STYLUS_ONLY
@@ -727,13 +727,14 @@ private fun CanvasContent(
 
     val animationScope = rememberCoroutineScope()
     val resetJob = remember { arrayOfNulls<Job>(1) }
+    val currentTouch = rememberUpdatedState(touch)
     val resetView = {
         resetJob[0]?.cancel()
         val start = view
         val reset = ViewTransform()
         if (!ValueAnimator.areAnimatorsEnabled()) {
             updateView(reset)
-            touch.setView(reset)
+            currentTouch.value.setView(reset)
             if (state.hapticsMode == HapticsMode.ENABLED) {
                 view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             }
@@ -748,10 +749,10 @@ private fun CanvasContent(
                 ) {
                     val next = start.lerp(reset, value)
                     updateView(next)
-                    touch.setView(next)
+                    currentTouch.value.setView(next)
                 }
                 updateView(reset)
-                touch.setView(reset)
+                currentTouch.value.setView(reset)
                 if (state.hapticsMode == HapticsMode.ENABLED) {
                     view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }

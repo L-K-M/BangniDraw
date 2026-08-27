@@ -187,21 +187,13 @@ class DabRing(slots: Int = DAB_RING_SLOTS /* 8 */, capacity: Int = DAB_BATCH_CAP
 + predicted samples), publishes it, and calls
 `renderer.renderFrontBufferedLayer(batch)`. graphics-core hands the same
 object to `onDrawFrontBufferedLayer(…, param = batch)`; the GL thread reads
-it and releases the slot. On `commit()` graphics-core replays *all* params
-since the last commit into `onDrawMultiDoubleBufferedLayer`, and the
-library holds the `T` references until that replay has actually run on the
-GL thread (it is asynchronous; `commit()` returning means nothing). So slots
-are released **on the GL thread, at the end of
-`onDrawMultiDoubleBufferedLayer(params)`** (iterate `params`, `ring.release`
-each), never from main after `commit()`, and the ring must not reuse a slot
-until then because identity matters. `cancelStroke()` drops the active
-segment without ever replaying it, so it releases every batch of the current
-`strokeId` via `execute {}` right after `renderer.cancel()` — otherwise each
-palm rejection leaks a stroke's worth of slots. The ring is
-sized for a full stroke's worth of batches at 120 Hz input
-(`DAB_RING_SLOTS × DAB_BATCH_CAPACITY`, docs/plan/10-performance.md §4); an
-overflow goes into a second, allocating fallback that is logged in debug (it
-should never fire; if it does, the slot count is wrong, not the design).
+it and releases the slot. `EngineSession.pendingBatches` is the sole owner of
+published slots: the front callback drains all queued batches, while pen-up,
+cancel and release drain anything whose callback did not run. graphics-core
+replays the same object references into `onDrawMultiDoubleBufferedLayer`, so
+that callback deliberately ignores `params`; releasing them again would fail
+`DabRing`'s double-release guard on the first pen-up. A full ring applies
+backpressure until the GL thread returns a slot.
 
 Predicted dabs are in the batch (from `predictedFrom` on) so the front
 layer can draw them — `DabPass` stamps them into the per-frame `TailBuffer`,

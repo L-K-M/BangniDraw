@@ -749,10 +749,11 @@ class CanvasRenderer(
 
     /** Legacy stacks over today's cap use the exact direct path until they shrink. */
     private fun syncSandwichCache(current: LayerStack?) {
-        val hasReserve = current == null || TileCapacityPolicy.hasTransientReserve(
+        val tiles = pool
+        val hasReserve = current == null || tiles == null || TileCapacityPolicy.hasTransientReserve(
             layerCount = current.size,
             canvas = canvas,
-            budget = budget,
+            poolSliceCapacity = tiles.sliceCapacity.toLong(),
         )
         if (!hasReserve) {
             sandwich?.release()
@@ -761,7 +762,7 @@ class CanvasRenderer(
         }
 
         val cache = sandwich ?: run {
-            val tiles = pool ?: return
+            tiles ?: return
             val program = tileComposite ?: return
             SandwichCache(grid, tiles, program, state).also { sandwich = it }
         }

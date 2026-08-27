@@ -29,6 +29,7 @@ class PalmRejectionTest {
     @Test
     fun `a finger is rejected inside the grace and admitted after it`() {
         val s = StylusState()
+        s.onHoverEnter(0f, 0f, 0f, PointerTool.STYLUS)
         s.onHoverExit(ms(0))
         assertTrue(PalmRejection.rejects(PointerTool.FINGER, s, ms(StylusState.HOVER_GRACE_MS - 1)))
         assertFalse(PalmRejection.rejects(PointerTool.FINGER, s, ms(StylusState.HOVER_GRACE_MS)))
@@ -39,6 +40,16 @@ class PalmRejectionTest {
         // Finger drawing on a phone has no palm to reject, and this is the
         // common case — it must not cost anything.
         val s = StylusState()
+        assertFalse(PalmRejection.rejects(PointerTool.FINGER, s, ms(0)))
+    }
+
+    @Test
+    fun `mouse hover does not reject a finger`() {
+        val s = StylusState()
+        s.onHoverEnter(10f, 20f, 0f, PointerTool.MOUSE)
+
+        assertTrue(s.isHovering, "mouse hover still drives the cursor")
+        assertFalse(s.isNear(ms(0)))
         assertFalse(PalmRejection.rejects(PointerTool.FINGER, s, ms(0)))
     }
 

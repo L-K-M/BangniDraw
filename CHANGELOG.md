@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3 - 2026-08-27
+
+- Make history recovery and renderer replacement crash-safe.
+- Fix GPU-capacity, tool, input, and adaptive-layout failures.
+
 ## 1.0.2 - 2026-08-27
 
 - Remove moving live-stroke cutoffs and tile-edge seams.

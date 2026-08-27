@@ -4,11 +4,12 @@ Findings from full security/bug reviews of `main`. Each entry states
 what was found, the impact, and what was done about it — a declined fix
 says why, so a later reader does not re-litigate it blind.
 
-## Review 3 — 2026-08-27, `0edf7e9`
+## Review 3 — 2026-08-27, `b69f4bd`
 
-Scope: every commit after step 5 through v1.0.1 (`e8d30a8`…`0edf7e9`),
-including the fixes merged after Review 2. Method: commit-by-commit plan
-comparison, close read, then failing JVM tests before each fix.
+Scope: all 45 commits after step 5 through v1.0.2
+(`e8d30a8`…`b69f4bd`), including the fixes merged after Review 2. Method:
+commit-by-commit plan comparison, close read, then failing JVM tests before
+each fix.
 
 ### Fixed
 
@@ -23,7 +24,9 @@ comparison, close read, then failing JVM tests before each fix.
   failures were dropped, letting checkpoints pass incomplete edits. Each
   pixel edit now writes a temporary `<seq>.after` roll-forward image before
   tiles, and a failed `WriteEntry` remains the FIFO head with action ownership
-  until every stage succeeds.
+  until every stage succeeds. Recovery validates output owners, folds sparse
+  membership between entries, and degrades a corrupt tile to transparent
+  without discarding the structural edit.
 - **Undo/redo could persist pixels without its cursor or model.** A crash
   after restored tiles flushed but before `project.json` reopened the old
   history state over new pixels. `history/transition.json` records the exact
@@ -33,6 +36,10 @@ comparison, close read, then failing JVM tests before each fix.
   new edit never reuses sequence numbers, but load required a contiguous
   range and discarded the new branch. Project format 2 records exact `seqs`;
   the v1 reader path conservatively infers already-shipped gapped records.
+  Malformed bounds, speculative membership, and stale legacy files no longer
+  authorize replay or deletion. Allocation stays above every entry and
+  sidecar left by an interrupted delete, and sequence exhaustion cannot
+  overwrite one.
 - **Checkpoint outcomes and generations were ignored.** Readback, tile-flush,
   and `project.json` failures could still navigate, clear dirty state, or
   delete recovery files; a concurrent edit could be folded out of the model.
@@ -43,8 +50,9 @@ comparison, close read, then failing JVM tests before each fix.
   could open the gate after GL merge but before journal push, while a new
   renderer uploaded stale disk tiles before the old PBO landed. Readbacks pin
   their originating session; release returns its real drain result; new
-  sessions wait for release plus the flusher FIFO and block input until their
-  uploads are queued.
+  sessions wait for release, document work, and the flusher FIFO. They retry
+  transient storage pressure, relist and publish the current sparse stack,
+  then unblock input after uploads are queued.
 - **Queued layer commands targeted mutable indices.** A delayed delete,
   clear, move, merge, rename, or opacity change could hit a different layer
   after earlier queued work reordered the stack. Actions and dialogs now
@@ -54,12 +62,14 @@ comparison, close read, then failing JVM tests before each fix.
   merge/flatten scratch passes; partial caches could also hide paper or
   layers. The cap reserves four full-canvas transient equivalents, cache use
   requires every requested tile, and over-cap legacy stacks use the exact
-  direct path until reduced.
+  direct path until reduced. Runtime admission uses the pool's probed slice
+  capacity, including low-array drivers and oversized reopened documents.
 - **Live front-buffer ink reused stale accumulation state.** A view,
   background, or surface-size change during contact deferred the committed
   redraw but left the next dab incremental, so existing ink could jump,
-  disappear, or present uninitialized pixels. Such changes now force one
-  cumulative preview rebuild before incremental rendering resumes.
+  disappear, or present uninitialized pixels. Scene invalidation is now
+  ordered after its GL mutation. Uncoordinated `SurfaceHolder` redraws also
+  protect the current or next stroke from their later front-buffer release.
 - **Several tool lifecycle edges were unwired.** Zero-write smudge cancel
   never completed its restore gate; pigment fill used RGB source-over; erasing
   an alpha-locked layer silently ran a no-op history step; and normal six-digit
@@ -67,13 +77,23 @@ comparison, close read, then failing JVM tests before each fix.
   explicit policy and regression test.
 - **Adaptive chrome covered interactive controls.** Side rails overlapped
   sheet controls, compact dock/ledge chrome covered panel and fill-cancel
-  controls, and the post-v1 wider grouped rail reopened the overlap. Panel and
-  progress bounds now derive from the full live chrome geometry.
+  controls, floating cards reached under the top strip, and the post-v1 wider
+  grouped rail reopened the overlap. Panel and progress bounds now derive
+  from the full live chrome geometry.
 - **Desktop and focus-mode input contracts were incomplete.** Mouse wheel,
-  Ctrl-wheel, and middle drag were unwired; panel shortcuts opened chrome
-  while focus mode remained set; Reset View could remap a live stroke; and
-  resize rebasing had two owners. The input handler now owns one canonical
-  transform, publishes it synchronously to GL, and gates conflicting commands.
+  Ctrl-wheel, and middle drag were unwired; mouse buttons entered the delayed
+  finger arbiter; mouse hover triggered palm rejection; panel shortcuts opened
+  chrome while focus mode remained set; Reset View could remap a live stroke;
+  and a same-frame layer selection could admit a stroke against the old active
+  layer. Stroke admission now snapshots the current ViewModel layer. The
+  handler owns one canonical transform, publishes it synchronously to GL,
+  cancels before resize or listener replacement, seeds replacements before
+  attachment, honors platform cancellation flags, and gates conflicting
+  commands.
+- **Metadata-only project rewrites bypassed format migration.** Rename,
+  duplicate, and gallery-sync writes could preserve format 1 or rewrite an
+  unsupported future format while dropping unknown fields. Every writer now
+  rejects future formats and upgrades accepted metadata to the current one.
 - **Idle thumbnail fences could remain unsubmitted.** Their zero-time polls
   never flushed the producer, so an idle layer panel could stay blank on a
   deferred driver. The first fence wait now requests command submission.
@@ -85,7 +105,7 @@ roll-forward and undo/redo transitions, fail-once storage retries, session
 release/reattach ordering, transient tile capacity, cache readiness, live
 preview recovery, stable layer targets, fill mixing, color drafts, mouse
 navigation, and adaptive panel intersections. The normal and Mixbox-disabled
-JVM suites pass.
+JVM suites, lint, and debug assembly pass.
 
 ## Review 2 — 2026-08-27, `9f4ad22`
 

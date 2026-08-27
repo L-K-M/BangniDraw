@@ -10,6 +10,8 @@ import ch.lkmc.bangnidraw.engine.core.LayerRecord
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.TileKey
+import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermission
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -191,6 +193,166 @@ class HistoryTransitionRecoveryTest {
 
             assertEquals(HistoryTransitionRecovery.Failure.INCONSISTENT, recovered.failure)
             assertEquals(TileStore.Read.Empty, tiles(root, copyId).read(key))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `redo copy treats a corrupt source tile as transparent`() {
+        val root = createTempDirectory("bangni-corrupt-copy-transition").toFile()
+        try {
+            val history = HistoryStore(root.resolve("history"))
+            val transitions = HistoryTransitionStore(root.resolve("history"))
+            val sourceId = LayerId("source")
+            val copyId = LayerId("copy")
+            val key = TileKey(0, 0)
+            val source = Layer(LayerProps(sourceId, "Source"), setOf(key))
+            val copy = LayerRecord(id = copyId.value, name = "Copy")
+            val entry = history.append(
+                HistoryEntry.LayerDuplicate(
+                    activeBefore = sourceId,
+                    activeAfter = copyId,
+                    sourceId = sourceId,
+                    copy = copy,
+                    index = 1,
+                ),
+                seq = 1,
+                ts = 10,
+                payloads = emptyList(),
+            )
+            val checkpointed = document(
+                stack = LayerStack(listOf(source), activeIndex = 0, nextName = 3),
+                cursor = 0,
+            )
+            val sourceDir = root.resolve("layers/${sourceId.value}").also { it.mkdirs() }
+            sourceDir.resolve(TileStore.fileName(key)).writeBytes(byteArrayOf(1))
+            transitions.begin(entry, HistoryDirection.REDO, fromCursor = 0)
+
+            val recovered = HistoryTransitionRecovery.apply(
+                document = checkpointed,
+                loaded = HistoryStore.Loaded(listOf(entry), cursor = 0),
+                history = history,
+                transitions = transitions,
+                tileStore = { tiles(root, it) },
+            )
+
+            assertEquals(null, recovered.failure)
+            assertEquals(1, recovered.cursor)
+            assertEquals(copyId, recovered.document.stack.active.id)
+            assertEquals(emptySet(), recovered.document.stack.active.tiles)
+            assertEquals(TileStore.Read.Empty, tiles(root, copyId).read(key))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `corrupt undo payload degrades to an empty tile`() {
+        val root = createTempDirectory("bangni-corrupt-transition").toFile()
+        try {
+            val history = HistoryStore(root.resolve("history"))
+            val transitions = HistoryTransitionStore(root.resolve("history"))
+            val layerId = LayerId("layer")
+            val key = TileKey(0, 0)
+            val entry = history.append(
+                HistoryEntry.Stroke(
+                    activeBefore = layerId,
+                    activeAfter = layerId,
+                    layerId = layerId,
+                    tiles = listOf(key),
+                ),
+                seq = 1,
+                ts = 10,
+                payloads = listOf(
+                    HistoryStore.Payload(layerId, key, byteArrayOf(1)),
+                ),
+            )
+            val checkpointed = document(
+                stack = LayerStack(
+                    listOf(Layer(LayerProps(layerId, "Layer"), setOf(key))),
+                    activeIndex = 0,
+                    nextName = 2,
+                ),
+                cursor = 1,
+            )
+            val layerTiles = tiles(root, layerId)
+            layerTiles.write(key, ByteArray(TILE_BYTES) { 19 })
+            transitions.begin(entry, HistoryDirection.UNDO, fromCursor = 1)
+
+            val recovered = HistoryTransitionRecovery.apply(
+                document = checkpointed,
+                loaded = HistoryStore.Loaded(listOf(entry), cursor = 1),
+                history = history,
+                transitions = transitions,
+                tileStore = { tiles(root, it) },
+            )
+
+            assertEquals(null, recovered.failure)
+            assertEquals(0, recovered.cursor)
+            assertEquals(emptySet(), recovered.document.stack.active.tiles)
+            assertEquals(TileStore.Read.Empty, layerTiles.read(key))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `checkpointed transition retries failed marker deletion`() {
+        val root = createTempDirectory("bangni-transition-delete").toFile()
+        val historyDir = root.resolve("history")
+        try {
+            val history = HistoryStore(historyDir)
+            val transitions = HistoryTransitionStore(historyDir)
+            val layerId = LayerId("layer")
+            val entry = HistoryEntry.PaperColor(
+                activeBefore = layerId,
+                activeAfter = layerId,
+                before = 0,
+                after = 1,
+            ).stamp(seq = 1, timestamp = 10, bytes = 10)
+            transitions.begin(entry, HistoryDirection.UNDO, fromCursor = 1)
+            val target = document(
+                stack = LayerStack(
+                    listOf(Layer(LayerProps(layerId, "Layer"))),
+                    activeIndex = 0,
+                    nextName = 2,
+                ),
+                cursor = 0,
+            )
+            val loaded = HistoryStore.Loaded(listOf(entry), cursor = 0)
+            val permissions = Files.getPosixFilePermissions(historyDir.toPath())
+            val readOnly = permissions.filterNotTo(mutableSetOf()) {
+                it == PosixFilePermission.OWNER_WRITE ||
+                    it == PosixFilePermission.GROUP_WRITE ||
+                    it == PosixFilePermission.OTHERS_WRITE
+            }
+
+            val failed = try {
+                Files.setPosixFilePermissions(historyDir.toPath(), readOnly)
+                HistoryTransitionRecovery.apply(
+                    document = target,
+                    loaded = loaded,
+                    history = history,
+                    transitions = transitions,
+                    tileStore = { tiles(root, it) },
+                )
+            } finally {
+                Files.setPosixFilePermissions(historyDir.toPath(), permissions)
+            }
+
+            assertEquals(HistoryTransitionRecovery.Failure.WRITE_FAILED, failed.failure)
+            assertNotNull(transitions.pending(), "a failed deletion must remain retryable")
+
+            val retried = HistoryTransitionRecovery.apply(
+                document = target,
+                loaded = loaded,
+                history = history,
+                transitions = transitions,
+                tileStore = { tiles(root, it) },
+            )
+            assertEquals(null, retried.failure)
+            assertEquals(null, transitions.pending())
         } finally {
             root.deleteRecursively()
         }

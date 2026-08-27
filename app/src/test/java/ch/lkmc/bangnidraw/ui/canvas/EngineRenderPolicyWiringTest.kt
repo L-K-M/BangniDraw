@@ -14,11 +14,13 @@ class EngineRenderPolicyWiringTest {
         val frontDraw = session.substringAfter("override fun onDrawFrontBufferedLayer(")
             .substringBefore("private fun drainPending(")
         val surface = frontDraw.indexOf("val surfaceChanged = renderer.onSurfaceChanged")
-        val invalidate = frontDraw.indexOf("if (surfaceChanged) renderPolicy.requestRedraw()")
+        val redraw = frontDraw.indexOf("renderPolicy.requestRedraw()")
+        val invalidate = frontDraw.indexOf("renderPolicy.sceneChanged()")
         val plan = frontDraw.indexOf("val framePlan = renderPolicy.frontFrame()")
 
         assertTrue(surface >= 0)
-        assertTrue(surface < invalidate)
+        assertTrue(surface < redraw)
+        assertTrue(redraw < invalidate)
         assertTrue(invalidate < plan)
     }
 }

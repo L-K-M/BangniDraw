@@ -215,7 +215,10 @@ class EngineSession(
             return
         }
         val surfaceChanged = renderer.onSurfaceChanged(width, height)
-        if (surfaceChanged) renderPolicy.requestRedraw()
+        if (surfaceChanged) {
+            renderPolicy.requestRedraw()
+            renderPolicy.sceneChanged()
+        }
         val framePlan = renderPolicy.frontFrame()
         // [param] is deliberately NOT consumed here: it is also in
         // [pendingBatches], which is the authoritative list, and stamping it
@@ -345,7 +348,7 @@ class EngineSession(
 
     /** Applies initial document state before scheduling one scene redraw. */
     internal fun configure(stack: LayerStack, paperColor: Int, view: ViewTransform) {
-        frontBuffered.execute {
+        executeSceneChange {
             renderer.setStack(stack)
             renderer.setPaperColor(paperColor)
             renderer.setView(view)
@@ -363,13 +366,13 @@ class EngineSession(
      */
     fun setView(view: ViewTransform) {
         viewUpdateGate.update(view) {
-            frontBuffered.execute { renderer.setView(view) }
+            executeSceneChange { renderer.setView(view) }
             redraw()
         }
     }
 
     fun setStack(stack: LayerStack) {
-        frontBuffered.execute { renderer.setStack(stack) }
+        executeSceneChange { renderer.setStack(stack) }
         redraw()
     }
 
@@ -401,6 +404,7 @@ class EngineSession(
             val applied = renderer.applyPixelOps(pixelOps, revision, beforeCommit)
             if (applied) {
                 renderer.setStack(stack, invalidation)
+                renderPolicy.sceneChanged()
                 pendingMirror = renderer.readbackPending
                 if (pendingMirror > 0) pumpReadback()
             }
@@ -413,13 +417,13 @@ class EngineSession(
     }
 
     fun setPaperColor(argb: Int) {
-        frontBuffered.execute { renderer.setPaperColor(argb) }
+        executeSceneChange { renderer.setPaperColor(argb) }
         redraw()
     }
 
     /** Theme colours for the transparent-paper checkerboard, and the dp scale. */
     fun setCheckerboard(checkerPx: Float, colorA: Int, colorB: Int) {
-        frontBuffered.execute {
+        executeSceneChange {
             renderer.checkerPx = checkerPx
             renderer.checkerA = colorA
             renderer.checkerB = colorB
@@ -740,7 +744,7 @@ class EngineSession(
         // commit(), not redraw(): the multi-buffered layer is redrawn AND the
         // front layer is hidden. A plain redraw would leave the front buffer's
         // last stroke frame on screen, doubling the stroke over the merged one.
-        frontBuffered.commit()
+        commitMultiBuffered()
         pumpReadback()
     }
 
@@ -828,6 +832,7 @@ class EngineSession(
                 // do (§10.3) — per batch, not once at the end, or the interim
                 // redraws would composite from a stale sandwich.
                 renderer.invalidate(SandwichPolicy.Op.UndoRedo)
+                renderPolicy.sceneChanged()
             }
         }
         redraw()
@@ -921,7 +926,7 @@ class EngineSession(
     }
 
     fun invalidate(op: SandwichPolicy.Op) {
-        frontBuffered.execute { renderer.invalidate(op) }
+        executeSceneChange { renderer.invalidate(op) }
         redraw()
     }
 
@@ -932,11 +937,25 @@ class EngineSession(
     }
 
     private fun redrawNow() {
+        commitMultiBuffered()
+    }
+
+    private fun commitMultiBuffered() {
         if (!frontBuffered.isValid()) return
 
         // commit() holds new front renders until the old front buffer is
-        // released and cleared. Direct multi rendering bypasses that barrier.
+        // released and cleared. Register on that GL queue so an older
+        // SurfaceHolder draw cannot consume this commit's coordination.
+        frontBuffered.execute { renderPolicy.registerCommit() }
         frontBuffered.commit()
+    }
+
+    /** Orders preview recovery after the renderer mutation it protects. */
+    private fun executeSceneChange(block: () -> Unit) {
+        frontBuffered.execute {
+            block()
+            renderPolicy.sceneChanged()
+        }
     }
 
     /** Runs [block] on the GL thread. */

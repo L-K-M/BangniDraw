@@ -301,6 +301,10 @@ and the contradiction is noted here.
   front-buffer drawing. View/background changes and surface resizes also force
   that rebuild before the next dab. Re-presenting the cumulative stroke every
   frame defeats scan-line racing and produces a moving horizontal cutoff.
+- **SurfaceHolder redraws bypass that commit count.** Their later buffer release
+  can clear a stroke that starts after the completion callback. Every app
+  `commit()` is registered with `EngineRenderPolicy`; only an unregistered
+  completion keeps cumulative presentation protected through pen-up.
 - **`execute` blocks and render requests ARE FIFO on the GL thread.**
   `03-canvas-engine.md` §8.3 flags this as an assumption "to verify against
   graphics-core", with a prepared fallback (do the merge at the top of the
@@ -415,7 +419,9 @@ and the contradiction is noted here.
   direct per-layer path for that rect. A reopened stack above the current
   device cap releases and disables the sandwich until the stack shrinks back
   to the cap, avoiding two more full-canvas allocations on an already
-  over-budget stack.
+  over-budget stack. Runtime admission uses `TilePool.sliceCapacity`, not the
+  pre-context layer cap: the probed array depth can change the number of pages,
+  and an oversized reopened canvas makes `maxLayers` only a floor.
 - **Pen-up owns the action gate through journal admission.** `endStroke` is
   asynchronous. Undo, leave, share, export, and later edits wait until the
   merged step is pushed (or explicitly completes empty/failed).
@@ -424,10 +430,24 @@ and the contradiction is noted here.
   release gate reports the renderer cleanup result before the final snapshot;
   a release-time fence timeout stays pending, never a synthetic success.
 - **Replacement sessions stream only durable detached pixels.** Their disk
-  upload waits for every earlier renderer release and the flusher FIFO, then
-  relists sparse tile keys because the captured model may predate final
-  readback. The document gate blocks input and chrome mutations until those
-  uploads have joined the new renderer's GL queue.
+  upload waits for earlier document/history work, every renderer release, and
+  the flusher FIFO. Transient flush refusal retries while the replacement stays
+  attached. The current document is then relisted and published because its
+  sparse model may predate final readback. The document gate blocks input and
+  chrome mutations until those uploads have joined the new GL queue.
+- **Input-listener replacement is a cancellation boundary.** Before a new
+  `CanvasTouchHandler` is attached, the old handler cancels its gesture and
+  removes prediction/hover callbacks. The replacement is seeded with view and
+  input preferences synchronously; a surface resize likewise cancels before
+  rebasing so one stroke never spans two coordinate maps.
+- **Stroke admission snapshots the active layer.** A layer selection updates
+  the ViewModel document before Compose observes the new stack. The admitted
+  tool and current `Layer` therefore travel together; input handlers never
+  capture Compose's stack for pen-down decisions.
+- **Mouse buttons are classified before the finger arbiter.** Primary draws
+  immediately as `StrokeSource.MOUSE`, middle pans, and secondary is consumed.
+  Mouse hover still drives the cursor but never counts as pen proximity for
+  palm rejection.
 - **Undo/redo holds the action gate through post-apply readback.** Restored tile
   membership is folded into the stack sent by the same GL transaction; only
   after composite output reaches the CPU may `FlushKeys` join the IO queue.
@@ -438,16 +458,23 @@ and the contradiction is noted here.
 - **Post-checkpoint pixel entries require `<seq>.after`.** `WriteEntry` writes
   this recovery after-image after readback and before tile flush. Reopen rolls
   it forward before relisting tiles; a successful `project.json` checkpoint
-  removes covered files.
+  removes covered files. A corrupt payload degrades only that tile to empty;
+  the durable entry still replays its structural edit.
 - **A failed `WriteEntry` remains the durable FIFO head.** Its result and
   action ownership stay pending while the worker retries; later edits and
   checkpoints cannot pass it. Once readback completes, its after-image bytes
   are frozen so a retry cannot capture a newer revision.
 - **Project format 2 records exact history membership.** Undo followed by a
   divergent edit leaves gaps because sequence numbers are never reused.
-  `HistoryRecord.seqs` is authoritative. A format-1 null first uses the legacy
-  contiguous range, then infers a gap only when the saved count matches every
-  readable in-range entry (and saved bytes, when nonzero).
+  `HistoryRecord.seqs` is authoritative. A format-1 null accepts the legacy
+  contiguous range only when its length matches the saved count, then infers a
+  gap only when the saved count matches every readable in-range entry (and
+  saved bytes, when nonzero). Failed proof exposes no speculative prefix.
+  Malformed bounds or exact membership never authorize deletion; a degraded
+  load allocates above every preserved `.entry`, `.redo`, or `.after` sequence
+  when representable. `Long.MAX_VALUE` is the exhaustion sentinel; append
+  refuses it and any sequence with one of those artifacts. A missing history
+  directory retains any positive checkpointed `nextSeq`.
 
 - **Redo sidecars use post-edit tile owners.** A merge entry's before payload
   names upper and lower layers, but its redo payload names only the merged

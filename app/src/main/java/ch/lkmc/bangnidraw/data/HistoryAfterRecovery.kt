@@ -78,9 +78,6 @@ internal object HistoryAfterRecovery {
                 }
             }
             val writes = after?.let(::prepareWrites)
-            if (after != null && writes == null) {
-                return Result(current, appliedCount, Failure.INCONSISTENT)
-            }
             if (writes != null && !writeAfter(writes, writer)) {
                 return Result(current, appliedCount, Failure.WRITE_FAILED)
             }
@@ -99,15 +96,18 @@ internal object HistoryAfterRecovery {
     }
 
     /** Decode the complete image before the first destructive write. */
-    private fun prepareWrites(payloads: List<HistoryStore.Payload>): List<Write>? {
+    private fun prepareWrites(payloads: List<HistoryStore.Payload>): List<Write> {
         val writes = ArrayList<Write>(payloads.size)
         for (payload in payloads) {
             val pixels = if (payload.encoded.isEmpty()) {
                 EMPTY_TILE
             } else {
-                val decoded = TileCodec.decode(payload.encoded)
-                if (decoded !is TileCodec.Decoded.Ok) return null
-                decoded.pixels
+                when (val decoded = TileCodec.decode(payload.encoded)) {
+                    is TileCodec.Decoded.Ok -> decoded.pixels
+                    // Match ordinary project loading: preserve the edit and
+                    // degrade only the damaged tile to transparent.
+                    TileCodec.Decoded.Corrupt -> EMPTY_TILE
+                }
             }
             writes += Write(payload.layer, payload.key, pixels)
         }

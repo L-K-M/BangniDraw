@@ -100,7 +100,9 @@ where the driver allows 2048 because a page is the allocation granule
 phone-sized painting needs. Pages are created lazily when the free list
 runs dry and never destroyed while the document is open (freeing a page
 while the driver may still be defragmenting is a known source of jank;
-destroying happens on document close).
+destroying happens on document close). Because `MemoryBudget` is computed
+before this probe, `TilePool` recomputes the whole-page count from the raw byte
+budget and uses its resulting slice capacity for runtime transient admission.
 
 ```kotlin
 @JvmInline value class SliceHandle(val packed: Int) {      // (page << 16) | slice, -1 = none
@@ -904,9 +906,9 @@ merged, caches valid): Below (paper baked in) → active → Above into
 `Accum`, then the full-rect `Accum` quad into `bufferInfo.frameBufferId`
 (§3.2 step 3). The quad starts at the logical `Accum` dimensions; `transform`
 maps it into a pre-rotated buffer whose dimensions may be swapped. `params` is
-only iterated to release the ring slots
-(`docs/plan/02-architecture.md` §3.2); the current `ScreenTransform` is
-always used. This callback also serves every non-stroke redraw (§5).
+the library's replay of already-consumed batches and is deliberately ignored
+(`docs/plan/02-architecture.md` §3.2); the current `ScreenTransform` is always
+used. This callback also serves every non-stroke redraw (§5).
 
 ### 8.3 Pen-up: `commit()`
 

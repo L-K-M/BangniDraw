@@ -8,6 +8,30 @@ internal enum class MouseScrollMode {
     ROTATE,
 }
 
+internal enum class MouseButton {
+    PRIMARY,
+    MIDDLE,
+    SECONDARY,
+    NONE,
+}
+
+internal enum class MouseGesture {
+    DRAW,
+    PAN,
+    IGNORE,
+    NONE,
+}
+
+/** Maps desktop buttons before they can enter the finger arbiter. */
+internal object MouseButtonPolicy {
+    fun begin(button: MouseButton): MouseGesture = when (button) {
+        MouseButton.PRIMARY -> MouseGesture.DRAW
+        MouseButton.MIDDLE -> MouseGesture.PAN
+        MouseButton.SECONDARY -> MouseGesture.IGNORE
+        MouseButton.NONE -> MouseGesture.NONE
+    }
+}
+
 /** Mouse navigation uses the same anchored transform as touch gestures. */
 internal object MouseNavigationPolicy {
 

@@ -14,11 +14,34 @@ class EngineSessionRenderContractTest {
         val source = source(ENGINE_SESSION_PATH)
         val redraw = section(source, REDRAW_START, REDRAW_END)
 
-        assertTrue(COMMIT_CALL in redraw, "redraw must use graphics-core commit sequencing")
+        assertTrue(COMMIT_HELPER_CALL in redraw, "redraw must use graphics-core commit sequencing")
         assertFalse(
             DIRECT_MULTI_CALL in redraw,
             "direct multi rendering bypasses graphics-core's front release barrier",
         )
+    }
+
+    @Test
+    fun `the commit helper registers coordinated rendering first`() {
+        val source = source(ENGINE_SESSION_PATH)
+        val helper = section(source, COMMIT_HELPER_START, COMMIT_HELPER_END)
+
+        val registration = helper.indexOf(REGISTER_COMMIT_CALL)
+        val commit = helper.indexOf(COMMIT_CALL)
+        assertTrue(registration >= 0, "commit coordination is missing")
+        assertTrue(QUEUED_REGISTER_COMMIT_CALL in helper, "commit coordination must use the GL queue")
+        assertTrue(commit > registration, "coordination must precede the library commit")
+    }
+
+    @Test
+    fun `scene changes invalidate recovery inside the GL queue`() {
+        val source = source(ENGINE_SESSION_PATH)
+        val helper = section(source, SCENE_HELPER_START, SCENE_HELPER_END)
+
+        val mutation = helper.indexOf(SCENE_MUTATION_CALL)
+        val invalidation = helper.indexOf(SCENE_CHANGED_CALL)
+        assertTrue(mutation >= 0, "the queued scene mutation is missing")
+        assertTrue(invalidation > mutation, "recovery must follow the queued scene mutation")
     }
 
     @Test
@@ -41,6 +64,18 @@ class EngineSessionRenderContractTest {
         assertTrue(RENDERER_PAPER_CALL in configure, "startup paper configuration is missing")
         assertTrue(RENDERER_VIEW_CALL in configure, "startup view configuration is missing")
         assertEquals(1, REDRAW_CALL.findAll(configure).count(), "startup must redraw once")
+    }
+
+    @Test
+    fun `replacement touch handler receives the current viewport`() {
+        val source = source(CANVAS_SURFACE_PATH)
+        val update = section(source, UPDATE_START, UPDATE_END)
+
+        val viewport = update.indexOf(SET_VIEWPORT_CALL)
+        val listener = update.indexOf(SET_TOUCH_LISTENER_CALL)
+
+        assertTrue(viewport >= 0, "the current handler must receive the existing surface size")
+        assertTrue(viewport < listener, "the handler needs its fit before input is attached")
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
@@ -76,11 +111,23 @@ class EngineSessionRenderContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasSurface.kt"
         const val REDRAW_START = "private fun redrawNow()"
         const val REDRAW_END = "/** Runs [block] on the GL thread. */"
+        const val COMMIT_HELPER_START = "private fun commitMultiBuffered()"
+        const val COMMIT_HELPER_END = "/** Runs [block] on the GL thread. */"
+        const val SCENE_HELPER_START = "private fun executeSceneChange("
+        const val SCENE_HELPER_END = "/** Runs [block] on the GL thread. */"
         const val CONFIGURE_START = "internal fun configure("
         const val CONFIGURE_END = "/**\n     * Sets the view transform and redraws."
         const val FACTORY_START = "factory = { ctx ->"
         const val FACTORY_END = "update = { surface ->"
+        const val UPDATE_START = "update = { surface ->"
+        const val UPDATE_END = "// A multi-buffer redraw hides live front-buffer ink."
         const val COMMIT_CALL = "frontBuffered.commit()"
+        const val COMMIT_HELPER_CALL = "commitMultiBuffered()"
+        const val REGISTER_COMMIT_CALL = "renderPolicy.registerCommit()"
+        const val QUEUED_REGISTER_COMMIT_CALL =
+            "frontBuffered.execute { renderPolicy.registerCommit() }"
+        const val SCENE_MUTATION_CALL = "block()"
+        const val SCENE_CHANGED_CALL = "renderPolicy.sceneChanged()"
         const val DIRECT_MULTI_CALL = "frontBuffered.renderMultiBufferedLayer("
         const val CONFIGURE_CALL = "session.configure(stack, paperColor, view)"
         const val SET_STACK_CALL = "session.setStack(stack)"
@@ -89,6 +136,9 @@ class EngineSessionRenderContractTest {
         const val RENDERER_STACK_CALL = "renderer.setStack(stack)"
         const val RENDERER_PAPER_CALL = "renderer.setPaperColor(paperColor)"
         const val RENDERER_VIEW_CALL = "renderer.setView(view)"
+        const val SET_VIEWPORT_CALL =
+            "touchHandler?.setViewport(canvas, surface.width, surface.height)"
+        const val SET_TOUCH_LISTENER_CALL = "surface.setOnTouchListener(touchHandler)"
         val REDRAW_CALL = Regex("""\bredraw\(\)""")
     }
 }

@@ -108,13 +108,13 @@ data class CanvasSize(val width: Int, val height: Int) {
  */
 object MemoryBudget {
     data class Result(
-        /** The raw tile budget. What the pool can *allocate* is [poolCapacityBytes]. */
+        /** Raw tile budget; `TilePool` fits whole pages after probing their depth. */
         val gpuTileBudgetBytes: Long,
         /**
          * `poolArrayCount × poolArraySlices × TILE_BYTES` — whole arrays only,
-         * so up to one array below [gpuTileBudgetBytes]. Every cap here is
-         * derived from this, not from the raw budget; a caller asking "do N
-         * bytes of tiles fit?" must ask this one or it can over-commit.
+         * so up to one assumed array below [gpuTileBudgetBytes]. Device-facing
+         * caps use this conservative pre-context capacity. Runtime GL admission
+         * instead uses `TilePool.sliceCapacity` after the array depth is known.
          */
         val poolCapacityBytes: Long,
         /** For THIS canvas size, `MIN_LAYERS..MAX_LAYERS`. */
@@ -124,9 +124,9 @@ object MemoryBudget {
         val historyMaxSteps: Int,
         val historyMaxBytes: Long,
         val thumbnailCacheBytes: Long,
-        /** Slices per texture array `TilePool` creates; never above `glMaxArrayLayers`. */
+        /** Slices assumed per array; runtime may replace the pre-context default. */
         val poolArraySlices: Int,
-        /** How many texture arrays fit the budget. */
+        /** How many arrays fit at [poolArraySlices]. */
         val poolArrayCount: Int,
     )
 

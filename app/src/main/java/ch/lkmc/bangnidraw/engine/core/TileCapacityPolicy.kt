@@ -16,9 +16,10 @@ internal object TileCapacityPolicy {
     fun hasTransientReserve(
         layerCount: Int,
         canvas: CanvasSize,
-        budget: MemoryBudget.Result,
+        poolSliceCapacity: Long,
     ): Boolean {
         require(layerCount >= 0) { "layerCount must not be negative" }
+        require(poolSliceCapacity >= 0L) { "poolSliceCapacity must not be negative" }
         val tilesPerLayer = canvas.tilesPerLayer
         if (tilesPerLayer <= 0L) return false
 
@@ -26,7 +27,6 @@ internal object TileCapacityPolicy {
         if (tilesPerLayer > Long.MAX_VALUE / requiredLayers) return false
 
         val requiredSlices = requiredLayers * tilesPerLayer
-        val poolSlices = budget.poolArraySlices.toLong() * budget.poolArrayCount
-        return requiredSlices <= poolSlices
+        return requiredSlices <= poolSliceCapacity
     }
 }

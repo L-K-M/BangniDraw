@@ -33,6 +33,17 @@ class CanvasRendererGeometryContractTest {
         )
     }
 
+    @Test
+    fun `sandwich reserve uses the live pool capacity`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+        val sync = source.substringAfter(SANDWICH_SYNC_START).substringBefore(SANDWICH_SYNC_END)
+
+        assertTrue(
+            LIVE_POOL_CAPACITY in sync,
+            "a non-divisor page size can make the pre-context capacity optimistic",
+        )
+    }
+
     private fun repositoryRoot(): File {
         val workingDirectory = File(
             requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),
@@ -53,10 +64,13 @@ class CanvasRendererGeometryContractTest {
         const val STROKE_FRAME_END = "/**\n     * Hands one front-buffered frame"
         const val PRESENT_START = "private fun presentToWindow("
         const val PRESENT_END = "private fun rebuildSandwichIfNeeded("
+        const val SANDWICH_SYNC_START = "private fun syncSandwichCache("
+        const val SANDWICH_SYNC_END = "/** Queues isolated layer renders"
         const val CANVAS_COVERAGE_CALL = "screenTransform.canvasBoundsOf("
         const val CANVAS_COVERAGE_DRAW =
             "pass,\n                compositeCanvasRect,\n                compositeWindowRect,"
         const val LOGICAL_QUAD_DRAW =
             "screenQuad.draw(accum.width.toFloat(), accum.height.toFloat())"
+        const val LIVE_POOL_CAPACITY = "poolSliceCapacity = tiles.sliceCapacity.toLong()"
     }
 }

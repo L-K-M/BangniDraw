@@ -26,6 +26,7 @@ import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 import kotlin.math.roundToInt
 
 /**
@@ -59,7 +60,7 @@ internal fun CanvasSurface(
     debugBuild: Boolean,
     onSession: (EngineSession?) -> Unit,
     /** Attached to the SurfaceView as its touch and hover listener (roadmap 2.4a). */
-    touchHandler: ch.lkmc.bangnidraw.input.CanvasTouchHandler? = null,
+    touchHandler: CanvasTouchHandler? = null,
     /**
      * §10.1's readback sink, handed to the session at construction — it wires
      * the `Readback` machinery, so it cannot arrive later (roadmap 3a).
@@ -75,6 +76,7 @@ internal fun CanvasSurface(
     val appliedStack = remember { arrayOfNulls<LayerStack>(1) }
     val appliedPaperColor = remember { arrayOfNulls<Int>(1) }
     val appliedView = remember { arrayOfNulls<ViewTransform>(1) }
+    val appliedTouchHandler = remember { arrayOfNulls<CanvasTouchHandler>(1) }
     val density = context.resources.displayMetrics.density
     val accessibility = Modifier.semantics {
         contentDescription = canvasDescription
@@ -134,6 +136,15 @@ internal fun CanvasSurface(
             }
         },
         update = { surface ->
+            val previousTouchHandler = appliedTouchHandler[0]
+            if (previousTouchHandler !== touchHandler) {
+                previousTouchHandler?.detach()
+                appliedTouchHandler[0] = touchHandler
+            }
+
+            // Size callbacks do not replay when only the handler changes.
+            touchHandler?.setViewport(canvas, surface.width, surface.height)
+
             // Attached here, not in `factory`: `factory` runs once per view
             // instance, but CanvasScreen builds the handler with
             // `remember(density, view0)`, so a density or window change makes a
@@ -177,6 +188,8 @@ internal fun CanvasSurface(
 
     DisposableEffect(Unit) {
         onDispose {
+            appliedTouchHandler[0]?.detach()
+            appliedTouchHandler[0] = null
             onSession(null)
             sessionHolder[0]?.release()
             sessionHolder[0] = null

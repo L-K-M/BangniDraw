@@ -216,7 +216,7 @@ private fun HsvRingSquare(
         HsvRingSquareSized(
             hsv = hsv,
             hapticsMode = hapticsMode,
-            pickerSize = minOf(PICKER_SIZE, maxWidth),
+            pickerSize = minOf(PICKER_SIZE, maxWidth, maxHeight),
             onPreview = onPreview,
             onCommit = onCommit,
         )
@@ -263,7 +263,7 @@ private fun HsvRingSquareSized(
     Canvas(
         modifier = Modifier
             .size(pickerSize)
-            .pointerInput(hapticsMode) {
+            .pointerInput(hapticsMode, pickerSize) {
                 detectTapGestures { position ->
                     val next = HsvPicker.select(
                         position.x,
@@ -281,7 +281,7 @@ private fun HsvRingSquareSized(
                     latestCommit.value(next)
                 }
             }
-            .pointerInput(hapticsMode) {
+            .pointerInput(hapticsMode, pickerSize) {
                 var gestureHsv = latestHsv.value
                 val update: (Offset) -> Unit = { position ->
                     val next = HsvPicker.select(

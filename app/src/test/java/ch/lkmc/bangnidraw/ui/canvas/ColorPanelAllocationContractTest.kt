@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.ui.canvas
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -41,10 +42,15 @@ class ColorPanelAllocationContractTest {
             "ring geometry does not share the picker's measured basis",
         )
         assertTrue(
-            "minOf(PICKER_SIZE, maxWidth)" in picker &&
+            "minOf(PICKER_SIZE, maxWidth, maxHeight)" in picker &&
                 ".size(pickerSize)" in picker &&
                 "pickerSize.toPx()" in picker,
             "the picker does not shrink with its panel",
+        )
+        assertEquals(
+            2,
+            picker.split("pointerInput(hapticsMode, pickerSize)").size - 1,
+            "both picker gestures must restart after a resize",
         )
     }
 

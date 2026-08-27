@@ -133,6 +133,9 @@
     <string name="fill_progress">Filling… %1$d%%</string>
     <string name="fill_cancel">Cancel</string>
     <string name="color_panel">Color</string>
+    <string name="color_hue">Hue</string>
+    <string name="color_hue_value">%1$.0f°</string>
+    <string name="color_saturation">Saturation</string>
     <string name="color_value">Brightness</string>
     <string name="mixing_dish">Mixing dish</string>
     <string name="mixing_pigment">Pigment</string>

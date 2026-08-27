@@ -542,6 +542,10 @@ and the contradiction is noted here.
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.
   User names are literal; never resolve arbitrary stored `@string/` values.
+- **HSV fine controls use `HsvChannel`.** Keep their ranges, discrete steps,
+  reads, and replacements in that pure enum so visual sliders and accessibility
+  adjustments cannot drift. The current-color chip has a named long-click only;
+  never add an inert click action.
 
 - **Redo-sidecar accounting can prune both sides of the history cursor.** A
   first undo adds bytes after the original push, so `noteRedoBytes` enforces

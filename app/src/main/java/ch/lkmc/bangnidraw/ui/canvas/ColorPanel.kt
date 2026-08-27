@@ -340,6 +340,8 @@ private fun ColorFields(
             contentWidthDp = maxWidth.value,
             fontScale = LocalDensity.current.fontScale,
         )
+        if (!layout.hasUsableWidth) return@BoxWithConstraints
+
         val fieldModifier = Modifier.width(layout.fieldWidthDp.dp)
         val fields: @Composable () -> Unit = {
             ChannelField(red, R.string.color_red, onTextInputFocus, fieldModifier) {

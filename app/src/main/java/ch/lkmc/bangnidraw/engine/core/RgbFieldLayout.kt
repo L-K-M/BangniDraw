@@ -8,6 +8,8 @@ internal data class RgbFieldLayout(
     val gapDp: Float,
     val fieldCount: Int,
 ) {
+    val hasUsableWidth: Boolean get() = fieldWidthDp > 0f
+
     val occupiedWidthDp: Float
         get() = when (arrangement) {
             RgbFieldArrangement.ROW ->

@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.engine.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class RgbFieldLayoutTest {
@@ -82,6 +83,7 @@ class RgbFieldLayoutTest {
 
         assertEquals(RgbFieldArrangement.COLUMN, layout.arrangement)
         assertEquals(0f, layout.fieldWidthDp, FLOAT_TOLERANCE)
+        assertFalse(layout.hasUsableWidth)
     }
 
     @Test

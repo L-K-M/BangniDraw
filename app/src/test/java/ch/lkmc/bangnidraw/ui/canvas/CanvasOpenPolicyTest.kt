@@ -34,7 +34,11 @@ class CanvasOpenPolicyTest {
             val decision = CanvasOpenPolicy.decide(ProjectStore.LoadResult.Failed(reason))
 
             val rejection = assertIs<CanvasOpenDecision.Reject>(decision)
-            assertEquals(R.string.canvas_open_failed, rejection.message)
+            assertEquals(
+                R.string.canvas_open_failed,
+                rejection.message,
+                "unexpected rejection message for $reason",
+            )
         }
     }
 

@@ -49,6 +49,11 @@ object DataModule {
 
     @Provides
     @Singleton
+    fun providePaletteStore(@ApplicationContext context: Context): PaletteStore =
+        PaletteStore(File(context.filesDir, PALETTE_DIRECTORY))
+
+    @Provides
+    @Singleton
     fun provideAvailableColorMixer(): ColorMixer = MixboxBinding.create() ?: RgbMixer
 
     @Provides
@@ -56,4 +61,6 @@ object DataModule {
     @ApplicationScope
     fun provideApplicationScope(): CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private const val PALETTE_DIRECTORY = "palettes"
 }

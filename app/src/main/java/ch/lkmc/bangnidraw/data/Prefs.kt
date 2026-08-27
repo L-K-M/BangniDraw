@@ -10,9 +10,12 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
+import ch.lkmc.bangnidraw.engine.core.DishState
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
+import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
 import ch.lkmc.bangnidraw.engine.core.PigmentAvailability
+import ch.lkmc.bangnidraw.engine.core.StoredColors
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -95,6 +98,34 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         dataStore.edit { it[KEY_MIXER] = stored.name }
     }
 
+    val activePaletteId: Flow<String> =
+        dataStore.data.map { it[KEY_ACTIVE_PALETTE] ?: PaletteCatalog.PAINTERS_ID }
+
+    suspend fun setActivePalette(id: String) {
+        dataStore.edit { it[KEY_ACTIVE_PALETTE] = id }
+    }
+
+    val dish: Flow<DishState> = dataStore.data.map {
+        DishState(
+            a = it[KEY_DISH_A] ?: PaletteCatalog.ULTRAMARINE_BLUE_ARGB.toInt(),
+            b = it[KEY_DISH_B] ?: PaletteCatalog.CADMIUM_YELLOW_ARGB.toInt(),
+        )
+    }
+
+    suspend fun setDishWells(a: Int, b: Int) {
+        dataStore.edit {
+            it[KEY_DISH_A] = a
+            it[KEY_DISH_B] = b
+        }
+    }
+
+    val recentColors: Flow<List<Int>> =
+        dataStore.data.map { StoredColors.decode(it[KEY_RECENT_COLORS]) }
+
+    suspend fun setRecentColors(colors: List<Int>) {
+        dataStore.edit { it[KEY_RECENT_COLORS] = StoredColors.encode(colors) }
+    }
+
     /** Rail size/opacity live outside preset JSON (`04-tools.md` §5.1). */
     internal suspend fun brushTunings(ids: Iterable<String>): Map<String, BrushTuning> {
         val snapshot = dataStore.data.first()
@@ -132,5 +163,9 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         val KEY_PEN_BUTTON_ACTION = stringPreferencesKey("penButtonAction")
         val KEY_ERASER_END_PRESET = stringPreferencesKey("eraserEndPreset")
         val KEY_MIXER = stringPreferencesKey("mixer")
+        val KEY_ACTIVE_PALETTE = stringPreferencesKey("activePalette")
+        val KEY_DISH_A = intPreferencesKey("dishA")
+        val KEY_DISH_B = intPreferencesKey("dishB")
+        val KEY_RECENT_COLORS = stringPreferencesKey("recent_colors")
     }
 }

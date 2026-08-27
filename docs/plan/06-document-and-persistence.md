@@ -187,7 +187,7 @@ class HistoryJournal(private val limits: Limits) {
     fun push(entry: HistoryEntry): PushResult    // truncates redo, appends, prunes; returns what to delete/prune
     fun undo(): HistoryEntry?                    // cursor-- ; null at 0
     fun redo(): HistoryEntry?                    // cursor++ ; null at end
-    fun noteRedoBytes(seq: Long, bytes: Long): List<Long> // accounts the new sidecar, prunes, returns seqs to delete
+    fun noteRedoBytes(seq: Long, redoBytes: Long): List<Long> // accounts the new sidecar, prunes, returns seqs to delete
     fun canUndo(): Boolean; fun canRedo(): Boolean
 }
 

@@ -70,6 +70,7 @@
     <string name="canvas_focus">专注模式</string>
     <string name="canvas_settings">设置</string>
     <string name="cd_color">颜色，%1$s</string>
+    <string name="cd_quick_palette">显示最近颜色</string>
     <string name="canvas_show_controls">显示控件</string>
     <string name="canvas_hint_draw">用手指或笔绘画</string>
     <string name="canvas_hint_navigate">双指移动、缩放和旋转</string>

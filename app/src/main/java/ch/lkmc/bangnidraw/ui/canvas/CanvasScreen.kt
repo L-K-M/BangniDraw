@@ -24,6 +24,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -33,6 +35,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -77,6 +80,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -98,6 +103,7 @@ import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasDialog
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
+import ch.lkmc.bangnidraw.engine.core.ColorText
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
@@ -951,6 +957,7 @@ private fun CanvasContent(
             // from the strip's swatch. The scrim below it consumes the
             // dismissing tap so it never draws (the panel rule, §4.1).
             if (showRecentSwatches) {
+                BackHandler { showRecentSwatches = false }
                 LaunchedEffect(showRecentSwatches) {
                     delay(RECENT_POPOVER_MS)
                     showRecentSwatches = false
@@ -1258,7 +1265,12 @@ private fun BoxScope.RecentPopover(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier
+                    .heightIn(max = RECENT_POPOVER_MAX_HEIGHT.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 for (color in colors) {
                     val selected = color == current
                     val border = if (selected) {
@@ -1270,6 +1282,10 @@ private fun BoxScope.RecentPopover(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .size(RECENT_TARGET.dp)
+                            .semantics {
+                                contentDescription = ColorText.hex(color)
+                                this.selected = selected
+                            }
                             .clickable { onSelected(color) },
                     ) {
                         Box(
@@ -1496,9 +1512,10 @@ private const val HINT_Z = 3f
 private const val RESET_DAMPING_RATIO = 0.8f
 private const val CHROME_ANIMATION_MS = 180
 private const val RECENT_POPOVER_MS = 4_000L
-private const val RECENT_SCRIM_Z = 1f
+private const val RECENT_SCRIM_Z = CHROME_Z
 private const val RECENT_POPOVER_TOP = 56
 private const val RECENT_POPOVER_MAX = 336
+private const val RECENT_POPOVER_MAX_HEIGHT = 240
 private const val RECENT_TARGET = 48
 private const val RECENT_VISUAL = 34
 private const val TOP_STRIP_TRAVERSAL = 0f

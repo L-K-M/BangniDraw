@@ -3,7 +3,7 @@ package ch.lkmc.bangnidraw.ui.canvas
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -38,6 +38,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
@@ -215,35 +217,44 @@ private fun ToolCluster(
             R.string.cd_color,
             String.format("#%06X", brushColor and RGB_MASK),
         )
+        val quickPaletteLabel = stringResource(R.string.cd_quick_palette)
         // Long-press = the quick palette: the last colours painted with,
-        // without opening the colour panel. Like undo's readout, the
-        // detector sits on the parent Box and works regardless of button
-        // state.
+        // without opening the colour panel. combinedClickable keeps tap and
+        // long-press mutually exclusive — releasing after a long press must
+        // not also open the panel over the popover.
         Box(
-            modifier = Modifier.pointerInput(onColorLongPress, hapticsMode) {
-                detectTapGestures(onLongPress = {
-                    if (hapticsMode == HapticsMode.ENABLED) {
-                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    }
-                    onColorLongPress()
-                })
-            },
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(ICON_BUTTON)
+                .combinedClickable(
+                    onClick = onColor,
+                    onLongClick = {
+                        if (hapticsMode == HapticsMode.ENABLED) {
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        }
+                        onColorLongPress()
+                    },
+                )
+                .semantics {
+                    contentDescription = colorDescription
+                    customActions = listOf(
+                        CustomAccessibilityAction(quickPaletteLabel) {
+                            onColorLongPress()
+                            true
+                        },
+                    )
+                },
         ) {
-            IconButton(
-                onClick = onColor,
-                modifier = Modifier.semantics { contentDescription = colorDescription },
+            Box(
+                modifier = Modifier
+                    .size(COLOR_SWATCH)
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outline,
+                        shape = RoundedCornerShape(COLOR_RADIUS),
+                    ),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(COLOR_SWATCH)
-                        .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.outline,
-                            shape = RoundedCornerShape(COLOR_RADIUS),
-                        ),
-                ) {
-                    Canvas(Modifier.size(COLOR_SWATCH)) { drawRect(Color(brushColor)) }
-                }
+                Canvas(Modifier.size(COLOR_SWATCH)) { drawRect(Color(brushColor)) }
             }
         }
         OverflowMenu(
@@ -300,6 +311,7 @@ private fun OverflowItem(label: Int, action: () -> Unit, dismiss: () -> Unit) {
 
 private val STRIP_HEIGHT = 48.dp
 private val COLOR_SWATCH = 24.dp
+private val ICON_BUTTON = 48.dp
 private val COLOR_RADIUS = 6.dp
 private val BADGE_RADIUS = 8.dp
 private const val RGB_MASK = 0xFFFFFF

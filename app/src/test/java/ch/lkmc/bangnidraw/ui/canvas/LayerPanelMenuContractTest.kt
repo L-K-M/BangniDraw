@@ -22,6 +22,10 @@ class LayerPanelMenuContractTest {
             "if (reorderActions.isNotEmpty())" in menu,
             "layer menu does not guard the empty reorder section",
         )
+        assertTrue(
+            "ReorderItem(" in menu,
+            "layer menu has no guarded reorder items",
+        )
     }
 
     private fun repositoryRoot(): File {

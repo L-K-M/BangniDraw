@@ -211,7 +211,6 @@
     <string name="layer_add">添加图层</string>
     <string name="layer_more">图层操作</string>
     <string name="layer_panel_more">图层面板操作</string>
-    <string name="layer_drag">调整图层顺序</string>
     <string name="layer_move_up">上移</string>
     <string name="layer_move_down">下移</string>
     <string name="layer_move_top">移到顶层</string>

@@ -81,6 +81,7 @@ class StudioViewModel @Inject constructor(
         val touchDrawingMode: TouchDrawingMode = TouchDrawingMode.ENABLED,
         val penButtonAction: PenButtonAction = PenButtonAction.Eraser,
         val pressurePreference: PressurePreference = PressurePreference.LINEAR,
+        val snapRightAngles: Boolean = false,
         val hapticsMode: HapticsMode = HapticsMode.ENABLED,
         val gallerySync: Boolean = true,
         val mixerChoice: MixerChoice = MixerChoice.PIGMENT,
@@ -120,6 +121,11 @@ class StudioViewModel @Inject constructor(
         viewModelScope.launch {
             prefs.pressurePreference.collect { value ->
                 _uiState.update { it.copy(pressurePreference = value) }
+            }
+        }
+        viewModelScope.launch {
+            prefs.snapRightAngles.collect { value ->
+                _uiState.update { it.copy(snapRightAngles = value) }
             }
         }
         viewModelScope.launch {
@@ -175,6 +181,10 @@ class StudioViewModel @Inject constructor(
 
     internal fun setPressurePreference(value: PressurePreference) {
         viewModelScope.launch { prefs.setPressurePreference(value) }
+    }
+
+    internal fun setSnapRightAngles(value: Boolean) {
+        viewModelScope.launch { prefs.setSnapRightAngles(value) }
     }
 
     internal fun setHapticsMode(value: HapticsMode) {

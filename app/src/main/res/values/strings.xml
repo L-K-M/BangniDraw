@@ -303,6 +303,8 @@
     <string name="settings_pressure_softer">Softer</string>
     <string name="settings_pressure_linear">Linear</string>
     <string name="settings_pressure_harder">Harder</string>
+    <string name="settings_snap_right_angles">Snap rotation to right angles</string>
+    <string name="settings_snap_right_angles_help">Two-finger rotation clicks into 0°, 90°, 180°, 270°.</string>
     <string name="settings_feedback">Feedback</string>
     <string name="settings_haptics">Haptics</string>
     <string name="settings_storage">Storage</string>

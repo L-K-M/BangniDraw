@@ -3,7 +3,10 @@ package ch.lkmc.bangnidraw.ui.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,7 +15,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
@@ -31,20 +36,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.engine.core.CanvasOrientation
 import ch.lkmc.bangnidraw.engine.core.CanvasPreset
 import ch.lkmc.bangnidraw.engine.core.CanvasPresetId
 import ch.lkmc.bangnidraw.engine.core.CanvasPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.CustomSizeResult
+import ch.lkmc.bangnidraw.engine.core.CustomSizeFieldArrangement
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
+import ch.lkmc.bangnidraw.engine.core.NewCanvasDefaultsPolicy
+import ch.lkmc.bangnidraw.engine.core.NewCanvasLayoutPolicy
 import ch.lkmc.bangnidraw.engine.core.SizeRefusal
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
@@ -56,8 +68,8 @@ import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWhite
  * The New Canvas dialog (`docs/plan/08-ui-and-layout.md` §2.1): the fixed
  * presets annotated with what this device holds, a Custom row validated on
  * every keystroke, orientation for non-square sizes, and the paper swatches.
- * Every decision it renders comes from `CanvasPresets`/`MemoryBudget` —
- * pure, already tested — so this composable only lays the answers out.
+ * Every decision it renders comes from the pure canvas and layout policies,
+ * so this composable only lays the answers out.
  *
  * The "+" custom-paper swatch waits for the color panel (roadmap step 7);
  * the swatch row here is 08 §2.1's fixed five.
@@ -65,15 +77,23 @@ import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWhite
 @Composable
 fun NewCanvasDialog(
     budget: MemoryBudget.Result,
+    /** Captured by the screen because an AlertDialog reports its own window. */
+    screenSizePx: IntSize,
     onDismiss: () -> Unit,
     onCreate: (CanvasSize, paperColor: Int) -> Unit,
 ) {
     val presets = CanvasPresets.forDevice(budget)
-    var selected by rememberSaveable { mutableIntStateOf(CanvasPresets.defaultIndex(presets)) }
+    val defaults = NewCanvasDefaultsPolicy.forWindow(
+        presets = presets,
+        windowWidthPx = screenSizePx.width,
+        windowHeightPx = screenSizePx.height,
+    )
+    var selected by rememberSaveable { mutableIntStateOf(defaults.presetIndex) }
     var customW by rememberSaveable { mutableStateOf("2048") }
     var customH by rememberSaveable { mutableStateOf("2048") }
-    var landscape by rememberSaveable { mutableStateOf(false) }
+    var orientationOverride by rememberSaveable { mutableStateOf<CanvasOrientation?>(null) }
     var paper by rememberSaveable { mutableIntStateOf(PaperSwatchWhite.toArgb()) }
+    val orientation = orientationOverride ?: defaults.orientation
 
     val isCustom = selected == presets.size
     val chosenSize: CanvasSize? = if (isCustom) {
@@ -82,7 +102,7 @@ fun NewCanvasDialog(
         if (w != null && h != null && w > 0 && h > 0) CanvasSize(w, h) else null
     } else {
         presets.getOrNull(selected)?.takeIf { it.enabled }
-            ?.let { if (it.isSquare) it.size else it.oriented(landscape) }
+            ?.let { if (it.isSquare) it.size else it.oriented(orientation) }
     }
     val validation: CustomSizeResult? = chosenSize?.let { CanvasPresets.custom(it, budget) }
     val ok = validation as? CustomSizeResult.Ok
@@ -99,11 +119,13 @@ fun NewCanvasDialog(
                     PresetRow(
                         preset = preset,
                         selected = selected == index,
+                        orientation = orientation,
                         onSelect = { if (preset.enabled) selected = index },
                     )
                 }
 
-                // The Custom row: two fields, revalidated per keystroke.
+                // Keep the choice and its inputs on separate lines so compact
+                // dialogs do not compress two editable values into scraps.
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -116,29 +138,14 @@ fun NewCanvasDialog(
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f),
                     )
-                    OutlinedTextField(
-                        value = customW,
-                        onValueChange = { customW = it.filter(Char::isDigit).take(5) },
-                        label = { Text(stringResource(R.string.canvas_width)) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.width(96.dp),
-                        enabled = isCustom,
-                    )
-                    Text(
-                        stringResource(R.string.dimension_separator),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    OutlinedTextField(
-                        value = customH,
-                        onValueChange = { customH = it.filter(Char::isDigit).take(5) },
-                        label = { Text(stringResource(R.string.canvas_height)) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.width(96.dp),
-                        enabled = isCustom,
-                    )
                 }
+                CustomSizeFields(
+                    width = customW,
+                    height = customH,
+                    enabled = isCustom,
+                    onWidthChange = { customW = it.filter(Char::isDigit).take(5) },
+                    onHeightChange = { customH = it.filter(Char::isDigit).take(5) },
+                )
                 val helper = when {
                     !isCustom -> null
                     chosenSize == null -> stringResource(
@@ -167,29 +174,31 @@ fun NewCanvasDialog(
                 val orientable = if (isCustom) false else presets.getOrNull(selected)?.isSquare == false
                 if (orientable) {
                     Spacer(Modifier.height(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
-                            selected = landscape,
-                            onClick = { landscape = true },
+                            selected = orientation == CanvasOrientation.LANDSCAPE,
+                            onClick = { orientationOverride = CanvasOrientation.LANDSCAPE },
                             label = { Text(stringResource(R.string.orientation_landscape)) },
                         )
                         FilterChip(
-                            selected = !landscape,
-                            onClick = { landscape = false },
+                            selected = orientation == CanvasOrientation.PORTRAIT,
+                            onClick = { orientationOverride = CanvasOrientation.PORTRAIT },
                             label = { Text(stringResource(R.string.orientation_portrait)) },
                         )
                     }
                 }
 
                 Spacer(Modifier.height(4.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                Text(
+                    stringResource(R.string.paper_label),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                FlowRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectableGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(
-                        stringResource(R.string.paper_label),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
                     for ((color, label) in paperSwatches()) {
                         PaperSwatch(
                             color = color,
@@ -214,7 +223,96 @@ fun NewCanvasDialog(
 }
 
 @Composable
-private fun PresetRow(preset: CanvasPreset, selected: Boolean, onSelect: () -> Unit) {
+private fun CustomSizeFields(
+    width: String,
+    height: String,
+    enabled: Boolean,
+    onWidthChange: (String) -> Unit,
+    onHeightChange: (String) -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val layout = NewCanvasLayoutPolicy.customSizeFields(
+            contentWidthDp = maxWidth.value,
+            fontScale = LocalDensity.current.fontScale,
+        )
+        if (!layout.hasUsableWidth) return@BoxWithConstraints
+
+        when (layout.arrangement) {
+            CustomSizeFieldArrangement.ROW -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(layout.gapDp.dp),
+            ) {
+                DimensionField(
+                    value = width,
+                    onValueChange = onWidthChange,
+                    label = stringResource(R.string.canvas_width),
+                    enabled = enabled,
+                    modifier = Modifier.width(layout.fieldWidthDp.dp),
+                )
+                Text(
+                    text = stringResource(R.string.dimension_separator),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.width(layout.separatorWidthDp.dp),
+                )
+                DimensionField(
+                    value = height,
+                    onValueChange = onHeightChange,
+                    label = stringResource(R.string.canvas_height),
+                    enabled = enabled,
+                    modifier = Modifier.width(layout.fieldWidthDp.dp),
+                )
+            }
+            CustomSizeFieldArrangement.COLUMN -> Column(
+                verticalArrangement = Arrangement.spacedBy(layout.gapDp.dp),
+            ) {
+                DimensionField(
+                    value = width,
+                    onValueChange = onWidthChange,
+                    label = stringResource(R.string.canvas_width),
+                    enabled = enabled,
+                    modifier = Modifier.width(layout.fieldWidthDp.dp),
+                )
+                DimensionField(
+                    value = height,
+                    onValueChange = onHeightChange,
+                    label = stringResource(R.string.canvas_height),
+                    enabled = enabled,
+                    modifier = Modifier.width(layout.fieldWidthDp.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DimensionField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    enabled: Boolean,
+    modifier: Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        singleLine = true,
+        enabled = enabled,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun PresetRow(
+    preset: CanvasPreset,
+    selected: Boolean,
+    orientation: CanvasOrientation,
+    onSelect: () -> Unit,
+) {
+    val displayedSize = preset.oriented(orientation)
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -230,7 +328,11 @@ private fun PresetRow(preset: CanvasPreset, selected: Boolean, onSelect: () -> U
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "${preset.size.width} × ${preset.size.height}",
+                stringResource(
+                    R.string.canvas_dimensions,
+                    displayedSize.width,
+                    displayedSize.height,
+                ),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -252,27 +354,41 @@ private fun PresetRow(preset: CanvasPreset, selected: Boolean, onSelect: () -> U
 private fun PaperSwatch(color: Color, label: String, selected: Boolean, onSelect: () -> Unit) {
     val border = if (selected) MaterialTheme.colorScheme.primary
     else MaterialTheme.colorScheme.outlineVariant
-    androidx.compose.foundation.layout.Box(
+    Box(
         modifier = Modifier
-            .size(28.dp)
-            .border(if (selected) 2.dp else 1.dp, border, CircleShape)
-            .background(
-                // The transparent swatch shows the surface variant as its
-                // "checkerboard" stand-in — an actual checker at 28 dp reads
-                // as noise.
-                if (color == Color.Transparent) MaterialTheme.colorScheme.surfaceVariant else color,
-                CircleShape,
+            .size(NewCanvasLayoutPolicy.PAPER_TARGET_DP.dp)
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = onSelect,
             )
-            .selectable(selected = selected, onClick = onSelect)
-            .semantics { contentDescription = label },
+            .semantics(mergeDescendants = true) { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
-        if (color == Color.Transparent) {
-            Text(
-                "∅",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Box(
+            modifier = Modifier
+                .size(NewCanvasLayoutPolicy.PAPER_VISUAL_DP.dp)
+                .border(if (selected) 2.dp else 1.dp, border, CircleShape)
+                .background(
+                    // The transparent swatch shows the surface variant as its
+                    // "checkerboard" stand-in — an actual checker at 28 dp reads
+                    // as noise.
+                    if (color == Color.Transparent) {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    } else {
+                        color
+                    },
+                    CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (color == Color.Transparent) {
+                Text(
+                    stringResource(R.string.paper_transparent_symbol),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

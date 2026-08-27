@@ -122,6 +122,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - Android caps each edge's system-gesture exclusion to 200 dp vertically.
   Canvas centres that segment beside the side rail; dock mode excludes
   nothing so the bottom system gesture remains available.
+- An `AlertDialog` owns a smaller, separate window. Capture activity-window
+  dimensions in its caller before applying screen-fit defaults; do not read
+  `LocalWindowInfo` from inside the dialog.
 - App display name lives ONLY in `strings.xml` (`app_name`). Never
   hardcode "帮你Draw" in a composable (rename checklist: PLAN.md "Renaming").
 - Colors come from `ui/theme/Color.kt` — no ad-hoc `Color(0x…)` in

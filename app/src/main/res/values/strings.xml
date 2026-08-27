@@ -54,6 +54,7 @@
     <string name="canvas_preset_too_large">Too large for this device</string>
     <string name="canvas_width">Width</string>
     <string name="canvas_height">Height</string>
+    <string name="canvas_dimensions" translatable="false">%1$d × %2$d</string>
     <string name="dimension_separator" translatable="false"> × </string>
     <string name="size_too_small">Each side needs at least %1$d px</string>
     <string name="size_too_large_format">The format tops out at %1$d px per side</string>
@@ -67,6 +68,7 @@
     <string name="paper_gray">Gray paper</string>
     <string name="paper_black">Black paper</string>
     <string name="paper_transparent">Transparent paper</string>
+    <string name="paper_transparent_symbol" translatable="false">∅</string>
 
     <!-- Canvas -->
     <string name="canvas_back">Back to the Studio</string>

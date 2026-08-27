@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -100,6 +101,7 @@ fun StudioScreen(
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showNewCanvas by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val screenSizePx = LocalWindowInfo.current.containerSize
 
     LaunchedEffect(openSettings) {
         if (!openSettings) return@LaunchedEffect
@@ -292,6 +294,7 @@ fun StudioScreen(
     if (showNewCanvas) {
         NewCanvasDialog(
             budget = viewModel.budget,
+            screenSizePx = screenSizePx,
             onDismiss = { showNewCanvas = false },
             onCreate = { size, paper ->
                 showNewCanvas = false

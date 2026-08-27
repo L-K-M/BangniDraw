@@ -36,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -45,8 +47,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.CustomAccessibilityAction
-import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -74,6 +74,7 @@ internal fun TopStrip(
     onLayers: () -> Unit,
     onColor: () -> Unit,
     onColorLongPress: () -> Unit,
+    recentPaletteFocusRequester: FocusRequester,
     onShare: () -> Unit,
     onExportPng: () -> Unit,
     onExportJpeg: () -> Unit,
@@ -102,6 +103,7 @@ internal fun TopStrip(
             onLayers,
             onColor,
             onColorLongPress,
+            recentPaletteFocusRequester,
             onShare,
             onExportPng,
             onExportJpeg,
@@ -219,6 +221,7 @@ private fun ToolCluster(
     onLayers: () -> Unit,
     onColor: () -> Unit,
     onColorLongPress: () -> Unit,
+    recentPaletteFocusRequester: FocusRequester,
     onShare: () -> Unit,
     onExportPng: () -> Unit,
     onExportJpeg: () -> Unit,
@@ -283,6 +286,7 @@ private fun ToolCluster(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(ICON_BUTTON)
+                    .focusRequester(recentPaletteFocusRequester)
                     .combinedClickable(
                         onClick = onColor,
                         onLongClickLabel = quickPaletteLabel,
@@ -291,12 +295,6 @@ private fun ToolCluster(
                     .semantics {
                         role = Role.Button
                         contentDescription = colorDescription
-                        customActions = listOf(
-                            CustomAccessibilityAction(quickPaletteLabel) {
-                                onColorLongPress()
-                                true
-                            },
-                        )
                     },
             ) {
                 Box(

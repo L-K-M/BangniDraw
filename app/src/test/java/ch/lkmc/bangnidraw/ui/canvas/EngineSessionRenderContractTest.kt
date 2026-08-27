@@ -203,6 +203,45 @@ class EngineSessionRenderContractTest {
     }
 
     @Test
+    fun `front frames snapshot batches while terminal drains are exhaustive`() {
+        val source = source(ENGINE_SESSION_PATH)
+        val front = section(source, FRONT_DRAW_START, FRONT_DRAW_END)
+        val end = section(source, END_STROKE_START, END_STROKE_END)
+        val cancel = section(source, CANCEL_STROKE_START, CANCEL_STROKE_END)
+
+        assertTrue(
+            FRAME_SNAPSHOT_SCOPE in front,
+            "a front frame must not chase batches published while it is drawing",
+        )
+        assertTrue(
+            EXHAUSTIVE_SCOPE in end,
+            "pen-up must consume every batch before merging",
+        )
+        assertTrue(
+            EXHAUSTIVE_SCOPE in cancel,
+            "cancel must return every queued ring slot",
+        )
+    }
+
+    @Test
+    fun `front completion reenters the generation gate after its GL marker`() {
+        val source = source(ENGINE_SESSION_PATH)
+        val completion = section(source, DRIVER_FRONT_COMPLETE_START, DRIVER_FRONT_COMPLETE_END)
+
+        val guard = completion.indexOf(GENERATION_GUARD_TEXT)
+        val marker = completion.indexOf(COMPLETION_GL_MARKER)
+        val gate = completion.indexOf(FRONT_COMPLETION_GATE_CALL)
+        val accepted = completion.indexOf(ACCEPTED_COMPLETION_GUARD)
+        val dispatch = completion.indexOf(PLAN_DISPATCH_CALL)
+
+        assertTrue(guard >= 0, "front completion must reject stale drivers")
+        assertTrue(marker > guard, "front completion must cross the GL FIFO")
+        assertTrue(gate > marker, "front completion must re-enter the pure gate")
+        assertTrue(accepted > gate, "duplicate front completions must stop atomically")
+        assertTrue(dispatch > accepted, "accepted work must target the completing generation")
+    }
+
+    @Test
     fun `canvas startup configures one scene before one redraw`() {
         val source = source(CANVAS_SURFACE_PATH)
         val factory = section(source, FACTORY_START, FACTORY_END)
@@ -261,6 +300,10 @@ class EngineSessionRenderContractTest {
         const val STAMP_END = "/** The next commit revision"
         const val END_STROKE_START = "fun endStroke(opacityCeiling: Float)"
         const val END_STROKE_END = "/**\n     * §10.1's between-frame poll"
+        const val FRONT_DRAW_START = "private fun onDrawFrontBufferedLayer("
+        const val FRONT_DRAW_END = "/**\n     * Consumes every published batch"
+        const val CANCEL_STROKE_START = "internal fun cancelStroke("
+        const val CANCEL_STROKE_END = "fun invalidate(op: SandwichPolicy.Op)"
         const val COMPLETE_TICK_START = "private fun completeMultiDraw(generation: Long)"
         const val COMPLETE_TICK_END = "var onRmwStarted:"
         const val SURFACE_CALLBACK_START = "private val surfaceCallback = object"
@@ -307,6 +350,10 @@ class EngineSessionRenderContractTest {
         const val ASYNC_REDRAW_CALLBACK = "override fun surfaceRedrawNeededAsync("
         const val DRIVER_MULTI_COMPLETE_START =
             "override fun onMultiBufferedLayerRenderComplete("
+        const val DRIVER_FRONT_COMPLETE_START =
+            "override fun onFrontBufferedLayerRenderComplete("
+        const val DRIVER_FRONT_COMPLETE_END =
+            "override fun onMultiBufferedLayerRenderComplete("
         const val DRIVER_MULTI_COMPLETE_END = "\n        }\n    }\n\n    private fun dispatch("
         const val SURFACE_GENERATION_CALL = "attachmentGate.surfaceChanged()"
         const val DISCARD_DRIVER_CALL = "discardDriver()"
@@ -340,7 +387,7 @@ class EngineSessionRenderContractTest {
         const val COMPLETION_GL_MARKER = "glRenderer.execute {"
         val REDRAW_COMPLETION = Regex("""\b(?:complete|finish)\w*Redraw\w*\(generation\)""")
         const val FINISH_WITH_GENERATION = "finishRedrawCompletions(generation)"
-        const val DRIVER_CALLBACK_COUNT = 3
+        const val DRIVER_CALLBACK_COUNT = 4
         const val WRAPPER_EXECUTE = "frontBuffered.execute"
         const val DRIVER_GENERATION_FIELD = "driverGeneration"
         const val RENDERER_RELEASE_CALL = "renderer.release()"
@@ -354,11 +401,15 @@ class EngineSessionRenderContractTest {
             """dispatch\(RenderDispatch\.(?:BOOTSTRAP|COMMIT|FRONT)""",
         )
         const val COMPLETION_GATE_CALL = "attachmentGate.multiDrawCompleted(generation)"
+        const val FRONT_COMPLETION_GATE_CALL = "attachmentGate.frontDrawCompleted(generation)"
         const val ACCEPTED_COMPLETION_GUARD =
             "completion !is AttachmentCompletion.Accepted"
+        const val PLAN_DISPATCH_CALL = "dispatch(completion.plan)"
         const val RENDER_POLICY_COMPLETION = "renderPolicy.onMultiDrawCompleted()"
         const val SHARED_COMPLETION_TICK = "multiCompleteTick"
         const val EXECUTE_CALL = "glRenderer.execute {"
+        const val FRAME_SNAPSHOT_SCOPE = "PendingBatchDrainScope.FRAME_SNAPSHOT"
+        const val EXHAUSTIVE_SCOPE = "PendingBatchDrainScope.EXHAUSTIVE"
         const val CONFIGURE_CALL = "session.configure(stack, paperColor, view)"
         const val SET_STACK_CALL = "session.setStack(stack)"
         const val SET_PAPER_CALL = "session.setPaperColor(paperColor)"

@@ -65,6 +65,34 @@ class DabRingTest {
     }
 
     @Test
+    fun `bounds is the exact union of only the selected dabs`() {
+        val batch = DabBatch(capacity = 4)
+        batch.add(8f, 12f, 2f, 1f, 1f, 0f, 1f, 0f)
+        batch.add(300f, 40f, 5f, 1f, 1f, 0f, 1f, 0f)
+        batch.add(340f, 90f, 8f, 1f, 1f, 0f, 1f, 0f)
+
+        val second = IntRect.forDab(300f, 40f, 5f)
+        val third = IntRect.forDab(340f, 90f, 8f)
+        assertEquals(
+            second.union(third),
+            batch.bounds(from = 1, until = 3),
+            "a selected tail must not inherit the committed dab's distant bounds",
+        )
+        assertEquals(IntRect.EMPTY, batch.bounds(from = 2, until = 2))
+        assertEquals(batch.dirty, batch.bounds(), "the default range must cover the whole batch")
+    }
+
+    @Test
+    fun `bounds rejects ranges outside the populated dabs`() {
+        val batch = DabBatch(capacity = 4)
+        repeat(3) { i -> batch.add(i.toFloat(), 0f, 1f, 1f, 1f, 0f, 1f, 0f) }
+
+        assertFailsWith<IllegalArgumentException> { batch.bounds(from = -1, until = 1) }
+        assertFailsWith<IllegalArgumentException> { batch.bounds(from = 2, until = 1) }
+        assertFailsWith<IllegalArgumentException> { batch.bounds(from = 0, until = 4) }
+    }
+
+    @Test
     fun `clearing resets the count, the tail marker and the dirty rect`() {
         val batch = DabBatch(capacity = 4)
         batch.add(10f, 10f, 2f, 1f, 1f, 0f, 1f, 0f)

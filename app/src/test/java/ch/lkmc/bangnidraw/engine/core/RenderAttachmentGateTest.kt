@@ -100,7 +100,57 @@ class RenderAttachmentGateTest {
         assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
 
         assertEquals(accepted(generation, RenderDispatch.FRONT), gate.multiDrawCompleted(generation))
+        assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
+    }
+
+    @Test
+    fun `front requests coalesce behind one outstanding draw`() {
+        val (gate, generation) = readyGate()
+
         assertEquals(RenderDispatch.FRONT, gate.requestFront().dispatch)
+        assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
+        assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
+
+        assertEquals(accepted(generation, RenderDispatch.FRONT), gate.frontDrawCompleted(generation))
+        assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
+        assertEquals(accepted(generation, RenderDispatch.FRONT), gate.frontDrawCompleted(generation))
+    }
+
+    @Test
+    fun `scene work wins when a front draw completes`() {
+        val (gate, generation) = readyGate()
+        assertEquals(RenderDispatch.FRONT, gate.requestFront().dispatch)
+        assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
+
+        assertEquals(RenderDispatch.NONE, gate.requestScene().dispatch)
+
+        assertEquals(accepted(generation, RenderDispatch.COMMIT), gate.frontDrawCompleted(generation))
+    }
+
+    @Test
+    fun `pen up supersedes queued front work`() {
+        val (gate, generation) = readyGate()
+        assertEquals(RenderDispatch.FRONT, gate.requestFront().dispatch)
+        assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
+
+        assertEquals(RenderDispatch.NONE, gate.endStroke().dispatch)
+
+        assertEquals(accepted(generation, RenderDispatch.COMMIT), gate.frontDrawCompleted(generation))
+        assertEquals(accepted(generation, RenderDispatch.NONE), gate.multiDrawCompleted(generation))
+    }
+
+    @Test
+    fun `stale and duplicate front completions are ignored`() {
+        val (gate, stale) = readyGate()
+        assertEquals(RenderDispatch.FRONT, gate.requestFront().dispatch)
+
+        val current = gate.surfaceChanged()
+        assertEquals(AttachmentCompletion.Ignored, gate.frontDrawCompleted(stale))
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(current).dispatch)
+        assertEquals(accepted(current, RenderDispatch.NONE), gate.multiDrawCompleted(current))
+        assertEquals(RenderDispatch.FRONT, gate.requestFront().dispatch)
+        assertEquals(accepted(current, RenderDispatch.NONE), gate.frontDrawCompleted(current))
+        assertEquals(AttachmentCompletion.Ignored, gate.frontDrawCompleted(current))
     }
 
     @Test
@@ -182,6 +232,17 @@ class RenderAttachmentGateTest {
     }
 
     @Test
+    fun `cancel abandons an outstanding front draw`() {
+        val (gate, generation) = readyGate()
+        assertEquals(RenderDispatch.FRONT, gate.requestFront().dispatch)
+
+        gate.cancelFront()
+
+        assertEquals(RenderDispatch.COMMIT, gate.requestScene().dispatch)
+        assertEquals(AttachmentCompletion.Ignored, gate.frontDrawCompleted(generation))
+    }
+
+    @Test
     fun `release absorbs every event`() {
         val gate = RenderAttachmentGate()
         gate.requestScene()
@@ -197,6 +258,7 @@ class RenderAttachmentGateTest {
         assertEquals(RenderDispatch.NONE, gate.surfaceReady(afterRelease).dispatch)
         gate.surfaceDestroyed()
         assertEquals(AttachmentCompletion.Ignored, gate.multiDrawCompleted(stale))
+        assertEquals(AttachmentCompletion.Ignored, gate.frontDrawCompleted(stale))
     }
 
     @Test
@@ -225,7 +287,7 @@ class RenderAttachmentGateTest {
         assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
 
         assertEquals(accepted(generation, RenderDispatch.FRONT), gate.multiDrawCompleted(generation))
-        assertEquals(RenderDispatch.FRONT, gate.requestFront().dispatch)
+        assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
     }
 
     @Test

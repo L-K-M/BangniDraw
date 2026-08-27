@@ -95,6 +95,20 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
     val capacity: Int get() = x.size
     val isFull: Boolean get() = count == x.size
 
+    /** Exact canvas bounds for a populated subrange of this batch. */
+    fun bounds(from: Int = 0, until: Int = count): IntRect {
+        require(from in 0..until && until <= count) {
+            "dab range [$from, $until) is not valid for $count dabs"
+        }
+        if (from == 0 && until == count) return dirty
+
+        var result = IntRect.EMPTY
+        for (index in from until until) {
+            result = result.union(IntRect.forDab(x[index], y[index], radius[index]))
+        }
+        return result
+    }
+
     /**
      * Appends one dab and returns true, or returns false when the batch is
      * full — the caller publishes it and takes the next ring slot. A `false`

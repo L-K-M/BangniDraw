@@ -28,11 +28,12 @@ internal class RenderAttachmentGate {
     private var scenePending = false
     private var frontPending = false
     private var multiDrawInFlight = false
+    private var frontDrawInFlight = false
 
     @Synchronized
     fun requestScene(): AttachmentRenderPlan {
         if (state == State.RELEASED) return plan(RenderDispatch.NONE)
-        if (state != State.READY || multiDrawInFlight) {
+        if (state != State.READY || multiDrawInFlight || frontDrawInFlight) {
             scenePending = true
             return plan(RenderDispatch.NONE)
         }
@@ -44,12 +45,13 @@ internal class RenderAttachmentGate {
     @Synchronized
     fun requestFront(): AttachmentRenderPlan {
         if (state == State.RELEASED) return plan(RenderDispatch.NONE)
-        if (state != State.READY || multiDrawInFlight || scenePending) {
+        if (state != State.READY || multiDrawInFlight || frontDrawInFlight || scenePending) {
             frontPending = true
             return plan(RenderDispatch.NONE)
         }
 
         frontPending = false
+        frontDrawInFlight = true
         return plan(RenderDispatch.FRONT)
     }
 
@@ -64,6 +66,7 @@ internal class RenderAttachmentGate {
     @Synchronized
     fun cancelFront() {
         frontPending = false
+        frontDrawInFlight = false
     }
 
     @Synchronized
@@ -74,6 +77,7 @@ internal class RenderAttachmentGate {
         state = State.WAITING
         scenePending = true
         multiDrawInFlight = false
+        frontDrawInFlight = false
         return generation
     }
 
@@ -85,6 +89,7 @@ internal class RenderAttachmentGate {
         state = State.WAITING
         scenePending = true
         multiDrawInFlight = false
+        frontDrawInFlight = false
     }
 
     @Synchronized
@@ -134,6 +139,33 @@ internal class RenderAttachmentGate {
         }
 
         frontPending = false
+        frontDrawInFlight = true
+        return AttachmentCompletion.Accepted(plan(RenderDispatch.FRONT))
+    }
+
+    @Synchronized
+    fun frontDrawCompleted(completedGeneration: Long): AttachmentCompletion {
+        if (
+            state != State.READY ||
+            completedGeneration != generation ||
+            !frontDrawInFlight
+        ) {
+            return AttachmentCompletion.Ignored
+        }
+
+        frontDrawInFlight = false
+        if (scenePending) {
+            scenePending = false
+            frontPending = false
+            multiDrawInFlight = true
+            return AttachmentCompletion.Accepted(plan(RenderDispatch.COMMIT))
+        }
+        if (!frontPending) {
+            return AttachmentCompletion.Accepted(plan(RenderDispatch.NONE))
+        }
+
+        frontPending = false
+        frontDrawInFlight = true
         return AttachmentCompletion.Accepted(plan(RenderDispatch.FRONT))
     }
 
@@ -143,6 +175,7 @@ internal class RenderAttachmentGate {
         scenePending = false
         frontPending = false
         multiDrawInFlight = false
+        frontDrawInFlight = false
     }
 
     private fun plan(dispatch: RenderDispatch): AttachmentRenderPlan =

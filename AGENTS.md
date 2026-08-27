@@ -323,6 +323,13 @@ and the contradiction is noted here.
   live preview once after an active completion, then returns to incremental
   front-buffer drawing. Re-presenting the cumulative stroke every frame defeats
   scan-line racing and produces a moving horizontal cutoff.
+- **graphics-core 1.0.4 holds `ParamQueue.mLock` while the app draws a front
+  frame.** A raw front request per input batch therefore blocks the input
+  thread behind GL work. `EngineSession` keeps one raw request outstanding;
+  later batches only latch one follow-up, dispatched from the generation-checked
+  completion after a GL FIFO marker. Each live callback snapshots its queue
+  depth before returning ring slots, so a producer cannot keep that frame
+  draining indefinitely. Pen-up and cancel still drain exhaustively.
 - **`execute` blocks and render requests ARE FIFO on the GL thread.**
   `03-canvas-engine.md` §8.3 flags this as an assumption "to verify against
   graphics-core", with a prepared fallback (do the merge at the top of the

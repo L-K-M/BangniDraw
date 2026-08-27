@@ -137,7 +137,7 @@ class DabPass(
         GLES30.glBindVertexArray(vao[0])
 
         val keyCount = collectKeys(batch, grid, from, until)
-        var dirty = IntRect.EMPTY
+        var drewTile = false
         for (i in 0 until keyCount) {
             val key = TileKey(distinctKeys[i])
             val n = gatherDabsFor(batch, grid, key, from, until)
@@ -153,7 +153,7 @@ class DabPass(
             program.uniform2f("u_tileOrigin", origin.x.toFloat(), origin.y.toFloat())
             uploadInstances(n)
             GLES30.glDrawArraysInstanced(GLES30.GL_TRIANGLE_STRIP, 0, CORNERS, n)
-            dirty = dirty.union(grid.tileRect(key))
+            drewTile = true
         }
 
         GLES30.glBindVertexArray(0)
@@ -162,6 +162,7 @@ class DabPass(
         // blending — a whole-screen corruption that reads as a shader bug.
         // GlState caches the equation, so under Accumulate this costs nothing.
         state.blendSourceOver()
+        val dirty = if (drewTile) batch.bounds(from, until) else IntRect.EMPTY
         buffer.growDirty(dirty)
         return dirty
     }

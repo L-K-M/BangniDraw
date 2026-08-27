@@ -848,15 +848,18 @@ write, which is what makes smudge drag.
 (`androidx.graphics:graphics-core`, coordinates in
 `libs.versions.toml`). The `param` is the `DabBatch` ring slot itself
 (`docs/plan/02-architecture.md` §3.2): the dabs plus a header — stroke id,
-`predictedFrom`, the dirty rect (canvas px). The main thread calls
-`renderer.renderFrontBufferedLayer(batch)` per input batch while a stroke
-is live; slots are released on the GL thread after the multi-buffered
-replay (02 §3.2).
+`predictedFrom`, the dirty rect (canvas px). The main thread publishes every
+batch, but keeps at most one raw `renderFrontBufferedLayer` request outstanding:
+graphics-core 1.0.4 holds its parameter lock throughout the app callback, so a
+request per batch can block input behind GL work. Completion dispatches one
+coalesced follow-up when more batches arrived. Slots are released by the GL
+thread after the front callback consumes them (02 §3.2).
 
 ### 8.1 `onDrawFrontBufferedLayer(eglManager, bufferInfo, transform, param)`
 
-1. Consume `param` (and any batch already published behind it — one frame,
-   all dabs, §11).
+1. Consume the batches present when this callback begins. Batches published
+   while it draws stay queued for the coalesced next frame; otherwise returning
+   ring slots lets the producer refill an unbounded drain and delays present.
 2. `DabPass` stamps committed (non-predicted) dabs into the stroke buffer
    (or `SmudgePass` into the layer for RMW).
 3. Dirty rect in canvas px = dabs' rects ∪ previous predicted tail's rect ∪

@@ -27,6 +27,8 @@ import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.MultiDrawCompletion
 import ch.lkmc.bangnidraw.engine.core.PixelOp
+import ch.lkmc.bangnidraw.engine.core.PendingBatchDrainScope
+import ch.lkmc.bangnidraw.engine.core.PendingBatchDrainWindow
 import ch.lkmc.bangnidraw.engine.core.ReadbackDrainResult
 import ch.lkmc.bangnidraw.engine.core.ReadbackPolicy
 import ch.lkmc.bangnidraw.engine.core.RedrawDecision
@@ -281,7 +283,7 @@ class EngineSession(
             // probe are queued normally and are sitting here when it fails.
             // Bailing out silently would strand every slot and backpressure
             // all later input for the rest of the session.
-            drainPending(stamp = false)
+            drainPending(stamp = false, scope = PendingBatchDrainScope.EXHAUSTIVE)
             return
         }
         val framePlan = renderPolicy.frontFrame()
@@ -296,7 +298,10 @@ class EngineSession(
         // requests, so an earlier callback may already have drained everything
         // this one was scheduled for — and it recomposited when it did, so
         // there is nothing left to draw.
-        val incrementalDirty = drainPending(stamp = true)
+        val incrementalDirty = drainPending(
+            stamp = true,
+            scope = PendingBatchDrainScope.FRAME_SNAPSHOT,
+        )
         val dirty = framePlan.dirty(incrementalDirty, renderer.strokePreviewDirty)
         if (dirty.present.isEmpty) return
 
@@ -318,10 +323,16 @@ class EngineSession(
      * stroke, and the unsupported-device path, both of which must leave no
      * trace but must still return their slots.
      */
-    private fun drainPending(stamp: Boolean): IntRect {
+    private val pendingDrainWindow = PendingBatchDrainWindow()
+
+    private fun drainPending(stamp: Boolean, scope: PendingBatchDrainScope): IntRect {
         var dirty = IntRect.EMPTY
         var stampedAny = false
-        while (true) {
+        // Returning a slot lets the input thread refill the queue immediately.
+        // A live frame consumes only its entry snapshot so it reaches present;
+        // pen-up and cancel use EXHAUSTIVE because no producer remains.
+        pendingDrainWindow.begin(scope, pendingBatches.size)
+        while (pendingDrainWindow.canPoll()) {
             val next = pendingBatches.poll() ?: break
             if (stamp) {
                 if (!stampedAny) {
@@ -527,6 +538,22 @@ class EngineSession(
             this@EngineSession.onDrawMultiBufferedLayer(
                 eglManager, width, height, bufferInfo, transform, params,
             )
+        }
+
+        override fun onFrontBufferedLayerRenderComplete(
+            frontBufferedLayerSurfaceControl: SurfaceControlCompat,
+            transaction: SurfaceControlCompat.Transaction,
+        ) {
+            if (!attachmentGate.acceptsDriverCallback(generation)) return
+
+            // graphics-core still owns its parameter lock in this callback.
+            // Re-enter after it commits so input never blocks behind GL work.
+            glRenderer.execute {
+                val completion = attachmentGate.frontDrawCompleted(generation)
+                if (completion !is AttachmentCompletion.Accepted) return@execute
+
+                dispatch(completion.plan)
+            }
         }
 
         override fun onMultiBufferedLayerRenderComplete(
@@ -890,7 +917,7 @@ class EngineSession(
             if (ReadbackPolicy.strokeCommit(pending) == StrokeCommitDecision.CANCEL) {
                 pendingMirror = pending
                 pumpReadback()
-                drainPending(stamp = false)
+                drainPending(stamp = false, scope = PendingBatchDrainScope.EXHAUSTIVE)
                 renderer.cancelStroke()
                 return@execute
             }
@@ -898,7 +925,7 @@ class EngineSession(
             // not yet drawn is stamped now, before the merge, or its dabs would
             // be lost — and its slot would still be checked out when the replay
             // arrives, where nothing releases it any more.
-            drainPending(stamp = true)
+            drainPending(stamp = true, scope = PendingBatchDrainScope.EXHAUSTIVE)
             renderer.endStroke(revision = thisRevision, opacityCeiling = opacityCeiling) { spec, keys ->
                 onStrokeMerged?.invoke(spec, keys, thisRevision)
             }
@@ -1066,7 +1093,7 @@ class EngineSession(
         glRenderer.execute {
             // Released, not stamped: §4 says a cancelled stroke leaves no
             // trace, but the slots still have to come back.
-            drainPending(stamp = false)
+            drainPending(stamp = false, scope = PendingBatchDrainScope.EXHAUSTIVE)
             renderer.cancelStroke { spec, keys -> onRmwCancelled?.invoke(spec, keys) }
         }
         // §8.4: cancel() drops the front-buffered content, and the

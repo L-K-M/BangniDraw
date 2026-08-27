@@ -257,11 +257,12 @@ three-finger taps (`07-input-and-stylus.md`) are their gesture twins.
 
 ### 3.2 Tool rail
 
-- One column, `slot` + 8 dp wide (56 dp on MEDIUM, 64 dp on EXPANDED);
-  buttons are `slot`-sized targets (48 dp on MEDIUM, 56 dp on EXPANDED,
-  §1) with a 40 dp rounded (radius `r.md`) visual; gap 4 dp (0 in SHORT). Icons are 24 dp line icons at 2 dp
-  stroke, drawn as `ImageVector`s in `ui/components/ToolIcons.kt` — no icon
-  font, no bitmaps. **Rail and dock slots carry no text label** (the tool
+- One tool column. SHORT is `slot` + 8 dp wide; GROUPED and FULL are 104 dp
+  wide so two 48 dp slider slabs plus 4 dp side padding cannot overlap.
+  Buttons are `slot`-sized targets (48 dp on MEDIUM, 56 dp on EXPANDED,
+  §1) with a 40 dp rounded (radius `r.md`) visual; gap 4 dp (0 in SHORT).
+  Icons are 24 dp `ImageVector`s — no icon font or bitmaps. **Rail and dock
+  slots carry no text label** (the tool
   names in the mocks are annotations): the name lives in the
   `contentDescription` and in the settings sheet header, so no locale can
   overflow a slot. Where a chip *does* carry text (the DOCK ledge's
@@ -632,16 +633,11 @@ use; newer segment/confirm constants are gated by SDK check.
 indigo→violet gradient, 1254 × 1254. `scripts/generate_icons.py` (Blipbird
 pattern) emits:
 
-- `mipmap-*/ic_launcher_background.png` — the **full-bleed artwork** scaled
-  to the 108 dp adaptive canvas per density. The glyph must survive the
-  launcher mask, which shows the inner 72 dp: the script scales the source
-  so the 帮 and brush sit inside the central 66 %, and the gradient fills
-  the bleed. Verify visually on a circle and a squircle mask before the
-  scaffold PR is merged.
-- `ic_launcher_foreground` — an **empty** transparent drawable. With the
-  artwork in the background layer there is no parallax split, which is
-  right: the gradient and the glyph are one painting, and a parallax on
-  half of it would look broken.
+- `mipmap-*/ic_launcher_bg.png` — the **full-bleed artwork** scaled to the
+  108 dp adaptive canvas per density and used as the foreground. A solid
+  indigo background covers edges exposed by launcher motion. Verify the 帮 and
+  brush on circle and squircle masks on a device; generation alone cannot
+  validate launcher cropping.
 - `drawable/ic_launcher_monochrome.xml` — a brush silhouette vector for
   themed icons on Android 13+. It exists
   (`app/src/main/res/drawable/ic_launcher_monochrome.xml`, hand-authored
@@ -649,9 +645,7 @@ pattern) emits:
   zone of the 108 dp canvas — the 帮 glyph is dropped on purpose because a
   calligraphic character tinted one colour at themed-icon sizes reads as a
   smudge.
-- Legacy `ic_launcher.png` / `ic_launcher_round.png` for launchers
-  that ignore adaptive icons — square crop and circle crop of the same
-  artwork.
+- No legacy launcher PNGs: minSdk 29 always supports adaptive icons.
 
 The in-app About screen reuses the artwork; nowhere else in the UI shows the
 gradient — the icon is the one loud thing the app owns.

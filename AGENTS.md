@@ -61,9 +61,9 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   assume it.
 - Adaptive icons live in `mipmap-anydpi-v26` even though minSdk is 29;
   `app/lint.xml` silences the (wrong) ObsoleteSdkInt advice. The artwork is
-  the adaptive **background** layer (full-bleed PNGs generated per density);
-  the foreground is an empty vector; the monochrome icon is a hand-drawn
-  brush silhouette.
+  the adaptive **foreground** layer (full-bleed PNGs generated per density)
+  over solid indigo, so foreground-only launcher surfaces retain it. The
+  monochrome icon is a hand-drawn brush silhouette.
 
 ## Architecture in one paragraph
 
@@ -280,6 +280,12 @@ and the contradiction is noted here.
   `03-canvas-engine.md` §8.6 left open ("if graphics-core exposes it in the
   pinned version (to verify)"). It does, so `EngineSession.redraw()` calls it
   and the `empty-param commit()` fallback the plan describes is not needed.
+- **A multi-buffer completion hides the front layer; release can clear it.**
+  Do not count callbacks or wait for them: release clears the front later.
+  `EngineRenderPolicy` rebuilds a live preview once, then re-presents cached
+  cumulative pixels while compositing only new dirt. A completion between
+  strokes protects the next one. Equal Compose state is filtered before it can
+  request another multi-buffer redraw.
 - **`execute` blocks and render requests ARE FIFO on the GL thread.**
   `03-canvas-engine.md` §8.3 flags this as an assumption "to verify against
   graphics-core", with a prepared fallback (do the merge at the top of the
@@ -298,11 +304,10 @@ and the contradiction is noted here.
 - **`GLFrontBufferedRenderer.execute` after release DROPS the block — it does
   not throw.** It checks `isValid()` and, when false, takes a `Log.w` branch and
   returns; the runnable never runs. That is what makes PR #13's R-063 fix load
-  bearing rather than defensive: `EngineSession.stampDabs` returns its
-  `DabRing` slot *inside* the queued block, so a dropped block silently strands
-  a slot, and a few of those leave `acquireDabBatch` returning null forever with
-  no exception anywhere to say why. Clearing the pinned engine at the disposal
-  seam is what keeps blocks from being queued onto a released renderer at all.
+  bearing rather than defensive: `EngineSession.endStroke` and `cancelStroke`
+  drain queued `DabRing` slots inside such blocks, so a dropped block can
+  strand them without an exception. Clearing the pinned engine at disposal
+  keeps blocks from being queued onto a released renderer.
 - **`glBindFramebuffer(GL_FRAMEBUFFER, …)` sets the read *and* draw binding**,
   so `Accum → Scratch` needs two `GlFbo`s — one bound `GL_READ_FRAMEBUFFER`,
   one `GL_DRAW_FRAMEBUFFER`. Blitting through a single FBO object makes the

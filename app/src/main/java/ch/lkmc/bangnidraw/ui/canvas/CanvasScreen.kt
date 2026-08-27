@@ -484,6 +484,7 @@ private fun CanvasContent(
                     val reason = strokeState.temporaryReason
                     strokeState.temporaryReason = null
                     if (strokeState.pickParams != null) {
+                        strokeState.nextPickGeneration()
                         viewModel.commitPickedColor()
                         strokeState.pickParams = null
                         strokeState.engine = null

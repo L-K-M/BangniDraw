@@ -18,8 +18,16 @@ class RememberedCustomSizeContractTest {
         assertTrue("prefs.lastCustomSize.collect" in viewModel)
         assertTrue("copy(lastCustomSize = value)" in viewModel)
         assertTrue("lastCustomSize = state.lastCustomSize" in screen)
-        assertTrue("rememberSaveable(lastCustomSize)" in dialog)
         assertFalse("internal var lastCustomSize" in viewModel)
+
+        // User edits win over the remembered pre-fill: the fields are not
+        // keyed on the async value (which would snap mid-edit), and a
+        // keystroke latches the edited flag that stops the sync.
+        assertFalse("rememberSaveable(lastCustomSize)" in dialog)
+        assertTrue("var customEdited by rememberSaveable" in dialog)
+        assertTrue("LaunchedEffect(lastCustomSize)" in dialog)
+        assertTrue("if (customEdited) return@LaunchedEffect" in dialog)
+        assertTrue("customEdited = true" in dialog)
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()

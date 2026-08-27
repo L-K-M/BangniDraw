@@ -218,6 +218,7 @@ private fun HsvRingSquare(
     // caches by size, so a remembered instance pays one shader at worst. The
     // endpoints must be explicit: the shader is not translated to the rect.
     val pickerPx = with(LocalDensity.current) { PICKER_SIZE.toPx() }
+    val pickerCenter = Offset(pickerPx / 2f, pickerPx / 2f)
     val squareHalf = pickerPx * HsvPicker.SQUARE_HALF_EDGE
     val squareLeft = pickerPx / 2f - squareHalf
     val hueColor = Color(HsvColor(hsv.h, 1f, 1f).toArgb())
@@ -284,10 +285,11 @@ private fun HsvRingSquare(
                 ) { change, _ -> update(change.position) }
             },
     ) {
-        val ringWidth = size.minDimension * RING_WIDTH_FRACTION
+        val ringWidth = pickerPx * RING_WIDTH_FRACTION
         drawCircle(
             brush = hueRingBrush,
-            radius = size.minDimension / 2f - ringWidth / 2f,
+            radius = pickerPx / 2f - ringWidth / 2f,
+            center = pickerCenter,
             style = Stroke(ringWidth),
         )
 
@@ -305,10 +307,10 @@ private fun HsvRingSquare(
         )
 
         val radians = Math.toRadians(hsv.h.toDouble())
-        val ringRadius = size.minDimension * RING_MARKER_RADIUS
+        val ringRadius = pickerPx * RING_MARKER_RADIUS
         val hueMarker = Offset(
-            center.x + cos(radians).toFloat() * ringRadius,
-            center.y + sin(radians).toFloat() * ringRadius,
+            pickerCenter.x + cos(radians).toFloat() * ringRadius,
+            pickerCenter.y + sin(radians).toFloat() * ringRadius,
         )
         val svMarker = Offset(
             topLeft.x + hsv.s * squareSize.width,

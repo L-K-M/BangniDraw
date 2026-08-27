@@ -28,10 +28,16 @@ class ColorPanelAllocationContractTest {
             assertTrue(marker in picker, "missing marker [$marker]")
         }
 
-        val draw = picker.substringAfter("Canvas(", "")
+        val canvasStart = picker.indexOf("Canvas(")
+        if (canvasStart < 0) fail("missing source marker: Canvas(")
+        val draw = picker.substring(canvasStart)
         assertFalse(
             "= Brush." in draw,
             "a Brush is still constructed inside the Canvas draw block",
+        )
+        assertTrue(
+            "val ringWidth = pickerPx * RING_WIDTH_FRACTION" in draw,
+            "ring geometry does not share the picker's measured basis",
         )
     }
 
@@ -58,9 +64,23 @@ class ColorPanelAllocationContractTest {
     }
 
     private fun repositoryRoot(): File {
-        val workingDirectory = File(System.getProperty("user.dir"))
-        if (workingDirectory.name == "app") return workingDirectory.parentFile
-        return workingDirectory
+        val userDirectory = checkNotNull(System.getProperty("user.dir")) {
+            "user.dir is unavailable"
+        }
+        var directory: File? = File(userDirectory).absoluteFile
+        while (directory != null) {
+            val candidate = directory
+            if (
+                candidate.resolve("settings.gradle").isFile ||
+                candidate.resolve("settings.gradle.kts").isFile
+            ) {
+                return candidate
+            }
+
+            directory = candidate.parentFile
+        }
+
+        fail("repository root not found above $userDirectory")
     }
 
     private companion object {

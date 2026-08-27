@@ -5,4 +5,7 @@
          doesn't flash a foreign color before Compose draws). -->
     <color name="paper_light">#F6F3EC</color>
     <color name="paper_dark">#15161A</color>
+
+    <!-- Covers edges revealed when a launcher moves the opaque artwork. -->
+    <color name="icon_indigo">#2B2ED6</color>
 </resources>

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Generate the launcher assets from media-sources/icon.png.
 
-The artwork is used FULL-BLEED as the adaptive icon's background layer —
-launchers apply their own mask (circle, squircle, rounded square), and the
-painting's gradient runs to every edge, so any mask looks intentional. The
-foreground layer is an empty vector and the themed/monochrome variant is a
-hand-authored brush silhouette (both in res/drawable/, not generated).
+The artwork is used FULL-BLEED as the adaptive icon's foreground layer so
+foreground-only launcher surfaces retain it. Launchers apply
+their own mask (circle, squircle, rounded square); a solid indigo background
+covers any edge exposed by motion. The themed/monochrome variant remains a
+hand-authored brush silhouette in res/drawable/.
 
 Per density this writes mipmap-<dpi>/ic_launcher_bg.png at the 108dp
 adaptive canvas size. minSdk is 29, so no pre-8.0 legacy PNGs are needed.

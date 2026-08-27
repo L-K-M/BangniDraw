@@ -2161,7 +2161,11 @@ class CanvasViewModel @Inject constructor(
                 if (!flushed) withContext(Dispatchers.Main) { noteLeaveFailure() }
             } finally {
                 if (!handedOff) {
-                    setClosing(false)
+                    // Ownership-guarded like the success branch: on a
+                    // rethrown cancellation this coroutine is already
+                    // inactive while its finally runs, so a newer leave()
+                    // may have started and only that job may clear.
+                    if (leaveJob === coroutineContext[Job]) setClosing(false)
                 } else {
                     // If navigation was swallowed (a cancelled predictive-back
                     // gesture, an uncollected event), lift the scrim rather

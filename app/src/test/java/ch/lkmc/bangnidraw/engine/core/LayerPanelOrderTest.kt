@@ -31,4 +31,48 @@ class LayerPanelOrderTest {
         assertNull(LayerPanelOrder.move(fromDisplay = -1, toDisplay = 1, size = 4))
         assertNull(LayerPanelOrder.move(fromDisplay = 1, toDisplay = 4, size = 4))
     }
+
+    @Test
+    fun `offers only reorder actions that move the layer`() {
+        assertEquals(
+            listOf(
+                LayerReorderAction.UP,
+                LayerReorderAction.DOWN,
+                LayerReorderAction.TOP,
+                LayerReorderAction.BOTTOM,
+            ),
+            LayerPanelOrder.actions(stackIndex = 1, size = 4),
+        )
+        assertEquals(
+            listOf(LayerReorderAction.DOWN, LayerReorderAction.BOTTOM),
+            LayerPanelOrder.actions(stackIndex = 3, size = 4),
+        )
+        assertEquals(
+            listOf(LayerReorderAction.UP, LayerReorderAction.TOP),
+            LayerPanelOrder.actions(stackIndex = 0, size = 4),
+        )
+        assertEquals(emptyList(), LayerPanelOrder.actions(stackIndex = 0, size = 1))
+    }
+
+    @Test
+    fun `maps accessibility reorders to stack moves`() {
+        assertEquals(
+            LayerPanelOrder.Move(from = 1, to = 2),
+            LayerPanelOrder.move(1, LayerReorderAction.UP, size = 4),
+        )
+        assertEquals(
+            LayerPanelOrder.Move(from = 1, to = 0),
+            LayerPanelOrder.move(1, LayerReorderAction.DOWN, size = 4),
+        )
+        assertEquals(
+            LayerPanelOrder.Move(from = 1, to = 3),
+            LayerPanelOrder.move(1, LayerReorderAction.TOP, size = 4),
+        )
+        assertEquals(
+            LayerPanelOrder.Move(from = 2, to = 0),
+            LayerPanelOrder.move(2, LayerReorderAction.BOTTOM, size = 4),
+        )
+        assertNull(LayerPanelOrder.move(3, LayerReorderAction.UP, size = 4))
+        assertNull(LayerPanelOrder.move(0, LayerReorderAction.DOWN, size = 4))
+    }
 }

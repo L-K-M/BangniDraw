@@ -209,6 +209,10 @@
     <string name="layer_more">Layer actions</string>
     <string name="layer_panel_more">Layer panel actions</string>
     <string name="layer_drag">Reorder layer</string>
+    <string name="layer_move_up">Move up</string>
+    <string name="layer_move_down">Move down</string>
+    <string name="layer_move_top">Move to top</string>
+    <string name="layer_move_bottom">Move to bottom</string>
     <string name="layer_show">Show layer</string>
     <string name="layer_hide">Hide layer</string>
     <string name="layer_opacity">Layer opacity</string>

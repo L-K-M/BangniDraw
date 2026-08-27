@@ -62,6 +62,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -72,6 +76,7 @@ import ch.lkmc.bangnidraw.engine.core.CanvasDialog
 import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerPanelOrder
+import ch.lkmc.bangnidraw.engine.core.LayerReorderAction
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
@@ -215,6 +220,11 @@ internal fun LayerPanel(
                             thumbnail = thumbnails[id],
                             dragOffset = if (draggedId == id) dragOffset else 0f,
                             hapticsMode = hapticsMode,
+                            reorderActions = if (documentBusy) {
+                                emptyList()
+                            } else {
+                                LayerPanelOrder.actions(index, stack.size)
+                            },
                             onSelect = {
                                 onOpacityFinished()
                                 opacityLayer = null
@@ -251,6 +261,11 @@ internal fun LayerPanel(
                             onToggleLock = { onToggleLock(index) },
                             onBlendMode = { onBlendMode(index, it) },
                             onDelete = { onDelete(index) },
+                            onReorder = { action ->
+                                val move = LayerPanelOrder.move(index, action, stack.size)
+                                    ?: return@LayerRow
+                                onMove(move.from, move.to)
+                            },
                             onDragStart = {
                                 if (documentBusy) return@LayerRow
                                 onOpacityFinished()
@@ -396,6 +411,7 @@ private fun LayerRow(
     thumbnail: LayerThumbnail?,
     dragOffset: Float,
     hapticsMode: HapticsMode,
+    reorderActions: List<LayerReorderAction>,
     onSelect: () -> Unit,
     onToggleVisibility: () -> Unit,
     onOpacityClick: () -> Unit,
@@ -409,6 +425,7 @@ private fun LayerRow(
     onToggleLock: () -> Unit,
     onBlendMode: (BlendMode) -> Unit,
     onDelete: () -> Unit,
+    onReorder: (LayerReorderAction) -> Unit,
     onDragStart: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
@@ -422,6 +439,21 @@ private fun LayerRow(
     val background = if (selected) MaterialTheme.colorScheme.primaryContainer
     else MaterialTheme.colorScheme.surfaceContainer
     val rowAlpha = if (layer.props.visible) 1f else HIDDEN_ALPHA
+    val reorderCustomActions = reorderActions.map { action ->
+        CustomAccessibilityAction(
+            label = stringResource(
+                when (action) {
+                    LayerReorderAction.UP -> R.string.layer_move_up
+                    LayerReorderAction.DOWN -> R.string.layer_move_down
+                    LayerReorderAction.TOP -> R.string.layer_move_top
+                    LayerReorderAction.BOTTOM -> R.string.layer_move_bottom
+                },
+            ),
+        ) {
+            onReorder(action)
+            true
+        }
+    }
 
     Surface(
         color = background,
@@ -431,6 +463,10 @@ private fun LayerRow(
             .height(ROW_HEIGHT)
             .graphicsLayer { translationY = dragOffset }
             .alpha(rowAlpha)
+            .semantics {
+                this.selected = selected
+                customActions = reorderCustomActions
+            }
             .combinedClickable(
                 onClick = onSelect,
                 onLongClick = {
@@ -759,11 +795,11 @@ private data class PaperChoice(val color: Color, val label: Int)
 
 private val HEADER_HEIGHT = 56.dp
 private val ROW_HEIGHT = 64.dp
-private val ROW_ACTION = 40.dp
+private val ROW_ACTION = 48.dp
 private val THUMB_SIZE = 40.dp
 private val PAPER_SWATCH = 32.dp
 private val SELECTION_BAR = 4.dp
-private val OPACITY_VALUE_WIDTH = 40.dp
+private val OPACITY_VALUE_WIDTH = ROW_ACTION
 private val OPACITY_SLIDER_LENGTH = 80.dp
 private const val CHECKER_CELLS = 4
 private const val PERCENT = 100f

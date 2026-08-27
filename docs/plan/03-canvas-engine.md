@@ -836,8 +836,10 @@ The pressure-sized `Scratch` and blur-work targets retain their per-session
 high-water allocation. A smaller dab changes only their logical width/height,
 viewport and quad; it does not delete immutable storage. Shader coordinates
 remain in logical pixels and multiply by the inverse allocated dimensions,
-so a retained larger texture samples the same texels. Memory reporting uses
-the allocated capacity, not the current logical viewport.
+so a retained larger texture samples the same texels. Taps beyond a
+canvas-clipped logical rect clamp to its edge, never into retained stale
+texels. Memory reporting uses the allocated capacity, not the current logical
+viewport.
 
 **Cost model.** Per dab: ≈2 × (2r+2)² px of work (copy + draw) × tiles
 touched, plus one FBO bind per tile. At r = 32 and 4 tiles that is ≈36 K

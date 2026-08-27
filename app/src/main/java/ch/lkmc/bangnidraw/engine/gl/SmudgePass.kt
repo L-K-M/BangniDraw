@@ -245,6 +245,11 @@ class SmudgePass(
             1f / work.capacityWidth,
             1f / work.capacityHeight,
         )
+        blurVertical.uniform2f(
+            "u_horizontalScale",
+            work.width.toFloat() / work.capacityWidth,
+            work.height.toFloat() / work.capacityHeight,
+        )
         bindDab(blurVertical, batch, index)
         blurVertical.uniform1f("u_strength", batch.flow[index])
         blurVertical.uniform1i("u_radius", spec.radius)
@@ -297,6 +302,11 @@ class SmudgePass(
             "u_beforeTexel",
             1f / before.capacityWidth,
             1f / before.capacityHeight,
+        )
+        program.uniform2f(
+            "u_beforeScale",
+            before.width.toFloat() / before.capacityWidth,
+            before.height.toFloat() / before.capacityHeight,
         )
     }
 

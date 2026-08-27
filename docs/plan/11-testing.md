@@ -370,7 +370,7 @@ What is pinned, and from where:
 | `${BlendMode.entries}` shader ids distinct | the enum | two modes collapsing |
 | `u_strokeMode` (PAINT / ERASE / MIX) and `u_alphaLock` branches present in `merge.frag` (`03-canvas-engine.md` §7.4) | constants | silent no-op tools |
 | `#define BANGNI_MIXING` / `mixbox_lerp(` present in the `*_mix` merge and smudge variants; **absent** from the plain ones (`09-color-and-mixing.md` §5.2) | — | paying the LUT cost on every stroke |
-| RMW scratch UVs multiply logical pixels by inverse allocated dimensions; blur's full-rect UV scales by logical/allocation size (03 §7.6) | `OffscreenCapacity` and `SmudgePass` bindings | retained high-water textures stretching or offsetting smudge/blur samples |
+| RMW scratch UVs use `u_beforeTexel`/`u_beforeScale`; blur work uses `u_horizontalTexel`/`u_horizontalScale`; every tap calls `clampLogicalUv` (`03-canvas-engine.md` §7.6) | `SmudgePass` uploads logical/capacity scales from `OffscreenTarget` | retained high-water textures stretching, offsetting, or exposing stale edge texels |
 | The stroke-buffer opacity cap `S *= u_strokeOpacity / S.a` (`03-canvas-engine.md` §7.4) | `StrokeBuffer.MERGE_EXPR` | opacity cap drift from `CompositeTest` |
 | The 8-bit rounding helper | `Composite.ROUND_EXPR` | last-bit disagreement with the CPU reference |
 | `layout(location = N)` attribute indices | `Shaders.ATTR_POS`, `ATTR_UV` | VAO binding mismatch |

@@ -58,4 +58,20 @@ class RmwShaderContractTest {
         assertTrue("scratchPixel * u_beforeTexel" in vertical)
         assertTrue("scratchPixel * u_horizontalTexel" in vertical)
     }
+
+    @Test
+    fun `RMW shaders clamp taps to the logical texture edge`() {
+        val deposit = Shaders.SMUDGE_DEPOSIT.fragment
+        val absorb = Shaders.SMUDGE_ABSORB.fragment
+        val horizontal = Shaders.BLUR_HORIZONTAL.fragment
+        val vertical = Shaders.BLUR_VERTICAL.fragment
+
+        assertTrue("clampLogicalUv(scratchUv, u_beforeTexel, u_beforeScale)" in deposit)
+        assertTrue("clampLogicalUv(scratchUv, u_beforeTexel, u_beforeScale)" in absorb)
+        assertTrue("clampLogicalUv(tapUv, u_texel, u_sourceScale)" in horizontal)
+        assertTrue("clampLogicalUv(beforeUv, u_beforeTexel, u_beforeScale)" in vertical)
+        assertTrue(
+            "clampLogicalUv(tapUv, u_horizontalTexel, u_horizontalScale)" in vertical,
+        )
+    }
 }

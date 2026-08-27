@@ -2,10 +2,11 @@
 
 Findings from the full-project review of 2026-08-27 (originally written down
 in `glm.md`), consolidated with the second-pass deep review of the same day
-(`ds.md`). Every entry was verified in the source, not inferred from the
-docs; everything marked [fix-now] or **[do]** has landed (see the cleared
-list); what remains is shovel-ready work for a future LLM session, ordered
-small-to-large within each section.
+(`ds.md`) and the third pass (`qwen.md`, merged here and removed). Every
+entry was verified in the source, not inferred from the docs; everything
+marked [fix-now] or **[do]** has landed (see the cleared list); what remains
+is shovel-ready work for a future LLM session, ordered small-to-large
+within each section.
 
 House rules for picking items up: read PLAN.md's relevant `docs/plan/` file
 first, write the failing test before the fix, keep decision logic in
@@ -18,7 +19,7 @@ Eight small, well-scoped PRs landed against `main` (merged PRs #55, #57,
 `ds.md` [do] list. Each had CI green (`testDebugUnitTest lintDebug`),
 strings in both locales (`values/` + `values-b+zh+Hans/`), no manifest
 permission changes, and a pinned `engine/core` policy + test where
-decision-shaped (`EraserTogglePolicyTest`). The parallel agent's PRs
+decision-shaped (`EraserTogglePolicyTest`). The parallel agents' PRs
 (#58 share chooser, #62 studio outcomes) landed independently and cover
 the same underlying items (share chooser title + Studio delete outcome).
 Response notes from GLM 5.3 reviews are recorded below per PR (no blocking
@@ -54,6 +55,34 @@ refuted with evidence).
   GLM flagged crosshair covering the sampled pixel; removed `drawCrosshair`
   from the pipette path (retained for the ring-cursor brush path).
 
+The third pass (`qwen.md`) added five more, each through its own review
+cycle to steady state:
+
+- PR #67 — New Canvas orientation override resets with the preset
+  (`rememberSaveable(selected)` re-keying) (`NewCanvasDialog.kt`). The
+  override belongs to the preset it was chosen for; carrying it across
+  applied a stale Landscape to a portrait row.
+- PR #68 — Remember the last custom canvas size (`Prefs.lastCustomSize`,
+  Custom-row pre-fill) + PR #73, its refinement: typed sizes win over the
+  remembered pre-fill (`customEdited` latch; `RememberedCustomSizeContractTest`
+  pins the user-edits-win shape). GLM round 1 asked the snap-vs-edits
+  question; edits-win is the recorded answer.
+- PR #74 — Name a palette when it is created (`PalettePolicy.createdName`,
+  name dialog, unique-display-name check, `palette_name_taken` in both
+  locales). GLM round-1 major caught a locale-frozen literal via the
+  localized prefill; the field now starts empty with a placeholder so blank
+  keeps the localizing token.
+- PR #75 — Hover ring tinted with the brush colour (`HoverCursorSpec.ink`,
+  explicit at every site; opaque hint ring inside the size ring)
+  (`HoverCursorPolicy.kt`, `HoverCursor.kt`).
+- PR #76 — Cache decoded shelf thumbnails (16 MiB `LruCache` keyed by
+  `StudioThumbnailKey`, segment-boundary eviction on delete, put-then-
+  verify against a racing delete) (`StudioViewModel.kt`, `StudioScreen.kt`).
+  Clears the "no memory cache across scroll" note below.
+
+#64 (pipette centering) was closed in favour of #66's better design — same
+outcome, one landed.
+
 These are cleared from the shovel-ready list; the remaining open items are
 #6 (curve plot) and #8 (custom paper) — #7 landed via the parallel #68 —
 plus the larger-idea backlog. The parallel agent's PR #62 (Studio delete/
@@ -75,18 +104,44 @@ superseded to avoid duplicate review load.
 
 ## Shovel-ready (remaining)
 
-Only #6 (curve plot) and #8 (custom paper colour) from the original list
-are still open — #7 (remember the last custom canvas size) landed as the
-parallel PR #68, with #73 open as its typed-input refinement. Order:
-#6 < #8 (the curve editor needs no new APIs; the custom paper requires
-wiring the HSV picker through `NewCanvasDialog`).
+Only #8 (custom paper colour) from the original list is still untouched —
+#6 (curve plot) is in flight as PR #77, #7 landed as PR #68 with #73 as its
+typed-input refinement. Order: #8 (wiring the HSV picker through
+`NewCanvasDialog`) after #77 lands, then the third-pass additions below.
 
-6. **Draw the pressure curve.** (`ui/canvas/BrushSettingsSheet.kt`,
-   `engine/core/Curve.kt`)
 8. **Custom paper colour at creation.** (`NewCanvasDialog` sixth swatch,
    `onCreate` passes the colour through)
 
+Third-pass additions (from `qwen.md`, verified in source, none taken yet):
+
+9. **No feedback when a stroke is refused because the document is busy.**
+   `beginStrokeTool` returns null while `CanvasActionGate` is busy; the pen
+   moves, nothing lands, nothing is said. The `strokeLayerNotice` toast
+   path already exists for locked layers — one more reason string closes
+   the loop. (`CanvasViewModel.beginStrokeTool`, `CanvasScreen`.)
+10. **Keyboard shortcuts are undiscoverable.** `CanvasShortcuts` has a real
+    table (Z/Y, brackets, B/E/S/G/I, Tab, L/C, Alt) and nothing in the UI
+    mentions it; DeX/Chromebook users get zero hints. The table is data —
+    a Shortcuts section in Settings or About is nearly free.
+    (`ui/home/SettingsSheet.kt`, `engine/core/CanvasShortcut.kt`.)
+11. **The mixing dish's slider position is not durable.** `DishState.t`
+    resets to 0.5 whenever the panel recomposes from scratch, and `Prefs`
+    stores only the wells. Persist `t` beside them — it is exactly the kind
+    of durable setting §12 describes — or key the slider on the wells so a
+    well change recentres it deliberately. (`ColorPanel.kt`, `Prefs.kt`.)
+12. **Clear layer is destructive without confirmation while merge/flatten
+    have dialogs.** Undo covers it, which is why this is a deliberate-call
+    item rather than a defect: "Clear" sits one menu tap from a fat finger
+    and the app already pays for confirmation dialogs on the two
+    scarier-but-recoverable actions. Either confirm or record the asymmetry
+    as deliberate in AGENTS.md. (`LayerPanel`'s `LayerMenu`.)
+
 ## Larger ideas (need product judgment or a proposal doc)
+
+Third-pass ordering take: of the post-v1 backlog in `12-roadmap.md` §5,
+**symmetry** is the highest delight-per-effort (size S, every engine seam
+exists, one journal entry) — it changes what people draw, not just how.
+Then image import as layer/reference, then gradient fill.
 
 - **GL band flatten** (`03-canvas-engine.md` §10.4): supersedes both CPU
   flatten call sites (gallery sync ~every 30 s, thumbnail at checkpoints,
@@ -114,6 +169,11 @@ wiring the HSV picker through `NewCanvasDialog`).
   math in sync if either side changes (AGENTS.md rule).
 - **Hue-milestone haptic on eyedropper drag.** The `HueMilestone` helper
   exists for the picker ring; tick when a dragged pick crosses a hue band.
+- **Brush-size by pen drag (two-finger hold).** Hold two fingers, drag the
+  pen vertically, watch the hover ring grow — the arbiter already
+  distinguishes nav from stroke; a hold-without-move state is the new
+  piece. Risky enough to need a proposal doc before building
+  (`GestureArbiter`, `HoverCursor`).
 - **Ambient Studio shelf.** The newest painting's `thumb.png` rendered
   large and dim behind the app name. One image, big polish.
 - **Session playback from the undo journal.** The journal already holds
@@ -138,6 +198,33 @@ wiring the HSV picker through `NewCanvasDialog`).
 - **Clear painting (journaled).** A blank restart today means delete +
   create; a whole-document clear as one journal entry is honest and
   undoable.
+- **"Continue" launcher shortcut.** `ShortcutManager` dynamic shortcut to
+  the most recently updated painting — long-press the launcher icon, jump
+  straight back in. No permissions; the Studio already knows the newest id.
+  Pairs with the one-tap promise. (`StudioViewModel`, `BangniApp`.)
+- **HSV picker sized to its panel.** `PICKER_SIZE` is a fixed 220 dp in a
+  panel that reaches 320 dp on tablets; a width-scaled picker (with a cap)
+  is a quiet aesthetic win. (`ColorPanel.kt`.)
+- **Panel close affordance.** Dismissal is scrim-tap or Back; a side sheet
+  on a tablet reads as permanent furniture to a first-time user. A close
+  icon in the panel header costs ~12 lines. (`ColorPanel`, `LayerPanel`,
+  `BrushSettingsSheet` headers.)
+- **Checkerboard that scales with zoom.** The transparent-paper checker is
+  a fixed 8 dp; at 64× it becomes a shout. Banding `checkerPx` by
+  `view.scale` (8/16/32) keeps it a texture — `setCanvasAppearance` already
+  takes it as a parameter. (`EngineSession`, `CanvasScreen`.)
+- **Dock rail rounded.** Side rails are rounded rectangles; the DOCK variant
+  is a full-width slab. Rounding its top corners makes the dock read as the
+  same object in a different posture. (`ToolRail.Dock`.)
+- **A display face for the Studio's name and panel headers.** The theme is
+  default Material; one CC0/OFL display font would give the app a voice
+  without touching the canvas. Needs provenance recorded in AGENTS.md
+  (third-party assets rule). (`ui/theme/Type.kt`.)
+- **Shelf cards with a whisper of elevation.** Thumbnail cells are bordered
+  and flat; 1 dp elevation + the existing radius gives the paintings
+  physicality, especially in dark mode. The "New painting" cell could take
+  a `primaryContainer`-tinted fill for the same reason.
+  (`StudioScreen.PaintingCell`, `NewPaintingCell`.)
 
 ## New observations from the second pass (durable notes)
 
@@ -149,15 +236,21 @@ wiring the HSV picker through `NewCanvasDialog`).
 - **Mid-session gallery sync cost**: `GallerySyncDecision`'s 30 s floor is
   the only throttle on full-canvas flatten + `Bitmap.compress(PNG)` during
   active painting (ceiling checkpoints every 90 s). Acceptable per plan
-  §9.3; revisit with the GL band flatten.
+  §9.3; revisit with the GL band flatten. Related: `syncStale` fires from
+  `refresh()` — the painting just edited is stale by construction, so the
+  flatten runs while the user is still deciding what to open. It is on IO
+  and guarded now (a corrupt painting skips, no crash); delaying the sweep
+  a few seconds after the listing lands would move it off the user's
+  immediate attention. Superseded by the GL band flatten either way.
 - **`MixingDish.gradient`** recomputes 9 Mixbox mixes per color-panel
   recomposition — wrap in `remember` when the dish section is next touched.
 - **`BrushSettingsSheet` preview** allocates a bitmap per 50 ms debounce
   tick while sliders drag — bounded, but reusable bitmaps would remove the
   GC churn.
-- **Studio thumbnails** decode at 512 px with no display-size sampling or
-  memory cache across scroll — bounded by LazyVerticalGrid, fine at shelf
-  sizes.
+- **Studio thumbnails** decode at 512 px with no display-size sampling;
+  the memory cache across scroll landed with PR #76, so what remains is
+  optional `inSampleSize` decoding to the cell size (halves the cache's
+  byte footprint for the same hit rate).
 - **Reset pill vs fill card** shared the bottom-centre lane (fixed by #59's
   per-mode clearance); any new bottom-centre transient must take a mode
   clearance too.
@@ -183,3 +276,15 @@ and scales by the recommended a11y timeout; the closing scrim's focus and
 a11y gating lives outside the gated chrome box; and the theme (warm paper
 light / slate dark, saffron accent) is coherent — no aesthetic changes
 recommended.
+
+The third pass additionally verified: the front-buffered drain/release
+protocol and the `pendingStrokeFallback` CAS chain in `EngineSession`;
+`SandwichCache`'s ping-pong allocation and availability flags;
+`CompositePass` page-run batching with VBO orphaning; the `HalfTurn`
+neutralization symmetry between `CanvasRenderer` and `EngineSession`;
+history load/recovery/replay and the `nextName` floor (3a/3b); string
+completeness between `values/` and `values-b+zh+Hans/` (the six keys absent
+from zh are `translatable="false"` by design); the RMW capture/restore
+ordering through `ResolveCurrent`; and that `CanvasContent`'s
+recomposition-per-navigation-sample is a measured trade (no stroke runs
+during navigation), not a defect — see REVIEW.md R-100's refutation class.

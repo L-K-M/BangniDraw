@@ -186,4 +186,44 @@ class HistoryStoreTest {
         val loaded = store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
         assertEquals(1, loaded.entries.size)
     }
+
+    /**
+     * A hand-edited `<seq>.entry` whose payload ref carries `off` near
+     * `Long.MAX_VALUE`. The naive guard `bodyOffset + off + len > size`
+     * wraps negative and passes, and the slice below then either throws
+     * `IndexOutOfBoundsException` out of a path documented "never an
+     * exception for content" or reads the payload from a wrong offset.
+     * Both halves are pinned: load must truncate at the lying entry, and
+     * readPayloads must answer null.
+     */
+    private fun writeOverflowingEntry() {
+        val json = java.lang.String.join(
+            "",
+            "{\"v\":1,\"seq\":1,\"kind\":\"Stroke\",\"ts\":10,",
+            "\"activeBefore\":\"layer-a\",\"activeAfter\":\"layer-a\",",
+            "\"layerId\":\"layer-a\",",
+            "\"payloads\":[{",
+            "\"layer\":\"layer-a\",\"tx\":0,\"ty\":0,",
+            // Long.MAX_VALUE: bodyOffset + off + len wraps negative.
+            "\"off\":9223372036854775807,\"len\":$TILE_BYTES}",
+            "],\"data\":{}}",
+        )
+        // A token body: the ref's (off, len) cannot legitimately address
+        // any part of this file, overflow aside.
+        store.entryFile(1).writeText(json + "\n" + "x".repeat(16))
+    }
+
+    @Test
+    fun `a payload offset that overflows the guard truncates the journal`() {
+        writeOverflowingEntry()
+        val loaded = store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
+        assertTrue(loaded.entries.isEmpty(), "an entry whose payloads exceed the file is a lie")
+        assertEquals(0, loaded.cursor)
+    }
+
+    @Test
+    fun `readPayloads answers null for an offset that overflows the guard`() {
+        writeOverflowingEntry()
+        assertEquals(null, store.readPayloads(1, sidecar = false))
+    }
 }

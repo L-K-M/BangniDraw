@@ -78,17 +78,25 @@ internal class HistoryStore(private val dir: File) {
         val (header, bodyOffset) = parsed
         val out = ArrayList<Payload>(header.payloads.size)
         for (ref in header.payloads) {
-            val start = bodyOffset + ref.off
-            if (ref.len < 0 || ref.off < 0 || start + ref.len > bytes.size) return null
+            // Overflow-proof bound: `off ≤ size − bodyOffset − len`, with
+            // every term a small Long, so a hand-edited `off` near
+            // `Long.MAX_VALUE` cannot wrap `bodyOffset + off + len` negative
+            // and slip past the check — reaching `copyOfRange` as a
+            // plausible-looking Int pair that reads the wrong bytes or
+            // throws. §5.6's "offsets past the file mean the header lies".
+            if (ref.off < 0 || ref.len < 0 || ref.off > bytes.size - bodyOffset - ref.len) {
+                return null
+            }
             val layer = try {
                 LayerId(ref.layer)
             } catch (_: IllegalArgumentException) {
                 return null
             }
+            val start = (bodyOffset + ref.off).toInt()
             out += Payload(
                 layer = layer,
                 key = TileKey(ref.tx, ref.ty),
-                encoded = bytes.copyOfRange(start.toInt(), (start + ref.len).toInt()),
+                encoded = bytes.copyOfRange(start, start + ref.len),
             )
         }
         return out
@@ -209,9 +217,11 @@ internal class HistoryStore(private val dir: File) {
         }
         // Offsets are validated at load, not first at undo: an entry whose
         // payloads exceed the file must truncate the journal *now* (§5.6),
-        // not surprise the user the day they reach for undo.
+        // not surprise the user the day they reach for undo. The bound is
+        // written overflow-proof — see readPayloads — so an `off` crafted
+        // near Long.MAX_VALUE is caught rather than wrapped past it.
         for (ref in header.payloads) {
-            if (ref.off < 0 || ref.len < 0 || bodyOffset + ref.off + ref.len > bytes.size) {
+            if (ref.off < 0 || ref.len < 0 || ref.off > bytes.size - bodyOffset - ref.len) {
                 Log.w(TAG, "history: $seq.entry payload exceeds the file")
                 return null
             }

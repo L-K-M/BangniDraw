@@ -95,5 +95,10 @@ class PaletteTest {
         assertEquals("Cad miums", PalettePolicy.createdName("Cad miums"))
         // Blank input keeps the display token, so the chip still localizes.
         assertEquals(PaletteCatalog.MY_PALETTE_NAME, PalettePolicy.createdName("   "))
+        // A pasted wall of text cannot stretch a chip.
+        assertEquals(
+            PalettePolicy.NAME_MAX_LENGTH,
+            PalettePolicy.createdName("x".repeat(500)).length,
+        )
     }
 }

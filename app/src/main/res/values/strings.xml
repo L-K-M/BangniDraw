@@ -155,6 +155,7 @@
     <string name="palette_recent_dismiss">Close recent colors</string>
     <string name="palette_my">My palette</string>
     <string name="palette_create">New palette</string>
+    <string name="palette_name_taken">A palette with this name already exists</string>
     <string name="palette_replace">Replace with current</string>
     <string name="palette_eyedrop">Pick from canvas</string>
     <string name="palette_delete">Delete swatch</string>

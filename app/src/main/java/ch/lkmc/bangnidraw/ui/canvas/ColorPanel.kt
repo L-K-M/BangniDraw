@@ -70,6 +70,7 @@ import ch.lkmc.bangnidraw.engine.core.HueMilestone
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.MixingDish
 import ch.lkmc.bangnidraw.engine.core.Palette
+import ch.lkmc.bangnidraw.engine.core.PalettePolicy
 import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import ch.lkmc.bangnidraw.engine.core.RgbFieldArrangement
 import ch.lkmc.bangnidraw.engine.core.RgbFieldLayoutPolicy
@@ -105,10 +106,13 @@ internal fun ColorPanel(
     val scroll = rememberScrollState()
     // Naming on create: two palettes must not share one "My palette" chip
     // (the stored name is what distinguishes them — there is no rename yet).
-    var namingPalette by remember { mutableStateOf(false) }
+    // Saveable so a rotation mid-dialog keeps both the dialog and the draft.
+    var namingPalette by rememberSaveable { mutableStateOf(false) }
     if (namingPalette) {
+        // Compared against display names, so a typed literal also collides
+        // with a default-named palette that renders the same way.
         PaletteNameDialog(
-            initial = stringResource(R.string.palette_my),
+            existingNames = state.palettes.map { paletteLabel(it.name) }.toSet(),
             onConfirm = { name ->
                 namingPalette = false
                 onCreatePalette(name)
@@ -630,26 +634,46 @@ private fun ColorCircle(argb: Int, modifier: Modifier, selected: Boolean = false
     }
 }
 
+/**
+ * Names a palette about to be created. The field starts empty with the
+ * localized default as its placeholder: confirming blank stores the display
+ * token (which keeps localizing), typing stores a literal.
+ */
 @Composable
 private fun PaletteNameDialog(
-    initial: String,
+    existingNames: Set<String>,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var draft by rememberSaveable(initial) { mutableStateOf(initial) }
+    var draft by rememberSaveable { mutableStateOf("") }
+    // Resolved, because blank means "the default": the collision check must
+    // see the name the chip would actually show.
+    val resolved = PalettePolicy.createdName(draft)
+    val taken = resolved in existingNames
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.palette_create)) },
         text = {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                singleLine = true,
-            )
+            Column {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    singleLine = true,
+                    placeholder = { Text(stringResource(R.string.palette_my)) },
+                )
+                if (taken) {
+                    Text(
+                        text = stringResource(R.string.palette_name_taken),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
         },
         confirmButton = {
             TextButton(
-                enabled = draft.isNotBlank(),
+                enabled = !taken,
                 onClick = { onConfirm(draft) },
             ) {
                 Text(stringResource(R.string.new_canvas_create))

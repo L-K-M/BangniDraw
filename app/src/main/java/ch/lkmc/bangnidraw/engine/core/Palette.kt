@@ -205,13 +205,16 @@ object PalettePolicy {
     }
 
     /**
-     * A created palette's stored name: the typed one, trimmed; blank input
-     * falls back to the display token so the chip still localizes. Typed
-     * names are literals by the closed grammar — two palettes no longer share
-     * one name just because neither was renamed.
+     * A created palette's stored name: the typed one, trimmed and length-
+     * capped; blank input falls back to the display token so the chip still
+     * localizes. Typed names are literals by the closed grammar — two
+     * palettes no longer share one name just because neither was renamed.
      */
     fun createdName(input: String): String =
-        input.trim().ifEmpty { PaletteCatalog.MY_PALETTE_NAME }
+        input.trim().take(NAME_MAX_LENGTH).ifEmpty { PaletteCatalog.MY_PALETTE_NAME }
+
+    /** Long enough for a real name, short enough for one chip. */
+    const val NAME_MAX_LENGTH = 48
 
     const val RECENT_LIMIT = 16
 }

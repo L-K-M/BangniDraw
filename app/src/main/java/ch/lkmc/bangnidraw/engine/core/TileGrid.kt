@@ -34,13 +34,40 @@ value class TileKey(val packed: Int) {
 /** Integer point in canvas pixels. */
 data class IntPoint(val x: Int, val y: Int)
 
+/** Shared primitive dab bounds for allocation-free hot paths. */
+internal object DabBounds {
+    private const val ANTIALIAS_MARGIN_PX = 1f
+
+    fun requireValid(x: Float, y: Float, radius: Float) {
+        require(
+            x.isFinite() && y.isFinite() && radius.isFinite() &&
+                radius in 0f..IntRect.MAX_RADIUS
+        ) {
+            "dab must be finite with radius in 0..${IntRect.MAX_RADIUS}, " +
+                "was x=$x, y=$y, radius=$radius"
+        }
+    }
+
+    fun left(x: Float, radius: Float): Int =
+        kotlin.math.floor(x - radius - ANTIALIAS_MARGIN_PX).toInt()
+
+    fun top(y: Float, radius: Float): Int =
+        kotlin.math.floor(y - radius - ANTIALIAS_MARGIN_PX).toInt()
+
+    fun right(x: Float, radius: Float): Int =
+        kotlin.math.ceil(x + radius + ANTIALIAS_MARGIN_PX).toInt()
+
+    fun bottom(y: Float, radius: Float): Int =
+        kotlin.math.ceil(y + radius + ANTIALIAS_MARGIN_PX).toInt()
+}
+
 /**
  * Half-open integer rect in canvas pixels: `right` and `bottom` are exclusive.
  *
- * The four edges are stored unvalidated: [forDab] runs on the dab path, several
- * thousand times a stroke, and this is the allocation it makes. So [width] and
- * [height] are plain subtractions with no overflow guard, and a rect wider than
- * `Int.MAX_VALUE` reports a *negative* size.
+ * The four edges are stored unvalidated. [forDab] is the value-producing API
+ * for cold paths; live dab loops retain [DabBounds]' primitive edges. [width]
+ * and [height] are plain subtractions with no overflow guard, and a rect wider
+ * than `Int.MAX_VALUE` reports a *negative* size.
  *
  * Nothing in this engine builds one. [forDab]'s `require` is what keeps it that
  * way, and note what it has to reject to do so: finiteness alone bounds a radius
@@ -110,16 +137,13 @@ data class IntRect(val left: Int, val top: Int, val right: Int, val bottom: Int)
             // `width` wraps to -1, so a rect that is not empty reports a
             // negative size. No brush is within nine orders of magnitude of it,
             // which is the point — it can only ever reject the saturating range.
-            require(
-                x.isFinite() && y.isFinite() && radius.isFinite() && radius in 0f..MAX_RADIUS
-            ) {
-                "dab must be finite with radius in 0..$MAX_RADIUS, was x=$x, y=$y, radius=$radius"
-            }
-            val l = kotlin.math.floor(x - radius - 1f).toInt()
-            val t = kotlin.math.floor(y - radius - 1f).toInt()
-            val r = kotlin.math.ceil(x + radius + 1f).toInt()
-            val b = kotlin.math.ceil(y + radius + 1f).toInt()
-            return IntRect(l, t, r, b)
+            DabBounds.requireValid(x, y, radius)
+            return IntRect(
+                left = DabBounds.left(x, radius),
+                top = DabBounds.top(y, radius),
+                right = DabBounds.right(x, radius),
+                bottom = DabBounds.bottom(y, radius),
+            )
         }
     }
 }
@@ -252,16 +276,28 @@ data class TileGrid(val width: Int, val height: Int) {
      * `n = keysFor(a, buf, keysFor(b, buf, 0))` read correctly.
      */
     fun keysFor(r: IntRect, out: IntArray, from: Int = 0): Int {
+        return keysForBounds(r.left, r.top, r.right, r.bottom, out, from)
+    }
+
+    /** Primitive form for per-dab callers that do not own an [IntRect]. */
+    internal fun keysForBounds(
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+        out: IntArray,
+        from: Int = 0,
+    ): Int {
         // Validated before the loop, not by the `require` inside it: that one
         // tests `n < out.size`, which a NEGATIVE n always passes, so an
         // arithmetic slip in the accumulate-several-rects pattern this KDoc
         // encourages would sail past the guard and die at `out[n++]` with the
         // bare negative-index exception the guard exists to replace.
         require(from in 0..out.size) { "from must be 0..${out.size}, was $from" }
-        val l = maxOf(r.left, 0)
-        val t = maxOf(r.top, 0)
-        val rr = minOf(r.right, width)
-        val b = minOf(r.bottom, height)
+        val l = maxOf(left, 0)
+        val t = maxOf(top, 0)
+        val rr = minOf(right, width)
+        val b = minOf(bottom, height)
         if (l >= rr || t >= b) return from
         var n = from
         for (ty in (t shr TILE_SHIFT)..((b - 1) shr TILE_SHIFT)) {

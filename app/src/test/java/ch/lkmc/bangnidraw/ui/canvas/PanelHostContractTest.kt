@@ -14,7 +14,9 @@ class PanelHostContractTest {
             .readLines()
             .filterNot { line ->
                 val trimmed = line.trimStart()
-                trimmed.startsWith(LINE_COMMENT) || trimmed.startsWith(KDOC_LINE)
+                trimmed.startsWith(LINE_COMMENT) ||
+                    trimmed.startsWith(KDOC_LINE) ||
+                    trimmed.startsWith(BLOCK_COMMENT_OPEN)
             }
             .joinToString("\n")
 
@@ -40,6 +42,7 @@ class PanelHostContractTest {
         const val APP_DIRECTORY = "app/src/main"
         const val LINE_COMMENT = "//"
         const val KDOC_LINE = "*"
+        const val BLOCK_COMMENT_OPEN = "/*"
         const val PANEL_HOST_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/PanelHost.kt"
     }

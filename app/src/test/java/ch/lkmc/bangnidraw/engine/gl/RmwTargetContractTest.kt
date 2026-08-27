@@ -17,6 +17,7 @@ class RmwTargetContractTest {
         assertTrue("before.width.toFloat()/before.capacityWidth" in source)
         assertTrue("1f/before.capacityWidth" in source)
         assertTrue("1f/work.capacityWidth" in source)
+        assertTrue("work.width.toFloat()/work.capacityWidth" in source)
     }
 
     @Test

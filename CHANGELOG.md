@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.0.8 - 2026-08-27
+
+- Remember the last custom canvas size.
+- Let users choose which eraser the S Pen eraser end activates.
+- Expose HSV controls to accessibility services.
+- Wait for a live stroke to commit before leaving the canvas.
+- Fix quarter-turn canvas presentation.
+- Improve quick-palette focus and touch feedback.
+- Hide unavailable layer-reorder commands.
+- Enlarge and harden the eraser toggle.
+
+## 1.0.7 - 2026-08-27
+
+- Long-press the eraser slot to switch between the hard and soft erasers.
+- Add a right-angle rotation snapping setting.
+- Title the share chooser with the painting's name.
+- Keep the fill progress card clear of the compact dock.
+- Add move up/down/top/bottom commands to the layer menu.
+- Keep hex and RGB field edits from resetting the cursor while typing.
+- Center the eyedropper hover cursor on the sampled pixel.
+- Inset the top strip's layer count badge off the icon.
+- Reset the New Canvas orientation override with the preset.
+- Complete accessibility semantics across the canvas chrome.
+
+## 1.0.6 - 2026-08-27
+
+- Neutralize canonical half-turn buffer transforms on both sides of the
+  presentation handoff.
+- Show the canvas boundary.
+- Keep live stroke frames responsive.
+- Improve Studio painting cards.
+- Make layer reordering accessible.
+
 ## 1.0.5 - 2026-08-27
 
 - Restore live stroke presentation after each canvas surface attaches.

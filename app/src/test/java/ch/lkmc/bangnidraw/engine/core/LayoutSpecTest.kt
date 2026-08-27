@@ -173,13 +173,13 @@ class LayoutSpecTest {
     fun `panel insets reserve the dock ledge and short ledge`() {
         val dock = LayoutSpec.forWindow(WidthClass.COMPACT, 752, Hand.RIGHT)
             .panelInsets(windowWidthDp = 360, windowHeightDp = 800)
-        val short = LayoutSpec.forWindow(WidthClass.MEDIUM, 352, Hand.RIGHT)
-            .panelInsets(windowWidthDp = 700, windowHeightDp = 400)
+        val shortSpec = LayoutSpec.forWindow(WidthClass.MEDIUM, 352, Hand.RIGHT)
+        val short = shortSpec.panelInsets(windowWidthDp = 700, windowHeightDp = 400)
 
         assertEquals(LayoutSpec.TOP_STRIP_DP, dock.topDp)
         assertEquals(DOCK_AND_LEDGE_DP, dock.bottomDp)
         assertEquals(SHORT_LEDGE_DP, short.bottomDp)
-        assertEquals(LayoutSpec.MIN_TARGET_DP + RAIL_EXTRA_DP, short.rightDp)
+        assertEquals(shortSpec.railWidthDp, short.rightDp)
     }
 
     private fun panelRect(
@@ -221,6 +221,5 @@ class LayoutSpecTest {
         const val PANEL_TEST_WIDTH_DP = 300
         const val DOCK_AND_LEDGE_DP = 112
         const val SHORT_LEDGE_DP = 48
-        const val RAIL_EXTRA_DP = 8
     }
 }

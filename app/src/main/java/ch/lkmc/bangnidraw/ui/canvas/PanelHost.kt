@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -40,8 +40,8 @@ internal fun BoxScope.PanelHost(
 ) {
     val onRight = layout.panelSide == Hand.RIGHT
     val alignment = when {
-        onRight -> Alignment.CenterEnd
-        else -> Alignment.CenterStart
+        onRight -> AbsoluteAlignment.CenterRight
+        else -> AbsoluteAlignment.CenterLeft
     }
     val panelWidth = when (layout.panelMode) {
         PanelMode.FULL_HEIGHT_SHEET -> minOf(PANEL_MAX_WIDTH, windowWidth * COMPACT_WIDTH_FRACTION)

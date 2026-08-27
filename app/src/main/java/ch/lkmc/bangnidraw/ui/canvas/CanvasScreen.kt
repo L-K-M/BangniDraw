@@ -677,7 +677,7 @@ private fun CanvasContent(
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val widthClass = WidthClass.forWidth(maxWidth.value.toInt())
+        val widthClass = WidthClass.forWidth(maxWidth.value.roundToInt())
         val windowWidth = maxWidth
         val windowHeight = maxHeight
         val safeInsets = WindowInsets.safeDrawing

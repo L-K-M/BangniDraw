@@ -1677,3 +1677,59 @@ touchscreen hover too, not only a pen.
   from*. It now names the thread and the call path, and records what would have
   to change if a caller ever did reset from the main thread — so the next reader
   who follows this reasoning finds the answer instead of re-deriving it.
+
+## PR #22 — distinct rail icons (2026-08-27)
+
+- **R-097 ⏸️ Round 2, minor: "GROUPED paint-only divider may render a
+  trailing separator."** Declined on the code: `groupedSlots`
+  unconditionally appends the four secondary slots (smudge, blur, fill,
+  eyedropper), so a GROUPED rail whose brush group is the whole rail cannot
+  exist — the `hasToolsAfterBrushGroup` flag the finding asks for can only
+  ever be `true`. Independently, `ToolColumn` never renders a divider after
+  the final slot (`if (index == slots.lastIndex) continue`), so even a
+  divider index pointing at the last slot draws nothing. Two guards make the
+  suggested change dead code.
+
+  *Round 1 of this PR applied two minor findings (a divider kept in the
+  degraded GROUPED/FULL rails, and a distinct fallback glyph); round 2's
+  first finding (Edit aliases Create's pencil glyph) was applied as `Tune`.
+  Round 3 was empty.*
+
+## PR #23 — allocation-free visibleCanvasRect (2026-08-27)
+
+- **R-098 🟢 Round 1, major: "cached `viewportCorners` duplicates
+  `viewportWidth`/`viewportHeight` state."** Applied: the corners are now
+  derived from the viewport size at the call site. The zero-allocation
+  profile is unchanged either way, and a second copy of the one viewport
+  fact was exactly the kind of cache a future resize path forgets to
+  update. Recorded here because the same reasoning then moved the code
+  twice more: round 2 applied a readability nit (walk the edges instead of
+  decoding a linear corner index).
+
+- **R-099 ⏸️ Round 3, minor: iterate `floatArrayOf(0f, vw)` instead of 0/1
+  flags.** Declined: `floatArrayOf` is a plain vararg constructor — it
+  allocates two arrays on **every call**, and this function runs on every
+  front-buffered stroke frame and every committed frame. The suggestion
+  reintroduces exactly the per-frame allocation this PR exists to remove;
+  `for (right in 0..1)` compiles to index arithmetic with no allocation, and
+  the readability the finding is about was already addressed in round 2.
+
+## PR #35 — live zoom readout (2026-08-27)
+
+- **R-100 ⏸️ Round 1, major: "Live readout freezes: the view transform is
+  not snapshot state."** Refuted on the declaration. The finding extends the
+  `strokeState` comment ("plain vars, not Compose state") to the view
+  transform, but they are different things: the screen's transform is
+  `var view by rememberSaveable(stateSaver = VIEW_TRANSFORM_SAVER) {
+  mutableStateOf(ViewTransform()) }` — snapshot state. Every navigation step
+  writes it (`applyNavigation → host.onViewChanged → updateView`), and the
+  chip's `Text` reads `view.scale`/`view.rotation` inside the
+  `AnimatedVisibility` **content lambda**, its own recompose scope, so it
+  recomposes with the live value every frame the fingers move — and during
+  the exit fade, since the lambda stays composed until the animation ends.
+  The plain-object claim applies to `CanvasTouchHandler.view` (the handler's
+  internal copy the tests mutate) and `StrokeUiState`, never to the
+  composable's `view`. `ResetViewPill` reads the same state the same way
+  and its readout updates live in the shipped v1.0.1+. A `withFrameNanos`
+  sampling loop would double-represent state the snapshot system already
+  invalidates.

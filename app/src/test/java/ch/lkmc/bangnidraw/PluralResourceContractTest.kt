@@ -50,11 +50,33 @@ class PluralResourceContractTest {
         }
     }
 
+    @Test
+    fun `one-layer limit never suggests an impossible recovery`() {
+        val english = File(repositoryRoot(), ENGLISH_STRINGS).readText()
+        val chinese = File(repositoryRoot(), CHINESE_STRINGS).readText()
+
+        val englishOne = pluralItem(english, LAYER_LIMIT_RESOURCE, "one")
+        assertFalse(englishOne.contains("delete", ignoreCase = true))
+        assertFalse(englishOne.contains("merge", ignoreCase = true))
+
+        // zh-Hans selects `other` for one too, so its wording must fit every cap.
+        val chineseOther = pluralItem(chinese, LAYER_LIMIT_RESOURCE, "other")
+        assertFalse("删除" in chineseOther)
+        assertFalse("合并" in chineseOther)
+    }
+
     private fun pluralBlock(source: String, name: String): String {
         val pattern = Regex(
             """<plurals\b[^>]*\bname="$name"[^>]*>([\s\S]*?)</plurals>""",
         )
         return assertNotNull(pattern.find(source)?.groupValues?.get(1), "$name is not pluralized")
+    }
+
+    private fun pluralItem(source: String, name: String, quantity: String): String {
+        val block = pluralBlock(source, name)
+        val pattern = Regex("""<item\s+quantity="$quantity">([\s\S]*?)</item>""")
+
+        return assertNotNull(pattern.find(block)?.groupValues?.get(1), "$name has no $quantity")
     }
 
     private fun repositoryRoot(): File {
@@ -75,6 +97,7 @@ class PluralResourceContractTest {
         const val CHINESE_STRINGS = "app/src/main/res/values-b+zh+Hans/strings.xml"
         const val VALUES_PREFIX = "values"
         const val XML_EXTENSION = "xml"
+        const val LAYER_LIMIT_RESOURCE = "layer_limit"
 
         val COUNT_RESOURCES = listOf(
             "studio_storage",

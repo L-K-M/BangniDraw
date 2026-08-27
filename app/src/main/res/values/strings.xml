@@ -235,7 +235,7 @@
     </plurals>
     <string name="layer_flatten_body">Hidden layers are discarded. You can undo this.</string>
     <plurals name="layer_limit">
-        <item quantity="one">This %1$d×%2$d canvas allows %3$d layer on this device. Delete it to add another.</item>
+        <item quantity="one">This %1$d×%2$d canvas allows one layer on this device.</item>
         <item quantity="other">This %1$d×%2$d canvas allows %3$d layers on this device. Merge or delete a layer to add one.</item>
     </plurals>
     <string name="layer_over_capacity">This older painting exceeds this device’s safe layer limit. Delete layers before painting, merging, or flattening.</string>

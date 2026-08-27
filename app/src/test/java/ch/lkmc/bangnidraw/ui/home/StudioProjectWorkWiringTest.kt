@@ -36,6 +36,18 @@ class StudioProjectWorkWiringTest {
     }
 
     @Test
+    fun `wide empty guidance precedes the new painting tile`() {
+        val grid = screen.substringAfter("LazyVerticalGrid(")
+            .substringBefore("items(state.paintings")
+        val guidance = grid.indexOf("item(key = EMPTY_PAINTING_KEY")
+        val newPainting = grid.indexOf("item(key = NEW_PAINTING_KEY")
+
+        assertTrue(guidance >= 0)
+        assertTrue(newPainting >= 0)
+        assertTrue(guidance < newPainting)
+    }
+
+    @Test
     fun `gallery result is recorded before cancellation can finish`() {
         val sweep = viewModel.substringAfter("private fun syncStale(")
             .substringBefore("fun openPainting(")

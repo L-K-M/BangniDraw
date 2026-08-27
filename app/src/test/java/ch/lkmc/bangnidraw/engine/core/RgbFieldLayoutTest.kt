@@ -75,6 +75,16 @@ class RgbFieldLayoutTest {
     }
 
     @Test
+    fun `positive width below the minimum target stays hidden`() {
+        val layout = RgbFieldLayoutPolicy.forContentWidth(
+            contentWidthDp = MINIMUM_TARGET_WIDTH_DP - 1f,
+            fontScale = 1f,
+        )
+
+        assertFalse(layout.hasUsableWidth)
+    }
+
+    @Test
     fun `zero width returns a degenerate column without throwing`() {
         val layout = RgbFieldLayoutPolicy.forContentWidth(
             contentWidthDp = 0f,
@@ -103,6 +113,7 @@ class RgbFieldLayoutTest {
         const val PANEL_HORIZONTAL_PADDING_DP = 20f
         const val BASE_FIELD_WIDTH_DP = 64f
         const val FIELD_GAP_DP = 6f
+        const val MINIMUM_TARGET_WIDTH_DP = 48f
         const val FLOAT_TOLERANCE = 0.001f
     }
 }

@@ -205,9 +205,6 @@ fun StudioScreen(
                     contentPadding = PaddingValues(bottom = 96.dp),
                 ) {
                     if (!compact) {
-                        item(key = NEW_PAINTING_KEY) {
-                            NewPaintingCell { showNewCanvas = true }
-                        }
                         // 08 §2's empty state is for every width; on
                         // medium/expanded it sits above the + tile (the grid
                         // never drops the way in).
@@ -237,6 +234,9 @@ fun StudioScreen(
                                     )
                                 }
                             }
+                        }
+                        item(key = NEW_PAINTING_KEY) {
+                            NewPaintingCell { showNewCanvas = true }
                         }
                     }
                     items(state.paintings, key = { it.id }) { painting ->

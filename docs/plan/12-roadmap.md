@@ -597,7 +597,13 @@ stale, verify (to verify on device) whether a `SIZE` update is also needed
 before resorting to delete+insert (which would lose the "one entry" promise
 only for that device).
 
-### Step 5 — Tool set (M)
+### Step 5 — Tool set (M, **landed on main** — commits `c649855..6ec09b1`, 2026-08-27, direct push)
+
+**Landed.** The seven presets round-trip their full dynamics through the
+versioned store, procedural shader noise supplies pencil grain without a
+third-party asset, the rail and settings sheet edit those presets, and stylus
+eraser/button precedence is pinned in JVM tests. **The per-preset and S Pen
+device checks have not been run — no device has ever been available.**
 
 **Goal.** Every preset in PLAN.md §6 feels like its name: pencil, ink pen,
 paintbrush, airbrush, marker, hard and soft eraser, plus the eyedropper;
@@ -634,7 +640,15 @@ step may take two device passes. Grain textures must be CC0 with provenance
 in AGENTS.md (PLAN.md §9); until one exists, the pencil grain is procedural
 noise in the shader.
 
-### Step 6 — Layers (M)
+### Step 6 — Layers (M, **landed on main** — commits `e8d30a8..bafaaa8`, 2026-08-27, direct push)
+
+**Landed.** Every structural and property edit is journaled through the
+transactional GL path; the top-first panel exposes the cap, drag reorder,
+refusal feedback, confirmations and one-entry opacity gestures. Isolated layer
+thumbnails render on the GPU into a 128 px target and return through two PBOs,
+throttled to 500 ms while the panel is open. **The 8-layer performance,
+kill/reopen/redo and cap device checks have not been run — no device has ever
+been available.**
 
 **Goal.** Add, delete, duplicate, reorder by drag, merge down, flatten,
 opacity, blend modes, visibility, alpha lock — with the memory budget

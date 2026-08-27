@@ -57,8 +57,8 @@ class DabStampTest {
 
     @Test
     fun `even a fully hard dab keeps a one-pixel anti-aliased band`() {
-        // §7.3's `min(r·hardness, r − 1)`. Without it, hardness 1.0 makes
-        // inner == r, smoothstep degenerates, and every diagonal edge aliases.
+        // A circle's distance gradient is one, so the per-axis rule reduces
+        // to the old one-pixel `r − 1` band.
         val r = 10f
         val justInside = DabStamp.coverage(r - 0.5f, r, 1f)
         assertTrue(
@@ -124,6 +124,29 @@ class DabStampTest {
             DabStamp.contribution(0f, 3f, d, white).a,
             1e-6f,
             "3 px across a 0.25-aspect minor axis is outside",
+        )
+    }
+
+    @Test
+    fun `a hard flat dab keeps a one-pixel feather on both axes`() {
+        val flat = dab(radius = 10f, hardness = 1f, aspect = 0.25f)
+
+        val majorHalfPixelInside = DabStamp.contribution(9.5f, 0f, flat, white).a
+        val minorHalfPixelInside = DabStamp.contribution(0f, 2f, flat, white).a
+
+        assertTrue(
+            majorHalfPixelInside in 0f..1f && majorHalfPixelInside != 0f && majorHalfPixelInside != 1f,
+            "the major edge needs partial coverage, was $majorHalfPixelInside",
+        )
+        assertTrue(
+            minorHalfPixelInside in 0f..1f && minorHalfPixelInside != 0f && minorHalfPixelInside != 1f,
+            "the minor edge needs the same one-pixel feather, was $minorHalfPixelInside",
+        )
+        assertEquals(
+            majorHalfPixelInside,
+            minorHalfPixelInside,
+            1e-5f,
+            "half a canvas pixel inside either axis must have equal coverage",
         )
     }
 

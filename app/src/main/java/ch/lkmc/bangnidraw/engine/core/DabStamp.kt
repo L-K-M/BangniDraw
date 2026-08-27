@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.engine.core
 
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
@@ -43,16 +44,12 @@ object DabStamp {
      * §7.3's hardness falloff, for a point at distance [d] from the centre in
      * "major-axis px" (the ellipse already unwarped to a circle).
      *
-     * The inner plateau is `min(r·hardness, r − 1)`: the band from `inner` to
-     * `r` is never thinner than 1 canvas px, so **every** edge is
-     * anti-aliased, hardness 1.0 included. A hard brush with a truly binary
-     * edge would alias on every diagonal, and at hardness 1.0 the naive
-     * `r·hardness` would make `inner == r` and `smoothstep` degenerate.
+     * Circular dabs have a one-pixel feather. Ellipses use [coverageAt], which
+     * widens that band in local coordinates by the distance gradient so it
+     * remains one canvas pixel across either axis (REVIEW.md R-055).
      */
     fun coverage(d: Float, radius: Float, hardness: Float): Float {
-        val r = drawRadius(radius)
-        val inner = (minOf(r * hardness, r - 1f)).coerceIn(0f, r)
-        return 1f - smoothstep(inner, r, d)
+        return coverage(d, radius, hardness, feather = 1f)
     }
 
     /**
@@ -106,14 +103,36 @@ object DabStamp {
         dab: Dab,
         colorRgb: FloatArray,
     ): StrokeMerge.Rgba {
-        val m = coverage(
-            localDistance(px, py, dab.x, dab.y, dab.angle, dab.aspect),
-            dab.radius,
-            dab.hardness,
-        )
+        val m = coverageAt(px, py, dab)
         if (m <= 0f) return StrokeMerge.Rgba.TRANSPARENT
         val w = dab.flow * areaWeight(dab.radius) * m
         return StrokeMerge.Rgba(colorRgb[0] * w, colorRgb[1] * w, colorRgb[2] * w, w)
+    }
+
+    /** CPU twin of `dab.frag`'s `fwidth(d)` ellipse feather. */
+    private fun coverageAt(px: Float, py: Float, dab: Dab): Float {
+        val c = cos(dab.angle)
+        val s = sin(dab.angle)
+        val dx = px - dab.x
+        val dy = py - dab.y
+        val major = dx * c + dy * s
+        val minorScaled = (-dx * s + dy * c) / dab.aspect
+        val d = sqrt(major * major + minorScaled * minorScaled)
+        if (d <= GRADIENT_EPSILON) return coverage(d, dab.radius, dab.hardness)
+
+        // fwidth is |dFdx| + |dFdy|. At the minor rim this is 1/aspect,
+        // widening the local falloff so its canvas-space width stays 1 px.
+        val invAspect = 1f / dab.aspect
+        val gx = (major * c - minorScaled * s * invAspect) / d
+        val gy = (major * s + minorScaled * c * invAspect) / d
+        val feather = abs(gx) + abs(gy)
+        return coverage(d, dab.radius, dab.hardness, feather)
+    }
+
+    private fun coverage(d: Float, radius: Float, hardness: Float, feather: Float): Float {
+        val r = drawRadius(radius)
+        val inner = minOf(r * hardness, r - feather).coerceIn(0f, r)
+        return 1f - smoothstep(inner, r, d)
     }
 
     /**
@@ -148,4 +167,7 @@ object DabStamp {
             a = max(buffer.a, dab.a),
         )
     }
+
+    /** Keeps the analytic and shader gradients finite at the dab centre. */
+    const val GRADIENT_EPSILON = 1e-6f
 }

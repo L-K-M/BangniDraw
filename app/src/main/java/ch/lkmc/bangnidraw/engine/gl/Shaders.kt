@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.engine.gl
 
 import ch.lkmc.bangnidraw.engine.core.BlendMode
+import ch.lkmc.bangnidraw.engine.core.DabStamp
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 
 /**
@@ -384,9 +385,9 @@ object Shaders {
 
     /**
      * §7.3's `dab.frag`. The falloff is `DabStamp.coverage`'s, and the
-     * `r - 1.0` term is what keeps the anti-aliased band at least a canvas
-     * pixel wide even at hardness 1.0 — without it `inner == r`, `smoothstep`
-     * degenerates, and every diagonal edge aliases.
+     * `fwidth(d)` converts one canvas pixel into the ellipse's local distance.
+     * A literal `r - 1.0` gives a flat tip only `aspect` pixels of feather on
+     * its minor axis and aliases there (REVIEW.md R-055).
      *
      * Premultiplied out, blended `GL_ONE, GL_ONE_MINUS_SRC_ALPHA` or under
      * `GL_MAX` depending on the preset's `BufferMode` (§7.2). An eraser runs
@@ -404,7 +405,8 @@ object Shaders {
         void main() {
             float d = length(v_local);
             float r = v_radius;
-            float inner = clamp(min(r * v_hardness, r - 1.0), 0.0, r);
+            float feather = max(fwidth(d), ${DabStamp.GRADIENT_EPSILON});
+            float inner = clamp(min(r * v_hardness, r - feather), 0.0, r);
             float m = 1.0 - smoothstep(inner, r, d);
             o_color = v_color * m;
         }

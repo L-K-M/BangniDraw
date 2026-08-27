@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.engine.gl
 
+import ch.lkmc.bangnidraw.engine.core.DabStamp
 import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -316,14 +317,17 @@ class StrokeShaderContractTest {
 
     @Test
     fun `dab frag keeps the one-pixel anti-aliased band at every hardness`() {
-        // DabStamp.coverage's `min(r · hardness, r − 1)`. Dropping the `r - 1`
-        // term makes inner == r at hardness 1.0, smoothstep degenerates, and
-        // every diagonal edge aliases — on a device, invisibly to every JVM
-        // test except this one.
+        // R-055: a literal `r - 1` is one local unit, only `aspect` canvas px
+        // across a flat tip's minor axis. fwidth converts one canvas pixel to
+        // local distance per fragment; DabStamp mirrors its analytic gradient.
         val body = stripped(dabFrag)
         assertTrue(
-            body.contains("min(r * v_hardness, r - 1.0)"),
-            "the falloff must clamp the plateau to r − 1: $body",
+            body.contains("float feather = max(fwidth(d), ${DabStamp.GRADIENT_EPSILON})"),
+            "the feather must follow the ellipse distance gradient: $body",
+        )
+        assertTrue(
+            body.contains("min(r * v_hardness, r - feather)"),
+            "hardness must leave one canvas pixel of falloff: $body",
         )
         assertTrue(body.contains("smoothstep(inner, r, d)"), "the falloff must be a smoothstep from inner to r")
         assertTrue(body.contains("1.0 - smoothstep"), "coverage is 1 − smoothstep, not smoothstep")

@@ -882,15 +882,19 @@ two layers contain the correct pixels everywhere, and the front layer
 "grows" as the stroke grows. Scan-line racing can expose only the current
 incremental damage while that small region is being written.
 
-Every app redraw uses `commit()`, whose pending-commit count holds front
-requests until the multi-buffer release has cleared the front buffer. An active
+After one direct multi-buffered baseline per surface generation, every app
+redraw uses `commit()`, whose pending-commit count holds front requests until
+the previous multi-buffer release has cleared the front buffer. The baseline is
+required by graphics-core 1.0.4: the first committed buffer has no previous
+buffer to release, so its commit count otherwise never falls. An active
 completion recomposites and presents the cumulative preview once; later frames
 return to incremental damage. Re-presenting the growing cumulative preview on
 every sample defeats scan-line racing and produces a moving cutoff. Redraws
 during a stroke are deferred, and equal Compose inputs are filtered before they
-request one. A target-generation gate prevents both front renders and commits
-before attachment. Surface changes replace only the `GLFrontBufferedRenderer`;
-the shared `GLRenderer`, EGL context, and canvas textures remain alive.
+request one. A target-generation gate prevents front renders and commits before
+the baseline completes. Surface changes replace only the
+`GLFrontBufferedRenderer`; the shared `GLRenderer`, EGL context, and canvas
+textures remain alive.
 
 ### 8.2 `onDrawMultiDoubleBufferedLayer(eglManager, bufferInfo, transform, params)`
 

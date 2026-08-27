@@ -13,11 +13,11 @@ class RenderAttachmentGateTest {
 
         assertEquals(plan(0L, RenderDispatch.NONE), gate.requestScene())
         val first = gate.surfaceChanged()
-        val firstCommit = gate.surfaceReady(first)
+        val firstBootstrap = gate.surfaceReady(first)
 
         val second = gate.surfaceChanged()
 
-        assertEquals(plan(first, RenderDispatch.COMMIT), firstCommit)
+        assertEquals(plan(first, bootstrapDispatch()), firstBootstrap)
         assertEquals(plan(second, RenderDispatch.NONE), gate.requestFront())
         assertEquals(plan(second, RenderDispatch.NONE), gate.endStroke())
     }
@@ -30,7 +30,7 @@ class RenderAttachmentGateTest {
         assertEquals(RenderDispatch.NONE, gate.requestScene().dispatch)
         val generation = gate.surfaceChanged()
 
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(generation).dispatch)
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(generation).dispatch)
         assertEquals(RenderDispatch.NONE, gate.surfaceReady(generation).dispatch)
     }
 
@@ -42,7 +42,7 @@ class RenderAttachmentGateTest {
         val current = gate.surfaceChanged()
 
         assertEquals(RenderDispatch.NONE, gate.surfaceReady(stale).dispatch)
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(current).dispatch)
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(current).dispatch)
         assertEquals(accepted(current, RenderDispatch.NONE), gate.multiDrawCompleted(current))
         assertEquals(RenderDispatch.COMMIT, gate.requestScene().dispatch)
 
@@ -60,7 +60,7 @@ class RenderAttachmentGateTest {
 
         assertEquals(RenderDispatch.NONE, gate.surfaceReady(stale).dispatch)
         val current = gate.surfaceChanged()
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(current).dispatch)
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(current).dispatch)
     }
 
     @Test
@@ -71,7 +71,7 @@ class RenderAttachmentGateTest {
         assertTrue(gate.isCurrentGeneration(first))
         assertFalse(gate.acceptsDriverCallback(first))
 
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(first).dispatch)
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(first).dispatch)
         assertTrue(gate.isCurrentGeneration(first))
         assertTrue(gate.acceptsDriverCallback(first))
 
@@ -89,14 +89,14 @@ class RenderAttachmentGateTest {
     }
 
     @Test
-    fun `front work waits behind the attachment scene commit`() {
+    fun `front work waits behind the attachment bootstrap`() {
         val gate = RenderAttachmentGate()
         gate.requestScene()
         assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
         assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
 
         val generation = gate.surfaceChanged()
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(generation).dispatch)
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(generation).dispatch)
         assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
 
         assertEquals(accepted(generation, RenderDispatch.FRONT), gate.multiDrawCompleted(generation))
@@ -107,10 +107,10 @@ class RenderAttachmentGateTest {
     fun `stale completion cannot clear the current commit`() {
         val gate = RenderAttachmentGate()
         val stale = gate.surfaceChanged()
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(stale).dispatch)
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(stale).dispatch)
 
         val current = gate.surfaceChanged()
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(current).dispatch)
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(current).dispatch)
 
         assertEquals(AttachmentCompletion.Ignored, gate.multiDrawCompleted(stale))
         assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
@@ -121,7 +121,7 @@ class RenderAttachmentGateTest {
     fun `duplicate completion is ignored atomically`() {
         val gate = RenderAttachmentGate()
         val generation = gate.surfaceChanged()
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(generation).dispatch)
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(generation).dispatch)
 
         assertEquals(accepted(generation, RenderDispatch.NONE), gate.multiDrawCompleted(generation))
         assertEquals(AttachmentCompletion.Ignored, gate.multiDrawCompleted(generation))
@@ -129,9 +129,8 @@ class RenderAttachmentGateTest {
 
     @Test
     fun `scene requests during a commit coalesce behind it`() {
-        val gate = RenderAttachmentGate()
-        val generation = gate.surfaceChanged()
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(generation).dispatch)
+        val (gate, generation) = readyGate()
+        assertEquals(RenderDispatch.COMMIT, gate.requestScene().dispatch)
 
         assertEquals(RenderDispatch.NONE, gate.requestScene().dispatch)
         assertEquals(RenderDispatch.NONE, gate.requestScene().dispatch)
@@ -147,23 +146,22 @@ class RenderAttachmentGateTest {
 
         assertEquals(RenderDispatch.NONE, gate.endStroke().dispatch)
         val generation = gate.surfaceChanged()
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(generation).dispatch)
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(generation).dispatch)
         assertEquals(accepted(generation, RenderDispatch.NONE), gate.multiDrawCompleted(generation))
         assertEquals(RenderDispatch.FRONT, gate.requestFront().dispatch)
     }
 
     @Test
     fun `pen up commits immediately on a ready attachment`() {
-        val gate = readyGate()
+        val (gate) = readyGate()
 
         assertEquals(RenderDispatch.COMMIT, gate.endStroke().dispatch)
     }
 
     @Test
     fun `pen up during a commit queues a scene and drops its front`() {
-        val gate = RenderAttachmentGate()
-        val generation = gate.surfaceChanged()
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(generation).dispatch)
+        val (gate, generation) = readyGate()
+        assertEquals(RenderDispatch.COMMIT, gate.requestScene().dispatch)
         assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
 
         assertEquals(RenderDispatch.NONE, gate.endStroke().dispatch)
@@ -174,9 +172,8 @@ class RenderAttachmentGateTest {
 
     @Test
     fun `cancel drops front work queued behind a commit`() {
-        val gate = RenderAttachmentGate()
-        val generation = gate.surfaceChanged()
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(generation).dispatch)
+        val (gate, generation) = readyGate()
+        assertEquals(RenderDispatch.COMMIT, gate.requestScene().dispatch)
         assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
 
         gate.cancelFront()
@@ -189,6 +186,7 @@ class RenderAttachmentGateTest {
         val gate = RenderAttachmentGate()
         gate.requestScene()
         val stale = gate.surfaceChanged()
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(stale).dispatch)
         gate.release()
 
         assertEquals(RenderDispatch.NONE, gate.requestScene().dispatch)
@@ -201,12 +199,74 @@ class RenderAttachmentGateTest {
         assertEquals(AttachmentCompletion.Ignored, gate.multiDrawCompleted(stale))
     }
 
-    private fun readyGate(): RenderAttachmentGate = RenderAttachmentGate().also { gate ->
-        gate.requestScene()
+    @Test
+    fun `scene work during bootstrap follows it with one commit`() {
+        val gate = RenderAttachmentGate()
         val generation = gate.surfaceChanged()
-        assertEquals(RenderDispatch.COMMIT, gate.surfaceReady(generation).dispatch)
+
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(generation).dispatch)
+        assertEquals(RenderDispatch.NONE, gate.requestScene().dispatch)
+        assertEquals(RenderDispatch.NONE, gate.requestScene().dispatch)
+
+        assertEquals(accepted(generation, RenderDispatch.COMMIT), gate.multiDrawCompleted(generation))
         assertEquals(accepted(generation, RenderDispatch.NONE), gate.multiDrawCompleted(generation))
     }
+
+    @Test
+    fun `bootstrap completion moves the attachment to ready and flushes front work`() {
+        val gate = RenderAttachmentGate()
+        val generation = gate.surfaceChanged()
+
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(generation).dispatch)
+        assertTrue(
+            gate.acceptsDriverCallback(generation),
+            "the bootstrap draw must be accepted before the attachment is fully ready",
+        )
+        assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
+
+        assertEquals(accepted(generation, RenderDispatch.FRONT), gate.multiDrawCompleted(generation))
+        assertEquals(RenderDispatch.FRONT, gate.requestFront().dispatch)
+    }
+
+    @Test
+    fun `pen up during bootstrap flushes a commit and supersedes front work`() {
+        val gate = RenderAttachmentGate()
+        val generation = gate.surfaceChanged()
+
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(generation).dispatch)
+        assertEquals(RenderDispatch.NONE, gate.requestFront().dispatch)
+        assertEquals(RenderDispatch.NONE, gate.endStroke().dispatch)
+
+        assertEquals(accepted(generation, RenderDispatch.COMMIT), gate.multiDrawCompleted(generation))
+        assertEquals(accepted(generation, RenderDispatch.NONE), gate.multiDrawCompleted(generation))
+    }
+
+    @Test
+    fun `only the first scene of each surface generation bootstraps directly`() {
+        val gate = RenderAttachmentGate()
+        val first = gate.surfaceChanged()
+
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(first).dispatch)
+        assertEquals(accepted(first, RenderDispatch.NONE), gate.multiDrawCompleted(first))
+        assertEquals(RenderDispatch.COMMIT, gate.requestScene().dispatch)
+        assertEquals(accepted(first, RenderDispatch.NONE), gate.multiDrawCompleted(first))
+
+        val second = gate.surfaceChanged()
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(second).dispatch)
+        assertEquals(accepted(second, RenderDispatch.NONE), gate.multiDrawCompleted(second))
+        assertEquals(RenderDispatch.COMMIT, gate.requestScene().dispatch)
+    }
+
+    private fun readyGate(): Pair<RenderAttachmentGate, Long> {
+        val gate = RenderAttachmentGate()
+        gate.requestScene()
+        val generation = gate.surfaceChanged()
+        assertEquals(bootstrapDispatch(), gate.surfaceReady(generation).dispatch)
+        assertEquals(accepted(generation, RenderDispatch.NONE), gate.multiDrawCompleted(generation))
+        return gate to generation
+    }
+
+    private fun bootstrapDispatch(): RenderDispatch = RenderDispatch.BOOTSTRAP
 
     private fun accepted(generation: Long, dispatch: RenderDispatch): AttachmentCompletion =
         AttachmentCompletion.Accepted(plan(generation, dispatch))

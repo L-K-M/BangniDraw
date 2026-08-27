@@ -292,10 +292,17 @@ and the contradiction is noted here.
   so a new front render can race the later release-time clear.
   But `commit()` increments that count before checking whether its render
   target exists; calling it before `surfaceChanged` schedules nothing and
-  strands every later render behind a count that cannot fall. `EngineSession`
-  therefore gates every commit and front request on its own `SurfaceHolder`
-  callback. A generation-tagged GL FIFO marker makes the current attachment
-  ready only after graphics-core creates its targets; stale markers are ignored.
+  strands every later render behind a count that cannot fall. The first
+  `commit()` after attachment also deadlocks: its displayed buffer is the one
+  whose later release would decrement the count, while a second `commit()` sees
+  the nonzero count and schedules no replacement. `EngineSession` therefore
+  gates every render on its own `SurfaceHolder` callback and seeds each
+  generation with exactly one direct multi-buffered frame. Its completion
+  makes the attachment ready; only then may ordinary redraws use `commit()` or
+  input use the front layer. A generation-tagged GL FIFO marker starts that
+  bootstrap only after graphics-core creates its targets; stale markers are
+  ignored. A direct multi draw is safe only for this pre-front, pre-commit
+  baseline; never mix another one into a ready generation.
   Each attachment gets a fresh `GLFrontBufferedRenderer`, resetting 1.0.4's
   sticky counters, while one shared `GLRenderer` preserves the canvas GL
   resources. The app callback is registered first, so it retires the old

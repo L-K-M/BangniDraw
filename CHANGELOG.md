@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.5 - 2026-08-27
+
+- Restore live stroke presentation after each canvas surface attaches.
+
 ## 1.0.4 - 2026-08-27
 
 - Reissue the canvas rendering fixes with a new package version.

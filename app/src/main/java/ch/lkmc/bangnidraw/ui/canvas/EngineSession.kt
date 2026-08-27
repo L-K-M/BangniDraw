@@ -560,6 +560,7 @@ class EngineSession(
 
         when (plan.dispatch) {
             RenderDispatch.NONE -> Unit
+            RenderDispatch.BOOTSTRAP -> driver.renderMultiBufferedLayer(emptyList())
             RenderDispatch.COMMIT -> driver.commit()
             RenderDispatch.FRONT -> driver.renderFrontBufferedLayer(frontParam)
         }

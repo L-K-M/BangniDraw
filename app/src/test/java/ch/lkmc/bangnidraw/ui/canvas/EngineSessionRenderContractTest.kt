@@ -14,9 +14,17 @@ class EngineSessionRenderContractTest {
         val source = source(ENGINE_SESSION_PATH)
         val dispatcher = section(source, DISPATCH_START, DISPATCH_END)
 
-        assertFalse(DIRECT_MULTI_CALL.containsMatchIn(source), "direct multi bypasses commit state")
+        assertEquals(
+            1,
+            DIRECT_MULTI_CALL.findAll(source).count(),
+            "exactly one dispatcher branch may seed the attachment with a direct multi frame",
+        )
         assertEquals(1, COMMIT_CALL.findAll(source).count(), "raw commit must have one owner")
         assertEquals(1, FRONT_CALL.findAll(source).count(), "raw front render must have one owner")
+        assertTrue(
+            BOOTSTRAP_DISPATCH.containsMatchIn(dispatcher),
+            "only BOOTSTRAP may issue the direct multi frame",
+        )
         assertTrue(COMMIT_CALL.containsMatchIn(dispatcher), "dispatcher must own commit")
         assertTrue(FRONT_CALL.containsMatchIn(dispatcher), "dispatcher must own front render")
     }
@@ -276,6 +284,9 @@ class EngineSessionRenderContractTest {
         val DIRECT_MULTI_CALL = Regex(
             """\b(?:frontBuffered|driver)\??\.renderMultiBufferedLayer\(""",
         )
+        val BOOTSTRAP_DISPATCH = Regex(
+            """RenderDispatch\.BOOTSTRAP\s*->\s*driver\.renderMultiBufferedLayer\(emptyList\(\)\)""",
+        )
         val COMMIT_CALL = Regex("""\b(?:frontBuffered|driver)\??\.commit\(\)""")
         val FRONT_CALL = Regex(
             """\b(?:frontBuffered|driver)\??\.renderFrontBufferedLayer\(""",
@@ -339,7 +350,9 @@ class EngineSessionRenderContractTest {
         const val FRONT_GATE_CALL = "attachmentGate.requestFront()"
         const val END_GATE_CALL = "attachmentGate.endStroke()"
         const val PENDING_BATCH_ADD = "pendingBatches.add(batch)"
-        val LITERAL_RENDER_DISPATCH = Regex("""dispatch\(RenderDispatch\.(?:COMMIT|FRONT)""")
+        val LITERAL_RENDER_DISPATCH = Regex(
+            """dispatch\(RenderDispatch\.(?:BOOTSTRAP|COMMIT|FRONT)""",
+        )
         const val COMPLETION_GATE_CALL = "attachmentGate.multiDrawCompleted(generation)"
         const val ACCEPTED_COMPLETION_GUARD =
             "completion !is AttachmentCompletion.Accepted"

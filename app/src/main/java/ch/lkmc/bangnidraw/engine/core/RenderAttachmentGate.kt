@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.engine.core
 
 internal enum class RenderDispatch {
     NONE,
+    BOOTSTRAP,
     COMMIT,
     FRONT,
 }
@@ -20,30 +21,30 @@ internal sealed interface AttachmentCompletion {
 /** Serializes rendering behind the current SurfaceView attachment. */
 internal class RenderAttachmentGate {
 
-    private enum class State { WAITING, READY, RELEASED }
+    private enum class State { WAITING, BOOTSTRAPPING, READY, RELEASED }
 
     private var state = State.WAITING
     private var generation = 0L
     private var scenePending = false
     private var frontPending = false
-    private var commitInFlight = false
+    private var multiDrawInFlight = false
 
     @Synchronized
     fun requestScene(): AttachmentRenderPlan {
         if (state == State.RELEASED) return plan(RenderDispatch.NONE)
-        if (state != State.READY || commitInFlight) {
+        if (state != State.READY || multiDrawInFlight) {
             scenePending = true
             return plan(RenderDispatch.NONE)
         }
 
-        commitInFlight = true
+        multiDrawInFlight = true
         return plan(RenderDispatch.COMMIT)
     }
 
     @Synchronized
     fun requestFront(): AttachmentRenderPlan {
         if (state == State.RELEASED) return plan(RenderDispatch.NONE)
-        if (state != State.READY || commitInFlight || scenePending) {
+        if (state != State.READY || multiDrawInFlight || scenePending) {
             frontPending = true
             return plan(RenderDispatch.NONE)
         }
@@ -72,7 +73,7 @@ internal class RenderAttachmentGate {
         generation += 1
         state = State.WAITING
         scenePending = true
-        commitInFlight = false
+        multiDrawInFlight = false
         return generation
     }
 
@@ -83,7 +84,7 @@ internal class RenderAttachmentGate {
         generation += 1
         state = State.WAITING
         scenePending = true
-        commitInFlight = false
+        multiDrawInFlight = false
     }
 
     @Synchronized
@@ -92,41 +93,40 @@ internal class RenderAttachmentGate {
 
     @Synchronized
     fun acceptsDriverCallback(candidate: Long): Boolean =
-        state == State.READY && candidate == generation
+        (state == State.BOOTSTRAPPING || state == State.READY) && candidate == generation
 
     @Synchronized
     fun surfaceReady(readyGeneration: Long): AttachmentRenderPlan {
         if (state == State.RELEASED) return plan(RenderDispatch.NONE)
-        if (readyGeneration != generation || state == State.READY) {
+        if (readyGeneration != generation || state != State.WAITING) {
             return plan(RenderDispatch.NONE)
         }
 
-        state = State.READY
-        if (scenePending) {
-            scenePending = false
-            commitInFlight = true
-            return plan(RenderDispatch.COMMIT)
-        }
-        if (!frontPending) return plan(RenderDispatch.NONE)
-
-        frontPending = false
-        return plan(RenderDispatch.FRONT)
+        // graphics-core 1.0.4 decrements commitCount only when the previously
+        // displayed multi buffer is replaced. The first frame has no previous
+        // buffer, so commit() would strand its own count and every front draw.
+        // Seed each attachment directly; all later scene draws use commit().
+        state = State.BOOTSTRAPPING
+        scenePending = false
+        multiDrawInFlight = true
+        return plan(RenderDispatch.BOOTSTRAP)
     }
 
     @Synchronized
     fun multiDrawCompleted(completedGeneration: Long): AttachmentCompletion {
         if (
-            state != State.READY ||
+            (state != State.BOOTSTRAPPING && state != State.READY) ||
             completedGeneration != generation ||
-            !commitInFlight
+            !multiDrawInFlight
         ) {
             return AttachmentCompletion.Ignored
         }
 
-        commitInFlight = false
+        if (state == State.BOOTSTRAPPING) state = State.READY
+        multiDrawInFlight = false
         if (scenePending) {
             scenePending = false
-            commitInFlight = true
+            multiDrawInFlight = true
             return AttachmentCompletion.Accepted(plan(RenderDispatch.COMMIT))
         }
         if (!frontPending) {
@@ -142,7 +142,7 @@ internal class RenderAttachmentGate {
         state = State.RELEASED
         scenePending = false
         frontPending = false
-        commitInFlight = false
+        multiDrawInFlight = false
     }
 
     private fun plan(dispatch: RenderDispatch): AttachmentRenderPlan =

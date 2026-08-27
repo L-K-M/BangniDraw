@@ -33,6 +33,10 @@ class BrushSettingsCurvePlotContractTest {
             "KNOT_X[k]",
             "R.string.brush_curve_plot",
             "contentDescription = description",
+            ".clipToBounds()",
+            "GRID_STROKE.toPx()",
+            "CURVE_STROKE.toPx()",
+            "KNOT_RADIUS.toPx()",
         ).forEach { marker ->
             assertTrue(marker in plot, "missing marker [$marker]")
         }
@@ -50,12 +54,19 @@ class BrushSettingsCurvePlotContractTest {
     }
 
     private fun repositoryRoot(): File {
-        val workingDirectory = File(System.getProperty("user.dir"))
-        if (workingDirectory.name == "app") return workingDirectory.parentFile
-        return workingDirectory
+        val workingDirectory = File(
+            requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),
+        ).canonicalFile
+
+        return generateSequence(workingDirectory) { it.parentFile }
+            .firstOrNull { File(it, ROOT_MARKER).isFile && File(it, APP_DIRECTORY).isDirectory }
+            ?: fail("cannot locate repository root from $workingDirectory")
     }
 
     private companion object {
+        const val USER_DIRECTORY_PROPERTY = "user.dir"
+        const val ROOT_MARKER = "settings.gradle.kts"
+        const val APP_DIRECTORY = "app/src/main"
         const val SHEET_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/BrushSettingsSheet.kt"
         const val CURVE_EDITOR_START = "internal fun CurveEditor("

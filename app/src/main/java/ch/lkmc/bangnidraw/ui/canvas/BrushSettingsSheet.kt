@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
@@ -595,15 +596,20 @@ private fun CurvePlot(curve: Curve) {
             .fillMaxWidth()
             .height(PLOT_HEIGHT)
             .padding(vertical = PLOT_VERTICAL_PADDING)
+            .clipToBounds()
             .semantics { contentDescription = description },
     ) {
-        drawRect(color = grid, style = Stroke(width = GRID_STROKE_PX))
+        val gridStroke = GRID_STROKE.toPx()
+        val curveStroke = CURVE_STROKE.toPx()
+        val knotRadius = KNOT_RADIUS.toPx()
+
+        drawRect(color = grid, style = Stroke(width = gridStroke))
         for (k in 1 until KNOT_X.size - 1) {
             val x = size.width * KNOT_X[k]
-            drawLine(grid, Offset(x, 0f), Offset(x, size.height), GRID_STROKE_PX)
+            drawLine(grid, Offset(x, 0f), Offset(x, size.height), gridStroke)
         }
         val mid = size.height / 2f
-        drawLine(grid, Offset(0f, mid), Offset(size.width, mid), GRID_STROKE_PX)
+        drawLine(grid, Offset(0f, mid), Offset(size.width, mid), gridStroke)
 
         val path = Path()
         for (i in 0..PLOT_SAMPLES) {
@@ -615,14 +621,14 @@ private fun CurvePlot(curve: Curve) {
         drawPath(
             path,
             color = line,
-            style = Stroke(width = CURVE_STROKE_PX, cap = StrokeCap.Round),
+            style = Stroke(width = curveStroke, cap = StrokeCap.Round),
         )
 
         val knotY = floatArrayOf(curve.p0, curve.p1, curve.p2, curve.p3)
         for (k in KNOT_X.indices) {
             drawCircle(
                 color = knot,
-                radius = KNOT_RADIUS_PX,
+                radius = knotRadius,
                 center = Offset(size.width * KNOT_X[k], (1f - knotY[k]) * size.height),
             )
         }
@@ -690,9 +696,9 @@ private const val MAX_FAST_PX_PER_MS = 16f
 private val PLOT_HEIGHT = 64.dp
 private val PLOT_VERTICAL_PADDING = 4.dp
 private const val PLOT_SAMPLES = 64
-private const val GRID_STROKE_PX = 1f
-private const val CURVE_STROKE_PX = 3f
-private const val KNOT_RADIUS_PX = 4f
+private val GRID_STROKE = 1.dp
+private val CURVE_STROKE = 2.dp
+private val KNOT_RADIUS = 3.dp
 
 /** The four knots' fixed x positions — `Curve`'s contract (04 §2). */
 private val KNOT_X = floatArrayOf(0f, 1f / 3f, 2f / 3f, 1f)

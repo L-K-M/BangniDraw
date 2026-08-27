@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
@@ -21,6 +22,7 @@ internal fun HoverCursor(
     stylus: StylusState,
     active: ToolKind,
     eraserPreset: BrushPreset,
+    brushColor: Int,
     canvasToScreenScale: Float,
     revision: Int,
     modifier: Modifier = Modifier,
@@ -61,6 +63,17 @@ internal fun HoverCursor(
                 center = center,
                 style = Stroke(width = INNER_STROKE_PX, pathEffect = pathEffect),
             )
+            // The ink ring: what the pen is about to lay down, inside the
+            // size ring. Erasers skip it — there is no colour to show — and
+            // so does a cursor too small to hold it.
+            if (spec.ink && radius > INK_INSET_PX + INK_STROKE_PX) {
+                drawCircle(
+                    color = Color(brushColor),
+                    radius = radius - INK_INSET_PX,
+                    center = center,
+                    style = Stroke(width = INK_STROKE_PX),
+                )
+            }
             if (spec.crosshair) drawCrosshair(center)
         }
     }
@@ -114,6 +127,8 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPipette(center:
 
 private const val OUTER_STROKE_PX = 3f
 private const val INNER_STROKE_PX = 1f
+private const val INK_STROKE_PX = 2f
+private const val INK_INSET_PX = 5f
 private const val CROSSHAIR_PX = 3f
 private const val DASH_ON_PX = 6f
 private const val DASH_OFF_PX = 4f

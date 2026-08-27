@@ -906,6 +906,7 @@ private fun CanvasContent(
             stylus = touch.stylus,
             active = state.toolSelection.kind,
             eraserPreset = eraserPreset,
+            brushColor = state.color.current,
             canvasToScreenScale = touch.canvasToScreenScale,
             revision = hoverRevision,
             modifier = Modifier.fillMaxSize(),

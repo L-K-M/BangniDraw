@@ -10,6 +10,8 @@ internal data class HoverCursorSpec(
     val diameterPx: Float,
     val ring: HoverRing,
     val crosshair: Boolean,
+    /** True when the tool lays down the current brush colour, so the ring can show it. */
+    val ink: Boolean = true,
 )
 
 /** Pure cursor choice; Compose only draws the returned description. */
@@ -31,16 +33,14 @@ internal object HoverCursorPolicy {
         } else {
             (active as? ToolKind.Brush)?.preset ?: return null
         }
+        val erasing = preset.eraseMode || pointer == PointerTool.ERASER
         val diameter = (preset.size * canvasToScreenScale).coerceAtLeast(0f)
-        val ring = if (preset.eraseMode || pointer == PointerTool.ERASER) {
-            HoverRing.Dashed
-        } else {
-            HoverRing.Solid
-        }
+        val ring = if (erasing) HoverRing.Dashed else HoverRing.Solid
         return HoverCursorSpec(
             diameterPx = diameter,
             ring = ring,
             crosshair = diameter < CROSSHAIR_THRESHOLD_PX,
+            ink = !erasing,
         )
     }
 

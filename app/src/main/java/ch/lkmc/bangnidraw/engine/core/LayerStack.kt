@@ -290,15 +290,9 @@ data class LayerStack(
                 removeAt(index)
                 set(index - 1, merged)
             },
-            // Like delete: the selection only moves if it was on one of the
-            // two layers being merged. Merging a pair you are not working on
-            // must not yank the selection away from the layer you are.
-            // `05-layers.md` §4.1 is silent, so delete's convention governs.
-            activeIndex = when {
-                activeIndex == index || activeIndex == index - 1 -> index - 1
-                activeIndex > index -> activeIndex - 1
-                else -> activeIndex
-            },
+            // The merged lower layer becomes active, matching the panel action
+            // and the history entry's active-after hint.
+            activeIndex = index - 1,
         )
         // Only the bottom tiles the merge actually overwrites — unlike
         // `upperTiles` two lines down, this is NOT the lower layer's full tile

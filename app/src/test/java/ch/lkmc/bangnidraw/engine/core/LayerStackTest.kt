@@ -270,6 +270,16 @@ class LayerStackTest {
     }
 
     @Test
+    fun `merge down always selects the merged lower layer`() {
+        val stack = stackOf("active", "lower", "upper", active = 0)
+
+        val edit = ok(stack.mergeDown(2))
+
+        assertEquals(LayerId("id-1"), edit.stack.active.id)
+        assertEquals(LayerId("id-1"), edit.entry.activeAfter)
+    }
+
+    @Test
     fun `merge down rewrites every bottom tile whose look depended on the bottom's opacity`() {
         // The merged layer is Normal at 100 %, so a bottom layer at 50 % has
         // to have that opacity baked into ALL of its tiles — including the
@@ -582,6 +592,8 @@ class LayerStackTest {
                 restored.nextName,
                 "undo must leave the default-name counter where the operation left it",
             )
+            val redone = applyHistory(restored, edit.entry, HistoryDirection.REDO)
+            assertEquals(edit.stack, redone, "redoing ${edit.entry::class.simpleName} did not restore the edit")
             stack = edit.stack
         }
     }
@@ -666,74 +678,16 @@ class LayerStackTest {
         }
     }
 
-    /**
-     * The structural half of undo, per `docs/plan/06-document-and-persistence.md`
-     * §5.2 — enough to prove the entries are invertible. The tile *bytes* and
-     * the journal itself land with roadmap step 3; here a tile key set stands
-     * in for the pixels.
-     */
-    // TODO(roadmap step 3): promote these inverse branches into shared
-    // production code (a LayerStackInverter) that both the journal and this
-    // test call, rather than writing a second inverse in step 3 and pointing
-    // the test at it — two implementations is the drift this warns about.
-    private fun undo(stack: LayerStack, entry: HistoryEntry): LayerStack {
-        val layers = stack.layers.toMutableList()
-        fun indexOf(id: LayerId) = layers.indexOfFirst { it.id == id }
-        when (entry) {
-            is HistoryEntry.LayerAdd -> layers.removeAt(entry.index)
-            is HistoryEntry.LayerDuplicate -> layers.removeAt(entry.index)
-            is HistoryEntry.LayerDelete ->
-                layers.add(entry.index, Layer(entry.layer.toProps(), entry.tiles.toSet()))
-            is HistoryEntry.LayerReorder -> {
-                // Exact inverse of move()'s add(toIndex, removeAt(fromIndex));
-                // toIndex must stay a POST-removal insert index, or this
-                // oracle silently diverges from production on downward moves.
-                val moved = layers.removeAt(entry.toIndex)
-                layers.add(entry.fromIndex, moved)
-            }
-            is HistoryEntry.LayerProps -> {
-                val at = indexOf(entry.layerId)
-                    .also { check(it >= 0) { "layer ${entry.layerId} is not in the rewound stack" } }
-                layers[at] = layers[at].copy(props = entry.before.toProps())
-            }
-            is HistoryEntry.LayerClear -> {
-                val at = indexOf(entry.layerId)
-                    .also { check(it >= 0) { "layer ${entry.layerId} is not in the rewound stack" } }
-                layers[at] = layers[at].copy(tiles = entry.tiles.toSet())
-            }
-            is HistoryEntry.LayerMerge -> {
-                val lower = entry.lower.toProps()
-                val at = indexOf(lower.id)
-                    .also { check(it >= 0) { "merged layer ${lower.id.value} is not in the rewound stack" } }
-                val upperTiles = entry.upperTiles.toSet()
-                val lowerTiles = (layers[at].tiles - upperTiles) + entry.lowerTiles.toSet()
-                layers[at] = Layer(lower, lowerTiles)
-                layers.add(entry.upperIndex, Layer(entry.upper.toProps(), upperTiles))
-            }
-            is HistoryEntry.Flatten -> {
-                layers.clear()
-                entry.layers.forEach { record ->
-                    val props = record.toProps()
-                    val tiles = entry.tilesPerLayer[props.id]
-                        ?: error("flatten record for ${props.id.value} has no tile set")
-                    layers += Layer(props, tiles.toSet())
-                }
-            }
-            // Named rather than `else`: an entry kind added to the sealed
-            // interface must fail to compile here, so whoever adds it decides
-            // whether LayerStack can produce it — an `else` would silently
-            // route a new layer operation into `error()` at run time, and only
-            // if the random walk happened to reach it.
-            is HistoryEntry.Stroke,
-            is HistoryEntry.Fill,
-            is HistoryEntry.PaperColor,
-            -> error("${entry::class.simpleName} is a pixel entry, not a layer-stack one")
-        }
-        return LayerStack(
-            layers = layers,
-            activeIndex = layers.indexOfFirst { it.id == entry.activeBefore }
-                .also { check(it >= 0) { "activeBefore ${entry.activeBefore.value} is not in the rewound stack" } },
-            nextName = stack.nextName,
-        )
+    private fun undo(stack: LayerStack, entry: HistoryEntry): LayerStack =
+        applyHistory(stack, entry, HistoryDirection.UNDO)
+
+    private fun applyHistory(
+        stack: LayerStack,
+        entry: HistoryEntry,
+        direction: HistoryDirection,
+    ): LayerStack {
+        val result = LayerHistory.apply(stack, entry, direction)
+        assertIs<LayerHistoryResult.Applied>(result)
+        return result.edit.stack
     }
 }

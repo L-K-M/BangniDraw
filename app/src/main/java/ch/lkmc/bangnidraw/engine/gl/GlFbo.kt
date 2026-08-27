@@ -53,12 +53,16 @@ class GlFbo {
      * outcome that is a device condition rather than a bug (a slice count the
      * driver over-reported, most plausibly).
      */
-    fun bindArrayLayer(texture: Int, layer: Int): Boolean {
+    fun bindArrayLayer(
+        texture: Int,
+        layer: Int,
+        target: Int = GLES30.GL_FRAMEBUFFER,
+    ): Boolean {
         ensure()
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, ids[0])
+        GLES30.glBindFramebuffer(target, ids[0])
         if (texture != attachedTexture || layer != attachedLayer) {
             GLES30.glFramebufferTextureLayer(
-                GLES30.GL_FRAMEBUFFER,
+                target,
                 GLES30.GL_COLOR_ATTACHMENT0,
                 texture,
                 0,
@@ -67,7 +71,7 @@ class GlFbo {
             attachedTexture = texture
             attachedLayer = layer
         }
-        return isComplete("array layer $texture:$layer")
+        return isComplete("array layer $texture:$layer", target)
     }
 
     /** Binds this FBO with the 2D texture [texture] as colour attachment 0. */

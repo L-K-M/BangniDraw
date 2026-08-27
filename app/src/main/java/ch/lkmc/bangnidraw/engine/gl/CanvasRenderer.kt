@@ -13,10 +13,13 @@ import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.IntRect
+import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
+import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.PerfStats
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.SANDWICH_MARGIN_PX
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.SampleSource
@@ -68,7 +71,7 @@ class CanvasRenderer(
      * context without persistence; then no [Readback] exists and a merge
      * leaves the CPU mirror alone.
      */
-    onTile: ((LayerId, TileKey, Int, java.nio.ByteBuffer) -> Unit)? = null,
+    private val onTile: ((LayerId, TileKey, Int, java.nio.ByteBuffer) -> Unit)? = null,
 ) {
 
     /**
@@ -143,6 +146,7 @@ class CanvasRenderer(
     private var checker: GlProgram? = null
     private var tileComposite: GlProgram? = null
     private var compositePass: CompositePass? = null
+    private var layerPixelPass: LayerPixelPass? = null
     private var dab: GlProgram? = null
     private var merge: GlProgram? = null
     private var dabPass: DabPass? = null
@@ -212,6 +216,7 @@ class CanvasRenderer(
     private var sandwich: SandwichCache? = null
 
     private val layers = LinkedHashMap<LayerId, LayerTextures>()
+    private val transparentTile = java.nio.ByteBuffer.allocate(TILE_BYTES)
 
     /** Set by the session; the renderer never reads the document itself. */
     var stack: LayerStack? = null
@@ -333,6 +338,7 @@ class CanvasRenderer(
         val tiles = TilePool(probed, budget)
         pool = tiles
         sandwich = SandwichCache(grid, tiles, tileCompositeProgram, state)
+        layerPixelPass = LayerPixelPass(tiles, tileCompositeProgram, state)
         dab = dabProgram
         merge = mergeProgram
         dabPass = DabPass(dabProgram, state)
@@ -576,7 +582,7 @@ class CanvasRenderer(
 
     // ------------------------------------------------------------- document
 
-    fun setStack(next: LayerStack) {
+    fun setStack(next: LayerStack, invalidation: SandwichPolicy.Op? = null) {
         val previous = stack
         stack = next
         // A `return` inside the getOrPut lambda is a NON-LOCAL return: with a
@@ -595,8 +601,232 @@ class CanvasRenderer(
         val gone = layers.keys.filterNot { it in live }
         for (id in gone) layers.remove(id)?.release()
         sandwich?.observe(next)
-        if (previous == null || previous.activeIndex != next.activeIndex) {
-            sandwich?.invalidate(SandwichPolicy.Op.Select(next.activeIndex), next.activeIndex)
+        when {
+            previous == null -> sandwich?.invalidate(SandwichPolicy.Op.Select(next.activeIndex), next.activeIndex)
+            invalidation != null -> sandwich?.invalidate(invalidation, previous.activeIndex)
+            previous.active.id != next.active.id ->
+                sandwich?.invalidate(SandwichPolicy.Op.Select(next.activeIndex), previous.activeIndex)
+        }
+    }
+
+    /** Prepared output remains detached until its history entry is queued. */
+    private sealed interface PreparedPixelOp {
+        data class LayerDelete(val layer: LayerId, val keys: Set<TileKey>)
+
+        data class Composite(
+            val transaction: LayerPixelPass.Transaction,
+            val layer: LayerId,
+            val target: LayerTextures,
+            val keys: Set<TileKey>,
+            val deleteAfter: List<LayerDelete> = emptyList(),
+            val createdTarget: LayerId? = null,
+        ) : PreparedPixelOp
+
+        data class Clear(val layer: LayerId, val keys: Set<TileKey>) : PreparedPixelOp
+        data class Delete(val layer: LayerId, val keys: Set<TileKey>) : PreparedPixelOp
+    }
+
+    private data class PixelTarget(
+        val textures: LayerTextures,
+        val created: Boolean,
+    )
+
+    /** Applies structural pixel work before [setStack] publishes its model. */
+    fun applyPixelOps(
+        ops: List<PixelOp>,
+        revision: Int,
+        beforeCommit: () -> Boolean = { true },
+    ): Boolean {
+        val prepared = ArrayList<PreparedPixelOp>(ops.size)
+        for (op in ops) {
+            val next = when (op) {
+                is PixelOp.Copy -> layerPixelPass?.let { prepareCopy(it, op) }
+                is PixelOp.Merge -> layerPixelPass?.let { prepareMerge(it, op) }
+                is PixelOp.Clear -> prepareClear(op)
+                is PixelOp.Delete -> prepareDelete(op)
+                is PixelOp.Flatten -> layerPixelPass?.let { prepareFlatten(it, op) }
+                // History restores already upload through EngineSession; raw
+                // bytes do not belong in this structural transaction.
+                is PixelOp.Restore -> null
+            }
+            if (next == null) {
+                abort(prepared)
+                return false
+            }
+            prepared += next
+        }
+        if (!beforeCommit()) {
+            abort(prepared)
+            return false
+        }
+
+        prepared.forEach { commit(it, revision) }
+        return true
+    }
+
+    private fun prepareCopy(pass: LayerPixelPass, op: PixelOp.Copy): PreparedPixelOp.Composite? {
+        val current = stack ?: return null
+        val sourceLayer = current.layers.firstOrNull { it.id == op.src } ?: return null
+        if (sourceLayer.tiles != op.keys || current.layers.any { it.id == op.dst }) return null
+
+        val source = layers[op.src] ?: return null
+        val target = targetFor(op.dst) ?: return null
+        val transaction = pass.copy(source, target.textures, op.keys)
+        if (transaction == null) {
+            releaseCreatedTarget(op.dst, target)
+            return null
+        }
+        return PreparedPixelOp.Composite(
+            transaction,
+            op.dst,
+            target.textures,
+            op.keys,
+            createdTarget = op.dst.takeIf { target.created },
+        )
+    }
+
+    private fun prepareMerge(pass: LayerPixelPass, op: PixelOp.Merge): PreparedPixelOp.Composite? {
+        val current = stack ?: return null
+        val topLayer = current.layers.firstOrNull { it.id == op.top } ?: return null
+        val bottomLayer = current.layers.firstOrNull { it.id == op.bottom } ?: return null
+        if (topLayer.props != op.topProps || bottomLayer.props != op.bottomProps) return null
+        val topIndex = current.indexOf(op.top)
+        if (topIndex <= 0 || current.layers[topIndex - 1].id != op.bottom) return null
+        val expectedKeys = if (bottomLayer.props.opacity != 1f) {
+            bottomLayer.tiles + topLayer.tiles
+        } else {
+            topLayer.tiles
+        }
+        if (op.keys != expectedKeys) return null
+
+        val top = layers[op.top] ?: return null
+        val bottom = layers[op.bottom] ?: return null
+        val topSource = top.asSource(topLayer)
+        val bottomSource = bottom.asSource(bottomLayer)
+        val transaction = pass.merge(bottomSource, topSource, bottom, op.keys) ?: return null
+        return PreparedPixelOp.Composite(
+            transaction,
+            op.bottom,
+            bottom,
+            op.keys,
+            deleteAfter = listOf(PreparedPixelOp.LayerDelete(op.top, topLayer.tiles)),
+        )
+    }
+
+    private fun prepareFlatten(pass: LayerPixelPass, op: PixelOp.Flatten): PreparedPixelOp.Composite? {
+        val current = stack ?: return null
+        val visible = current.layers.filter { it.props.visible }
+        if (op.order != visible.map { it.props }) return null
+        if (current.layers.any { it.id == op.result }) return null
+
+        val sources = ArrayList<LayerPixelPass.Source>(op.order.size)
+        val keys = LinkedHashSet<TileKey>()
+        for (layer in visible) {
+            val props = layer.props
+            val source = layers[props.id] ?: return null
+            sources += source.asSource(layer)
+            keys += layer.tiles
+        }
+        val target = targetFor(op.result) ?: return null
+        val transaction = pass.flatten(sources, target.textures, keys)
+        if (transaction == null) {
+            releaseCreatedTarget(op.result, target)
+            return null
+        }
+        val oldLayers = current.layers.map { PreparedPixelOp.LayerDelete(it.id, it.tiles) }
+        return PreparedPixelOp.Composite(
+            transaction,
+            op.result,
+            target.textures,
+            keys,
+            deleteAfter = oldLayers,
+            createdTarget = op.result.takeIf { target.created },
+        )
+    }
+
+    private fun prepareClear(op: PixelOp.Clear): PreparedPixelOp.Clear? {
+        val layer = stack?.layers?.firstOrNull { it.id == op.layer } ?: return null
+        if (op.layer !in layers) return null
+        return PreparedPixelOp.Clear(op.layer, layer.tiles)
+    }
+
+    private fun prepareDelete(op: PixelOp.Delete): PreparedPixelOp.Delete? {
+        val layer = stack?.layers?.firstOrNull { it.id == op.layer } ?: return null
+        if (op.layer !in layers) return null
+        return PreparedPixelOp.Delete(op.layer, layer.tiles)
+    }
+
+    private fun targetFor(id: LayerId): PixelTarget? {
+        val existing = layers[id]
+        if (existing != null) return PixelTarget(existing, created = false)
+        val created = textures(id) ?: return null
+        return PixelTarget(created, created = true)
+    }
+
+    private fun releaseCreatedTarget(id: LayerId, target: PixelTarget) {
+        if (!target.created) return
+        layers.remove(id)?.release()
+    }
+
+    private fun abort(prepared: List<PreparedPixelOp>) {
+        for (op in prepared) {
+            if (op !is PreparedPixelOp.Composite) continue
+
+            op.transaction.abort()
+            val id = op.createdTarget ?: continue
+            layers.remove(id)?.release()
+        }
+    }
+
+    private fun commit(prepared: PreparedPixelOp, revision: Int) {
+        when (prepared) {
+            is PreparedPixelOp.Composite -> {
+                prepared.transaction.commit()
+                enqueueReadback(prepared.layer, prepared.target, prepared.keys, revision)
+                prepared.deleteAfter.forEach { deleteLayer(it.layer, it.keys, revision) }
+            }
+            is PreparedPixelOp.Clear -> clearLayer(prepared.layer, prepared.keys, revision)
+            is PreparedPixelOp.Delete -> deleteLayer(prepared.layer, prepared.keys, revision)
+        }
+    }
+
+    private fun clearLayer(id: LayerId, keys: Set<TileKey>, revision: Int): Boolean {
+        val target = layers[id] ?: return false
+        emitEmpty(id, keys, revision)
+        target.release()
+        return true
+    }
+
+    private fun deleteLayer(id: LayerId, keys: Set<TileKey>, revision: Int): Boolean {
+        val target = layers.remove(id) ?: return false
+        emitEmpty(id, keys, revision)
+        target.release()
+        return true
+    }
+
+    private fun LayerTextures.asSource(layer: Layer) =
+        LayerPixelPass.Source(
+            this,
+            layer.tiles,
+            layer.props.blendMode,
+            layer.props.opacity,
+            layer.props.visible,
+        )
+
+    private fun enqueueReadback(
+        layer: LayerId,
+        target: LayerTextures,
+        keys: Collection<TileKey>,
+        revision: Int,
+    ) {
+        readback?.enqueue(layer, target, keys.toList(), revision)
+    }
+
+    private fun emitEmpty(layer: LayerId, keys: Set<TileKey>, revision: Int) {
+        val sink = onTile ?: return
+        for (key in keys) {
+            transparentTile.clear()
+            sink(layer, key, revision, transparentTile)
         }
     }
 
@@ -1148,6 +1378,7 @@ class CanvasRenderer(
         previousTailRect = IntRect.EMPTY
         dabPass = null
         mergePass = null
+        layerPixelPass = null
         // EVERY program reference — seven now that the tile compositor exists.
         // The ids died with the context, and `release()` releases each of them;
         // if a recreated context has reused one of those names, that
@@ -1190,6 +1421,7 @@ class CanvasRenderer(
         compositePass?.release()
         dabPass?.release()
         mergePass?.release()
+        layerPixelPass?.release()
         strokeBuffer?.reset()
         tailBuffer?.reset()
         presentQuad.release()
@@ -1214,6 +1446,7 @@ class CanvasRenderer(
         previousTailRect = IntRect.EMPTY
         dabPass = null
         mergePass = null
+        layerPixelPass = null
         isReady = false
     }
 

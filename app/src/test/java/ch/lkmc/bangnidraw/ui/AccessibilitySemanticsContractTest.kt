@@ -28,7 +28,7 @@ class AccessibilitySemanticsContractTest {
     }
 
     @Test
-    fun `settings radio choices expose four independent groups`() {
+    fun `settings radio choices expose independent groups`() {
         val source = source(SETTINGS_PATH)
 
         assertTrue(
@@ -100,7 +100,7 @@ class AccessibilitySemanticsContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/TopStrip.kt"
         const val SETTINGS_CHOICE_GROUPS = 5
         const val FILL_SLIDER_START = "\n    Slider("
-        const val FILL_TOGGLE_START = "\n@Composable\nprivate fun FillToggle"
+        const val FILL_TOGGLE_START = "private fun FillToggle"
         val SELECTABLE_GROUP = Regex("""\.selectableGroup\(\)""")
         val SWITCH_DELEGATES_TO_ROW = Regex(
             """Switch\(\s*checked\s*=\s*checked,\s*onCheckedChange\s*=\s*null""",

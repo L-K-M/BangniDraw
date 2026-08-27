@@ -152,6 +152,7 @@
     <string name="palette_painters">Painter’s</string>
     <string name="palette_basic">Basic</string>
     <string name="palette_recent">Recent</string>
+    <string name="palette_recent_dismiss">Close recent colors</string>
     <string name="palette_my">My palette</string>
     <string name="palette_create">New palette</string>
     <string name="palette_replace">Replace with current</string>

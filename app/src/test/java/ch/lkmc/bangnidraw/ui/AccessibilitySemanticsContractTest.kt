@@ -61,8 +61,16 @@ class AccessibilitySemanticsContractTest {
             "screen-reader checks must tolerate a missing platform service",
         )
         assertTrue(
-            "customActions = listOf(" !in stripSource,
+            "CustomAccessibilityAction(quickPaletteLabel)" !in stripSource,
             "combinedClickable already exposes the named long-press action",
+        )
+        assertTrue(
+            ".focusRequester(recentPaletteFocusRequester)" in stripSource,
+            "the color trigger must accept restored focus",
+        )
+        assertTrue(
+            "recentPaletteFocusRequester.requestFocus()" in canvasSource,
+            "dismissing the quick palette must restore its trigger focus",
         )
     }
 

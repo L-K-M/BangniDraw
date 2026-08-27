@@ -36,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -72,6 +74,7 @@ internal fun TopStrip(
     onLayers: () -> Unit,
     onColor: () -> Unit,
     onColorLongPress: () -> Unit,
+    recentPaletteFocusRequester: FocusRequester,
     onShare: () -> Unit,
     onExportPng: () -> Unit,
     onExportJpeg: () -> Unit,
@@ -100,6 +103,7 @@ internal fun TopStrip(
             onLayers,
             onColor,
             onColorLongPress,
+            recentPaletteFocusRequester,
             onShare,
             onExportPng,
             onExportJpeg,
@@ -217,6 +221,7 @@ private fun ToolCluster(
     onLayers: () -> Unit,
     onColor: () -> Unit,
     onColorLongPress: () -> Unit,
+    recentPaletteFocusRequester: FocusRequester,
     onShare: () -> Unit,
     onExportPng: () -> Unit,
     onExportJpeg: () -> Unit,
@@ -281,6 +286,7 @@ private fun ToolCluster(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(ICON_BUTTON)
+                    .focusRequester(recentPaletteFocusRequester)
                     .combinedClickable(
                         onClick = onColor,
                         onLongClickLabel = quickPaletteLabel,

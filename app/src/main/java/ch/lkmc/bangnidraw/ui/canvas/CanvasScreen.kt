@@ -244,6 +244,7 @@ private fun CanvasContent(
         ?.swatches
         .orEmpty()
     val recentScroll = rememberScrollState()
+    val recentPaletteFocusRequester = remember { FocusRequester() }
     var historyReadout by remember { mutableIntStateOf(0) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
 
@@ -261,6 +262,11 @@ private fun CanvasContent(
 
     fun updateView(next: ViewTransform) {
         view = next
+    }
+
+    fun dismissRecentSwatches() {
+        showRecentSwatches = false
+        runCatching { recentPaletteFocusRequester.requestFocus() }
     }
 
     // 06 §4's one honest toast per open, when something could not be read.
@@ -1037,6 +1043,7 @@ private fun CanvasContent(
                         showRecentSwatches = true
                     }
                 },
+                recentPaletteFocusRequester = recentPaletteFocusRequester,
                 onShare = {
                     sharePainting(context, viewModel, ImageEncode.Format.PNG, paintingName)
                 },
@@ -1056,7 +1063,7 @@ private fun CanvasContent(
             // from the strip's swatch. The scrim below it consumes the
             // dismissing tap so it never draws (the panel rule, §4.1).
             if (showRecentSwatches) {
-                BackHandler { showRecentSwatches = false }
+                BackHandler { dismissRecentSwatches() }
                 // The hoisted scroll state outlives the popover; each open
                 // starts at the newest swatches.
                 LaunchedEffect(Unit) { recentScroll.scrollTo(0) }
@@ -1089,7 +1096,7 @@ private fun CanvasContent(
                         // popover mid-traversal is the exact failure the
                         // guard exists to prevent.
                         if (accessibilityManager?.hasActiveScreenReader() != true) {
-                            showRecentSwatches = false
+                            dismissRecentSwatches()
                         }
                     }
                 }
@@ -1102,11 +1109,11 @@ private fun CanvasContent(
                         .clickable(
                             interactionSource = interaction,
                             indication = null,
-                            onClick = { showRecentSwatches = false },
+                            onClick = { dismissRecentSwatches() },
                         )
                         .clearAndSetSemantics {
                             onClick(label = recentDismissLabel) {
-                                showRecentSwatches = false
+                                dismissRecentSwatches()
                                 true
                             }
                         },
@@ -1117,7 +1124,7 @@ private fun CanvasContent(
                     scrollState = recentScroll,
                     onSelected = { color ->
                         viewModel.selectBrushColor(color)
-                        showRecentSwatches = false
+                        dismissRecentSwatches()
                     },
                 )
             }

@@ -23,10 +23,10 @@ import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Draw
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Highlight
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -550,7 +550,7 @@ private fun iconFor(id: String): ImageVector = when (id) {
     BrushPresets.PAINTBRUSH_ID -> Icons.Filled.Brush
     BrushPresets.AIRBRUSH_ID -> Icons.Filled.Air
     BrushPresets.MARKER_ID -> Icons.Filled.Highlight
-    else -> Icons.Filled.Edit
+    else -> Icons.Filled.Tune
 }
 
 private data class ToolSlot(

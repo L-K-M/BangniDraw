@@ -354,6 +354,15 @@ and the contradiction is noted here.
   pinning, and nothing borrows the GL thread. 03 §10.4's `CanvasRenderer
   .flatten` is still owed; when it lands it supersedes both call sites.
 
+- **Fill reference tiles are captured eagerly from the GPU.** `04-tools.md`
+  §7 specifies progressive CPU-mirror/PBO faults as the scan reaches each
+  tile. Step 8 instead composites every currently resident relevant tile,
+  without paper, and synchronously reads each result before CPU scanning.
+  This preserves current pixels and reference semantics, but front-loads work
+  and uses full-canvas scan/dilation scratch masks rather than a bbox-only
+  mask. The device performance gate is therefore still required; replace this
+  path with progressive faults if it misses the §7 budget.
+
 - **The gallery-sync debounce is pinned as a pure rule, not a ViewModel
   clock test.** `11-testing.md` §7 puts the 30 s floor case in a
   `CanvasViewModelTest` on `kotlinx-coroutines-test`; the decision instead

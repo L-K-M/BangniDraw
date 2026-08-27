@@ -724,7 +724,15 @@ paintbrush misses the frame budget on a 4 GB tablet, the fallback is a
 lower-resolution stroke buffer for pigment brushes at high zoom-out, decided
 by `docs/plan/10-performance.md` §7, never dropping Mixbox on that device.
 
-### Step 8 — Fill (S)
+### Step 8 — Fill (S, **landed on main** — commits `b82d1c2..8dcf049`, 2026-08-27, direct push)
+
+**Landed.** The fill tool supports current-layer or paper-free composite
+references, contiguous or global matching, tolerance, wall-aware expansion,
+anti-aliasing and opacity. Work runs off the main thread, exposes delayed
+progress, cancels before apply, and commits through the stroke merge as one
+`HistoryEntry.Fill`. JVM fixtures and the 4096² smoke case pass. **The line-art,
+undo and device performance checks have not been run — no device has ever been
+available.**
 
 **Goal.** Bucket fill that fills line art without halos.
 

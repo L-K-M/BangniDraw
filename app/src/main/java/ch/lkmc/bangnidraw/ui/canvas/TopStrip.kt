@@ -22,6 +22,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -36,9 +37,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
@@ -133,7 +136,8 @@ private fun NavigationCluster(
 ) {
     val view = LocalView.current
     val undoEnabled = undoAvailability == ActionAvailability.ENABLED
-    val iconColor = MaterialTheme.colorScheme.onSurface
+    val iconColor = LocalContentColor.current
+    val unavailableText = stringResource(R.string.cd_unavailable)
     Row(horizontalArrangement = Arrangement.Start) {
         IconButton(onClick = onBack) {
             Icon(
@@ -151,6 +155,7 @@ private fun NavigationCluster(
             modifier = Modifier
                 .size(ICON_BUTTON)
                 .combinedClickable(
+                    role = Role.Button,
                     onClick = {
                         if (!undoEnabled) return@combinedClickable
                         if (hapticsMode == HapticsMode.ENABLED) {
@@ -164,7 +169,12 @@ private fun NavigationCluster(
                         }
                         onUndoLongPress()
                     },
-                ),
+                )
+                // The node stays enabled so the long-press readout works with
+                // nothing to undo; the state says why a tap does nothing.
+                .semantics {
+                    if (!undoEnabled) stateDescription = unavailableText
+                },
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.Undo,

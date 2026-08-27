@@ -63,6 +63,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -199,7 +200,7 @@ private fun CanvasContent(
     var session by remember { mutableStateOf<EngineSession?>(null) }
     var hoverRevision by remember { mutableIntStateOf(0) }
     var textInputFocus by remember { mutableStateOf(TextInputFocus.CLEAR) }
-    var showHistoryReadout by remember { mutableStateOf(false) }
+    var historyReadout by remember { mutableIntStateOf(0) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
 
     // The stroke in flight. Plain vars, not Compose state: they change several
@@ -906,7 +907,7 @@ private fun CanvasContent(
                 onBack = { viewModel.handleBack(onLeave) },
                 onUndo = viewModel::undo,
                 onRedo = viewModel::redo,
-                onUndoLongPress = { showHistoryReadout = true },
+                onUndoLongPress = { historyReadout++ },
                 onLayers = { viewModel.togglePanel(CanvasPanel.LAYERS) },
                 onColor = { viewModel.togglePanel(CanvasPanel.COLOR) },
                 onShare = {
@@ -926,11 +927,12 @@ private fun CanvasContent(
 
             // §3.1's long-press readout: the undo depth and the cap, shown
             // under the strip for a moment — the one place the history budget
-            // is visible where undo is actually used.
-            if (showHistoryReadout) {
-                LaunchedEffect(showHistoryReadout) {
+            // is visible where undo is actually used. An incrementing token
+            // rather than a boolean, so a repeat long-press restarts the timer.
+            if (historyReadout > 0) {
+                LaunchedEffect(historyReadout) {
                     delay(HISTORY_READOUT_MS)
-                    showHistoryReadout = false
+                    historyReadout = 0
                 }
                 Surface(
                     color = MaterialTheme.colorScheme.inverseSurface,
@@ -942,8 +944,9 @@ private fun CanvasContent(
                         .zIndex(CHROME_Z),
                 ) {
                     Text(
-                        text = stringResource(
-                            R.string.canvas_history_readout,
+                        text = pluralStringResource(
+                            R.plurals.canvas_history_readout,
+                            state.historySteps,
                             state.historySteps,
                             Formatter.formatShortFileSize(context, state.historyBytes),
                             Formatter.formatShortFileSize(context, state.historyMaxBytes),

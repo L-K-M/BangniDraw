@@ -73,7 +73,11 @@
     <string name="canvas_undo">Undo</string>
     <string name="canvas_redo">Redo</string>
     <string name="canvas_more">More actions</string>
-    <string name="canvas_history_readout">Undo history: %1$d steps · %2$s of %3$s</string>
+    <plurals name="canvas_history_readout">
+        <item quantity="one">Undo history: %1$d step · %2$s of %3$s</item>
+        <item quantity="other">Undo history: %1$d steps · %2$s of %3$s</item>
+    </plurals>
+    <string name="cd_unavailable">Unavailable</string>
     <string name="canvas_export_png">Export PNG</string>
     <string name="canvas_export_jpeg">Export JPEG</string>
     <string name="canvas_focus">Focus mode</string>

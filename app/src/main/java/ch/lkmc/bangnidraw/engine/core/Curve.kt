@@ -91,6 +91,12 @@ data class Curve(val p0: Float, val p1: Float, val p2: Float, val p3: Float) {
         /** `04` §3.3's table size. */
         const val LUT_SIZE = 256
 
+        /** The knots' fixed x positions: [index] / [SEGMENTS], for index 0..3. */
+        fun knotX(index: Int): Float {
+            require(index in 0..SEGMENTS) { "knot index must be 0..$SEGMENTS, was $index" }
+            return index.toFloat() / SEGMENTS
+        }
+
         /** Straight through: pressure maps to itself. */
         val Linear = Curve(0f, 1f / 3f, 2f / 3f, 1f)
 

@@ -194,6 +194,7 @@
     <string name="brush_pressure_opacity">Pressure → opacity</string>
     <string name="brush_pressure_flow">Pressure → flow</string>
     <string name="brush_curve_knot">Knot %1$d</string>
+    <string name="brush_curve_plot">Pressure curve</string>
     <string name="brush_tilt_size">Tilt size</string>
     <string name="brush_tilt_opacity">Tilt opacity</string>
     <string name="brush_tilt_elongate">Elongate with tilt</string>

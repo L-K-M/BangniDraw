@@ -175,6 +175,7 @@
     <string name="brush_pressure_opacity">压力 → 不透明度</string>
     <string name="brush_pressure_flow">压力 → 流量</string>
     <string name="brush_curve_knot">节点 %1$d</string>
+    <string name="brush_curve_plot">压力曲线</string>
     <string name="brush_tilt_size">倾斜大小</string>
     <string name="brush_tilt_opacity">倾斜不透明度</string>
     <string name="brush_tilt_elongate">倾斜时拉长</string>

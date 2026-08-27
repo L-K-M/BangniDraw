@@ -29,6 +29,18 @@ class CurveTest {
     }
 
     @Test
+    fun `knotX spaces the four knots into thirds`() {
+        // The plot's grid and knot dots read their x positions from here, so
+        // they can never drift from the spline's own knot placement.
+        assertEquals(0f, Curve.knotX(0), eps)
+        assertEquals(1f / 3f, Curve.knotX(1), eps)
+        assertEquals(2f / 3f, Curve.knotX(2), eps)
+        assertEquals(1f, Curve.knotX(3), eps)
+        assertFailsWith<IllegalArgumentException> { Curve.knotX(-1) }
+        assertFailsWith<IllegalArgumentException> { Curve.knotX(4) }
+    }
+
+    @Test
     fun `Linear is the identity and One ignores its input`() {
         for (i in 0..100) {
             val x = i / 100f

@@ -55,12 +55,12 @@ refuted with evidence).
   from the pipette path (retained for the ring-cursor brush path).
 
 These are cleared from the shovel-ready list; the remaining open items are
-#6 (curve plot), #7 (custom size persistence), and #8 (custom paper), plus
-the larger-idea backlog. The parallel agent's PR #62 (Studio delete/rename/
-duplicate outcomes, `ProjectStore.delete` returning Boolean) landed the
-honest-delete fix; my narrower #56 closed in its favour. No blocking GLM
-feedback remains on any merged PR; #54 and #56 were closed as superseded
-to avoid duplicate review load.
+#6 (curve plot) and #8 (custom paper) — #7 landed via the parallel #68 —
+plus the larger-idea backlog. The parallel agent's PR #62 (Studio delete/
+rename/duplicate outcomes, `ProjectStore.delete` returning Boolean) landed
+the honest-delete fix; my narrower #56 closed in its favour. No blocking
+GLM feedback remains on any merged PR; #54 and #56 were closed as
+superseded to avoid duplicate review load.
 
 ## Cleared (do not re-open)
 
@@ -75,15 +75,14 @@ to avoid duplicate review load.
 
 ## Shovel-ready (remaining)
 
-Only #6 (curve plot), #7 (custom size memory), #8 (custom paper colour)
-from the original list are still open; everything else from `ds.md` §3.1
-landed in the eight PRs above. Order: #6 < #7 < #8 (the curve editor needs no
-new APIs; the size preference is a one-file DataStore addition; the custom
-paper requires wiring the HSV picker through `NewCanvasDialog`).
+Only #6 (curve plot) and #8 (custom paper colour) from the original list
+are still open — #7 (remember the last custom canvas size) landed as the
+parallel PR #68, with #73 open as its typed-input refinement. Order:
+#6 < #8 (the curve editor needs no new APIs; the custom paper requires
+wiring the HSV picker through `NewCanvasDialog`).
 
 6. **Draw the pressure curve.** (`ui/canvas/BrushSettingsSheet.kt`,
    `engine/core/Curve.kt`)
-7. **Remember the last custom size.** (`Prefs` + `NewCanvasDialog` + `Prefs` key)
 8. **Custom paper colour at creation.** (`NewCanvasDialog` sixth swatch,
    `onCreate` passes the colour through)
 

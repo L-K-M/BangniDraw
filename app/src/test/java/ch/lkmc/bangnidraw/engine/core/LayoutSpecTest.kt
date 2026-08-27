@@ -62,6 +62,34 @@ class LayoutSpecTest {
     }
 
     @Test
+    fun `a taller preset set raises the full budget by slot plus gap`() {
+        // 11 tools = 718 + 48 + 4 on MEDIUM, 798 + 56 + 4 on EXPANDED.
+        assertMode(WidthClass.MEDIUM, 769, RailMode.GROUPED, fullToolCount = 11)
+        assertMode(WidthClass.MEDIUM, 770, RailMode.FULL, fullToolCount = 11)
+        assertMode(WidthClass.EXPANDED, 857, RailMode.GROUPED, fullToolCount = 11)
+        assertMode(WidthClass.EXPANDED, 858, RailMode.FULL, fullToolCount = 11)
+
+        val spec = LayoutSpec.forWindow(WidthClass.MEDIUM, 770, Hand.RIGHT, 11)
+        assertEquals(770, spec.railContentHeightDp)
+    }
+
+    @Test
+    fun `a preset set the window cannot hold falls back to grouped`() {
+        // 16 tools need 1030 dp on MEDIUM — more than this 900 dp rail.
+        assertMode(WidthClass.MEDIUM, 900, RailMode.GROUPED, fullToolCount = 16)
+        // GROUPED itself is unchanged: one paint slot, whatever the count.
+        assertMode(WidthClass.MEDIUM, 461, RailMode.GROUPED, fullToolCount = 16)
+        assertMode(WidthClass.MEDIUM, 460, RailMode.SHORT, fullToolCount = 16)
+    }
+
+    @Test
+    fun `the full rail tool count includes the eraser and secondary tools`() {
+        assertEquals(10, LayoutSpec.fullRailToolCount(paintSlots = 5, hasEraser = true))
+        assertEquals(9, LayoutSpec.fullRailToolCount(paintSlots = 5, hasEraser = false))
+        assertEquals(4, LayoutSpec.fullRailToolCount(paintSlots = 0, hasEraser = false))
+    }
+
+    @Test
     fun `every tool target stays at least 48 dp`() {
         for (width in WidthClass.entries) {
             for (height in listOf(200, 288, 461, 509, 718, 798)) {
@@ -203,8 +231,16 @@ class LayoutSpecTest {
         )
     }
 
-    private fun assertMode(width: WidthClass, height: Int, expected: RailMode) {
-        assertEquals(expected, LayoutSpec.forWindow(width, height, Hand.RIGHT).railMode)
+    private fun assertMode(
+        width: WidthClass,
+        height: Int,
+        expected: RailMode,
+        fullToolCount: Int = 10,
+    ) {
+        assertEquals(
+            expected,
+            LayoutSpec.forWindow(width, height, Hand.RIGHT, fullToolCount).railMode,
+        )
     }
 
     private data class Window(

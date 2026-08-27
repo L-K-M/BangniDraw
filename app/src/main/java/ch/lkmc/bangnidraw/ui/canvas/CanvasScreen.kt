@@ -778,7 +778,14 @@ private fun CanvasContent(
         val railHeight = (
             maxHeight.value - verticalInsetDp - LayoutSpec.TOP_STRIP_DP
             ).toInt().coerceAtLeast(0)
-        val layout = LayoutSpec.forWindow(widthClass, railHeight, state.handedness)
+        // The FULL rail lists every paint preset, so its height budget must
+        // count them or the column overflows the window on short-but-tall
+        // enough devices; the other rail modes show one paint slot.
+        val toolCount = LayoutSpec.fullRailToolCount(
+            paintSlots = state.brushPresets.count { !it.eraseMode },
+            hasEraser = state.brushPresets.any { it.eraseMode },
+        )
+        val layout = LayoutSpec.forWindow(widthClass, railHeight, state.handedness, toolCount)
         val undoAvailability =
             if (state.canUndo) ActionAvailability.ENABLED else ActionAvailability.DISABLED
         val redoAvailability =

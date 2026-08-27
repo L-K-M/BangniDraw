@@ -210,10 +210,16 @@ internal data class LayoutSpec(
     }
 
     companion object {
-        fun forWindow(width: WidthClass, heightDp: Int, hand: Hand): LayoutSpec {
+        fun forWindow(
+            width: WidthClass,
+            heightDp: Int,
+            hand: Hand,
+            fullToolCount: Int = DEFAULT_FULL_TOOL_COUNT,
+        ): LayoutSpec {
             require(heightDp >= 0) { "heightDp must not be negative" }
+            require(fullToolCount >= 1) { "fullToolCount must be at least 1" }
 
-            val railMode = railMode(width, heightDp)
+            val railMode = railMode(width, heightDp, fullToolCount)
             val slot = toolSlot(width, railMode)
             val sliderLength = when (railMode) {
                 RailMode.FULL -> FULL_SLIDER_DP
@@ -248,15 +254,29 @@ internal data class LayoutSpec(
                     slot + RAIL_EXTRA_WIDTH_DP
                 },
                 sliderLengthDp = sliderLength,
-                railContentHeightDp = contentHeight(railMode, slot),
+                railContentHeightDp = contentHeight(railMode, slot, fullToolCount),
             )
+        }
+
+        /**
+         * How many slots the FULL rail actually draws: every paint preset,
+         * the one eraser slot, and the four secondary tools. The rail gives
+         * each paint its own slot, so this grows with the preset set and the
+         * FULL height budget must grow with it.
+         */
+        fun fullRailToolCount(paintSlots: Int, hasEraser: Boolean): Int {
+            require(paintSlots >= 0) { "paintSlots must be non-negative" }
+            return paintSlots + (if (hasEraser) 1 else 0) + SECONDARY_TOOL_COUNT
         }
 
         fun shortContentHeightDp(): Int = SHORT_TOOL_COUNT * MIN_TARGET_DP
 
-        private fun railMode(width: WidthClass, heightDp: Int): RailMode {
+        private fun railMode(width: WidthClass, heightDp: Int, fullToolCount: Int): RailMode {
             if (width == WidthClass.COMPACT || heightDp < SHORT_MIN_DP) return RailMode.DOCK
 
+            // GROUPED shows one paint slot plus eraser and the four secondary
+            // tools whatever the preset set is, so its budget is constant;
+            // only FULL lists every paint, so only its budget scales.
             val groupedMinimum = if (width == WidthClass.EXPANDED) {
                 EXPANDED_GROUPED_MIN_DP
             } else {
@@ -264,12 +284,7 @@ internal data class LayoutSpec(
             }
             if (heightDp < groupedMinimum) return RailMode.SHORT
 
-            val fullMinimum = if (width == WidthClass.EXPANDED) {
-                EXPANDED_FULL_MIN_DP
-            } else {
-                MEDIUM_FULL_MIN_DP
-            }
-            if (heightDp < fullMinimum) return RailMode.GROUPED
+            if (heightDp < fullMinimumDp(width, fullToolCount)) return RailMode.GROUPED
             return RailMode.FULL
         }
 
@@ -279,22 +294,37 @@ internal data class LayoutSpec(
             return MIN_TARGET_DP
         }
 
-        private fun contentHeight(mode: RailMode, slotDp: Int): Int = when (mode) {
-            RailMode.DOCK -> DOCK_HEIGHT_DP
-            RailMode.SHORT -> shortContentHeightDp()
-            RailMode.GROUPED ->
-                GROUPED_TOOL_COUNT * slotDp +
-                    GROUPED_GAP_COUNT * TOOL_GAP_DP +
-                    DIVIDER_HEIGHT_DP +
-                    GROUPED_SLIDER_DP +
-                    RAIL_PADDING_DP
-            RailMode.FULL ->
-                FULL_TOOL_COUNT * slotDp +
-                    FULL_GAP_COUNT * TOOL_GAP_DP +
-                    FULL_DIVIDER_COUNT * DIVIDER_HEIGHT_DP +
-                    FULL_SLIDER_DP +
-                    RAIL_PADDING_DP
-        }
+        private fun contentHeight(mode: RailMode, slotDp: Int, fullToolCount: Int): Int =
+            when (mode) {
+                RailMode.DOCK -> DOCK_HEIGHT_DP
+                RailMode.SHORT -> shortContentHeightDp()
+                RailMode.GROUPED ->
+                    GROUPED_TOOL_COUNT * slotDp +
+                        GROUPED_GAP_COUNT * TOOL_GAP_DP +
+                        DIVIDER_HEIGHT_DP +
+                        GROUPED_SLIDER_DP +
+                        RAIL_PADDING_DP
+                RailMode.FULL -> fullContentHeightDp(slotDp, fullToolCount)
+            }
+
+        /**
+         * The FULL budget from `08-ui-and-layout.md` §1's table, generalized:
+         * `count·slot + (count−1)·gap + 2 dividers + slider + padding`. The
+         * table's 718/798 medium/expanded values are the
+         * DEFAULT_FULL_TOOL_COUNT instances of this formula; a taller preset
+         * set needs a taller rail, or the bottom-aligned column overflows
+         * the top of the window on minimum-FULL devices.
+         */
+        private fun fullContentHeightDp(slotDp: Int, toolCount: Int): Int =
+            toolCount * slotDp +
+                (toolCount - 1) * TOOL_GAP_DP +
+                FULL_DIVIDER_COUNT * DIVIDER_HEIGHT_DP +
+                FULL_SLIDER_DP +
+                RAIL_PADDING_DP
+
+        /** The FULL threshold: what a rail of [fullToolCount] slots needs. */
+        private fun fullMinimumDp(width: WidthClass, fullToolCount: Int): Int =
+            fullContentHeightDp(toolSlot(width, RailMode.FULL), fullToolCount)
 
         const val MIN_TARGET_DP = 48
         const val EXPANDED_TARGET_DP = 56
@@ -307,14 +337,15 @@ internal data class LayoutSpec(
         private const val SHORT_MIN_DP = 288
         private const val MEDIUM_GROUPED_MIN_DP = 461
         private const val EXPANDED_GROUPED_MIN_DP = 509
-        private const val MEDIUM_FULL_MIN_DP = 718
-        private const val EXPANDED_FULL_MIN_DP = 798
+        private const val DEFAULT_FULL_TOOL_COUNT = 10
         private const val SHORT_TOOL_COUNT = 6
         private const val GROUPED_TOOL_COUNT = 6
-        private const val FULL_TOOL_COUNT = 10
         private const val GROUPED_GAP_COUNT = 5
         private const val FULL_GAP_COUNT = 9
         private const val FULL_DIVIDER_COUNT = 2
+
+        /** Smudge, blur, fill, eyedropper — the tools below the eraser slot. */
+        const val SECONDARY_TOOL_COUNT = 4
         private const val TOOL_GAP_DP = 4
         private const val DIVIDER_HEIGHT_DP = 9
         private const val GROUPED_SLIDER_DP = 120

@@ -130,6 +130,12 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - Canvas panels use `LayoutSpec.panelInsets`, derived from `persistentChrome`.
   Do not duplicate rail, dock, ledge, or strip padding in Compose. Panel side
   is the user's physical hand side and must not mirror under RTL layout.
+- **The FULL rail's height budget scales with the tool count.** The plan's
+  718/798 dp FULL thresholds are the ten-slot instance of `LayoutSpec`'s
+  formula (`fullContentHeightDp`); `CanvasScreen` passes
+  `LayoutSpec.fullRailToolCount(paints, hasEraser)` so every added paint
+  preset raises the bar instead of overflowing the window. GROUPED, SHORT,
+  and DOCK show one paint slot and never scale with the preset set.
 - An `AlertDialog` owns a smaller, separate window. Capture activity-window
   dimensions in its caller before applying screen-fit defaults; do not read
   `LocalWindowInfo` from inside the dialog.

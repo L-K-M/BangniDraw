@@ -49,8 +49,12 @@ class ColorPanelAllocationContractTest {
         )
         assertEquals(
             2,
-            picker.split("pointerInput(hapticsMode, pickerSize)").size - 1,
+            RESIZE_SAFE_POINTER_INPUT.findAll(picker).count(),
             "both picker gestures must restart after a resize",
+        )
+        assertFalse(
+            UNKEYED_POINTER_INPUT.containsMatchIn(picker),
+            "no picker gesture may omit the resize key",
         )
     }
 
@@ -103,6 +107,10 @@ class ColorPanelAllocationContractTest {
         const val COLOR_CHIPS_START = "private fun ColorChips("
         const val DISH_START = "private fun MixingDishControls("
         const val SWATCH_STRIP_START = "private fun SwatchStrip("
+        val RESIZE_SAFE_POINTER_INPUT =
+            Regex("""pointerInput\(\s*hapticsMode\s*,\s*pickerSize\s*,?\s*\)""")
+        val UNKEYED_POINTER_INPUT =
+            Regex("""pointerInput\(\s*hapticsMode\s*,?\s*\)""")
         val WHITESPACE = Regex("\\s+")
     }
 }

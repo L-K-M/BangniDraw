@@ -96,6 +96,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
@@ -1069,7 +1070,7 @@ private fun CanvasContent(
                 LaunchedEffect(showRecentSwatches, recentScroll.isScrollInProgress) {
                     if (
                         !recentScroll.isScrollInProgress &&
-                        !accessibilityManager.hasActiveScreenReader()
+                        accessibilityManager?.hasActiveScreenReader() != true
                     ) {
                         // Switch Access (FEEDBACK_GENERIC) is missed by
                         // hasActiveScreenReader but is far slower than a
@@ -1085,12 +1086,13 @@ private fun CanvasContent(
                         // wait ran (its volume-key shortcut), and yanking the
                         // popover mid-traversal is the exact failure the
                         // guard exists to prevent.
-                        if (!accessibilityManager.hasActiveScreenReader()) {
+                        if (accessibilityManager?.hasActiveScreenReader() != true) {
                             showRecentSwatches = false
                         }
                     }
                 }
                 val interaction = remember { MutableInteractionSource() }
+                val recentDismissLabel = stringResource(R.string.palette_recent_dismiss)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1100,7 +1102,12 @@ private fun CanvasContent(
                             indication = null,
                             onClick = { showRecentSwatches = false },
                         )
-                        .clearAndSetSemantics {},
+                        .clearAndSetSemantics {
+                            onClick(label = recentDismissLabel) {
+                                showRecentSwatches = false
+                                true
+                            }
+                        },
                 )
                 RecentPopover(
                     colors = recentColors,

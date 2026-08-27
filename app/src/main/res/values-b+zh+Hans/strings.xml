@@ -133,6 +133,7 @@
     <string name="palette_painters">画家</string>
     <string name="palette_basic">基础</string>
     <string name="palette_recent">最近</string>
+    <string name="palette_recent_dismiss">关闭最近使用的颜色</string>
     <string name="palette_my">我的调色板</string>
     <string name="palette_create">新建调色板</string>
     <string name="palette_replace">替换为当前颜色</string>

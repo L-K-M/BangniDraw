@@ -47,6 +47,25 @@ class AccessibilitySemanticsContractTest {
         )
     }
 
+    @Test
+    fun `quick palette has one entry action and an accessible exit`() {
+        val canvasSource = source(CANVAS_SCREEN_PATH)
+        val stripSource = source(TOP_STRIP_PATH)
+
+        assertTrue(
+            "onClick(label = recentDismissLabel)" in canvasSource,
+            "the quick-palette scrim needs a named dismiss action",
+        )
+        assertTrue(
+            "accessibilityManager?.hasActiveScreenReader() != true" in canvasSource,
+            "screen-reader checks must tolerate a missing platform service",
+        )
+        assertTrue(
+            "customActions = listOf(" !in stripSource,
+            "combinedClickable already exposes the named long-press action",
+        )
+    }
+
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
 
     private fun repositoryRoot(): File {
@@ -69,6 +88,8 @@ class AccessibilitySemanticsContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/home/SettingsSheet.kt"
         const val CANVAS_SCREEN_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasScreen.kt"
+        const val TOP_STRIP_PATH =
+            "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/TopStrip.kt"
         const val SETTINGS_CHOICE_GROUPS = 4
         const val FILL_SLIDER_START = "\n    Slider("
         const val FILL_TOGGLE_START = "\n@Composable\nprivate fun FillToggle"

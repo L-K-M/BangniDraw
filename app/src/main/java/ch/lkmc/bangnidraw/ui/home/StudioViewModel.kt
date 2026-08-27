@@ -325,12 +325,19 @@ class StudioViewModel @Inject constructor(
      * The hold menu's delete, after its confirm dialog (06 §8). The gallery
      * copy goes only when the checkbox said so — it is the user's, and best
      * effort either way.
+     *
+     * [onDone] reports whether the painting's folder is actually gone, on
+     * the main thread — the Studio's toast must not claim a delete that did
+     * not happen. The shelf is re-listed either way, so a failure does not
+     * leave the deleted painting's ghost in place.
      */
-    fun delete(id: String, alsoGallery: Boolean, galleryUri: String?) {
+    fun delete(id: String, alsoGallery: Boolean, galleryUri: String?, onDone: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             if (alsoGallery && galleryUri != null) exporter.delete(galleryUri)
             store.delete(id)
+            val deleted = !store.exists(id)
             refresh()
+            withContext(Dispatchers.Main) { onDone(deleted) }
         }
     }
 

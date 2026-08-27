@@ -278,10 +278,21 @@ fun StudioScreen(
                                 }
                             },
                             onDelete = { alsoGallery ->
-                                viewModel.delete(painting.id, alsoGallery, painting.galleryUri)
-                                Toast.makeText(
-                                    context, R.string.studio_deleted, Toast.LENGTH_SHORT,
-                                ).show()
+                                viewModel.delete(
+                                    painting.id,
+                                    alsoGallery,
+                                    painting.galleryUri,
+                                ) { deleted ->
+                                    Toast.makeText(
+                                        context,
+                                        if (deleted) {
+                                            R.string.studio_deleted
+                                        } else {
+                                            R.string.studio_delete_failed
+                                        },
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
                             },
                         )
                     }

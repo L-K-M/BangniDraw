@@ -29,11 +29,16 @@ class LayerPanelDragHandleContractTest {
 
         assertTrue(
             "clearAndSetSemantics" in handle,
-            "the handle still publishes a semantics node",
+            "clearAndSetSemantics is missing; the handle may publish semantics",
         )
         assertTrue(
             "detectDragGestures(" in handle,
             "the drag gesture is gone",
+        )
+        assertTrue(
+            "pointerInput(layer.id, documentBusy)" in handle &&
+                "if (documentBusy) return@pointerInput" in handle,
+            "the drag remains active while document actions are busy",
         )
     }
 
@@ -49,9 +54,23 @@ class LayerPanelDragHandleContractTest {
     private fun source(): String = File(repositoryRoot(), LAYER_PANEL_PATH).readText()
 
     private fun repositoryRoot(): File {
-        val workingDirectory = File(System.getProperty("user.dir"))
-        if (workingDirectory.name == "app") return workingDirectory.parentFile
-        return workingDirectory
+        val userDirectory = checkNotNull(System.getProperty("user.dir")) {
+            "user.dir is unavailable"
+        }
+        var directory: File? = File(userDirectory).absoluteFile
+        while (directory != null) {
+            val candidate = directory
+            if (
+                candidate.resolve("settings.gradle").isFile ||
+                candidate.resolve("settings.gradle.kts").isFile
+            ) {
+                return candidate
+            }
+
+            directory = candidate.parentFile
+        }
+
+        fail("repository root not found above $userDirectory")
     }
 
     private companion object {

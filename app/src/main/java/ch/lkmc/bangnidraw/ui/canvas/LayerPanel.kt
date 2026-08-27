@@ -495,7 +495,9 @@ private fun LayerRow(
                 modifier = Modifier
                     .size(ROW_ACTION)
                     .clearAndSetSemantics {}
-                    .pointerInput(layer.id) {
+                    .pointerInput(layer.id, documentBusy) {
+                        if (documentBusy) return@pointerInput
+
                         detectDragGestures(
                             onDragStart = { onDragStart() },
                             onDragEnd = onDragEnd,

@@ -36,6 +36,9 @@ import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.RmwTouchTracker
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.engine.core.ViewportResizeOwner
+import ch.lkmc.bangnidraw.engine.core.ViewportResizePolicy
+import ch.lkmc.bangnidraw.engine.core.ViewportResizeState
 import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
 import ch.lkmc.bangnidraw.engine.core.ThemeTone
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxLut
@@ -719,10 +722,19 @@ class CanvasRenderer(
             imageWidth = canvas.width.toFloat(),
             imageHeight = canvas.height.toFloat(),
         )
-        // Keeps the canvas point under the viewport centre across rotation,
-        // fold and multi-window (§8.6), rather than leaving a stale pixel pan.
-        if (previous != null) view = view.rebase(previous, next)
-        fit = next
+        if (previous == null) {
+            fit = next
+        } else {
+            // Input publishes the one rebased view. Repeating it here can move
+            // the paper completely outside the viewport after rotation.
+            val resized = ViewportResizePolicy.resize(
+                ViewportResizeState(view, previous),
+                next,
+                ViewportResizeOwner.RENDERER,
+            )
+            view = resized.view
+            fit = resized.fit
+        }
         state.invalidate()
         accum.ensure(width, height, state)
         scratch.ensure(width, height, state)

@@ -504,12 +504,14 @@ why `@StringRes` ids, not strings, travel through state (§9).
 
 ### 8.4 Resizes: multi-window, fold, panel open/close
 
-`CanvasSurface` reports `(width, height)` on `surfaceChanged`; the ViewModel
-computes `newFit = FitTransform.of(doc, width, height)` and applies
-`view = view.rebase(oldFit, newFit)` — the canvas point at the old center
-stays at the new center, zoom and rotation untouched. Same call when the
-window size class changes, so a fold/unfold, a split-screen drag, and a
-DeX window resize are one code path with one test.
+`CanvasSurface` reports its measured viewport to `CanvasTouchHandler`. The
+handler computes a new `FitTransform` for that viewport and is the sole owner
+of `view = view.rebase(oldFit, newFit)` — the canvas point at the old
+center stays at the new center, zoom and rotation untouched. It publishes that
+view to GL before the Compose state round-trip. The renderer independently
+adopts the new fit and reallocates its viewport targets, but never rebases the
+view a second time. A fold/unfold, split-screen drag, rotation and DeX window
+resize therefore use one code path with one test.
 
 ### 8.5 Memory pressure
 

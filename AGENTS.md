@@ -313,6 +313,13 @@ and the contradiction is noted here.
   inverse-mapped to canvas space, not the original dab rect. Otherwise the
   clear crosses a tile edge without redrawing its neighbor and leaves 1 px
   white grid seams until pen-up.
+- **Viewport resize has one rebase owner.** `CanvasTouchHandler` rebases the
+  view from the old fit to the new fit and publishes that resize to GL before
+  Compose state. `CanvasRenderer.onSurfaceChanged` adopts the new fit and
+  reallocates targets, but never rebases again: callback order can otherwise
+  apply the same rotation resize twice and move the paper outside the viewport.
+  Ordinary pan/zoom callbacks do not publish directly to GL; `CanvasSurface`
+  owns their state-driven redraw so navigation does not schedule two commits.
 - **Accum and the window target use different scissor row conventions.**
   `Accum` is an ordinary texture FBO, so its y-down dirty rect becomes
   `height - bottom` for `glScissor`. graphics-core's HardwareBuffer is consumed

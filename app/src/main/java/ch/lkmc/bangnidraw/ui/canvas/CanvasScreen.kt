@@ -310,7 +310,16 @@ private fun CanvasContent(
         handler = CanvasTouchHandler(
             density = density.density,
             host = object : CanvasInputHost {
-                override fun onViewChanged(view: ViewTransform) { updateView(view) }
+                override fun onViewChanged(view: ViewTransform) {
+                    updateView(view)
+                }
+
+                override fun onViewportResized(view: ViewTransform) {
+                    // Reach GL before the Compose round-trip so a resize
+                    // bootstrap cannot present the old transform.
+                    session?.setView(view)
+                    updateView(view)
+                }
                 override fun onRotationSnapped() {
                     // A single tick as the canvas clicks to straight (§7).
                     if (state.hapticsMode == HapticsMode.ENABLED) {

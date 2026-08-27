@@ -992,7 +992,8 @@ replaces graphics-core's consumer transform with identity before commit.
 
 ### 8.6 View changes during a stroke
 
-**A view change never happens during a stroke.** When a stylus is down,
+**A gesture or reset view change never happens during a stroke.** Surface
+resize is the recovery exception described below. When a stylus is down,
 touch pointers are ignored (palm rejection), so two-finger gestures cannot
 start. For a *finger* stroke, a second pointer arriving is arbitrated by
 `GestureArbiter` (`engine/core`): if the stroke is younger than the
@@ -1009,10 +1010,12 @@ an empty-param `commit()` so later front input waits for its release-time
 clear.
 
 Surface size changes (rotation, fold, multi-window) arrive through the
-`SurfaceHolder`; `ViewTransform.rebase(oldFit, newFit)` keeps the canvas
-point under the viewport center, `Accum`/`Scratch` are reallocated, and a
-full redraw follows. If a stroke is live at that moment it is finished
-first.
+measured `CanvasSurface` viewport and the `SurfaceHolder`. The input handler
+owns the single `ViewTransform.rebase(oldFit, newFit)` and publishes it before
+the Compose state round-trip; the renderer only adopts the new fit and
+reallocates `Accum`/`Scratch`. A full redraw follows. A live stroke remains in
+canvas space and its cumulative preview is rebuilt on the replacement front
+target.
 
 ## 9. The predicted tail
 

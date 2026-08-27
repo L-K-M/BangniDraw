@@ -78,17 +78,19 @@ internal class HistoryStore(private val dir: File) {
         val (header, bodyOffset) = parsed
         val out = ArrayList<Payload>(header.payloads.size)
         for (ref in header.payloads) {
-            val start = bodyOffset + ref.off
-            if (ref.len < 0 || ref.off < 0 || start + ref.len > bytes.size) return null
+            if (!payloadWithinBody(ref.off.toLong(), ref.len.toLong(), bodyOffset, bytes.size.toLong())) {
+                return null
+            }
             val layer = try {
                 LayerId(ref.layer)
             } catch (_: IllegalArgumentException) {
                 return null
             }
+            val start = (bodyOffset + ref.off).toInt()
             out += Payload(
                 layer = layer,
                 key = TileKey(ref.tx, ref.ty),
-                encoded = bytes.copyOfRange(start.toInt(), (start + ref.len).toInt()),
+                encoded = bytes.copyOfRange(start, start + ref.len),
             )
         }
         return out
@@ -209,9 +211,11 @@ internal class HistoryStore(private val dir: File) {
         }
         // Offsets are validated at load, not first at undo: an entry whose
         // payloads exceed the file must truncate the journal *now* (§5.6),
-        // not surprise the user the day they reach for undo.
+        // not surprise the user the day they reach for undo. The same bound
+        // as readPayloads — one predicate, two sites, no drift between what
+        // load truncates on and what an undo reads with.
         for (ref in header.payloads) {
-            if (ref.off < 0 || ref.len < 0 || bodyOffset + ref.off + ref.len > bytes.size) {
+            if (!payloadWithinBody(ref.off.toLong(), ref.len.toLong(), bodyOffset, bytes.size.toLong())) {
                 Log.w(TAG, "history: $seq.entry payload exceeds the file")
                 return null
             }
@@ -223,6 +227,24 @@ internal class HistoryStore(private val dir: File) {
         val redoBytes = redoFile(seq).takeIf { it.isFile }?.length() ?: 0L
         return entry.stamp(seq = seq, timestamp = header.ts, bytes = bytes.size + redoBytes)
     }
+
+    /**
+     * Whether a payload ref's `off`/`len` address bytes the file actually
+     * holds, computed so no input can wrap the arithmetic: the subtraction
+     * runs only once `bodyOffset ∈ [0, size]` is established, and every
+     * remaining term is then bounded by the file's size — so a hand-edited
+     * `off` near `Long.MAX_VALUE` (or a `len` the file could never hold)
+     * fails the bound rather than wrapping `bodyOffset + off + len` past it,
+     * the way the naive sum did. §5.6: offsets past the file mean the header
+     * lies.
+     *
+     * The guard on `bodyOffset` itself holds by construction today — `parse`
+     * derives it from a newline index inside the file — but the helper's
+     * safety does not lean on that invariant living somewhere else; it
+     * re-establishes it, in the sign checks before the subtraction.
+     */
+    private fun payloadWithinBody(off: Long, len: Long, bodyOffset: Long, size: Long): Boolean =
+        bodyOffset in 0..size && off >= 0 && len >= 0 && off <= size - bodyOffset - len
 
     private fun parse(bytes: ByteArray): Pair<HistoryCodec.EntryHeader, Long>? {
         val newline = bytes.indexOf('\n'.code.toByte())

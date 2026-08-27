@@ -10,6 +10,7 @@ import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** `docs/plan/11-testing.md` §5's `HistoryStoreTest` plus 06 §5.6's load rules. */
@@ -185,5 +186,57 @@ class HistoryStoreTest {
         File(dir, "00000001.redo.tmp").writeText("in flight")
         val loaded = store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
         assertEquals(1, loaded.entries.size)
+    }
+
+    /**
+     * A hand-edited `<seq>.entry` with one payload ref of the caller's
+     * `off`/`len`, over a 16-byte body. Used with an `off` near
+     * `Long.MAX_VALUE`: the naive guard `bodyOffset + off + len > size`
+     * wraps negative and passes, and the slice below then either throws
+     * `IndexOutOfBoundsException` out of a path documented "never an
+     * exception for content" or reads the payload from a wrong offset.
+     * Both halves are pinned: load must truncate at the lying entry, and
+     * readPayloads must answer null.
+     */
+    private fun writeEntry(off: Long, len: Int) {
+        val json = java.lang.String.join(
+            "",
+            "{\"v\":1,\"seq\":1,\"kind\":\"Stroke\",\"ts\":10,",
+            "\"activeBefore\":\"layer-a\",\"activeAfter\":\"layer-a\",",
+            "\"layerId\":\"layer-a\",",
+            "\"payloads\":[{",
+            "\"layer\":\"layer-a\",\"tx\":0,\"ty\":0,",
+            "\"off\":$off,\"len\":$len}",
+            "],\"data\":{}}",
+        )
+        // A token body: an honest ref addresses it as (0, 16) and nothing else.
+        store.entryFile(1).writeText(json + "\n" + "x".repeat(16))
+    }
+
+    /** The crafted header parses and an honest ref reads — the control the
+     *  overflow tests need so they cannot pass on a parse failure instead. */
+    @Test
+    fun `an honest offset against the same crafted file still reads`() {
+        writeEntry(off = 0, len = 16)
+        val payloads = store.readPayloads(1, sidecar = false)
+        assertNotNull(payloads, "the header must parse and its ref must address the body")
+        // The body's bytes, not just its length: a slice from a wrong
+        // in-bounds offset would be 16 bytes of header text and pass a
+        // size-only check.
+        assertEquals("x".repeat(16), payloads!!.single().encoded.decodeToString())
+    }
+
+    @Test
+    fun `a payload offset that overflows the guard truncates the journal`() {
+        writeEntry(off = Long.MAX_VALUE, len = TILE_BYTES)
+        val loaded = store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
+        assertTrue(loaded.entries.isEmpty(), "an entry whose payloads exceed the file is a lie")
+        assertEquals(0, loaded.cursor)
+    }
+
+    @Test
+    fun `readPayloads answers null for an offset that overflows the guard`() {
+        writeEntry(off = Long.MAX_VALUE, len = TILE_BYTES)
+        assertEquals(null, store.readPayloads(1, sidecar = false))
     }
 }

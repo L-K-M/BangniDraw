@@ -243,6 +243,7 @@ private fun ToolCluster(
                     .size(ICON_BUTTON)
                     .combinedClickable(
                         onClick = onColor,
+                        onLongClickLabel = quickPaletteLabel,
                         onLongClick = { onColorLongPress() },
                     )
                     .semantics {

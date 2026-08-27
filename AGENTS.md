@@ -523,7 +523,10 @@ and the contradiction is noted here.
 - **Pen-up ends input, not the stroke transaction.** `CanvasActionGate` stays
   closed until the entry is pushed or the unjournaled fallback finishes.
   Every engine end path must report merged or not-merged exactly once; the
-  not-merged callback returns on Main.
+  not-merged callback returns on Main. Leave is one terminal gate action:
+  system Back, top Back, and Settings coalesce there, then checkpoint only
+  after the final stroke outcome. A failed checkpoint or cancelled handoff
+  reopens the gate.
 - **RMW tile coordinates are canvas-top-first.** Unlike window-space and
   accumulation scissors, an RMW tile target maps canvas row zero directly to
   GL row zero; do not Y-flip `RmwTileScissor`.

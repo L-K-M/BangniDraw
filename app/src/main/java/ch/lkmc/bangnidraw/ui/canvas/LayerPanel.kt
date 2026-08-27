@@ -659,16 +659,20 @@ private fun LayerMenu(
         // The same moves the a11y custom actions offer, visible: drag is the
         // fast path, but a phone sheet with a long stack makes dragging past
         // the viewport awkward, and the menu works without a touch screen.
-        Text(
-            text = stringResource(R.string.layer_reorder),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-        )
-        ReorderItem(R.string.layer_move_top, LayerReorderAction.TOP, reorderActions, onDismiss, onReorder)
-        ReorderItem(R.string.layer_move_up, LayerReorderAction.UP, reorderActions, onDismiss, onReorder)
-        ReorderItem(R.string.layer_move_down, LayerReorderAction.DOWN, reorderActions, onDismiss, onReorder)
-        ReorderItem(R.string.layer_move_bottom, LayerReorderAction.BOTTOM, reorderActions, onDismiss, onReorder)
+        // The moves only exist between at least two layers; with a single
+        // layer the section would be five dead rows on every open.
+        if (reorderActions.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.layer_reorder),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+            ReorderItem(R.string.layer_move_top, LayerReorderAction.TOP, reorderActions, onDismiss, onReorder)
+            ReorderItem(R.string.layer_move_up, LayerReorderAction.UP, reorderActions, onDismiss, onReorder)
+            ReorderItem(R.string.layer_move_down, LayerReorderAction.DOWN, reorderActions, onDismiss, onReorder)
+            ReorderItem(R.string.layer_move_bottom, LayerReorderAction.BOTTOM, reorderActions, onDismiss, onReorder)
+        }
         ActionItem(R.string.layer_rename, onDismiss, onRename)
         ActionItem(R.string.layer_duplicate, onDismiss, onDuplicate)
         ActionItem(R.string.layer_merge_down, onDismiss, onMergeDown)

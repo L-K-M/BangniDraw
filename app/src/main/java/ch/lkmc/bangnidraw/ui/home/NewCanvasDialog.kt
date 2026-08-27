@@ -79,8 +79,12 @@ fun NewCanvasDialog(
     budget: MemoryBudget.Result,
     /** Captured by the screen because an AlertDialog reports its own window. */
     screenSizePx: IntSize,
+    /** The Custom row's pre-fill; null starts from [DEFAULT_CUSTOM_EDGE]². */
+    lastCustomSize: CanvasSize?,
     onDismiss: () -> Unit,
     onCreate: (CanvasSize, paperColor: Int) -> Unit,
+    /** Reports a Custom-row creation so the next dialog can pre-fill it. */
+    onCustomSizeCreated: (CanvasSize) -> Unit,
 ) {
     val presets = CanvasPresets.forDevice(budget)
     val defaults = NewCanvasDefaultsPolicy.forWindow(
@@ -89,8 +93,14 @@ fun NewCanvasDialog(
         windowHeightPx = screenSizePx.height,
     )
     var selected by rememberSaveable { mutableIntStateOf(defaults.presetIndex) }
-    var customW by rememberSaveable { mutableStateOf("2048") }
-    var customH by rememberSaveable { mutableStateOf("2048") }
+    // The Custom row starts from the last custom size this device created
+    // (08 §2.1's "remembered"), falling back to the square default.
+    var customW by rememberSaveable(lastCustomSize) {
+        mutableStateOf(lastCustomSize?.width?.toString() ?: DEFAULT_CUSTOM_EDGE)
+    }
+    var customH by rememberSaveable(lastCustomSize) {
+        mutableStateOf(lastCustomSize?.height?.toString() ?: DEFAULT_CUSTOM_EDGE)
+    }
     // Keyed on the selection: an override was chosen FOR a preset, so
     // switching presets starts from that preset's own default again —
     // carrying it across applied a stale Landscape to a portrait row.
@@ -217,7 +227,12 @@ fun NewCanvasDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { ok?.let { onCreate(it.preset.size, paper) } },
+                onClick = {
+                    ok?.let {
+                        if (isCustom) onCustomSizeCreated(it.preset.size)
+                        onCreate(it.preset.size, paper)
+                    }
+                },
                 enabled = ok != null,
             ) { Text(stringResource(R.string.new_canvas_create)) }
         },
@@ -425,3 +440,6 @@ private fun paperSwatches(): List<Pair<Color, String>> = listOf(
     PaperSwatchBlack to stringResource(R.string.paper_black),
     Color.Transparent to stringResource(R.string.paper_transparent),
 )
+
+/** The Custom row's starting point when no custom size was created yet. */
+private const val DEFAULT_CUSTOM_EDGE = "2048"

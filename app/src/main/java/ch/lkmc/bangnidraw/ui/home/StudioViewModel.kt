@@ -78,6 +78,7 @@ class StudioViewModel @Inject constructor(
         val freeBytes: Long = 0L,
         /** False until the first listing lands, so "empty" is never a flash of a lie. */
         val loaded: Boolean = false,
+        val lastCustomSize: CanvasSize? = null,
         val handedness: Hand = Hand.RIGHT,
         val touchDrawingMode: TouchDrawingMode = TouchDrawingMode.ENABLED,
         val penButtonAction: PenButtonAction = PenButtonAction.Eraser,
@@ -106,7 +107,17 @@ class StudioViewModel @Inject constructor(
         collectPreferences()
     }
 
+    /** Records a Custom-row creation so the next dialog pre-fills it. */
+    internal fun rememberCustomSize(size: CanvasSize) {
+        viewModelScope.launch { prefs.setLastCustomSize(size) }
+    }
+
     private fun collectPreferences() {
+        viewModelScope.launch {
+            prefs.lastCustomSize.collect { value ->
+                _uiState.update { it.copy(lastCustomSize = value) }
+            }
+        }
         viewModelScope.launch {
             prefs.handedness.collect { value -> _uiState.update { it.copy(handedness = value) } }
         }

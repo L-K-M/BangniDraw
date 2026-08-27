@@ -10,6 +10,7 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
+import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.DishState
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
@@ -173,6 +174,25 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         dataStore.edit { it[KEY_RECENT_COLORS] = StoredColors.encode(colors) }
     }
 
+    /**
+     * The last size the New Canvas dialog's Custom row created, so the row
+     * pre-fills with it instead of always starting at 2048² (08 §2.1).
+     * Absent until the first custom creation.
+     */
+    internal val lastCustomSize: Flow<CanvasSize?> = dataStore.data.map { prefs ->
+        val width = prefs[KEY_LAST_CUSTOM_WIDTH] ?: return@map null
+        val height = prefs[KEY_LAST_CUSTOM_HEIGHT] ?: return@map null
+        if (width <= 0 || height <= 0) return@map null
+        CanvasSize(width, height)
+    }
+
+    internal suspend fun setLastCustomSize(size: CanvasSize) {
+        dataStore.edit {
+            it[KEY_LAST_CUSTOM_WIDTH] = size.width
+            it[KEY_LAST_CUSTOM_HEIGHT] = size.height
+        }
+    }
+
     /** Rail size/opacity live outside preset JSON (`04-tools.md` §5.1). */
     internal suspend fun brushTunings(ids: Iterable<String>): Map<String, BrushTuning> {
         val snapshot = dataStore.data.first()
@@ -220,5 +240,7 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         val KEY_DISH_A = intPreferencesKey("dishA")
         val KEY_DISH_B = intPreferencesKey("dishB")
         val KEY_RECENT_COLORS = stringPreferencesKey("recent_colors")
+        val KEY_LAST_CUSTOM_WIDTH = intPreferencesKey("lastCustomWidth")
+        val KEY_LAST_CUSTOM_HEIGHT = intPreferencesKey("lastCustomHeight")
     }
 }

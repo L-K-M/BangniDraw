@@ -93,6 +93,22 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun `relisting finds tiles for a layer recovered from history`() {
+        val id = "recovered"
+        val added = Layer(LayerProps(LayerId("added-after-checkpoint"), "Added"))
+        val recovered = document(
+            id = id,
+            stack = LayerStack(listOf(added), activeIndex = 0, nextName = 2),
+        )
+        TileStore(store.layerDir(id, added.id))
+            .write(TileKey(1, 1), ByteArray(TILE_BYTES) { 1 })
+
+        val relisted = store.relistTiles(recovered)
+
+        assertEquals(setOf(TileKey(1, 1)), relisted.stack.layers.single().tiles)
+    }
+
+    @Test
     fun `a file from an older version loads on its defaults`() {
         val dir = store.projectDir("p-2").also { it.mkdirs() }
         // A minimal file, as an older writer without the newer fields would

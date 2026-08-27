@@ -16,7 +16,10 @@ import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.PixelOp
+import ch.lkmc.bangnidraw.engine.core.ReadbackDrainResult
+import ch.lkmc.bangnidraw.engine.core.ReadbackPolicy
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
+import ch.lkmc.bangnidraw.engine.core.StrokeCommitDecision
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
@@ -314,7 +317,13 @@ class EngineSession(
                 pollHandler.post { onResult(LayerEditResult.REFUSED) }
                 return@execute
             }
-            renderer.finishReadback()
+            val pending = renderer.finishReadback()
+            if (ReadbackPolicy.drainResult(pending) == ReadbackDrainResult.PENDING) {
+                pendingMirror = pending
+                pumpReadback()
+                pollHandler.post { onResult(LayerEditResult.REFUSED) }
+                return@execute
+            }
             val revision = revisions.incrementAndGet()
             val applied = renderer.applyPixelOps(pixelOps, revision, beforeCommit)
             if (applied) {
@@ -518,7 +527,14 @@ class EngineSession(
             // pen-up — and bounded by the fence timeout when the GPU is
             // wedged. This stroke's own readback is not enqueued yet, so it
             // cannot be swept in.
-            renderer.finishReadback()
+            val pending = renderer.finishReadback()
+            if (ReadbackPolicy.strokeCommit(pending) == StrokeCommitDecision.CANCEL) {
+                pendingMirror = pending
+                pumpReadback()
+                drainPending(stamp = false)
+                renderer.cancelStroke()
+                return@execute
+            }
             // §8.3's `dabPass.drain(untilStrokeEnd)`: any batch published but
             // not yet drawn is stamped now, before the merge, or its dabs would
             // be lost — and its slot would still be checked out when the replay
@@ -598,22 +614,19 @@ class EngineSession(
     }
 
     /**
-     * Runs [onDone] once every in-flight readback has been mapped and handed
-     * to the tile sink — the leave/`ON_STOP` checkpoint's first step, which
-     * must not write `project.json` while the last stroke's pixels are still
-     * on the GPU. Called on the main thread; [onDone] runs on the GL thread,
-     * or synchronously here when the renderer is already gone (then whatever
-     * was in flight has been delivered or dropped by [release] already).
+     * Reports whether bounded fence waits delivered every in-flight tile.
+     * A pending result keeps callers from persisting stale CPU pixels.
      */
-    fun finishReadback(onDone: () -> Unit) {
+    internal fun finishReadback(onDone: (ReadbackDrainResult) -> Unit) {
         if (!frontBuffered.isValid()) {
-            onDone()
+            onDone(ReadbackDrainResult.COMPLETE)
             return
         }
         frontBuffered.execute {
-            renderer.finishReadback()
-            pendingMirror = 0
-            onDone()
+            val pending = renderer.finishReadback()
+            pendingMirror = pending
+            if (pending > 0) pumpReadback()
+            onDone(ReadbackPolicy.drainResult(pending))
         }
     }
 

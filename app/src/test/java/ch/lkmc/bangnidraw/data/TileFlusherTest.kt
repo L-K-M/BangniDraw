@@ -163,6 +163,7 @@ class TileFlusherTest {
                 // disk, before the flush.
                 writer.events += "readback"
                 flusher.markDirty(tile(key, revision = 1, fill = 9))
+                TileFlusher.ReadbackResult.COMPLETE
             },
         )
         flusher.enqueue(job)
@@ -171,8 +172,73 @@ class TileFlusherTest {
 
         val stamped = assertNotNull(job.result.await())
         assertTrue(stamped.isStamped)
+        assertEquals(TileFlusher.StepResult.COMPLETE, job.completion.await())
         assertTrue(HistoryStore(historyDir).entryFile(1).isFile)
         assertEquals(listOf("readback", "tile:0_0"), writer.events)
+        assertEquals(0L, flusher.pendingBytes)
+    }
+
+    @Test
+    fun `a pending readback leaves dirty pixels unflushed`() = runBlocking {
+        val key = TileKey(0, 0)
+        flusher.markDirty(tile(key, revision = 1, fill = 9))
+        val job = TileFlusher.FlushJob.WriteEntry(
+            entry = strokeEntry(listOf(key)),
+            seq = 1,
+            ts = 10,
+            mirrorBefore = emptyMap(),
+            awaitReadback = { TileFlusher.ReadbackResult.PENDING },
+        )
+
+        flusher.enqueue(job)
+        flusher.runQueued()
+
+        assertNotNull(job.result.await())
+        assertEquals(TileFlusher.StepResult.DEFERRED, job.completion.await())
+        assertTrue(writer.events.isEmpty())
+        assertEquals(TILE_BYTES.toLong(), flusher.pendingBytes)
+    }
+
+    @Test
+    fun `a failed tile flush defers destructive followers`() = runBlocking {
+        val key = TileKey(0, 0)
+        flusher.markDirty(tile(key, revision = 1, fill = 9))
+        writer.fail = true
+        val job = TileFlusher.FlushJob.WriteEntry(
+            entry = strokeEntry(listOf(key)),
+            seq = 1,
+            ts = 10,
+            mirrorBefore = emptyMap(),
+            awaitReadback = { TileFlusher.ReadbackResult.COMPLETE },
+        )
+
+        flusher.enqueue(job)
+        flusher.runQueued()
+
+        assertEquals(TileFlusher.StepResult.DEFERRED, job.completion.await())
+        assertEquals(TILE_BYTES.toLong(), flusher.pendingBytes)
+    }
+
+    @Test
+    fun `WriteEntry flushes structural outputs outside its payload`() = runBlocking {
+        val before = TileKey(0, 0)
+        val output = TileKey(1, 0)
+        val job = TileFlusher.FlushJob.WriteEntry(
+            entry = strokeEntry(listOf(before)),
+            seq = 1,
+            ts = 10,
+            mirrorBefore = emptyMap(),
+            changedKeys = listOf(layer to before, layer to output),
+            awaitReadback = {
+                flusher.markDirty(tile(output, revision = 1, fill = 9))
+                TileFlusher.ReadbackResult.COMPLETE
+            },
+        )
+
+        flusher.enqueue(job)
+        flusher.runQueued()
+
+        assertEquals(listOf("tile:1_0"), writer.events)
         assertEquals(0L, flusher.pendingBytes)
     }
 
@@ -192,7 +258,7 @@ class TileFlusherTest {
         val job = TileFlusher.FlushJob.WriteEntry(
             entry = entry, seq = 1, ts = 10,
             mirrorBefore = mapOf((layer to mirrorKey) to mirrorPixels),
-            awaitReadback = {},
+            awaitReadback = { TileFlusher.ReadbackResult.COMPLETE },
         )
         flusher.enqueue(job)
         flusher.runQueued()
@@ -219,7 +285,10 @@ class TileFlusherTest {
         val job = TileFlusher.FlushJob.WriteEntry(
             entry = strokeEntry(listOf(TileKey(0, 0))), seq = 1, ts = 1,
             mirrorBefore = emptyMap(),
-            awaitReadback = { writer.events += "readback" },
+            awaitReadback = {
+                writer.events += "readback"
+                TileFlusher.ReadbackResult.COMPLETE
+            },
         )
         flusher.enqueue(job)
         flusher.runQueued()

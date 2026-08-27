@@ -375,6 +375,14 @@ and the contradiction is noted here.
   resident, but `TileStore` deletes zero tiles, so the immutable layer model
   must drop the key at checkpoint too. History validation accepts subsets of
   recorded keys because this fold can happen between undo/redo cycles.
+- **Recovered structural entries are replayed before disk tiles are relisted.**
+  `HistoryStore.load` only proves the post-checkpoint journal prefix; it does
+  not update `project.json`'s stale stack. Replay that prefix through
+  `HistoryRecovery`, then relist every recovered layer directory.
+- **Entry payload keys and changed tile keys differ.** Duplicate and flatten
+  write tiles under new owners that have no before-payload. `WriteEntry` must
+  flush `LayerEditPolicy.changedTiles`, and layer directories may be deleted
+  only after both readback and tile flush report complete.
 
 - **What "`engine/core` is pure JVM" actually forbids.**
   `docs/plan/02-architecture.md` §1 writes the rule as "`kotlin.*` and

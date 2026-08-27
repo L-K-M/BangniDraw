@@ -28,6 +28,32 @@ internal object LayerEditPolicy {
         return before.layers.map { it.id }.filterNot { it in live }
     }
 
+    /** Every sparse tile whose on-disk value changes after [op] commits. */
+    fun changedTiles(stack: LayerStack, op: PixelOp?): List<Pair<LayerId, TileKey>> {
+        if (op == null) return emptyList()
+
+        val changed = LinkedHashSet<Pair<LayerId, TileKey>>()
+        when (op) {
+            is PixelOp.Copy -> changed.addTiles(op.dst, op.keys)
+            is PixelOp.Merge -> {
+                changed.addTiles(op.bottom, op.keys)
+                changed.addTiles(op.top, stack.layerTiles(op.top))
+            }
+            is PixelOp.Clear -> changed.addTiles(op.layer, stack.layerTiles(op.layer))
+            is PixelOp.Delete -> changed.addTiles(op.layer, stack.layerTiles(op.layer))
+            is PixelOp.Flatten -> {
+                for (layer in stack.layers) changed.addTiles(layer.id, layer.tiles)
+                val visible = op.order.mapTo(HashSet()) { it.id }
+                val result = stack.layers
+                    .filter { it.id in visible }
+                    .flatMapTo(LinkedHashSet()) { it.tiles }
+                changed.addTiles(op.result, result)
+            }
+            is PixelOp.Restore -> changed.addTiles(op.layer, op.tiles.keys)
+        }
+        return changed.toList()
+    }
+
     private fun pixelEdit(stack: LayerStack, layer: LayerId): SandwichPolicy.Op? =
         stack.indexOf(layer).takeIf { it >= 0 }?.let(SandwichPolicy.Op::PixelEdit)
 
@@ -46,5 +72,15 @@ internal object LayerEditPolicy {
             before.blendMode != after.blendMode
         if (composites) return SandwichPolicy.Op.SetCompositingProperty(index)
         return SandwichPolicy.Op.SetInertProperty
+    }
+
+    private fun LayerStack.layerTiles(id: LayerId): Set<TileKey> =
+        layers.firstOrNull { it.id == id }?.tiles.orEmpty()
+
+    private fun MutableSet<Pair<LayerId, TileKey>>.addTiles(
+        layer: LayerId,
+        keys: Collection<TileKey>,
+    ) {
+        for (key in keys) add(layer to key)
     }
 }

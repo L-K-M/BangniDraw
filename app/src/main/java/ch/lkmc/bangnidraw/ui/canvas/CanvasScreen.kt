@@ -207,7 +207,7 @@ private fun CanvasContent(
                     } else {
                         ButtonState.Released
                     }
-                    val selection = viewModel.beginStrokeTool(source, button)
+                    val selection = viewModel.beginStrokeTool(source, button) ?: return
                     strokeState.temporaryReason = selection.temporaryReason
                     val kind = selection.kind
                     if (kind is ToolKind.Eyedropper) {

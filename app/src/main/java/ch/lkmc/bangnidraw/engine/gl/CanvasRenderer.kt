@@ -94,8 +94,9 @@ class CanvasRenderer(
      * the checkpoint's "the last stroke's pixels are on the CPU" barrier.
      * Bounded by [Readback]'s fence timeout, never forever.
      */
-    fun finishReadback() {
+    fun finishReadback(): Int {
         readback?.finish()
+        return readbackPending
     }
 
     private val grid = TileGrid(canvas.width, canvas.height)

@@ -69,6 +69,39 @@ class LayerEditPolicyTest {
         )
     }
 
+    @Test
+    fun `duplicate flushes every copied destination tile`() {
+        val source = Layer(
+            LayerProps(LayerId("source"), "source"),
+            setOf(TileKey(1, 0), TileKey(2, 0)),
+        )
+        val one = LayerStack(listOf(source), activeIndex = 0, nextName = 2)
+        val edit = (one.duplicate(0, IdSource { LayerId("copy") }, 8) as StackResult.Ok).edit
+
+        assertEquals(
+            setOf(LayerId("copy") to TileKey(1, 0), LayerId("copy") to TileKey(2, 0)),
+            LayerEditPolicy.changedTiles(one, edit.pixels).toSet(),
+        )
+    }
+
+    @Test
+    fun `flatten flushes the result and every removed source tile`() {
+        val a = Layer(LayerProps(LayerId("a"), "a"), setOf(TileKey(0, 0)))
+        val b = Layer(LayerProps(LayerId("b"), "b"), setOf(TileKey(1, 0)))
+        val two = LayerStack(listOf(a, b), activeIndex = 1, nextName = 3)
+        val edit = (two.flatten(IdSource { LayerId("flat") }) as StackResult.Ok).edit
+
+        assertEquals(
+            setOf(
+                a.id to TileKey(0, 0),
+                b.id to TileKey(1, 0),
+                LayerId("flat") to TileKey(0, 0),
+                LayerId("flat") to TileKey(1, 0),
+            ),
+            LayerEditPolicy.changedTiles(two, edit.pixels).toSet(),
+        )
+    }
+
     private fun layer(id: String) = Layer(
         LayerProps(id = LayerId(id), name = id),
         tiles = setOf(TileKey(0, 0)),

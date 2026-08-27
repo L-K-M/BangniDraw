@@ -371,6 +371,17 @@ class ProjectStore(private val root: File) {
         return LoadResult.Loaded(document, unreadableLayers, file.history)
     }
 
+    /** Refreshes sparse tile sets after journal replay introduces new layers. */
+    internal fun relistTiles(document: Document): Document {
+        val grid = TileGrid(document.width, document.height)
+        val layers = document.stack.layers.map { layer ->
+            val keys = TileStore(layerDir(document.id, layer.id)).list()
+                .filterTo(LinkedHashSet()) { grid.contains(it) }
+            layer.copy(tiles = keys)
+        }
+        return document.copy(stack = document.stack.copy(layers = layers))
+    }
+
     /**
      * The layer stack from the file's records, with each layer's tile keys
      * listed from `layers/<id>/`, degrading per layer: an unreadable record

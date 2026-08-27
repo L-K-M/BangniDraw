@@ -46,6 +46,9 @@ class TileFlusher(
     private val write: TileWriter,
     private val pool: TileBufferPool? = null,
 ) {
+    enum class ReadbackResult { COMPLETE, PENDING }
+    enum class StepResult { COMPLETE, DEFERRED }
+
     /** Writes one tile, or throws [IOException] — [TileStore.write]'s shape. */
     fun interface TileWriter {
         @Throws(IOException::class)
@@ -59,17 +62,23 @@ class TileFlusher(
          * pixel copies captured from the mirror at commit time (§5.5 step 1);
          * every other key of [entry] is resolved from disk (step 2 of §5.5)
          * or recorded as empty. [awaitReadback] must return only once the
-         * step's own readback has landed in the mirror; [result] completes
-         * with the stamped entry — or null when the entry could not be
-         * written, which is a storage-full condition, not a crash.
+         * step's own readback has landed in the mirror; [changedKeys] then
+         * flushes outputs whose owners differ from the entry payload, such as
+         * a flattened result. [result] completes with the stamped entry — or
+         * null when the entry could not be written, which is a storage-full
+         * condition, not a crash. [completion] reports whether readback and
+         * disk flush both finished; destructive followers must wait for
+         * `COMPLETE`.
          */
         class WriteEntry(
             val entry: HistoryEntry,
             val seq: Long,
             val ts: Long,
             val mirrorBefore: Map<Pair<LayerId, TileKey>, ByteArray>,
-            val awaitReadback: suspend () -> Unit,
+            val changedKeys: List<Pair<LayerId, TileKey>> = HistoryCodec.payloadKeys(entry),
+            val awaitReadback: suspend () -> ReadbackResult,
             val result: CompletableDeferred<HistoryEntry?> = CompletableDeferred(),
+            val completion: CompletableDeferred<StepResult> = CompletableDeferred(),
         ) : FlushJob
 
         /**
@@ -263,6 +272,7 @@ class TileFlusher(
         val store = historyStore
         if (store == null) {
             job.result.complete(null)
+            job.completion.complete(StepResult.DEFERRED)
             return
         }
         val keys = HistoryCodec.payloadKeys(job.entry)
@@ -286,12 +296,22 @@ class TileFlusher(
         } catch (_: IOException) {
             _storageFull.value = true
             job.result.complete(null)
+            job.completion.complete(StepResult.DEFERRED)
             return
         }
         job.result.complete(stamped)
         // §5.6 step 3: the step's own pixels land in the mirror, then flush.
-        job.awaitReadback()
-        flushKeys(keys)
+        val readback = job.awaitReadback()
+        if (readback == ReadbackResult.PENDING) {
+            job.completion.complete(StepResult.DEFERRED)
+            return
+        }
+        val result = if (flushKeys(job.changedKeys)) {
+            StepResult.COMPLETE
+        } else {
+            StepResult.DEFERRED
+        }
+        job.completion.complete(result)
     }
 
     private suspend fun runWriteRedo(job: FlushJob.WriteRedo) {
@@ -320,7 +340,7 @@ class TileFlusher(
     }
 
     /** Only under [jobMutex]. One failed write stops the pass; nothing is lost. */
-    private fun flushKeys(keys: List<Pair<LayerId, TileKey>>) {
+    private fun flushKeys(keys: List<Pair<LayerId, TileKey>>): Boolean {
         for (mapKey in keys) {
             val current = synchronized(lock) {
                 pending.remove(mapKey)?.also { pendingBytes -= TILE_BYTES }
@@ -339,9 +359,10 @@ class TileFlusher(
                     }
                 }
                 _storageFull.value = true
-                return
+                return false
             }
         }
+        return true
     }
 
     private companion object {

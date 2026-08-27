@@ -65,6 +65,7 @@ class HistoryPixelsTest {
                 for ((key, bytes) in edits) {
                     flusher.markDirty(CpuTile(layer, key, ++revision, bytes.copyOf()))
                 }
+                TileFlusher.ReadbackResult.COMPLETE
             },
         )
         flusher.enqueue(job)

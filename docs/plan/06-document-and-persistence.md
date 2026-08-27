@@ -494,10 +494,10 @@ Tiles do not wait for a clock: they flush after every stroke (§6.3). The clocks
 `delayMs(dirtyForMs) = min(QUIET_MS, max(0, ONE_CHECKPOINT_MS − dirtyForMs))` — the same
 function and constants as Meltorama's; reusing tested numbers beats retuning by feel.
 
-A checkpoint that finds `!hasUnwrittenChanges` does nothing. A checkpoint that fires while a
-stroke is live (pen down) still runs: it writes the metadata as of the last commit, which is
-consistent by construction because the stroke buffer is not part of the document until
-`commit()`.
+A clean checkpoint skips `project.json`, but still evaluates a due gallery sync. A checkpoint
+that fires while a stroke is live (pen down) writes dirty metadata as of the last commit but
+defers gallery flattening and thumbnails: the stroke may commit while disk pixels are being
+read. Leave already waits for stroke history, so its later snapshot can perform both safely.
 
 Since `.tile` and `.entry` files are ahead of `project.json` between checkpoints, a crash in
 that window loses at most: the redo branch and layer-stack edits since the last checkpoint (the
@@ -671,11 +671,12 @@ sync(document):
 | --- | --- |
 | Leave canvas | `pixelRevision != lastSyncedRevision` (title changes alone also count, for `DISPLAY_NAME`) |
 | Checkpoint | same, **and** `now − lastGallerySyncAt ≥ 30 s` |
-| `ON_STOP` | same as leave, but skipped if the flatten cannot get the GL thread (surface already gone) — the next open's leave catches up |
+| `ON_STOP` | same as leave when the snapshot is idle; a live-stroke snapshot defers it to the next trigger |
 | Studio open | any painting with `pixelRevision` ahead of its last sync (recorded in `project.json` as `lastGallerySyncAt < updatedAt`) is synced in the background, one at a time, on the CPU path below |
 
 `pixelRevision` is an in-memory counter bumped per pixel edit (stroke, fill, undo, redo, layer
-ops); it is not persisted — `updatedAt > lastGallerySyncAt` is the on-disk equivalent. The
+ops) and title rename; it is not persisted — `updatedAt > lastGallerySyncAt` is the on-disk
+equivalent.
 **Off-canvas flattens (the Studio-open row above) have no GL context** (none exists until the Canvas
 screen, `10-performance.md`). They use the CPU reference compositor `Composite` (engine/core)
 over tiles streamed by `TileStore.loadLayer`, on `Dispatchers.Default`, one band of tile rows
@@ -685,9 +686,12 @@ at a time so at most one row of tiles per layer is resident (8 layers × 16 tile
 the shaders must match (PLAN §7), so the two paths produce the same pixels. The
 30 s floor keeps a steady painter from flattening a 4096² canvas every 10-second quiet
 checkpoint; the on-leave sync guarantees the gallery is exact whenever the user is not
-looking at the canvas. Flatten + encode of a large painting is seconds of IO; it runs on
-`Dispatchers.IO` after the checkpoint, never blocks the flusher, and a newer sync request
-cancels a running one (conflated).
+looking at the canvas. On Canvas, tile flush, CPU flatten, MediaStore update, and the
+`project.json` write carrying that outcome run in order under checkpoint ownership. The next
+edit cannot change tile files mid-flatten, and navigation cannot expose Studio to an unsaved
+gallery URI. Studio serializes each painting's background sync with open, rename, duplicate,
+delete, share, and save-as; once MediaStore changes, its matching metadata write is
+non-cancellable.
 
 ### 9.4 Setting
 

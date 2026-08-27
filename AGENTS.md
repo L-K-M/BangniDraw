@@ -544,6 +544,11 @@ and the contradiction is noted here.
   run while a stroke is open, but wait for document work and history pushes.
   A generation check keeps a pen-up or late tile readback from being cleared
   as saved by the older snapshot.
+- **Gallery sync is part of checkpoint ownership.** An idle Canvas flushes,
+  flattens, updates MediaStore, and writes the returned URI in that order
+  before releasing the action gate. A live-stroke snapshot defers flattening.
+  Studio serializes each painting's background sync with open and mutations;
+  once MediaStore changes, its matching metadata write is non-cancellable.
 - **Generated palette names use a closed token grammar.** Only the four exact
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.

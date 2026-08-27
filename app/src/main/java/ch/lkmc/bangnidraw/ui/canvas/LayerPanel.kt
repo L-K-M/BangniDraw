@@ -2,8 +2,12 @@ package ch.lkmc.bangnidraw.ui.canvas
 
 import android.os.Build
 import android.view.HapticFeedbackConstants
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,12 +57,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
@@ -68,6 +73,7 @@ import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerPanelOrder
 import ch.lkmc.bangnidraw.engine.core.LayerStack
+import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.Refusal
 import ch.lkmc.bangnidraw.ui.theme.Indigo
@@ -88,7 +94,7 @@ internal fun LayerPanel(
     documentBusy: Boolean,
     feedbackRevision: Long,
     refusal: Refusal?,
-    thumbnails: Map<LayerId, ImageBitmap>,
+    thumbnails: Map<LayerId, LayerThumbnail>,
     onDismiss: () -> Unit,
     onSelect: (Int) -> Unit,
     onAdd: () -> Unit,
@@ -119,6 +125,7 @@ internal fun LayerPanel(
     var headerMenu by remember { mutableStateOf(false) }
     var paperMenu by remember { mutableStateOf(false) }
     var hint by remember { mutableStateOf<String?>(null) }
+    var hintRefusal by remember { mutableStateOf<Refusal?>(null) }
     var seenFeedback by remember { mutableLongStateOf(feedbackRevision) }
     val view = LocalView.current
     val rowHeightPx = with(LocalDensity.current) { ROW_HEIGHT.toPx() }
@@ -149,8 +156,10 @@ internal fun LayerPanel(
         view.performHapticFeedback(rejected)
         displayOrder = stack.layers.asReversed().map(Layer::id)
         hint = refusalText
+        hintRefusal = refusal
         delay(HINT_MS)
         hint = null
+        hintRefusal = null
     }
     LaunchedEffect(stack.active.id) {
         val editing = opacityLayer ?: return@LaunchedEffect
@@ -289,7 +298,18 @@ internal fun LayerPanel(
                 shape = MaterialTheme.shapes.large,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = HEADER_HEIGHT + 8.dp, start = 8.dp, end = 8.dp),
+                    .padding(top = HEADER_HEIGHT + 8.dp, start = 8.dp, end = 8.dp)
+                    .then(
+                        if (hintRefusal == Refusal.LAST_LAYER) {
+                            Modifier.clickable {
+                                hint = null
+                                hintRefusal = null
+                                onClear(stack.activeIndex)
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ),
             ) {
                 Text(
                     text = it,
@@ -379,7 +399,7 @@ private fun LayerRow(
     selected: Boolean,
     documentBusy: Boolean,
     editingOpacity: Boolean,
-    thumbnail: ImageBitmap?,
+    thumbnail: LayerThumbnail?,
     dragOffset: Float,
     onSelect: () -> Unit,
     onToggleVisibility: () -> Unit,
@@ -409,14 +429,20 @@ private fun LayerRow(
     val rowAlpha = if (layer.props.visible) 1f else HIDDEN_ALPHA
 
     Surface(
-        onClick = onSelect,
         color = background,
         tonalElevation = if (selected) 2.dp else 0.dp,
         modifier = Modifier
             .fillMaxWidth()
             .height(ROW_HEIGHT)
             .graphicsLayer { translationY = dragOffset }
-            .alpha(rowAlpha),
+            .alpha(rowAlpha)
+            .combinedClickable(
+                onClick = onSelect,
+                onLongClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    menuOpen = true
+                },
+            ),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -536,9 +562,15 @@ private fun LayerRow(
 }
 
 @Composable
-private fun LayerThumbnail(thumbnail: ImageBitmap?) {
+private fun LayerThumbnail(thumbnail: LayerThumbnail?) {
     val checkerA = MaterialTheme.colorScheme.surface
     val checkerB = MaterialTheme.colorScheme.surfaceVariant
+    val image = remember(thumbnail) {
+        thumbnail?.let {
+            Bitmap.createBitmap(it.argb, it.width, it.height, Bitmap.Config.ARGB_8888)
+                .asImageBitmap()
+        }
+    }
     Box(
         modifier = Modifier
             .padding(horizontal = 2.dp)
@@ -557,7 +589,14 @@ private fun LayerThumbnail(thumbnail: ImageBitmap?) {
                     )
                 }
             }
-            if (thumbnail != null) drawImage(thumbnail)
+        }
+        if (image != null) {
+            Image(
+                bitmap = image,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }

@@ -14,6 +14,7 @@ import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
+import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.ReadbackDrainResult
@@ -566,14 +567,19 @@ class EngineSession(
     @Volatile
     private var pendingMirror = 0
 
+    @Volatile
+    private var pendingThumbnails = 0
+
     private val pollHandler = Handler(Looper.getMainLooper())
 
     private val pollTick = Runnable {
         if (!frontBuffered.isValid()) return@Runnable
         frontBuffered.execute {
             renderer.pollReadback()
+            renderer.pollLayerThumbnails()
             pendingMirror = renderer.readbackPending
-            if (renderer.readbackPending > 0) pumpReadback()
+            pendingThumbnails = renderer.thumbnailPending
+            if (pendingMirror > 0 || pendingThumbnails > 0) pumpReadback()
         }
     }
 
@@ -584,6 +590,27 @@ class EngineSession(
         // Handler is thread-safe from both.
         pollHandler.removeCallbacks(pollTick)
         pollHandler.postDelayed(pollTick, READBACK_POLL_MS)
+    }
+
+    /** Renders panel thumbnails on the GL thread and returns them on main. */
+    internal fun requestLayerThumbnails(
+        layers: Collection<LayerId>,
+        onThumbnail: (LayerId, LayerThumbnail?) -> Unit,
+    ) {
+        if (layers.isEmpty()) return
+        if (!frontBuffered.isValid()) {
+            layers.forEach { onThumbnail(it, null) }
+            return
+        }
+
+        frontBuffered.execute {
+            renderer.requestLayerThumbnails(layers) { layer, thumbnail ->
+                pollHandler.post { onThumbnail(layer, thumbnail) }
+            }
+            pendingThumbnails = renderer.thumbnailPending
+            if (pendingThumbnails > 0) pumpReadback()
+        }
+        pumpReadback()
     }
 
     /**

@@ -383,6 +383,14 @@ and the contradiction is noted here.
   write tiles under new owners that have no before-payload. `WriteEntry` must
   flush `LayerEditPolicy.changedTiles`, and layer directories may be deleted
   only after both readback and tile flush report complete.
+- **Layer-panel thumbnails stay on the GL boundary.** `LayerThumbnailPass`
+  renders an isolated layer into one 128 px target and reads through two PBOs;
+  the ViewModel only throttles dirty layer ids and publishes finished pixels.
+  Never rebuild panel thumbnails from tile files or on the UI thread.
+- **Layer lock is checked before a pixel tool reaches `EngineSession`.** The
+  immutable stack refuses structural pixel edits, but strokes bypass those
+  operations. `StrokeLayerPolicy` is the matching input-boundary guard; a
+  hidden active layer remains drawable and previews until pen-up.
 
 - **What "`engine/core` is pure JVM" actually forbids.**
   `docs/plan/02-architecture.md` §1 writes the rule as "`kotlin.*` and

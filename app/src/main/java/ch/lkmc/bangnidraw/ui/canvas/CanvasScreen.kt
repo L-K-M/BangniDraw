@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -32,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -56,6 +58,8 @@ import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
+import ch.lkmc.bangnidraw.engine.core.StrokeLayerDecision
+import ch.lkmc.bangnidraw.engine.core.StrokeLayerPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
@@ -138,7 +142,12 @@ private fun CanvasContent(
     var hoverRevision by remember { mutableIntStateOf(0) }
     var showBrushSettings by remember { mutableStateOf(false) }
     var showLayers by remember { mutableStateOf(false) }
+    val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
     BackHandler(enabled = showLayers) { showLayers = false }
+    LaunchedEffect(showLayers) { viewModel.setLayerPanelOpen(showLayers) }
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.setLayerPanelOpen(false) }
+    }
 
     // The stroke in flight. Plain vars, not Compose state: they change several
     // hundred times a second on the input path and nothing draws from them, so
@@ -147,10 +156,24 @@ private fun CanvasContent(
     val density = LocalDensity.current
     val view0 = LocalView.current
     val context = LocalContext.current
+    var seenStrokeNotice by remember { mutableLongStateOf(state.strokeLayerNoticeRevision) }
 
     // 06 §4's one honest toast per open, when something could not be read.
     LaunchedEffect(state.warning) {
         state.warning?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+    }
+    LaunchedEffect(state.strokeLayerNoticeRevision) {
+        if (state.strokeLayerNoticeRevision == seenStrokeNotice) return@LaunchedEffect
+        seenStrokeNotice = state.strokeLayerNoticeRevision
+        val notice = state.strokeLayerNotice ?: return@LaunchedEffect
+        Toast.makeText(context, notice, Toast.LENGTH_SHORT).show()
+        val haptic = when {
+            notice == R.string.layer_locked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                HapticFeedbackConstants.REJECT
+            notice == R.string.layer_locked -> HapticFeedbackConstants.LONG_PRESS
+            else -> HapticFeedbackConstants.CLOCK_TICK
+        }
+        view0.performHapticFeedback(haptic)
     }
 
     // Roadmap 2.4a: real two-finger navigation. The handler owns the view
@@ -230,6 +253,17 @@ private fun CanvasContent(
                         return
                     }
                     if (kind !is ToolKind.Brush) {
+                        viewModel.endStrokeTool(strokeState.temporaryReason)
+                        strokeState.temporaryReason = null
+                        return
+                    }
+
+                    val layerDecision = StrokeLayerPolicy.decide(
+                        visible = active.props.visible,
+                        locked = active.props.locked,
+                    )
+                    viewModel.noteStrokeLayerDecision(layerDecision)
+                    if (layerDecision == StrokeLayerDecision.REFUSE_LOCKED) {
                         viewModel.endStrokeTool(strokeState.temporaryReason)
                         strokeState.temporaryReason = null
                         return
@@ -649,7 +683,7 @@ private fun CanvasContent(
                         documentBusy = state.documentBusy,
                         feedbackRevision = state.layerFeedbackRevision,
                         refusal = state.layerRefusal,
-                        thumbnails = emptyMap(),
+                        thumbnails = layerThumbnails,
                         onDismiss = { showLayers = false },
                         onSelect = viewModel::selectLayer,
                         onAdd = viewModel::addLayer,

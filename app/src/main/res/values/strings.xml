@@ -168,6 +168,7 @@
     <string name="layer_limit">This %1$d×%2$d canvas allows %3$d layers on this device. Merge or delete a layer to add one.</string>
     <string name="layer_only">Can’t delete the only layer — clear it instead.</string>
     <string name="layer_locked">Layer is locked.</string>
+    <string name="layer_hidden">Layer is hidden. Your stroke is still added.</string>
     <string name="layer_hidden_partner">Show both layers to merge.</string>
     <string name="layer_no_below">There is no layer below.</string>
     <string name="layer_no_change">Nothing changed.</string>

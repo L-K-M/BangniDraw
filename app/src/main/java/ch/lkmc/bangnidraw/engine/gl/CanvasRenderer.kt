@@ -16,6 +16,8 @@ import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
+import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
+import ch.lkmc.bangnidraw.engine.core.LayerVisibilityPolicy
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.PerfStats
@@ -147,6 +149,7 @@ class CanvasRenderer(
     private var checker: GlProgram? = null
     private var tileComposite: GlProgram? = null
     private var compositePass: CompositePass? = null
+    private var thumbnailPass: LayerThumbnailPass? = null
     private var layerPixelPass: LayerPixelPass? = null
     private var dab: GlProgram? = null
     private var merge: GlProgram? = null
@@ -218,6 +221,16 @@ class CanvasRenderer(
 
     private val layers = LinkedHashMap<LayerId, LayerTextures>()
     private val transparentTile = java.nio.ByteBuffer.allocate(TILE_BYTES)
+
+    private data class ThumbnailRequest(
+        val layer: LayerId,
+        val callback: (LayerId, LayerThumbnail?) -> Unit,
+    )
+
+    private val thumbnailRequests = ArrayDeque<ThumbnailRequest>()
+
+    val thumbnailPending: Int
+        get() = thumbnailRequests.size + (thumbnailPass?.pending ?: 0)
 
     /** Set by the session; the renderer never reads the document itself. */
     var stack: LayerStack? = null
@@ -335,7 +348,9 @@ class CanvasRenderer(
         checker = checkerProgram
         tileComposite = tileCompositeProgram
         preview = previewProgram
-        compositePass = CompositePass(compositeProgram, state, previewProgram)
+        val canvasCompositePass = CompositePass(compositeProgram, state, previewProgram)
+        compositePass = canvasCompositePass
+        thumbnailPass = LayerThumbnailPass(canvas, state, canvasCompositePass)
         val tiles = TilePool(probed, budget)
         pool = tiles
         sandwich = SandwichCache(grid, tiles, tileCompositeProgram, state)
@@ -607,6 +622,54 @@ class CanvasRenderer(
             invalidation != null -> sandwich?.invalidate(invalidation, previous.activeIndex)
             previous.active.id != next.active.id ->
                 sandwich?.invalidate(SandwichPolicy.Op.Select(next.activeIndex), previous.activeIndex)
+        }
+    }
+
+    /** Queues isolated layer renders; [pollLayerThumbnails] drains their PBOs. */
+    internal fun requestLayerThumbnails(
+        layerIds: Collection<LayerId>,
+        callback: (LayerId, LayerThumbnail?) -> Unit,
+    ) {
+        if (!isReady) {
+            layerIds.forEach { callback(it, null) }
+            return
+        }
+
+        layerIds.forEach { thumbnailRequests += ThumbnailRequest(it, callback) }
+        pumpLayerThumbnails()
+    }
+
+    fun pollLayerThumbnails() {
+        thumbnailPass?.poll()
+        pumpLayerThumbnails()
+    }
+
+    private fun pumpLayerThumbnails() {
+        if (stroke != null) return
+        val pass = thumbnailPass ?: return
+        val current = stack ?: return
+        while (thumbnailRequests.isNotEmpty()) {
+            val request = thumbnailRequests.first()
+            val layer = current.layers.firstOrNull { it.id == request.layer }
+            val textures = layers[request.layer]
+            if (layer == null || textures == null) {
+                thumbnailRequests.removeFirst()
+                request.callback(request.layer, null)
+                continue
+            }
+
+            when (
+                pass.enqueue(
+                    layer = request.layer,
+                    textures = textures,
+                    opacity = layer.props.opacity,
+                    callback = request.callback,
+                )
+            ) {
+                LayerThumbnailPass.EnqueueResult.STARTED -> thumbnailRequests.removeFirst()
+                LayerThumbnailPass.EnqueueResult.FAILED -> thumbnailRequests.removeFirst()
+                LayerThumbnailPass.EnqueueResult.BUSY -> return
+            }
         }
     }
 
@@ -1138,7 +1201,10 @@ class CanvasRenderer(
     ) {
         val layer = current.layers.getOrNull(index) ?: return
         val props = layer.props
-        if (!props.visible || props.opacity <= 0f) return
+        val buffer = strokeBuffer
+        val previewsStroke = previewSpec != null && buffer != null &&
+            index == current.activeIndex && previewSpec.layerId == layer.id
+        if (!LayerVisibilityPolicy.shouldDraw(props.visible, props.opacity, previewsStroke)) return
         val textures = textures(layer.id) ?: return
         if (props.blendMode != BlendMode.NORMAL) {
             // A non-normal layer needs the backdrop, and a shader cannot read
@@ -1175,10 +1241,7 @@ class CanvasRenderer(
         // the active layer's — a stroke that began before a layer switch would
         // otherwise be previewed onto whichever layer is active now, showing
         // the mark somewhere it will never land.
-        val buffer = strokeBuffer
-        if (previewSpec != null && buffer != null &&
-            index == current.activeIndex && previewSpec.layerId == layer.id
-        ) {
+        if (previewSpec != null && buffer != null && previewsStroke) {
             pass.drawPreview(
                 layer = textures,
                 stroke = buffer,
@@ -1411,6 +1474,8 @@ class CanvasRenderer(
         // hang, so whatever was in flight is dropped and the CPU mirror
         // simply stays stale for those keys (§12).
         readback?.forgetAll()
+        thumbnailPass?.forgetAll()
+        failQueuedThumbnails()
         for (textures in layers.values) textures.forgetAll()
         sandwich?.forgetAll()
         // A stroke in progress cannot survive: its buffer's slices went with
@@ -1439,6 +1504,7 @@ class CanvasRenderer(
         merge = null
         preview = null
         compositePass = null
+        thumbnailPass = null
         sandwich = null
         pool = null
         isReady = false
@@ -1463,6 +1529,8 @@ class CanvasRenderer(
         for (textures in layers.values) textures.release()
         layers.clear()
         sandwich?.release()
+        thumbnailPass?.release()
+        failQueuedThumbnails()
         compositePass?.release()
         dabPass?.release()
         mergePass?.release()
@@ -1492,7 +1560,15 @@ class CanvasRenderer(
         dabPass = null
         mergePass = null
         layerPixelPass = null
+        thumbnailPass = null
         isReady = false
+    }
+
+    private fun failQueuedThumbnails() {
+        while (thumbnailRequests.isNotEmpty()) {
+            val request = thumbnailRequests.removeFirst()
+            request.callback(request.layer, null)
+        }
     }
 
     /** For the About screen and the debug overlay of 2.5. */

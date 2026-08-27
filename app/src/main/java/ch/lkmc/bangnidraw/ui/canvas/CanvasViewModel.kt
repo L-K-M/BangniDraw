@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.annotation.StringRes
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -44,8 +45,11 @@ import ch.lkmc.bangnidraw.engine.core.LayerHistory
 import ch.lkmc.bangnidraw.engine.core.LayerHistoryEdit
 import ch.lkmc.bangnidraw.engine.core.LayerHistoryResult
 import ch.lkmc.bangnidraw.engine.core.LayerId
+import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerOpacityGesture
 import ch.lkmc.bangnidraw.engine.core.LayerStack
+import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
+import ch.lkmc.bangnidraw.engine.core.LayerThumbnailPolicy
 import ch.lkmc.bangnidraw.engine.core.LayerTileUpdates
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.PixelOp
@@ -57,6 +61,7 @@ import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.ReadbackDrainResult
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
+import ch.lkmc.bangnidraw.engine.core.StrokeLayerDecision
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StylusToolPolicy
 import ch.lkmc.bangnidraw.engine.core.TemporaryReason
@@ -156,6 +161,8 @@ class CanvasViewModel @Inject constructor(
             val pendingActionCount: Int = 0,
             val layerRefusal: Refusal? = null,
             val layerFeedbackRevision: Long = 0L,
+            @StringRes val strokeLayerNotice: Int? = null,
+            val strokeLayerNoticeRevision: Long = 0L,
         ) : UiState
     }
 
@@ -191,6 +198,10 @@ class CanvasViewModel @Inject constructor(
 
     /** §6.3's storage-full state, for the `err_storage_full` banner. */
     val storageFull: StateFlow<Boolean> = flusher.storageFull
+
+    private val _layerThumbnails = MutableStateFlow<Map<LayerId, LayerThumbnail>>(emptyMap())
+    internal val layerThumbnails: StateFlow<Map<LayerId, LayerThumbnail>> =
+        _layerThumbnails.asStateFlow()
 
     /**
      * The document as of the last model change. Written on the main thread
@@ -262,6 +273,11 @@ class CanvasViewModel @Inject constructor(
     private var layerRefusal: Refusal? = null
     private var layerFeedbackRevision = 0L
     private var opacityGesture: LayerOpacityGesture? = null
+    @StringRes private var strokeLayerNotice: Int? = null
+    private var strokeLayerNoticeRevision = 0L
+    private val layerThumbnailPolicy = LayerThumbnailPolicy()
+    private var layerPanelOpen = false
+    private var layerThumbnailJob: Job? = null
 
     private var session: EngineSession? = null
 
@@ -427,6 +443,8 @@ class CanvasViewModel @Inject constructor(
             pendingActionCount = actionGate.pendingCount,
             layerRefusal = layerRefusal,
             layerFeedbackRevision = layerFeedbackRevision,
+            strokeLayerNotice = strokeLayerNotice,
+            strokeLayerNoticeRevision = strokeLayerNoticeRevision,
         )
     }
 
@@ -453,6 +471,8 @@ class CanvasViewModel @Inject constructor(
             pendingActionCount = actionGate.pendingCount,
             layerRefusal = layerRefusal,
             layerFeedbackRevision = layerFeedbackRevision,
+            strokeLayerNotice = strokeLayerNotice,
+            strokeLayerNoticeRevision = strokeLayerNoticeRevision,
         )
     }
 
@@ -709,6 +729,7 @@ class CanvasViewModel @Inject constructor(
     fun onStrokeCommitted() {
         dirty = true
         contentDirty = true
+        document?.stack?.active?.id?.let { markLayerThumbnailsDirty(listOf(it)) }
         noteChange()
     }
 
@@ -798,6 +819,96 @@ class CanvasViewModel @Inject constructor(
         requestAction(CanvasDocumentAction.ToggleLayerLock(index))
 
     fun setPaperColor(color: Int) = requestAction(CanvasDocumentAction.SetPaperColor(color))
+
+    internal fun noteStrokeLayerDecision(decision: StrokeLayerDecision) {
+        strokeLayerNotice = when (decision) {
+            StrokeLayerDecision.DRAW -> return
+            StrokeLayerDecision.DRAW_HIDDEN -> R.string.layer_hidden
+            StrokeLayerDecision.REFUSE_LOCKED -> R.string.layer_locked
+        }
+        strokeLayerNoticeRevision += 1
+        updateInteractionUi()
+    }
+
+    fun setLayerPanelOpen(open: Boolean) {
+        if (layerPanelOpen == open) return
+
+        layerPanelOpen = open
+        if (!open) {
+            layerThumbnailJob?.cancel()
+            layerThumbnailJob = null
+            return
+        }
+
+        val missing = document?.stack?.layers
+            ?.map(Layer::id)
+            ?.filterNot(_layerThumbnails.value::containsKey)
+            .orEmpty()
+        markLayerThumbnailsDirty(missing)
+        startLayerThumbnailLoop()
+    }
+
+    private fun startLayerThumbnailLoop() {
+        if (!layerPanelOpen || layerThumbnailJob?.isActive == true) return
+
+        layerThumbnailJob = viewModelScope.launch {
+            while (layerPanelOpen) {
+                requestLayerThumbnails()
+                delay(LAYER_THUMBNAIL_POLL_MS)
+            }
+        }
+    }
+
+    private fun requestLayerThumbnails() {
+        val doc = document ?: return
+        val live = doc.stack.layers.mapTo(LinkedHashSet(), Layer::id)
+        layerThumbnailPolicy.retain(live)
+        val requests = layerThumbnailPolicy.due(
+            nowMs = SystemClock.uptimeMillis(),
+            panelOpen = layerPanelOpen,
+            strokeInFlight = actionGate.strokeInFlight || actionGate.busy,
+        )
+        if (requests.isEmpty()) return
+
+        val engine = session
+        if (engine == null) {
+            requests.forEach(layerThumbnailPolicy::fail)
+            return
+        }
+        val byLayer = requests.associateBy(LayerThumbnailPolicy.Request::layer)
+        engine.requestLayerThumbnails(byLayer.keys) { layer, thumbnail ->
+            val request = byLayer[layer] ?: return@requestLayerThumbnails
+            if (thumbnail == null) {
+                layerThumbnailPolicy.fail(request)
+                return@requestLayerThumbnails
+            }
+
+            if (!layerThumbnailPolicy.complete(request)) return@requestLayerThumbnails
+            val stillLive = document?.stack?.layers?.any { it.id == layer } == true
+            if (stillLive) _layerThumbnails.value = _layerThumbnails.value + (layer to thumbnail)
+        }
+    }
+
+    private fun markLayerThumbnailsDirty(layers: Collection<LayerId>) {
+        if (layers.isEmpty()) return
+
+        layerThumbnailPolicy.markDirty(layers)
+        startLayerThumbnailLoop()
+    }
+
+    private fun updateLayerThumbnailState(
+        before: LayerStack,
+        after: LayerStack,
+        pixelLayers: Collection<LayerId> = emptyList(),
+    ) {
+        val live = after.layers.mapTo(LinkedHashSet(), Layer::id)
+        layerThumbnailPolicy.retain(live)
+        _layerThumbnails.value = _layerThumbnails.value.filterKeys(live::contains)
+        val changed = LinkedHashSet<LayerId>()
+        changed += LayerThumbnailPolicy.changedLayers(before, after)
+        changed += pixelLayers.filter(live::contains)
+        markLayerThumbnailsDirty(changed)
+    }
 
     private fun requestAction(action: CanvasDocumentAction) {
         layerRefusal = null
@@ -945,6 +1056,11 @@ class CanvasViewModel @Inject constructor(
             if (state is UiState.Ready) {
                 _uiState.value = state.copy(stack = edit.stack, paperColor = paperColor)
             }
+            updateLayerThumbnailState(
+                before = doc.stack,
+                after = edit.stack,
+                pixelLayers = changedKeys.map { it.first },
+            )
             emitLayerFeedback(refusal = null)
             if (paperColor != doc.paperColor) engine.setPaperColor(paperColor)
             dirty = true
@@ -1103,6 +1219,11 @@ class CanvasViewModel @Inject constructor(
             if (state is UiState.Ready) {
                 _uiState.value = state.copy(stack = historyEdit.stack, paperColor = paperColor)
             }
+            updateLayerThumbnailState(
+                before = doc.stack,
+                after = historyEdit.stack,
+                pixelLayers = historyEdit.stack.layers.map(Layer::id),
+            )
             if (paperColor != doc.paperColor) engine.setPaperColor(paperColor)
             dirty = true
             contentDirty = true
@@ -1163,7 +1284,12 @@ class CanvasViewModel @Inject constructor(
         val doc = document ?: return
         if (next != null) {
             next.onStrokeMerged = { spec, keys, revision -> onStrokeMerged(spec, keys, revision) }
-            viewModelScope.launch(Dispatchers.IO) { streamTiles(next, doc) }
+            viewModelScope.launch(Dispatchers.IO) {
+                streamTiles(next, doc)
+                withContext(Dispatchers.Main) {
+                    markLayerThumbnailsDirty(doc.stack.layers.map(Layer::id))
+                }
+            }
         }
     }
 
@@ -1413,6 +1539,8 @@ class CanvasViewModel @Inject constructor(
         const val READBACK_WAIT_MS = 2_000L
 
         const val READY_WAIT_MS = 5_000L
+
+        const val LAYER_THUMBNAIL_POLL_MS = 100L
 
         /** Tiles per GL `execute {}` block on the reopen and restore paths. */
         const val UPLOAD_BATCH = 16

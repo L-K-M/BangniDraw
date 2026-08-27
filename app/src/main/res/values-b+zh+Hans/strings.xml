@@ -145,6 +145,7 @@
     <string name="palette_recent_dismiss">关闭最近使用的颜色</string>
     <string name="palette_my">我的调色板</string>
     <string name="palette_create">新建调色板</string>
+    <string name="palette_name_taken">已有同名调色板</string>
     <string name="palette_replace">替换为当前颜色</string>
     <string name="palette_eyedrop">从画布取色</string>
     <string name="palette_delete">删除色样</string>

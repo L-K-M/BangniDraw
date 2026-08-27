@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Gesture
+import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,9 +58,11 @@ internal fun ToolRail(
     onBrushSelected: (String) -> Unit,
     onSmudgeSelected: () -> Unit,
     onBlurSelected: () -> Unit,
+    onFillSelected: () -> Unit,
     onEyedropperSelected: () -> Unit,
     onColorRequested: () -> Unit,
     onSettingsRequested: () -> Unit,
+    onFillSettingsRequested: () -> Unit,
     onSizeChanged: (Float) -> Unit,
     onOpacityChanged: (Float) -> Unit,
     onTuningFinished: () -> Unit,
@@ -155,6 +158,20 @@ internal fun ToolRail(
                 onClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     onBlurSelected()
+                },
+            )
+            val fillActive = selection.kind is ToolKind.Fill
+            ToolButton(
+                icon = Icons.Filled.FormatColorFill,
+                description = stringResource(R.string.tool_fill),
+                state = if (fillActive) ToolButtonState.Active else ToolButtonState.Inactive,
+                onClick = {
+                    if (fillActive) {
+                        onFillSettingsRequested()
+                        return@ToolButton
+                    }
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    onFillSelected()
                 },
             )
 

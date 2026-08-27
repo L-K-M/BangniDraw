@@ -11,10 +11,12 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.animation.core.tween
@@ -26,9 +28,11 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,6 +61,7 @@ import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.FillParams
 import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
@@ -143,6 +148,7 @@ private fun CanvasContent(
     var session by remember { mutableStateOf<EngineSession?>(null) }
     var hoverRevision by remember { mutableIntStateOf(0) }
     var showBrushSettings by remember { mutableStateOf(false) }
+    var showFillSettings by remember { mutableStateOf(false) }
     var showColorPanel by remember { mutableStateOf(false) }
     var showLayers by remember { mutableStateOf(false) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
@@ -217,6 +223,7 @@ private fun CanvasContent(
                 }
 
                 override fun onStrokeBegin(pointerId: Int, source: StrokeSource) {
+                    viewModel.cancelFill()
                     // A begin while one is already open means the previous
                     // stroke's end was lost — a gesture transition, a torn-down
                     // session. Cancel it rather than orphaning the driver and
@@ -228,6 +235,8 @@ private fun CanvasContent(
                         viewModel.cancelPickedColor()
                     }
                     strokeState.pickParams = null
+                    strokeState.fillParams = null
+                    strokeState.fillTouch = false
                     val staleDriver = strokeState.driver
                     staleDriver?.cancel()
                     strokeState.driver = null
@@ -259,11 +268,29 @@ private fun CanvasContent(
                         strokeState.pickGeneration = pickGeneration
                         return
                     }
+                    if (kind is ToolKind.Fill) {
+                        val layerDecision = StrokeLayerPolicy.decide(
+                            visible = active.props.visible,
+                            locked = active.props.locked,
+                        )
+                        viewModel.noteStrokeLayerDecision(layerDecision)
+                        if (layerDecision == StrokeLayerDecision.REFUSE_LOCKED) {
+                            viewModel.endStrokeTool(strokeState.temporaryReason)
+                            strokeState.temporaryReason = null
+                            return
+                        }
+
+                        strokeState.engine = engine
+                        strokeState.fillParams = kind.params
+                        strokeState.fillTouch = true
+                        strokeState.setColor(viewModel.currentBrushColor())
+                        return
+                    }
                     val preset = when (kind) {
                         is ToolKind.Brush -> kind.preset
                         is ToolKind.Smudge -> RmwDabPreset.smudge(kind.params)
                         is ToolKind.Blur -> RmwDabPreset.blur(kind.params)
-                        else -> null
+                        is ToolKind.Fill, is ToolKind.Eyedropper -> null
                     }
                     if (preset == null) {
                         viewModel.endStrokeTool(strokeState.temporaryReason)
@@ -355,6 +382,12 @@ private fun CanvasContent(
                         }
                         return
                     }
+                    val fill = strokeState.fillParams
+                    if (fill != null) {
+                        strokeState.fillParams = null
+                        viewModel.startFill(engine, x, y, fill, strokeState.colorArgb)
+                        return
+                    }
 
                     val driver = strokeState.driver ?: return
                     val batch = engine.acquireDabBatch() ?: return
@@ -378,8 +411,12 @@ private fun CanvasContent(
                         return
                     }
 
+                    strokeState.fillParams = null
+                    strokeState.fillTouch = false
+
                     val driver = strokeState.driver
                     if (driver == null) {
+                        strokeState.engine = null
                         viewModel.endStrokeTool(reason)
                         return
                     }
@@ -423,9 +460,13 @@ private fun CanvasContent(
                         viewModel.endStrokeTool(reason)
                         return
                     }
+                    val wasFill = strokeState.fillTouch
+                    strokeState.fillParams = null
+                    strokeState.fillTouch = false
+                    viewModel.cancelFill()
                     strokeState.driver?.cancel()
                     strokeState.driver = null
-                    strokeState.engine?.cancelStroke(viewModel::prepareStrokeCancel)
+                    if (!wasFill) strokeState.engine?.cancelStroke(viewModel::prepareStrokeCancel)
                     strokeState.engine = null
                     strokeState.readModifyWrite = false
                     strokeState.colorUsage = StrokeColorUsage.IGNORE
@@ -510,6 +551,9 @@ private fun CanvasContent(
                     viewModel.cancelPickedColor()
                 }
                 strokeState.pickParams = null
+                strokeState.fillParams = null
+                strokeState.fillTouch = false
+                viewModel.cancelFill()
                 strokeState.driver = null
                 strokeState.engine = null
                 strokeState.readModifyWrite = false
@@ -580,32 +624,49 @@ private fun CanvasContent(
                 brushColor = state.color.current,
                 onBrushSelected = {
                     showBrushSettings = false
+                    showFillSettings = false
                     showLayers = false
                     viewModel.selectBrush(it)
                 },
                 onSmudgeSelected = {
                     showBrushSettings = false
+                    showFillSettings = false
                     showLayers = false
                     viewModel.selectSmudge()
                 },
                 onBlurSelected = {
                     showBrushSettings = false
+                    showFillSettings = false
                     showLayers = false
                     viewModel.selectBlur()
                 },
+                onFillSelected = {
+                    showBrushSettings = false
+                    showFillSettings = false
+                    showLayers = false
+                    viewModel.selectFill()
+                },
                 onEyedropperSelected = {
                     showBrushSettings = false
+                    showFillSettings = false
                     showLayers = false
                     viewModel.selectEyedropper()
                 },
                 onColorRequested = {
                     showBrushSettings = false
+                    showFillSettings = false
                     showLayers = false
                     showColorPanel = true
                 },
                 onSettingsRequested = {
+                    showFillSettings = false
                     showLayers = false
                     showBrushSettings = true
+                },
+                onFillSettingsRequested = {
+                    showBrushSettings = false
+                    showLayers = false
+                    showFillSettings = true
                 },
                 onSizeChanged = viewModel::updateBrushSize,
                 onOpacityChanged = viewModel::updateBrushOpacity,
@@ -709,6 +770,36 @@ private fun CanvasContent(
                 }
             }
 
+            val fillProgress = state.fillProgress
+            if (fillProgress != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = MaterialTheme.shapes.medium,
+                    tonalElevation = 3.dp,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = FILL_PROGRESS_BOTTOM.dp)
+                        .width(FILL_PROGRESS_WIDTH.dp),
+                ) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text(
+                            stringResource(R.string.fill_progress, (fillProgress * 100).toInt()),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        LinearProgressIndicator(
+                            progress = { fillProgress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        TextButton(
+                            onClick = viewModel::cancelFill,
+                            modifier = Modifier.align(Alignment.End),
+                        ) {
+                            Text(stringResource(R.string.fill_cancel))
+                        }
+                    }
+                }
+            }
+
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val compact = maxWidth < COMPACT_WIDTH.dp
                 val panelWidth = if (compact) minOf(PANEL_MAX.dp, maxWidth * PANEL_COMPACT_FRACTION)
@@ -777,6 +868,13 @@ private fun CanvasContent(
             onDismiss = { showBrushSettings = false },
         )
     }
+    if (showFillSettings) {
+        FillSettingsSheet(
+            active = state.fillParams,
+            onChanged = viewModel::updateFillParams,
+            onDismiss = { showFillSettings = false },
+        )
+    }
     if (showColorPanel) {
         ColorPanel(
             state = state.color,
@@ -814,6 +912,8 @@ private const val PANEL_MAX = 320
 private const val PANEL_RAIL_GAP = 64
 private const val PANEL_ANIMATION_MS = 220
 private const val PANEL_COMPACT_FRACTION = 0.85f
+private const val FILL_PROGRESS_BOTTOM = 24
+private const val FILL_PROGRESS_WIDTH = 240
 
 /**
  * The stroke in flight, plus the colour it paints with.
@@ -829,6 +929,8 @@ internal class StrokeUiState {
     var colorUsage = StrokeColorUsage.IGNORE
 
     var pickParams: EyedropperParams? = null
+    var fillParams: FillParams? = null
+    var fillTouch = false
     var temporaryReason: TemporaryReason? = null
     var pickGeneration: Long = 0
 

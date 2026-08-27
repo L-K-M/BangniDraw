@@ -45,6 +45,8 @@ import ch.lkmc.bangnidraw.engine.core.DishState
 import ch.lkmc.bangnidraw.engine.core.DishWell
 import ch.lkmc.bangnidraw.engine.core.Document
 import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
+import ch.lkmc.bangnidraw.engine.core.FillParams
+import ch.lkmc.bangnidraw.engine.core.FloodFill
 import ch.lkmc.bangnidraw.engine.core.HistoryDirection
 import ch.lkmc.bangnidraw.engine.core.HistoryEntry
 import ch.lkmc.bangnidraw.engine.core.HistoryJournal
@@ -70,6 +72,8 @@ import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import ch.lkmc.bangnidraw.engine.core.PalettePolicy
 import ch.lkmc.bangnidraw.engine.core.PaletteSwatchPickSession
 import ch.lkmc.bangnidraw.engine.core.PixelOp
+import ch.lkmc.bangnidraw.engine.core.PixelHistoryEntry
+import ch.lkmc.bangnidraw.engine.core.PixelCommitKind
 import ch.lkmc.bangnidraw.engine.core.Refusal
 import ch.lkmc.bangnidraw.engine.core.RmwSpec
 import ch.lkmc.bangnidraw.engine.core.RmwStrokePolicy
@@ -119,11 +123,15 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.isActive
+import kotlin.math.floor
 
 private enum class DocumentWork {
     START,
     ALREADY_STARTED,
 }
+
+private enum class FillPhase { IDLE, SNAPSHOT, COMPUTE, APPLY }
 
 internal enum class StrokeColorUsage { RECORD, IGNORE }
 
@@ -178,6 +186,7 @@ class CanvasViewModel @Inject constructor(
             val brushPresets: List<BrushPreset>,
             val toolSelection: ToolSelection,
             val color: ColorUiState,
+            val fillParams: FillParams,
             val penButtonAction: PenButtonAction,
             val eraserEndPreset: String,
             val layerCap: Int,
@@ -188,6 +197,7 @@ class CanvasViewModel @Inject constructor(
             val layerFeedbackRevision: Long = 0L,
             @StringRes val strokeLayerNotice: Int? = null,
             val strokeLayerNoticeRevision: Long = 0L,
+            val fillProgress: Float? = null,
         ) : UiState
     }
 
@@ -224,6 +234,12 @@ class CanvasViewModel @Inject constructor(
         availableColorMixer,
     )
     private var hoverPointer: PointerTool? = null
+    private var fillParams = FillParams()
+    private var fillPhase = FillPhase.IDLE
+    @Volatile private var fillGeneration = 0L
+    @Volatile private var fillProgressValue = 0f
+    private var fillJob: Job? = null
+    private var fillIndicatorJob: Job? = null
 
     private val pool = TileBufferPool()
 
@@ -506,6 +522,7 @@ class CanvasViewModel @Inject constructor(
             brushPresets = brushPresets,
             toolSelection = toolSwitcher.selection.value,
             color = colorUiState(),
+            fillParams = fillParams,
             penButtonAction = penButtonAction,
             eraserEndPreset = eraserEndPreset,
             layerCap = layerCap,
@@ -529,6 +546,7 @@ class CanvasViewModel @Inject constructor(
             color = colorUiState(),
             penButtonAction = penButtonAction,
             eraserEndPreset = eraserEndPreset,
+            fillParams = fillParams,
         )
     }
 
@@ -584,6 +602,20 @@ class CanvasViewModel @Inject constructor(
     fun selectBlur() {
         clearColorPick()
         toolSwitcher.select(ToolKind.Blur())
+        updateToolUi()
+    }
+
+    fun selectFill() {
+        clearColorPick()
+        toolSwitcher.select(ToolKind.Fill(fillParams))
+        updateToolUi()
+    }
+
+    internal fun updateFillParams(params: FillParams) {
+        fillParams = params
+        if (toolSwitcher.selection.value.kind is ToolKind.Fill) {
+            toolSwitcher.select(ToolKind.Fill(params))
+        }
         updateToolUi()
     }
 
@@ -708,6 +740,110 @@ class CanvasViewModel @Inject constructor(
     }
 
     fun currentBrushColor(): Int = brushColor
+
+    /** Starts one cancellable CPU fill after the input gate accepted its touch. */
+    internal fun startFill(
+        engine: EngineSession,
+        x: Float,
+        y: Float,
+        params: FillParams,
+        color: Int,
+    ) {
+        if (fillPhase != FillPhase.IDLE || session !== engine) return
+        val doc = document ?: return
+        val active = doc.stack.active
+        val canvas = CanvasSize(doc.width, doc.height)
+        val generation = ++fillGeneration
+
+        actionGate.beginWork()
+        fillPhase = FillPhase.SNAPSHOT
+        fillProgressValue = 0f
+        updateInteractionUi()
+        armFillIndicator(generation)
+
+        engine.requestFillReference(params.reference) { reference ->
+            if (generation != fillGeneration || fillPhase != FillPhase.SNAPSHOT) return@requestFillReference
+            if (reference == null) {
+                finishFill(generation)
+                return@requestFillReference
+            }
+
+            fillPhase = FillPhase.COMPUTE
+            fillJob = viewModelScope.launch(Dispatchers.Default) {
+                val context = coroutineContext
+                val coverage = FloodFill(canvas.width, canvas.height, reference, params).run(
+                    seedX = floor(x).toInt(),
+                    seedY = floor(y).toInt(),
+                    progress = { fillProgressValue = it },
+                    isCancelled = { generation != fillGeneration || !context.isActive },
+                )
+                withContext(Dispatchers.Main) {
+                    if (generation != fillGeneration || fillPhase != FillPhase.COMPUTE) return@withContext
+                    if (coverage == null || coverage.bounds.isEmpty) {
+                        finishFill(generation)
+                        return@withContext
+                    }
+
+                    fillJob = null
+                    fillPhase = FillPhase.APPLY
+                    val spec = StrokeSpec(
+                        layerId = active.id,
+                        mode = StrokeMode.PAINT,
+                        opacity = params.opacity,
+                        alphaLock = active.props.alphaLock,
+                        commitKind = PixelCommitKind.Fill,
+                    )
+                    engine.applyFill(spec, coverage, color) { applied ->
+                        if (generation != fillGeneration || fillPhase != FillPhase.APPLY) return@applyFill
+                        if (applied) onStrokeCommitted(StrokeColorUsage.RECORD, color)
+                        finishFill(generation)
+                    }
+                }
+            }
+        }
+    }
+
+    /** Cancels only pre-commit fill work; an APPLY is already atomic. */
+    internal fun cancelFill() {
+        if (fillPhase == FillPhase.IDLE || fillPhase == FillPhase.APPLY) return
+
+        fillGeneration++
+        fillJob?.cancel()
+        fillJob = null
+        fillIndicatorJob?.cancel()
+        fillIndicatorJob = null
+        fillPhase = FillPhase.IDLE
+        updateFillProgress(null)
+        finishDocumentWork()
+    }
+
+    private fun armFillIndicator(generation: Long) {
+        fillIndicatorJob?.cancel()
+        fillIndicatorJob = viewModelScope.launch {
+            delay(FILL_INDICATOR_DELAY_MS)
+            while (generation == fillGeneration && fillPhase != FillPhase.IDLE) {
+                updateFillProgress(fillProgressValue)
+                delay(FILL_PROGRESS_POLL_MS)
+            }
+        }
+    }
+
+    private fun finishFill(generation: Long) {
+        if (generation != fillGeneration || fillPhase == FillPhase.IDLE) return
+
+        fillJob?.cancel()
+        fillJob = null
+        fillIndicatorJob?.cancel()
+        fillIndicatorJob = null
+        fillPhase = FillPhase.IDLE
+        updateFillProgress(null)
+        finishDocumentWork()
+    }
+
+    private fun updateFillProgress(progress: Float?) {
+        val state = _uiState.value
+        if (state is UiState.Ready) _uiState.value = state.copy(fillProgress = progress)
+    }
 
     internal fun mixingDish(a: Int, b: Int): IntArray = MixingDish.gradient(a, b, activeColorMixer)
 
@@ -1020,10 +1156,10 @@ class CanvasViewModel @Inject constructor(
         rmwSnapshot?.mirrorBefore?.let(mirrorBefore::putAll)
         val doc = document ?: return
         val activeId = doc.stack.active.id
-        val entry = HistoryEntry.Stroke(
-            activeBefore = activeId,
-            activeAfter = activeId,
-            layerId = spec.layerId,
+        val entry = PixelHistoryEntry.create(
+            kind = spec.commitKind,
+            active = activeId,
+            layer = spec.layerId,
             tiles = keys,
         )
         val job = TileFlusher.FlushJob.WriteEntry(
@@ -1677,6 +1813,7 @@ class CanvasViewModel @Inject constructor(
         session?.onRmwCancelled = null
         session = next
         if (next == null) {
+            cancelFill()
             // A dead context discards every uncommitted RMW pixel. Release its
             // capture and any action barrier that was awaiting GPU restore.
             rmwHistoryCapture.reset()
@@ -1948,6 +2085,9 @@ class CanvasViewModel @Inject constructor(
         const val READY_WAIT_MS = 5_000L
 
         const val LAYER_THUMBNAIL_POLL_MS = 100L
+
+        const val FILL_INDICATOR_DELAY_MS = 150L
+        const val FILL_PROGRESS_POLL_MS = 50L
 
         /** Tiles per GL `execute {}` block on the reopen and restore paths. */
         const val UPLOAD_BATCH = 16

@@ -4,6 +4,7 @@ import ch.lkmc.bangnidraw.engine.core.BlurParams
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.FillParams
 import ch.lkmc.bangnidraw.engine.core.SmudgeParams
 import ch.lkmc.bangnidraw.engine.core.StrokeInput
 import kotlin.test.Test
@@ -67,6 +68,18 @@ class ToolTest {
         assertEquals(listOf("blur:70.0", "rmw-sample", "rmw-cancel"), context.events)
     }
 
+    @Test
+    fun `fill routes one request and cancellation`() {
+        val context = RecordingContext()
+        val tool = FillTool(FillParams(expand = 3))
+
+        tool.onStrokeBegin(sample, context)
+        tool.onStrokeSample(sample, context)
+        tool.onStrokeCancel(context)
+
+        assertEquals(listOf("fill:3:3.0,4.0", "fill-cancel"), context.events)
+    }
+
     private class RecordingContext : StrokeContext {
         val events = ArrayList<String>()
 
@@ -104,6 +117,14 @@ class ToolTest {
 
         override fun cancelRmw() {
             events += "rmw-cancel"
+        }
+
+        override fun beginFill(params: FillParams, input: StrokeInput) {
+            events += "fill:${params.expand}:${input.x},${input.y}"
+        }
+
+        override fun cancelFill() {
+            events += "fill-cancel"
         }
 
         override fun beginColorPick(params: EyedropperParams, input: StrokeInput) {

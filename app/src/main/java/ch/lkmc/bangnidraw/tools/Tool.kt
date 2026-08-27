@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.tools
 import ch.lkmc.bangnidraw.engine.core.BlurParams
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.FillParams
 import ch.lkmc.bangnidraw.engine.core.SmudgeParams
 import ch.lkmc.bangnidraw.engine.core.StrokeInput
 import ch.lkmc.bangnidraw.engine.core.ToolKind
@@ -28,6 +29,9 @@ interface StrokeContext {
     fun sampleRmw(input: StrokeInput)
     fun commitRmw()
     fun cancelRmw()
+
+    fun beginFill(params: FillParams, input: StrokeInput)
+    fun cancelFill()
 
     fun beginColorPick(params: EyedropperParams, input: StrokeInput)
     fun sampleColorPick(input: StrokeInput)

@@ -1767,7 +1767,7 @@ private fun sharePainting(
             context.startActivity(Intent.createChooser(send, title))
         },
         onFailure = {
-            Toast.makeText(context, R.string.studio_save_failed, Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, R.string.studio_share_failed, Toast.LENGTH_SHORT).show()
         },
     )
 }

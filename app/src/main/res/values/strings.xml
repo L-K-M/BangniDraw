@@ -29,6 +29,11 @@
     <string name="studio_delete_body">The painting and its undo history are removed from this device.</string>
     <string name="studio_delete_gallery_too">Also delete the copy in the gallery</string>
     <string name="studio_deleted">Deleted</string>
+    <string name="studio_delete_failed">Couldn’t delete</string>
+    <string name="studio_create_failed">Couldn’t create the painting</string>
+    <string name="studio_share_failed">Couldn’t share</string>
+    <string name="studio_duplicate_failed">Couldn’t duplicate</string>
+    <string name="studio_rename_failed">Couldn’t rename</string>
     <!-- Appended to a duplicated painting’s title (06 §8). Leading space
          deliberate. -->
     <string name="studio_copy_suffix">" copy"</string>
@@ -134,6 +139,10 @@
     <string name="fill_progress">Filling… %1$d%%</string>
     <string name="fill_cancel">Cancel</string>
     <string name="color_panel">Color</string>
+    <string name="color_hue">Hue</string>
+    <string name="color_hue_value">%1$.0f°</string>
+    <string name="color_saturation">Saturation</string>
+    <string name="color_percent_value">%1$.0f%%</string>
     <string name="color_value">Brightness</string>
     <string name="mixing_dish">Mixing dish</string>
     <string name="mixing_pigment">Pigment</string>

@@ -11,9 +11,9 @@ class HsvChannelTest {
 
         assertEquals(120f, HsvChannel.HUE.read(color))
         assertEquals(HsvColor(240f, 0.4f, 0.7f), HsvChannel.HUE.replace(color, 240f))
-        assertEquals(40f, HsvChannel.SATURATION.read(color))
+        assertEquals(40f, HsvChannel.SATURATION.read(color), FLOAT_TOLERANCE)
         assertEquals(HsvColor(120f, 0.8f, 0.7f), HsvChannel.SATURATION.replace(color, 80f))
-        assertEquals(70f, HsvChannel.VALUE.read(color))
+        assertEquals(70f, HsvChannel.VALUE.read(color), FLOAT_TOLERANCE)
         assertEquals(HsvColor(120f, 0.4f, 0.2f), HsvChannel.VALUE.replace(color, 20f))
     }
 
@@ -41,5 +41,6 @@ class HsvChannelTest {
         const val HUE_STEPS = 359
         val PERCENT_RANGE = 0f..100f
         const val PERCENT_STEPS = 99
+        const val FLOAT_TOLERANCE = 0.0001f
     }
 }

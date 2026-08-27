@@ -73,6 +73,7 @@
     <!-- Canvas -->
     <string name="canvas_back">Back to the Studio</string>
     <string name="canvas_reset_view">Reset view</string>
+    <string name="canvas_closing">Closing…</string>
     <string name="canvas_view_readout">%1$d %% · %2$d°</string>
     <string name="panel_layers_opened">Layers panel opened</string>
     <string name="panel_color_opened">Color panel opened</string>
@@ -282,6 +283,7 @@
     <string name="err_tiles_unreadable">Some parts of this painting could not be read.</string>
     <string name="err_layers_unreadable">Some layers of this painting could not be read.</string>
     <string name="err_storage_full">Storage full — free up space to keep your work.</string>
+    <string name="err_leave_failed">Couldn’t finish saving — the painting stays open.</string>
 
     <!-- Settings/About. Mixbox rows are shown only when BuildConfig.MIXBOX. -->
     <string name="settings_title">Settings</string>

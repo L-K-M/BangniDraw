@@ -25,6 +25,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
@@ -49,6 +50,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -77,12 +79,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusProperties
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.invisibleToUser
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -245,6 +256,7 @@ private fun CanvasContent(
     val context = LocalContext.current
     CanvasImmersiveEffect()
     var seenStrokeNotice by remember { mutableLongStateOf(state.strokeLayerNoticeRevision) }
+    var seenLeaveNotice by remember { mutableLongStateOf(state.leaveNoticeRevision) }
 
     fun updateView(next: ViewTransform) {
         view = next
@@ -253,6 +265,12 @@ private fun CanvasContent(
     // 06 §4's one honest toast per open, when something could not be read.
     LaunchedEffect(state.warning) {
         state.warning?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+    }
+    // A failed leave keeps the canvas open; say so once per failure.
+    LaunchedEffect(state.leaveNoticeRevision) {
+        if (state.leaveNoticeRevision == seenLeaveNotice) return@LaunchedEffect
+        seenLeaveNotice = state.leaveNoticeRevision
+        Toast.makeText(context, R.string.err_leave_failed, Toast.LENGTH_LONG).show()
     }
     LaunchedEffect(state.strokeLayerNoticeRevision) {
         if (state.strokeLayerNoticeRevision == seenStrokeNotice) return@LaunchedEffect
@@ -885,7 +903,14 @@ private fun CanvasContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .safeDrawingPadding(),
+                .safeDrawingPadding()
+                // While a leave is flushing, the chrome is off-limits to
+                // every input modality: pointer events hit the closing
+                // scrim, and this drops the chrome from focus traversal and
+                // the accessibility tree so keyboard/TalkBack cannot reach
+                // it either.
+                .focusProperties { canFocus = !state.closing }
+                .semantics { if (state.closing) invisibleToUser() },
         ) {
             val chromeVisible = state.chrome.focusMode == FocusMode.CHROME
             val chromeAnimationMs = if (ValueAnimator.areAnimatorsEnabled()) {
@@ -1323,6 +1348,64 @@ private fun CanvasContent(
                 )
             }
         }
+
+        // 08 §4.8: "Closing…" appears only when the leave checkpoint
+        // outlives the 300 ms grace — a fast leave stays a silent pop.
+        // Composed OUTSIDE the gated chrome box on purpose: the chrome box
+        // drops focus and a11y while closing, and the scrim itself must keep
+        // both (it takes keyboard focus and announces the state).
+        var closingScrim by remember { mutableStateOf(false) }
+        val scrimFocus = remember { FocusRequester() }
+        LaunchedEffect(closingScrim) {
+            if (closingScrim) runCatching { scrimFocus.requestFocus() }
+        }
+        LaunchedEffect(state.closing) {
+            if (!state.closing) {
+                closingScrim = false
+                return@LaunchedEffect
+            }
+            delay(CLOSING_SCRIM_DELAY_MS)
+            closingScrim = true
+        }
+        if (closingScrim) {
+            Surface(
+                color = MaterialTheme.colorScheme.scrim.copy(alpha = CLOSING_SCRIM_ALPHA),
+                modifier = Modifier
+                    .fillMaxSize()
+                    // The scrim is the front-most hit node while visible:
+                    // consume every change of every gesture, so no tap,
+                    // drag or stroke can reach the chrome or the canvas
+                    // mid-flush. Focus and a11y gating for the chrome
+                    // lives on the chrome box itself.
+                    .focusRequester(scrimFocus)
+                    .focusable()
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { it.consume() }
+                                if (event.changes.none { it.pressed }) break
+                            }
+                        }
+                    }
+                    .zIndex(CLOSING_SCRIM_Z),
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    CircularProgressIndicator()
+                    Text(
+                        text = stringResource(R.string.canvas_closing),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .padding(top = 12.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                }
+            }
+        }
     }
 
     CanvasDialogHost(state, viewModel)
@@ -1728,6 +1811,13 @@ private const val RESET_EDGE_PADDING = 16
 private const val EXCLUSION_GAP_DP = 16
 private const val CHROME_Z = 2f
 private const val HINT_Z = 3f
+private const val CLOSING_SCRIM_Z = 5f
+private const val CLOSING_SCRIM_ALPHA = 0.55f
+// 08 §4.8 fixes the scrim threshold at 300 ms; the leave() grace period in
+// CanvasViewModel (LEAVE_HANDOFF_GRACE_MS) is the stranded-scrim reset, not
+// a scrim threshold — a cancelled back gesture may therefore flash the scrim
+// briefly before the canvas pops back, which is honest feedback, not a bug.
+private const val CLOSING_SCRIM_DELAY_MS = 300L
 private const val RESET_DAMPING_RATIO = 0.8f
 private const val CHROME_ANIMATION_MS = 180
 private const val RECENT_POPOVER_MS = 4_000L

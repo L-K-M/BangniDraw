@@ -277,7 +277,7 @@ fun StudioScreen(
                                     context.startActivity(
                                         Intent.createChooser(
                                             send,
-                                            painting.title.ifEmpty { untitledName },
+                                            painting.title.ifBlank { untitledName },
                                         ),
                                     )
                                 }
@@ -377,7 +377,7 @@ private fun PaintingCell(
     var renaming by remember { mutableStateOf(false) }
     var sharing by remember { mutableStateOf(false) }
     val view = LocalView.current
-    val title = painting.title.ifEmpty { stringResource(R.string.studio_untitled) }
+    val title = painting.title.ifBlank { stringResource(R.string.studio_untitled) }
     val cellShape = RoundedCornerShape(CELL_RADIUS_DP.dp)
 
     Column(

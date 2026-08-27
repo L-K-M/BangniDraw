@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -192,6 +193,7 @@ fun StudioScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 8.dp),
                         )
                     }
                 }
@@ -205,6 +207,36 @@ fun StudioScreen(
                     if (!compact) {
                         item(key = NEW_PAINTING_KEY) {
                             NewPaintingCell { showNewCanvas = true }
+                        }
+                        // 08 §2's empty state is for every width; on
+                        // medium/expanded it sits above the + tile (the grid
+                        // never drops the way in).
+                        if (state.loaded && state.paintings.isEmpty()) {
+                            item(key = EMPTY_PAINTING_KEY, span = { GridItemSpan(maxLineSpan) }) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 48.dp),
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.studio_empty),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center,
+                                    )
+                                    Text(
+                                        // The one place the app explains
+                                        // autosave: the Canvas will never
+                                        // prompt (08 §2).
+                                        text = stringResource(R.string.studio_empty_hint),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(top = 8.dp),
+                                    )
+                                }
+                            }
                         }
                     }
                     items(state.paintings, key = { it.id }) { painting ->
@@ -527,5 +559,6 @@ private fun PaintingCell(
 }
 
 private const val NEW_PAINTING_KEY = "new-painting"
+private const val EMPTY_PAINTING_KEY = "empty-state"
 private const val PAINTING_ASPECT = 4f / 3f
 private const val CELL_RADIUS_DP = 4

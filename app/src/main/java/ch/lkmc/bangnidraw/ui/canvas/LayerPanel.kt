@@ -37,6 +37,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -63,6 +64,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -484,11 +486,15 @@ private fun LayerRow(
                     .fillMaxHeight()
                     .background(if (selected) Indigo else Color.Transparent),
             )
-            IconButton(
-                enabled = !documentBusy,
-                onClick = {},
+            // Touch-only affordance: the accessible reorder path is the
+            // row's custom actions and the per-row menu, so the handle
+            // publishes no semantics of its own — a button whose click does
+            // nothing is a focus trap announcing an action it never performs.
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(ROW_ACTION)
+                    .clearAndSetSemantics {}
                     .pointerInput(layer.id) {
                         detectDragGestures(
                             onDragStart = { onDragStart() },
@@ -503,7 +509,10 @@ private fun LayerRow(
             ) {
                 Icon(
                     Icons.Filled.DragHandle,
-                    contentDescription = stringResource(R.string.layer_drag),
+                    contentDescription = null,
+                    tint = LocalContentColor.current.copy(
+                        alpha = if (documentBusy) HANDLE_DISABLED_ALPHA else 1f,
+                    ),
                 )
             }
             LayerThumbnail(thumbnail)
@@ -839,4 +848,5 @@ private val OPACITY_SLIDER_LENGTH = 80.dp
 private const val CHECKER_CELLS = 4
 private const val PERCENT = 100f
 private const val HIDDEN_ALPHA = 0.48f
+private const val HANDLE_DISABLED_ALPHA = 0.38f
 private const val HINT_MS = 1_800L

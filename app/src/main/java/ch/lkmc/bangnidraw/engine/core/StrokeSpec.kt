@@ -25,6 +25,9 @@ enum class StrokeMode {
  */
 enum class RmwMixing { Linear, Pigment }
 
+/** The journal entry created after a buffered pixel commit. */
+enum class PixelCommitKind { Stroke, Fill }
+
 /** Parameters fixed for one direct-to-layer stroke. */
 sealed interface RmwSpec {
     data class Smudge(
@@ -74,6 +77,8 @@ data class StrokeSpec(
     val grainMode: GrainMode = GrainMode.None,
     /** Non-null bypasses the stroke buffer entirely (§7.6). */
     val rmw: RmwSpec? = null,
+    /** Fill shares the merge path but remains distinct in history. */
+    val commitKind: PixelCommitKind = PixelCommitKind.Stroke,
 ) {
     init {
         require(opacity in 0f..1f) { "opacity must be 0..1, was $opacity" }

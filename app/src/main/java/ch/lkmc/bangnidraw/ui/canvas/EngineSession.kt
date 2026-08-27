@@ -12,6 +12,8 @@ import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.DabRing
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.Coverage
+import ch.lkmc.bangnidraw.engine.core.FillReference
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
@@ -24,9 +26,11 @@ import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeCommitDecision
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TileKey
+import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicReference
 
 internal enum class LayerEditResult { APPLIED, REFUSED }
 internal enum class StrokeCancelMode { BUFFERED, READ_MODIFY_WRITE }
@@ -153,6 +157,9 @@ class EngineSession(
 
     @Volatile
     private var activeStrokeSpec: StrokeSpec? = null
+
+    /** Exactly one completion survives an apply/release race. */
+    private val fillResult = AtomicReference<((Boolean) -> Unit)?>(null)
 
     // ------------------------------------------------------------- callbacks
 
@@ -387,6 +394,62 @@ class EngineSession(
             val color = renderer.sampleColor(x, y, params)
             pollHandler.post { onColor(color) }
         }
+    }
+
+    /** Captures one immutable, paper-free fill reference on the GL thread. */
+    fun requestFillReference(
+        reference: FillReference,
+        onReference: (TiledPixelSource?) -> Unit,
+    ) {
+        if (!frontBuffered.isValid()) {
+            onReference(null)
+            return
+        }
+        frontBuffered.execute {
+            val source = renderer.fillReference(reference)
+            pollHandler.post { onReference(source) }
+        }
+    }
+
+    /** Commits CPU fill coverage through the renderer's stroke merge. */
+    fun applyFill(
+        spec: StrokeSpec,
+        coverage: Coverage,
+        color: Int,
+        onResult: (Boolean) -> Unit,
+    ) {
+        if (!fillResult.compareAndSet(null, onResult)) {
+            onResult(false)
+            return
+        }
+        if (!frontBuffered.isValid()) {
+            completeFill(false)
+            return
+        }
+        frontBuffered.execute {
+            val pending = renderer.finishReadback()
+            if (ReadbackPolicy.strokeCommit(pending) == StrokeCommitDecision.CANCEL) {
+                pendingMirror = pending
+                pumpReadback()
+                pollHandler.post { completeFill(false) }
+                return@execute
+            }
+
+            val revision = revisions.incrementAndGet()
+            val applied = renderer.applyFill(spec, coverage, color, revision) { merged, keys ->
+                onStrokeMerged?.invoke(merged, keys, revision)
+            }
+            pendingMirror = renderer.readbackPending
+            if (pendingMirror > 0) pumpReadback()
+            pollHandler.post {
+                if (applied) redraw()
+                completeFill(applied)
+            }
+        }
+    }
+
+    private fun completeFill(applied: Boolean) {
+        fillResult.getAndSet(null)?.invoke(applied)
     }
 
     // ------------------------------------------------------- the stroke (§7)
@@ -795,6 +858,7 @@ class EngineSession(
         }
         frontBuffered.release(true) {
             renderer.release()
+            pollHandler.post { completeFill(false) }
         }
     }
 

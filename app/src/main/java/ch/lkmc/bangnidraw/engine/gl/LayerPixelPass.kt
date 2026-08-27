@@ -2,6 +2,8 @@ package ch.lkmc.bangnidraw.engine.gl
 
 import android.opengl.GLES30
 import ch.lkmc.bangnidraw.engine.core.BlendMode
+import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
+import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.PoolExhausted
@@ -54,6 +56,7 @@ internal class LayerPixelPass(
     private val pass = TileCompositePass(program, state, pool)
     private val copyPass = TileCopyPass(pool)
     private val clearFbo = GlFbo()
+    private val snapshotFbo = GlFbo()
     private val excludedCopyPage = IntArray(1)
     private val excludedPages = IntArray(2)
 
@@ -128,6 +131,41 @@ internal class LayerPixelPass(
             pending += Pending(key, handle)
         }
         return PendingTransaction(target, pending, removed)
+    }
+
+    /** Captures a paper-free tile composite for CPU fill matching. */
+    fun snapshot(
+        grid: TileGrid,
+        sources: List<Source>,
+        keys: Set<TileKey>,
+    ): TiledPixelSource? {
+        val tiles = LinkedHashMap<TileKey, ByteArray>(keys.size)
+        val buffer = java.nio.ByteBuffer.allocateDirect(TILE_BYTES)
+        for (key in keys) {
+            val handle = compositeTile(sources, key) ?: return null
+            try {
+                if (!snapshotFbo.bindArrayLayer(pool.textureOf(handle.page), handle.slice)) return null
+
+                buffer.clear()
+                GLES30.glPixelStorei(GLES30.GL_PACK_ALIGNMENT, 1)
+                GLES30.glReadPixels(
+                    0,
+                    0,
+                    TILE_SIZE,
+                    TILE_SIZE,
+                    GLES30.GL_RGBA,
+                    GLES30.GL_UNSIGNED_BYTE,
+                    buffer,
+                )
+                val pixels = ByteArray(TILE_BYTES)
+                buffer.rewind()
+                buffer.get(pixels)
+                tiles[key] = pixels
+            } finally {
+                pool.free(handle)
+            }
+        }
+        return TiledPixelSource(grid, tiles)
     }
 
     private fun composite(
@@ -218,5 +256,6 @@ internal class LayerPixelPass(
         pass.release()
         copyPass.release()
         clearFbo.release()
+        snapshotFbo.release()
     }
 }

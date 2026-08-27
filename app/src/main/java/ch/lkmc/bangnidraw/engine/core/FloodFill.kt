@@ -8,7 +8,7 @@ fun interface PixelSource {
 }
 
 /** Row-major 0..255 coverage cropped to [bounds]. */
-data class Coverage(val bounds: IntRect, val bytes: ByteArray) {
+class Coverage(val bounds: IntRect, val bytes: ByteArray) {
     init {
         require(bytes.size == bounds.width * bounds.height) {
             "coverage byte count must match its bounds"

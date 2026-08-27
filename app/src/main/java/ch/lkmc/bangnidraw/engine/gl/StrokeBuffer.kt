@@ -1,6 +1,9 @@
 package ch.lkmc.bangnidraw.engine.gl
 
 import ch.lkmc.bangnidraw.engine.core.IntRect
+import ch.lkmc.bangnidraw.engine.core.Coverage
+import ch.lkmc.bangnidraw.engine.core.FillTilePixels
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.SliceHandle
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.TileKey
@@ -26,9 +29,8 @@ import ch.lkmc.bangnidraw.engine.core.TileKey
  * mechanics — lazy allocate, clear on first touch, free everything at the end
  * — are identical to a layer's, and duplicating them would be two copies of
  * the allocation ordering that §2.1 depends on. What differs is lifetime and
- * intent, so this class exposes only the stroke-shaped operations and keeps
- * `upload` and `visibleKeys` out of reach: a stroke buffer is never uploaded
- * to and never composited by page.
+ * intent, so this class exposes only stroke-shaped operations. Fill is the
+ * one upload path: its CPU coverage becomes a pre-made stroke buffer.
  *
  * §7.1's memory note: this is the one place where memory temporarily exceeds
  * the layer budget — a wild stroke across a 4096² canvas can touch all 256
@@ -86,6 +88,20 @@ class StrokeBuffer(
 
     /** Every key the stroke has touched, for [MergePass] to walk. */
     fun keys(out: MutableList<TileKey>) = tiles.allKeys(out)
+
+    /** Uploads CPU fill coverage as premultiplied stroke-buffer tiles. */
+    fun uploadFill(coverage: Coverage, color: Int, opacity: Float): Int {
+        val pixels = ByteArray(TILE_BYTES)
+        var count = 0
+        for (key in grid.keysFor(coverage.bounds)) {
+            if (!FillTilePixels.write(grid, key, coverage, color, opacity, pixels)) continue
+
+            tiles.upload(key, java.nio.ByteBuffer.wrap(pixels))
+            count++
+        }
+        if (count > 0) growDirty(coverage.bounds)
+        return count
+    }
 
     /** Grows [dirty] to cover [rect]; call once per stamped dab batch. */
     fun growDirty(rect: IntRect) {

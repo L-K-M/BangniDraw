@@ -13,6 +13,8 @@ import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.FitTransform
+import ch.lkmc.bangnidraw.engine.core.FillReference
+import ch.lkmc.bangnidraw.engine.core.Coverage
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerId
@@ -31,6 +33,7 @@ import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.RmwTouchTracker
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxLut
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxShaderSource
 
@@ -1084,6 +1087,78 @@ class CanvasRenderer(
         }
     }
 
+    /** Captures the current GPU state used as a paper-free fill reference. */
+    fun fillReference(reference: FillReference): TiledPixelSource? {
+        if (!isReady) return null
+        val current = stack ?: return null
+        val pass = layerPixelPass ?: return null
+        val sources = ArrayList<LayerPixelPass.Source>()
+        val keys = LinkedHashSet<TileKey>()
+
+        when (reference) {
+            FillReference.CurrentLayer -> {
+                val textures = layers[current.active.id] ?: return TiledPixelSource(grid, emptyMap())
+                val layerKeys = ArrayList<TileKey>()
+                textures.allKeys(layerKeys)
+                keys.addAll(layerKeys)
+                sources += LayerPixelPass.Source(
+                    textures = textures,
+                    keys = keys,
+                    mode = BlendMode.NORMAL,
+                    opacity = 1f,
+                    visible = true,
+                )
+            }
+            FillReference.Composite -> {
+                for (layer in current.layers) {
+                    if (!layer.props.visible || layer.props.opacity <= 0f) continue
+                    val textures = layers[layer.id] ?: continue
+                    val actualKeys = ArrayList<TileKey>()
+                    textures.allKeys(actualKeys)
+                    val layerKeys = actualKeys.toSet()
+                    keys.addAll(layerKeys)
+                    sources += LayerPixelPass.Source(
+                        textures = textures,
+                        keys = layerKeys,
+                        mode = layer.props.blendMode,
+                        opacity = layer.props.opacity,
+                        visible = true,
+                    )
+                }
+            }
+        }
+        return pass.snapshot(grid, sources, keys)
+    }
+
+    /** Uploads fill coverage and commits it through the ordinary merge path. */
+    fun applyFill(
+        spec: StrokeSpec,
+        coverage: Coverage,
+        color: Int,
+        revision: Int,
+        onMerged: ((StrokeSpec, List<TileKey>) -> Unit)? = null,
+    ): Boolean {
+        if (coverage.bounds.isEmpty) return false
+        val red = ((color ushr 16) and CHANNEL_MASK) / CHANNEL_MAX
+        val green = ((color ushr 8) and CHANNEL_MASK) / CHANNEL_MAX
+        val blue = (color and CHANNEL_MASK) / CHANNEL_MAX
+        if (!beginStroke(spec, BufferMode.Accumulate, red, green, blue)) return false
+
+        val buffer = strokeBuffer ?: return false
+        val uploaded = try {
+            buffer.uploadFill(coverage, color, spec.opacity)
+        } catch (_: PoolExhausted) {
+            cancelStroke()
+            return false
+        }
+        if (uploaded == 0) {
+            cancelStroke()
+            return false
+        }
+        // Fill opacity already scaled every coverage value, including AA.
+        return endStroke(revision, FULL_OPACITY, onMerged) > 0
+    }
+
     /** Restores a cancelled direct-write stroke without changing the CPU mirror. */
     fun restoreCancelledRmw(layer: LayerId, tiles: Map<TileKey, ByteArray?>): Boolean {
         val target = layers[layer] ?: return false
@@ -1751,5 +1826,8 @@ class CanvasRenderer(
     private companion object {
         /** Nanos to millis, as a float divisor so the overlay gets sub-ms resolution. */
         const val NANOS_PER_MS = 1_000_000f
+        const val CHANNEL_MASK = 0xFF
+        const val CHANNEL_MAX = 255f
+        const val FULL_OPACITY = 1f
     }
 }

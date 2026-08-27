@@ -1035,7 +1035,7 @@ private fun CanvasContent(
                     }
                 },
                 onShare = {
-                    sharePainting(context, viewModel, ImageEncode.Format.PNG)
+                    sharePainting(context, viewModel, ImageEncode.Format.PNG, paintingName)
                 },
                 onExportPng = {
                     exportPainting(context, viewModel, ImageEncode.Format.PNG)
@@ -1723,6 +1723,7 @@ private fun sharePainting(
     context: android.content.Context,
     viewModel: CanvasViewModel,
     format: ImageEncode.Format,
+    title: String,
 ) {
     viewModel.share(
         format = format,
@@ -1732,7 +1733,8 @@ private fun sharePainting(
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(send, null))
+            // The painting's name heads the chooser, as in the Studio.
+            context.startActivity(Intent.createChooser(send, title))
         },
         onFailure = {
             Toast.makeText(context, R.string.studio_save_failed, Toast.LENGTH_SHORT).show()

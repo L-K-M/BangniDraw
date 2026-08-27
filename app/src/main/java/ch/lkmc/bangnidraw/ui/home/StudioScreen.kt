@@ -246,6 +246,8 @@ fun StudioScreen(
                         }
                     }
                     items(state.paintings, key = { it.id }) { painting ->
+                        // Read in composition so a locale change re-renders it.
+                        val untitledName = stringResource(R.string.studio_untitled)
                         PaintingCell(
                             painting = painting,
                             hapticsMode = state.hapticsMode,
@@ -273,7 +275,10 @@ fun StudioScreen(
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
                                     context.startActivity(
-                                        Intent.createChooser(send, painting.title),
+                                        Intent.createChooser(
+                                            send,
+                                            painting.title.ifEmpty { untitledName },
+                                        ),
                                     )
                                 }
                             },

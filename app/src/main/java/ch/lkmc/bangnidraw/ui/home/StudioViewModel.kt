@@ -33,6 +33,7 @@ import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -246,8 +247,13 @@ class StudioViewModel @Inject constructor(
             for (summary in stale) {
                 val doc = (store.load(summary.id) as? ProjectStore.LoadResult.Loaded)
                     ?.document ?: continue
-                val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
-                val png = ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
+                val png = try {
+                    val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+                    ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
+                } catch (e: Exception) {
+                    reportRenderFailure("sync render failed", e)
+                    continue
+                }
                 val outcome = exporter.sync(
                     recordedUri = doc.galleryUri,
                     recordedModifiedAt = doc.galleryModifiedAt,
@@ -274,12 +280,26 @@ class StudioViewModel @Inject constructor(
      * through the FileProvider; [onReady] gets the grantable URI and mime on
      * the main thread and fires the chooser.
      */
-    fun share(id: String, format: ImageEncode.Format, onReady: (android.net.Uri, String) -> Unit) {
+    fun share(
+        id: String,
+        format: ImageEncode.Format,
+        onReady: (android.net.Uri, String) -> Unit,
+        onFailed: () -> Unit,
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val doc = (store.load(id) as? ProjectStore.LoadResult.Loaded)?.document
-                ?: return@launch
-            val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
-            val bytes = ImageEncode.encode(rgba, doc.width, doc.height, format, quality = 90)
+            if (doc == null) {
+                withContext(Dispatchers.Main) { onFailed() }
+                return@launch
+            }
+            val bytes = try {
+                val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+                ImageEncode.encode(rgba, doc.width, doc.height, format, quality = SHARE_QUALITY)
+            } catch (e: Exception) {
+                reportRenderFailure("share render failed", e)
+                withContext(Dispatchers.Main) { onFailed() }
+                return@launch
+            }
             val name = GalleryNames.sanitizeDisplayName(
                 doc.title,
                 context.getString(R.string.studio_untitled),
@@ -289,7 +309,8 @@ class StudioViewModel @Inject constructor(
             val uri = try {
                 shareCache.stage("$name.$ext", bytes)
             } catch (e: IOException) {
-                android.util.Log.w("StudioViewModel", "share staging failed", e)
+                android.util.Log.w(LOG_TAG, "share staging failed", e)
+                withContext(Dispatchers.Main) { onFailed() }
                 return@launch
             }
             withContext(Dispatchers.Main) { onReady(uri, mime) }
@@ -300,9 +321,15 @@ class StudioViewModel @Inject constructor(
      * Creates the painting the dialog specified and navigates once its folder
      * exists (08 §2.1: create, then open — the Canvas always finds a folder).
      * The title is minted here — "Sketch N", localized, numbers never reused
-     * (06 §10).
+     * (06 §10). A failed write reports through [onFailed] instead of leaving
+     * the dialog open and silent.
      */
-    fun createPainting(size: CanvasSize, paperColor: Int, onCreated: (String) -> Unit) {
+    fun createPainting(
+        size: CanvasSize,
+        paperColor: Int,
+        onCreated: (String) -> Unit,
+        onFailed: () -> Unit,
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val id = UUID.randomUUID().toString()
             val number = prefs.nextSketchNumber()
@@ -321,7 +348,8 @@ class StudioViewModel @Inject constructor(
             try {
                 store.create(document)
             } catch (e: IOException) {
-                android.util.Log.w("StudioViewModel", "create failed", e)
+                android.util.Log.w(LOG_TAG, "create failed", e)
+                withContext(Dispatchers.Main) { onFailed() }
                 return@launch
             }
             withContext(Dispatchers.Main) { onCreated(id) }
@@ -338,15 +366,20 @@ class StudioViewModel @Inject constructor(
             val ok = if (doc == null) {
                 false
             } else {
-                val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
-                exporter.saveAs(
-                    GalleryNames.sanitizeDisplayName(
-                        doc.title,
-                        context.getString(R.string.studio_untitled),
-                    ),
-                    ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG),
-                    ImageEncode.Format.PNG,
-                )
+                try {
+                    val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+                    exporter.saveAs(
+                        GalleryNames.sanitizeDisplayName(
+                            doc.title,
+                            context.getString(R.string.studio_untitled),
+                        ),
+                        ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG),
+                        ImageEncode.Format.PNG,
+                    )
+                } catch (e: Exception) {
+                    reportRenderFailure("save-as render failed", e)
+                    false
+                }
             }
             val outcome = if (ok) GalleryExportOutcome.SUCCESS else GalleryExportOutcome.FAILURE
             withContext(Dispatchers.Main) { onDone(outcome) }
@@ -356,13 +389,16 @@ class StudioViewModel @Inject constructor(
     /**
      * The hold menu's delete, after its confirm dialog (06 §8). The gallery
      * copy goes only when the checkbox said so — it is the user's, and best
-     * effort either way.
+     * effort either way. [onDone] reports on the main thread whether the
+     * project folder was actually removed, for the toast: a silent failure
+     * here reads as a working delete.
      */
-    fun delete(id: String, alsoGallery: Boolean, galleryUri: String?) {
+    fun delete(id: String, alsoGallery: Boolean, galleryUri: String?, onDone: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             if (alsoGallery && galleryUri != null) exporter.delete(galleryUri)
-            store.delete(id)
+            val deleted = store.delete(id)
             refresh()
+            withContext(Dispatchers.Main) { onDone(deleted) }
         }
     }
 
@@ -372,23 +408,39 @@ class StudioViewModel @Inject constructor(
      * display text — and an empty source title gets the localized fallback
      * first, so the copy is never titled just "copy".
      */
-    fun duplicate(id: String) {
+    fun duplicate(id: String, onDone: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            store.duplicate(id, titleTransform = { old ->
+            val newId = store.duplicate(id, titleTransform = { old ->
                 old.ifEmpty { context.getString(R.string.studio_untitled) } +
                     context.getString(R.string.studio_copy_suffix)
             })
             refresh()
+            withContext(Dispatchers.Main) { onDone(newId != null) }
         }
     }
 
     /** The hold menu's rename (06 §8); a blank title keeps the old name. */
-    fun rename(id: String, title: String) {
+    fun rename(id: String, title: String, onDone: (Boolean) -> Unit) {
         val trimmed = title.trim()
-        if (trimmed.isEmpty()) return
-        viewModelScope.launch(Dispatchers.IO) {
-            store.rename(id, trimmed)
-            refresh()
+        if (trimmed.isEmpty()) {
+            onDone(true)
+            return
         }
+        viewModelScope.launch(Dispatchers.IO) {
+            val renamed = store.rename(id, trimmed)
+            refresh()
+            withContext(Dispatchers.Main) { onDone(renamed) }
+        }
+    }
+
+    private fun reportRenderFailure(message: String, error: Exception) {
+        if (error is CancellationException) throw error
+
+        android.util.Log.w(LOG_TAG, message, error)
+    }
+
+    private companion object {
+        const val LOG_TAG = "StudioViewModel"
+        const val SHARE_QUALITY = 90
     }
 }

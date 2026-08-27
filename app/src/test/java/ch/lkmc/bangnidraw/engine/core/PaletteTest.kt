@@ -88,4 +88,12 @@ class PaletteTest {
         assertEquals(listOf(1, 9, 3), preview.swatches)
         assertEquals(palette, pick.cancel(preview))
     }
+
+    @Test
+    fun `a created palette's name is the typed one, blank falls back to the token`() {
+        assertEquals("Cadmiums", PalettePolicy.createdName(" Cadmiums "))
+        assertEquals("Cad miums", PalettePolicy.createdName("Cad miums"))
+        // Blank input keeps the display token, so the chip still localizes.
+        assertEquals(PaletteCatalog.MY_PALETTE_NAME, PalettePolicy.createdName("   "))
+    }
 }

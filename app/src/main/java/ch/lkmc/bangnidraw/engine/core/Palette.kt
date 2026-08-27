@@ -204,6 +204,15 @@ object PalettePolicy {
         return palettes.toMutableList().also { it[index] = palette }
     }
 
+    /**
+     * A created palette's stored name: the typed one, trimmed; blank input
+     * falls back to the display token so the chip still localizes. Typed
+     * names are literals by the closed grammar — two palettes no longer share
+     * one name just because neither was renamed.
+     */
+    fun createdName(input: String): String =
+        input.trim().ifEmpty { PaletteCatalog.MY_PALETTE_NAME }
+
     const val RECENT_LIMIT = 16
 }
 

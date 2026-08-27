@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -31,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +41,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -86,7 +89,7 @@ internal fun ColorPanel(
     onSwapColors: () -> Unit,
     onMixerChanged: (MixerChoice) -> Unit,
     onPaletteSelected: (String) -> Unit,
-    onCreatePalette: () -> Unit,
+    onCreatePalette: (String) -> Unit,
     onAddToPalette: (Int) -> Unit,
     onReplaceSwatch: (Int) -> Unit,
     onDeleteSwatch: (Int) -> Unit,
@@ -100,6 +103,19 @@ internal fun ColorPanel(
     var hsv by remember(state.current) { mutableStateOf(HsvColor.fromArgb(state.current)) }
     var draft by remember(state.current) { mutableIntStateOf(state.current) }
     val scroll = rememberScrollState()
+    // Naming on create: two palettes must not share one "My palette" chip
+    // (the stored name is what distinguishes them — there is no rename yet).
+    var namingPalette by remember { mutableStateOf(false) }
+    if (namingPalette) {
+        PaletteNameDialog(
+            initial = stringResource(R.string.palette_my),
+            onConfirm = { name ->
+                namingPalette = false
+                onCreatePalette(name)
+            },
+            onDismiss = { namingPalette = false },
+        )
+    }
 
     fun preview(next: HsvColor) {
         hsv = next
@@ -144,7 +160,7 @@ internal fun ColorPanel(
                 palettes = state.palettes,
                 activeId = state.activePaletteId,
                 onSelected = onPaletteSelected,
-                onCreate = onCreatePalette,
+                onCreate = { namingPalette = true },
             )
             PaletteSwatches(
                 palette = state.activePalette,
@@ -612,6 +628,39 @@ private fun ColorCircle(argb: Int, modifier: Modifier, selected: Boolean = false
         drawCircle(Color(argb))
         drawCircle(outline, style = Stroke(if (selected) SELECTED_BORDER.toPx() else SWATCH_BORDER.toPx()))
     }
+}
+
+@Composable
+private fun PaletteNameDialog(
+    initial: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var draft by rememberSaveable(initial) { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.palette_create)) },
+        text = {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                singleLine = true,
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = draft.isNotBlank(),
+                onClick = { onConfirm(draft) },
+            ) {
+                Text(stringResource(R.string.new_canvas_create))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.new_canvas_cancel))
+            }
+        },
+    )
 }
 
 @Composable

@@ -20,6 +20,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -1115,8 +1116,18 @@ private fun CanvasContent(
                     modifier = Modifier
                         .fillMaxSize()
                         // The scrim is the front-most hit node while visible:
-                        // chrome and canvas must not take input mid-flush.
-                        .pointerInput(Unit) { detectTapGestures { } }
+                        // consume every change of every gesture, so no tap,
+                        // drag or stroke can reach the chrome or the canvas
+                        // mid-flush.
+                        .pointerInput(Unit) {
+                            awaitEachGesture {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    event.changes.forEach { it.consume() }
+                                    if (event.changes.none { it.pressed }) break
+                                }
+                            }
+                        }
                         .zIndex(CLOSING_SCRIM_Z),
                 ) {
                     Column(

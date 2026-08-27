@@ -1220,6 +1220,14 @@ private fun CanvasContent(
                 }
             }
 
+            // The card must clear whatever chrome owns the bottom edge — the
+            // dock mode's rail sits 56 dp tall there, and the card composed
+            // after it would otherwise cover the dock's top half mid-fill.
+            val fillCardBottomPadding = when (layout.railMode) {
+                RailMode.DOCK -> DOCK_CHROME_HEIGHT.dp
+                RailMode.SHORT -> LEDGE_CHROME_HEIGHT.dp
+                RailMode.GROUPED, RailMode.FULL -> RESET_EDGE_PADDING.dp
+            }
             val fillProgress = state.fillProgress
             if (fillProgress != null) {
                 Surface(
@@ -1228,7 +1236,7 @@ private fun CanvasContent(
                     tonalElevation = 3.dp,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = FILL_PROGRESS_BOTTOM.dp)
+                        .padding(bottom = fillCardBottomPadding)
                         .width(FILL_PROGRESS_WIDTH.dp),
                 ) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -1802,7 +1810,6 @@ private fun toolName(tool: ToolKind): String = when (tool) {
 
 /** 8 dp squares, per `03-canvas-engine.md` §3.2 step 1. */
 private const val CHECKER_DP = 8
-private const val FILL_PROGRESS_BOTTOM = 24
 private const val FILL_PROGRESS_WIDTH = 240
 private const val DOCK_HEIGHT = 56
 private const val DOCK_CHROME_HEIGHT = 120

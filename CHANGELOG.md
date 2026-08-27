@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4 - 2026-08-27
+
+- Reissue the canvas rendering fixes with a new package version.
+
 ## 1.0.3 - 2026-08-27
 
 - Restore the canvas after startup and surface recreation.

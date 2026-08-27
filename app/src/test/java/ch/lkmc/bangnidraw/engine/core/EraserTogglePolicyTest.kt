@@ -20,6 +20,11 @@ class EraserTogglePolicyTest {
         id = BrushPresets.PENCIL_ID,
         name = "pencil",
     )
+    private val textured = BrushPreset(
+        id = "textured-eraser",
+        name = "textured",
+        eraseMode = true,
+    )
 
     @Test
     fun `two erasers swap both ways`() {
@@ -45,7 +50,21 @@ class EraserTogglePolicyTest {
     }
 
     @Test
-    fun `preset order decides the fallback, not the id`() {
+    fun `a known non-eraser falls back to the first eraser`() {
+        assertEquals(hard.id, EraserTogglePolicy.next(pencil.id, listOf(pencil, hard, soft)))
+    }
+
+    @Test
+    fun `three erasers cycle in preset order`() {
+        val presets = listOf(pencil, hard, soft, textured)
+
+        assertEquals(soft.id, EraserTogglePolicy.next(hard.id, presets))
+        assertEquals(textured.id, EraserTogglePolicy.next(soft.id, presets))
+        assertEquals(hard.id, EraserTogglePolicy.next(textured.id, presets))
+    }
+
+    @Test
+    fun `cycling follows preset order rather than preset ids`() {
         assertEquals(hard.id, EraserTogglePolicy.next(soft.id, listOf(pencil, soft, hard)))
     }
 }

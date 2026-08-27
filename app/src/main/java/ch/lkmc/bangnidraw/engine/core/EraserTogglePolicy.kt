@@ -7,15 +7,17 @@ package ch.lkmc.bangnidraw.engine.core
  * settings sheet).
  *
  * The rail renders exactly one eraser at a time. A long-press on it swaps
- * between the two shipped erasers; a preset set with fewer than two erasers
- * (corrupt JSON falls back) has nothing to toggle to, and the current id is
- * never the answer — if it is not among the erasers, the first one is.
+ * through the shipped erasers in preset order; a set with fewer than two
+ * erasers has nothing to toggle to. An unknown current id starts at the
+ * first eraser.
  */
 object EraserTogglePolicy {
 
     fun next(currentId: String, presets: List<BrushPreset>): String? {
         val erasers = presets.filter(BrushPreset::eraseMode)
         if (erasers.size < 2) return null
-        return erasers.firstOrNull { it.id != currentId }?.id
+
+        val currentIndex = erasers.indexOfFirst { it.id == currentId }
+        return erasers[(currentIndex + 1) % erasers.size].id
     }
 }

@@ -1,6 +1,12 @@
 package ch.lkmc.bangnidraw.input
 
+import ch.lkmc.bangnidraw.engine.core.ButtonState
+import ch.lkmc.bangnidraw.engine.core.PenButtonAction
 import ch.lkmc.bangnidraw.engine.core.PointerTool
+import ch.lkmc.bangnidraw.engine.core.StylusToolPolicy
+import ch.lkmc.bangnidraw.engine.core.TemporaryReason
+import ch.lkmc.bangnidraw.engine.core.TemporaryToolRequest
+import ch.lkmc.bangnidraw.engine.core.TemporaryToolTarget
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -94,6 +100,48 @@ class StylusStateTest {
         assertTrue(s.buttonPressed)
         s.onButton(false)
         assertFalse(s.buttonPressed)
+    }
+
+    @Test
+    fun `the eraser end takes precedence over the barrel button`() {
+        val request = StylusToolPolicy.resolve(
+            pointer = PointerTool.ERASER,
+            button = ButtonState.Pressed,
+            buttonAction = PenButtonAction.Eyedropper,
+        )
+
+        assertEquals(
+            TemporaryToolRequest(TemporaryToolTarget.Eraser, TemporaryReason.EraserEnd),
+            request,
+        )
+    }
+
+    @Test
+    fun `the barrel button action applies only to a pressed stylus`() {
+        assertEquals(
+            TemporaryToolRequest(TemporaryToolTarget.Eyedropper, TemporaryReason.PenButton),
+            StylusToolPolicy.resolve(
+                PointerTool.STYLUS,
+                ButtonState.Pressed,
+                PenButtonAction.Eyedropper,
+            ),
+        )
+        assertEquals(
+            null,
+            StylusToolPolicy.resolve(
+                PointerTool.STYLUS,
+                ButtonState.Released,
+                PenButtonAction.Eraser,
+            ),
+        )
+        assertEquals(
+            null,
+            StylusToolPolicy.resolve(
+                PointerTool.MOUSE,
+                ButtonState.Pressed,
+                PenButtonAction.Eraser,
+            ),
+        )
     }
 
     @Test

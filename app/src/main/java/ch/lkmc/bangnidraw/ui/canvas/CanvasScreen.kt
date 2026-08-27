@@ -95,6 +95,7 @@ import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.HintVisibility
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
+import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.PressureCurve
 import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
@@ -1152,12 +1153,19 @@ private fun CanvasPanelContent(
         )
         CanvasPanel.BRUSH_SETTINGS -> {
             val preset = (state.toolSelection.kind as? ToolKind.Brush)?.preset ?: return
+            val mixerChoice = if (state.color.mixerIsPigment) {
+                MixerChoice.PIGMENT
+            } else {
+                MixerChoice.RGB
+            }
+
             BrushSettingsSheet(
                 active = preset,
                 presets = state.brushPresets,
                 brushColor = state.color.current,
                 paperColor = state.paperColor,
                 hapticsMode = state.hapticsMode,
+                mixerChoice = mixerChoice,
                 onPresetSelected = viewModel::selectBrush,
                 onPresetChanged = viewModel::updateActiveBrush,
                 onPresetPersisted = viewModel::persistActiveBrush,

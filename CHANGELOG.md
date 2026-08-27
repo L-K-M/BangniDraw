@@ -3,6 +3,7 @@
 ## 1.0.3 - 2026-08-27
 
 - Restore the canvas after startup and surface recreation.
+- Ignore eyedropper reads that finish after pen-up.
 
 ## 1.0.2 - 2026-08-27
 

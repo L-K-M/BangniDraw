@@ -68,7 +68,9 @@ internal fun HoverCursor(
             // so does a cursor too small to hold it.
             if (spec.ink && radius > INK_INSET_PX + INK_STROKE_PX) {
                 drawCircle(
-                    color = Color(brushColor),
+                    // Opaque on purpose: the ring is a colour hint, not the
+                    // stroke itself, and a translucent hint can vanish.
+                    color = Color(brushColor).copy(alpha = 1f),
                     radius = radius - INK_INSET_PX,
                     center = center,
                     style = Stroke(width = INK_STROKE_PX),

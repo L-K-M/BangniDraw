@@ -26,7 +26,7 @@ class HoverCursorPolicyTest {
     @Test
     fun `brush cursor follows canvas scale and adds a crosshair when tiny`() {
         assertEquals(
-            HoverCursorSpec(2f, HoverRing.Solid, crosshair = true),
+            HoverCursorSpec(2f, HoverRing.Solid, crosshair = true, ink = true),
             HoverCursorPolicy.resolve(
                 PointerTool.STYLUS,
                 ToolKind.Brush(brush),
@@ -52,7 +52,7 @@ class HoverCursorPolicyTest {
     @Test
     fun `eyedropper uses its glyph instead of a ring`() {
         assertEquals(
-            HoverCursorSpec(0f, HoverRing.None, crosshair = false),
+            HoverCursorSpec(0f, HoverRing.None, crosshair = false, ink = false),
             HoverCursorPolicy.resolve(
                 PointerTool.MOUSE,
                 ToolKind.Eyedropper(),

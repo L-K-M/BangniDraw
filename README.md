@@ -27,10 +27,8 @@ between them.
 > conventions and [PLAN.md](PLAN.md) for the design.
 
 > [!NOTE]
-> **Status:** planning and scaffolding. The implementation plan is in
-> [PLAN.md](PLAN.md) and `docs/plan/`; the roadmap there says what lands
-> when. The current build launches, shows the Studio, and lets two fingers
-> pan, zoom and rotate a blank sheet.
+> **Status:** v1 code is feature-complete. Real-device acceptance,
+> screenshots, and the v1.0.0 release remain.
 
 ## Building
 
@@ -44,6 +42,9 @@ see `local.properties.example`). Both build types are signed with the
 checked-in debug keystore so any clone produces installable,
 upgrade-compatible APKs (a deliberate sideload-only decision — see
 `docs/decisions/0005-zero-secret-signing.md`).
+
+Paintings and undo history stay in app storage. Uninstalling removes them;
+gallery copies remain.
 
 ## Releasing
 

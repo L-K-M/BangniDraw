@@ -99,17 +99,14 @@ fun NewCanvasDialog(
     // remembered size arrives asynchronously, so it syncs only until the
     // user types: a keystroke is intent and always wins over the pre-fill,
     // whether the emission lands before it or after.
-    var customW by rememberSaveable {
-        mutableStateOf(lastCustomSize?.width?.toString() ?: DEFAULT_CUSTOM_EDGE)
-    }
-    var customH by rememberSaveable {
-        mutableStateOf(lastCustomSize?.height?.toString() ?: DEFAULT_CUSTOM_EDGE)
-    }
+    fun prefill(edge: Int?): String = edge?.toString() ?: DEFAULT_CUSTOM_EDGE
+    var customW by rememberSaveable { mutableStateOf(prefill(lastCustomSize?.width)) }
+    var customH by rememberSaveable { mutableStateOf(prefill(lastCustomSize?.height)) }
     var customEdited by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(lastCustomSize) {
         if (customEdited) return@LaunchedEffect
-        customW = lastCustomSize?.width?.toString() ?: DEFAULT_CUSTOM_EDGE
-        customH = lastCustomSize?.height?.toString() ?: DEFAULT_CUSTOM_EDGE
+        customW = prefill(lastCustomSize?.width)
+        customH = prefill(lastCustomSize?.height)
     }
     // Keyed on the selection: an override was chosen FOR a preset, so
     // switching presets starts from that preset's own default again —

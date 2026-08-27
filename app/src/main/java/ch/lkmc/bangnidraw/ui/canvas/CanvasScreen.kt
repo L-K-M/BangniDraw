@@ -66,8 +66,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -1043,6 +1045,7 @@ private fun CanvasContent(
                     shape = MaterialTheme.shapes.medium,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
+                        .semantics { liveRegion = LiveRegionMode.Assertive }
                         .padding(16.dp),
                 ) {
                     Text(

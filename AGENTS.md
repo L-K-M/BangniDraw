@@ -110,6 +110,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   locale to that file in the same change that adds its `values-*` folder.
   Lint's `MissingTranslation` is a hard CI gate, so brand strings carry
   `translatable="false"`.
+- **Accessible choices expose their relationship.** Radio-style rows share a
+  `selectableGroup`; switch rows own the toggle action while their nested
+  `Switch` delegates it. Blocking transient errors use assertive live regions.
 - **Mixbox is CC BY-NC 4.0** (ADR 0003). The attribution lives in the About
   string, the README and `third-party/mixbox/`; keep all three when
   touching any of them. Vendored `mixbox.glsl`/`mixbox_lut.png` must stay

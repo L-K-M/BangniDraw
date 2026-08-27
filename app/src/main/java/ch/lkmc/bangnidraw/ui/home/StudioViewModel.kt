@@ -1,6 +1,9 @@
 package ch.lkmc.bangnidraw.ui.home
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.LruCache
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import ch.lkmc.bangnidraw.R
@@ -59,6 +62,37 @@ class StudioViewModel @Inject constructor(
     private val exporter: GalleryExporter,
     private val shareCache: ShareCache,
 ) : ViewModel() {
+
+    /**
+     * The shelf's decoded thumbnails, keyed like the cells' state — path plus
+     * revision, so a checkpoint's rewrite can never serve stale pixels.
+     *
+     * A cache between the file and the grid because LazyGrid disposes cells
+     * off-screen: without it, every scroll re-decodes a ~0.8 MB PNG, and a
+     * long shelf stutters. Bounded well under a painting's own footprint;
+     * evicted bitmaps are simply GC'd (never recycled while displayed).
+     */
+    private val thumbnailCache = object : LruCache<StudioThumbnailKey, Bitmap>(THUMBNAIL_CACHE_KIB) {
+        override fun sizeOf(key: StudioThumbnailKey, value: Bitmap): Int = value.byteCount / KIB
+    }
+
+    /** Cache-then-decode, on IO; the shelf cell suspends on this. */
+    internal suspend fun thumbnailFor(key: StudioThumbnailKey): Bitmap? =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            thumbnailCache.get(key) ?: key.path?.let { path ->
+                BitmapFactory.decodeFile(path)?.also { bitmap ->
+                    thumbnailCache.put(key, bitmap)
+                }
+            }
+        }
+
+    /** Drops a deleted painting's pixels so the cache cannot outlive the shelf entry. */
+    private fun evictThumbnails(id: String) {
+        val dir = store.projectDir(id).path
+        for (key in thumbnailCache.snapshot().keys) {
+            if (key.path?.startsWith(dir) == true) thumbnailCache.remove(key)
+        }
+    }
 
     private var staleSyncJob: Job? = null
 
@@ -396,6 +430,7 @@ class StudioViewModel @Inject constructor(
     fun delete(id: String, alsoGallery: Boolean, galleryUri: String?, onDone: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             if (alsoGallery && galleryUri != null) exporter.delete(galleryUri)
+            evictThumbnails(id)
             val deleted = store.delete(id)
             refresh()
             withContext(Dispatchers.Main) { onDone(deleted) }
@@ -442,5 +477,9 @@ class StudioViewModel @Inject constructor(
     private companion object {
         const val LOG_TAG = "StudioViewModel"
         const val SHARE_QUALITY = 90
+
+        /** ~20 shelf thumbnails (a 4:3 512-longest PNG decodes to ≈0.8 MB). */
+        const val KIB = 1024
+        const val THUMBNAIL_CACHE_KIB = 16 * KIB
     }
 }

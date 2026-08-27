@@ -1,7 +1,6 @@
 package ch.lkmc.bangnidraw.ui.home
 
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.text.format.DateUtils
 import android.text.format.Formatter
 import android.view.HapticFeedbackConstants
@@ -251,6 +250,7 @@ fun StudioScreen(
                         PaintingCell(
                             painting = painting,
                             hapticsMode = state.hapticsMode,
+                            loadThumbnail = viewModel::thumbnailFor,
                             onOpen = { onOpenPainting(painting.id) },
                             onRename = { title ->
                                 viewModel.rename(painting.id, title) { renamed ->
@@ -420,6 +420,7 @@ private fun NewPaintingCell(onClick: () -> Unit) {
 private fun PaintingCell(
     painting: StudioViewModel.Painting,
     hapticsMode: HapticsMode,
+    loadThumbnail: suspend (StudioThumbnailKey) -> android.graphics.Bitmap?,
     onOpen: () -> Unit,
     onRename: (String) -> Unit,
     onDuplicate: () -> Unit,
@@ -466,11 +467,7 @@ private fun PaintingCell(
                 revision = painting.updatedAtMillis,
             )
             val bitmap by produceState<android.graphics.Bitmap?>(null, thumbKey) {
-                value = thumbKey.path?.let { path ->
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        BitmapFactory.decodeFile(path)
-                    }
-                }
+                value = loadThumbnail(thumbKey)
             }
             val decoded = bitmap
             if (decoded != null) {

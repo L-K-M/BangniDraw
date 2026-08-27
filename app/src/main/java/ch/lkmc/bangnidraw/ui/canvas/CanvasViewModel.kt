@@ -901,6 +901,8 @@ class CanvasViewModel @Inject constructor(
     fun selectEyedropper() {
         clearColorPick()
         colorPickSession = newColorPick(ColorPickTarget.Current)
+        // The tool itself is selected in selectEyedropperTool, which carries
+        // the session's eyedropperParams — not the defaults.
         selectEyedropperTool()
     }
 

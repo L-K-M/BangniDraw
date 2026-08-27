@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -71,6 +72,10 @@ internal fun SmudgeSettingsSheet(
             onFinished = {},
             valueText = percent,
         )
+        // Its own plan §3.5 section; the header was dropped as a duplicate
+        // of the slider label, but the divider stays so it reads as one.
+        Spacer(Modifier.height(GROUP_GAP))
+        HorizontalDivider()
         SettingSlider(
             label = stringResource(R.string.brush_stabilizer),
             value = active.stabilizer,
@@ -245,5 +250,6 @@ private val UNIT_RANGE = 0f..1f
 private val SHEET_PADDING = 20.dp
 private val CHIP_GAP = 8.dp
 private val SHEET_BOTTOM_GAP = 32.dp
+private val GROUP_GAP = 20.dp
 private const val PERCENT = 100f
 private const val DIAMETER_TO_RADIUS = 2f

@@ -202,6 +202,9 @@ class TileFlusher(
         queue.send(job)
     }
 
+    /** Enqueues from the GL thread, refusing instead of blocking when full. */
+    fun enqueueNow(job: FlushJob): Boolean = queue.trySend(job).isSuccess
+
     /** Wakes a retry of everything pending — the checkpoint/autosave hook. */
     fun retryPending() {
         queue.trySend(FlushJob.Checkpoint())

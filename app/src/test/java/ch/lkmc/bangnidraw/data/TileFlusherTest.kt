@@ -64,6 +64,17 @@ class TileFlusherTest {
     }
 
     @Test
+    fun `nonblocking enqueue refuses a full queue`() = runBlocking {
+        repeat(EXPECTED_QUEUE_CAPACITY) {
+            assertTrue(flusher.enqueueNow(TileFlusher.FlushJob.Checkpoint()))
+        }
+        assertFalse(flusher.enqueueNow(TileFlusher.FlushJob.Checkpoint()))
+
+        flusher.runQueued()
+        assertTrue(flusher.enqueueNow(TileFlusher.FlushJob.Checkpoint()))
+    }
+
+    @Test
     fun `storage full lifts the mirror cap and keeps committing`() = runBlocking {
         writer.fail = true
 
@@ -259,5 +270,9 @@ class TileFlusherTest {
         assertEquals(2L * TILE_BYTES, flusher.pendingBytes)
         assertTrue(flushEverything())
         assertEquals(0L, flusher.pendingBytes)
+    }
+
+    private companion object {
+        const val EXPECTED_QUEUE_CAPACITY = 64
     }
 }

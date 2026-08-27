@@ -2126,8 +2126,10 @@ class CanvasViewModel @Inject constructor(
             // (it covers the exit transition); a swallowed navigation gets a
             // grace-period reset instead of a stranded scrim.
             var handedOff = false
+            var flushed = false
             try {
                 withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
+                flushed = true
                 withContext(Dispatchers.Main) { afterWrite() }
                 handedOff = true
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -2135,8 +2137,10 @@ class CanvasViewModel @Inject constructor(
             } catch (e: Exception) {
                 android.util.Log.e(TAG, "leave failed; canvas stays open", e)
                 // Only a failed flush is a failed save; a navigation-only
-                // failure owes no alarming toast.
-                if (!handedOff) withContext(Dispatchers.Main) { noteLeaveFailure() }
+                // failure owes no alarming toast. `handedOff` cannot tell the
+                // two apart here — it is only set after afterWrite() — so the
+                // flush carries its own flag.
+                if (!flushed) withContext(Dispatchers.Main) { noteLeaveFailure() }
             } finally {
                 if (!handedOff) {
                     setClosing(false)

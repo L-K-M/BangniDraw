@@ -62,6 +62,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.engine.core.BrushIcons
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.BrushSizeScale
@@ -100,9 +101,14 @@ internal fun ToolRail(
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
-    val paints = BrushPresets.railOrder(presets).filterNot(BrushPreset::eraseMode)
+    val allPaints = BrushPresets.railOrder(presets).filterNot(BrushPreset::eraseMode)
+    val paints = if (layout.railMode == RailMode.FULL) {
+        BrushPresets.railPaints(presets, paintBrushId)
+    } else {
+        allPaints
+    }
     val sliderPreset = ToolSliderPreset.forKind(selection.kind)
-    val currentPaint = paints.firstOrNull { it.id == paintBrushId } ?: paints.firstOrNull()
+    val currentPaint = allPaints.firstOrNull { it.id == paintBrushId } ?: allPaints.firstOrNull()
     val eraser = presets.firstOrNull { it.id == eraserBrushId && it.eraseMode }
         ?: presets.firstOrNull { it.eraseMode }
     val eraserToggle = if (
@@ -436,7 +442,7 @@ private fun brushSlot(
         null
     }
     return ToolSlot(
-        icon = if (preset.eraseMode) Icons.Filled.DeleteSweep else iconFor(preset.id),
+        icon = if (preset.eraseMode) Icons.Filled.DeleteSweep else iconFor(preset.icon),
         description = {
             if (preset.eraseMode) stringResource(R.string.tool_eraser) else brushPresetName(preset)
         },
@@ -658,15 +664,15 @@ private object SilentHapticFeedback : HapticFeedback {
     override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
 }
 
-private fun iconFor(id: String): ImageVector = when (id) {
+private fun iconFor(icon: String): ImageVector = when (icon) {
     // One distinct glyph per tool: the pencil must not share Gesture with the
     // smudge tool, nor the airbrush BlurOn with blur — identical glyphs in one
     // rail defeat the glance-recognition the rail exists for.
-    BrushPresets.PENCIL_ID -> Icons.Filled.Draw
-    BrushPresets.INK_PEN_ID -> Icons.Filled.Create
-    BrushPresets.PAINTBRUSH_ID -> Icons.Filled.Brush
-    BrushPresets.AIRBRUSH_ID -> Icons.Filled.Air
-    BrushPresets.MARKER_ID -> Icons.Filled.Highlight
+    BrushIcons.PENCIL -> Icons.Filled.Draw
+    BrushIcons.INK_PEN -> Icons.Filled.Create
+    BrushIcons.PAINTBRUSH -> Icons.Filled.Brush
+    BrushIcons.AIRBRUSH -> Icons.Filled.Air
+    BrushIcons.MARKER -> Icons.Filled.Highlight
     else -> Icons.Filled.Tune
 }
 

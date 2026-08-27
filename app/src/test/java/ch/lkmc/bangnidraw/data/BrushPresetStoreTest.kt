@@ -41,6 +41,7 @@ class BrushPresetStoreTest {
             setOf(
                 "builtin.pencil",
                 "builtin.ink_pen",
+                "builtin.calligraphy_pen",
                 "builtin.paintbrush",
                 "builtin.airbrush",
                 "builtin.marker",

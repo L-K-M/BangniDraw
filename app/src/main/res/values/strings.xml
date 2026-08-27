@@ -115,6 +115,7 @@
          than localized text, so a language change renames the rail too. -->
     <string name="preset_pencil">Pencil</string>
     <string name="preset_ink_pen">Ink pen</string>
+    <string name="preset_calligraphy_pen">Calligraphy pen</string>
     <string name="preset_paintbrush">Paintbrush</string>
     <string name="preset_airbrush">Airbrush</string>
     <string name="preset_marker">Marker</string>

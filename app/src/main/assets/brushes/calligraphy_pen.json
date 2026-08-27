@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "id": "builtin.calligraphy_pen",
+  "name": "@string/preset_calligraphy_pen",
+  "icon": "ink_pen",
+  "size": 18.0,
+  "sizeMin": 2.0,
+  "sizeMax": 120.0,
+  "hardness": 1.0,
+  "spacing": 0.08,
+  "tip": { "type": "flat", "aspect": 0.22 },
+  "orientation": "Stylus",
+  "pressureSize": { "p0": 0.35, "p1": 0.52, "p2": 0.72, "p3": 1.0 },
+  "velocity": { "sizeAtFast": 0.8, "opacityAtFast": 1.0, "fastPxPerMs": 2.0 },
+  "stabilizer": 0.75
+}

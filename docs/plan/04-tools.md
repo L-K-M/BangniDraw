@@ -3,7 +3,7 @@
 **What this covers.** The implementable catalog behind PLAN.md §6 and
 decision 9 ("tools are presets over one engine"): the `Tool`/`ToolKind`
 model, the `BrushPreset` data class with every parameter and its meaning,
-the seven built-in presets with their actual values, the `DabGenerator`
+the built-in presets with their actual values, the `DabGenerator`
 and `Stabilizer` math, and the three non-brush tools (smudge/blur, fill,
 eyedropper) plus the eraser's S Pen bindings. It expands PLAN.md; where the
 engine plumbing (stroke buffer, `DabPass`, ping-pong RMW, tiles, readback)
@@ -63,7 +63,7 @@ one `HistoryEntry` per stroke.
 
 | Tool (rail slot) | `ToolKind` | Engine path | Writes to |
 | --- | --- | --- | --- |
-| Pencil, Ink pen, Paintbrush, Airbrush, Marker | `Brush(preset)` | `DabPass` → stroke buffer → merge on pen-up | active layer |
+| Pencil, Ink pen, Calligraphy pen, Paintbrush, Airbrush, Marker | `Brush(preset)` | `DabPass` → stroke buffer → merge on pen-up | active layer |
 | Hard eraser, Soft eraser | `Brush(preset.eraseMode=true)` | same | active layer (alpha only) |
 | Smudge | `Smudge` | `SmudgePass` ping-pong RMW per dab | active layer, live |
 | Blur | `Blur` | `SmudgePass` variant (separable kernel) | active layer, live |
@@ -372,6 +372,7 @@ device"). All sizes in canvas px; spacing is a fraction of the radius (§2);
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Pencil | 4 (1–40) | 0.9 | 0.35 | 0.75 | 0.16 | Round / Fixed | 0.2 | off | – |
 | Ink pen | 6 (1–60) | 1.0 | 1.0 | 1.0 | 0.10 | Round / Fixed | 0.7 | off | – |
+| Calligraphy pen | 18 (2–120) | 1.0 | 1.0 | 1.0 | 0.08 | Flat(0.22) / Stylus | 0.75 | off | – |
 | Paintbrush | 40 (4–400) | 1.0 | 0.6 | 0.45 | 0.20 | Flat(0.7) / StrokeDirection | 0.35 | **on** (0.15) | – |
 | Airbrush | 120 (10–400) | 1.0 | 0.06 | 0.0 | 0.08 | Round / Fixed | 0.1 | off | – |
 | Marker | 24 (4–200) | 0.6 | 1.0 | 0.95 | 0.12 | Flat(0.3) / Stylus | 0.4 | off | – |
@@ -382,6 +383,7 @@ device"). All sizes in canvas px; spacing is a fraction of the radius (§2);
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Pencil | floor(0.7) | gamma(0.8) | gamma(1.3) | size 2.2 at flat, opacity 0.5, elongate | none | size 0.1, pos 0.15 | Accumulate |
 | Ink pen | gamma(1.4), floor 0.15 blended: `Curve(0.15, 0.3, 0.6, 1)` | One | One | none | size 0.85 at fast (2 px/ms) | none | Max |
+| Calligraphy pen | `Curve(0.35, 0.52, 0.72, 1)` | One | One | none | size 0.8 at fast (2 px/ms) | none | Max |
 | Paintbrush | `Curve(0.35, 0.6, 0.85, 1)` | One | gamma(0.7) | size 1.4 at flat | none | size 0.05 | Accumulate |
 | Airbrush | `Curve(0.6, 0.75, 0.9, 1)` | One | Linear | none | none | none | Accumulate |
 | Marker | One (constant width) | One | One | none | none | none | Max |
@@ -406,6 +408,9 @@ Why the values feel the way they do:
   the calligraphic thick/thin comes from. Velocity thins fast strokes to
   85 %, a subtle cue that reads as confidence. Strong stabilizer (0.7)
   because a pen line has nowhere to hide wobble.
+- **Calligraphy pen.** A narrow chisel follows stylus azimuth while pressure
+  and speed taper both axes. Strong stabilization keeps lettering curves
+  even without removing the broad edge's rotation.
 - **Paintbrush.** Flat(0.7) tip following stroke direction gives a
   bristle-ish edge: the dab is narrower across the stroke than along it,
   so turns show the brush "rolling". Mixing on with flow 0.6: where the

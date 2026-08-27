@@ -1325,9 +1325,10 @@ private fun exportPainting(
 /**
  * A painting is thought at pen-speed, not screen-timeout speed: while the
  * Canvas is open the composed view keeps the display awake. The flag rides
- * the view rather than the window, so this composable owns only its own
- * keep-awake contribution and clearing it can never clobber another
- * component's. Gated by the Settings preference (default on).
+ * the view rather than the window, so concurrent view-level keep-awake
+ * requests compose instead of overwriting one another; window-level
+ * FLAG_KEEP_SCREEN_ON set by other components is not covered. The call
+ * site gates this on the Settings preference (default on).
  */
 @Composable
 private fun CanvasAwakeEffect() {

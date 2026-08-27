@@ -163,6 +163,17 @@ internal fun SettingsSheet(
                 ) { onPressurePreference(PressurePreference.HARDER) }
             }
 
+            // Display behavior tied to the canvas: grouped with the drawing
+            // rows rather than under Feedback.
+            item {
+                SwitchRow(
+                    title = R.string.settings_keep_screen_on,
+                    body = R.string.settings_keep_screen_on_help,
+                    checked = state.keepScreenOn,
+                    onCheckedChange = onKeepScreenOn,
+                )
+            }
+
             item { SectionTitle(R.string.settings_feedback) }
             item {
                 SwitchRow(
@@ -171,14 +182,6 @@ internal fun SettingsSheet(
                     onCheckedChange = {
                         onHapticsMode(if (it) HapticsMode.ENABLED else HapticsMode.DISABLED)
                     },
-                )
-            }
-            item {
-                SwitchRow(
-                    title = R.string.settings_keep_screen_on,
-                    body = R.string.settings_keep_screen_on_help,
-                    checked = state.keepScreenOn,
-                    onCheckedChange = onKeepScreenOn,
                 )
             }
 

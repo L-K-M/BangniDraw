@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import android.content.res.AssetManager
 import android.os.Handler
 import android.os.Looper
 import android.view.SurfaceView
@@ -49,6 +50,7 @@ class EngineSession(
     surface: SurfaceView,
     canvas: CanvasSize,
     budget: MemoryBudget.Result,
+    assets: AssetManager,
     private val debugBuild: Boolean,
     /**
      * §10.1's consumer, called on the GL thread once per merged tile; the
@@ -69,7 +71,7 @@ class EngineSession(
         java.util.concurrent.atomic.AtomicInteger(0),
 ) : GLFrontBufferedRenderer.Callback<DabBatch> {
 
-    val renderer = CanvasRenderer(canvas, budget, onTile = onTile)
+    val renderer = CanvasRenderer(canvas, budget, assets, onTile = onTile)
 
     /**
      * §11's budgets as measured, for the debug overlay (`10-performance.md`

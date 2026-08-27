@@ -17,8 +17,10 @@ from mixbox@scrtwpns.com.
   `gradle/libs.versions.toml`) — palette mixing dish, swatch math, unit
   tests.
 - GPU: `mixbox.glsl` and `mixbox_lut.png` from upstream's `shaders/`
-  directory, vendored here when roadmap step 7 lands (they stay byte-for-byte
-  identical to upstream; the header comment is the attribution).
+  directory at commit `a1bdb75a668f638ba066aa74bfd32809ed7fef45`.
+  They are unmodified. SHA-256:
+  - `mixbox.glsl`: `1ca60762c730405f8df18ef08ea0501d43606a67a6d309a610a077c8781cfce4`
+  - `mixbox_lut.png`: `b13d7532033d96d963c7e3a854ba2b4e98b8a44d324456386e9b34e0615552be`
 
 ## Why this matters for the whole app
 
@@ -27,4 +29,4 @@ the one component that is not, and its non-commercial term applies to the
 app as distributed. The decision and its consequences are recorded in
 `docs/decisions/0003-mixbox-non-commercial.md`; the attribution appears in
 the app's About screen and in the README. Stripping Mixbox is a one-line
-change (`ColorMixer` → `RgbMixer`, see `docs/plan/09-color-and-mixing.md`).
+property (`bangnidraw.mixbox=false`, see `docs/plan/09-color-and-mixing.md`).

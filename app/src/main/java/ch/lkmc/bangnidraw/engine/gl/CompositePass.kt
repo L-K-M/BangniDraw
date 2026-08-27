@@ -8,6 +8,7 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.PreviewPlan
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
+import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.SliceHandle
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.TileKey
@@ -48,6 +49,8 @@ class CompositePass(
      * rather than quietly drawing nothing if that pass is ever asked to.
      */
     private val previewProgram: GlProgram? = null,
+    private val previewMixProgram: GlProgram? = null,
+    private val mixboxLut: Int = 0,
 ) {
 
     /**
@@ -362,9 +365,11 @@ class CompositePass(
         dirtyRect: IntRect,
         backdrop: Int,
     ): Int {
-        val previewProgram = checkNotNull(previewProgram) {
+        val plainPreview = checkNotNull(previewProgram) {
             "drawPreview on a CompositePass built without a preview program"
         }
+        val usesPigment = spec.mode == StrokeMode.MIX && previewMixProgram != null && mixboxLut != 0
+        val previewProgram = if (usesPigment) checkNotNull(previewMixProgram) else plainPreview
         if (opacity <= 0f || dirtyRect.isEmpty) return 0
         val grid = layer.grid
         if (keyScratch.size < grid.tileCount) keyScratch = IntArray(grid.tileCount)
@@ -409,6 +414,11 @@ class CompositePass(
         previewProgram.uniform1i("u_backdrop", BACKDROP_UNIT)
         previewProgram.uniform1i("u_strokePage", STROKE_UNIT)
         previewProgram.uniform1i("u_tailPage", TAIL_UNIT)
+        if (usesPigment) {
+            previewProgram.uniform1i("mixbox_lut", MIXBOX_LUT_UNIT)
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + MIXBOX_LUT_UNIT)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, mixboxLut)
+        }
         // The same stroke constants the commit will merge with — the other half
         // of §7.5's promise. A preview that capped at a different opacity, or
         // ignored the alpha lock the merge honours, would disagree with the

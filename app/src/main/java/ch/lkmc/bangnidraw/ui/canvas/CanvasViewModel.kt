@@ -30,9 +30,12 @@ import ch.lkmc.bangnidraw.data.highestDefaultNameIn
 import ch.lkmc.bangnidraw.engine.core.AutosavePolicy
 import ch.lkmc.bangnidraw.engine.core.BlendMode
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
+import ch.lkmc.bangnidraw.engine.core.BrushMixingPolicy
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.core.ColorMixer
+import ch.lkmc.bangnidraw.engine.core.ColorMixerResolver
 import ch.lkmc.bangnidraw.engine.core.Document
 import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
 import ch.lkmc.bangnidraw.engine.core.HistoryDirection
@@ -52,6 +55,7 @@ import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnailPolicy
 import ch.lkmc.bangnidraw.engine.core.LayerTileUpdates
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
+import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.Refusal
 import ch.lkmc.bangnidraw.engine.core.StackEdit
@@ -61,6 +65,7 @@ import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.ReadbackDrainResult
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
+import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.StrokeLayerDecision
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StylusToolPolicy
@@ -127,6 +132,7 @@ class CanvasViewModel @Inject constructor(
     private val presetStore: BrushPresetStore,
     private val exporter: GalleryExporter,
     private val prefs: Prefs,
+    private val availableColorMixer: ColorMixer,
     @ApplicationScope private val appScope: CoroutineScope,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -153,6 +159,7 @@ class CanvasViewModel @Inject constructor(
             val brushPresets: List<BrushPreset>,
             val toolSelection: ToolSelection,
             val brushColor: Int,
+            val mixerIsPigment: Boolean,
             val penButtonAction: PenButtonAction,
             val eraserEndPreset: String,
             val layerCap: Int,
@@ -180,6 +187,10 @@ class CanvasViewModel @Inject constructor(
     private var penButtonAction = PenButtonAction.Eraser
     private var eraserEndPreset = BrushPresets.HARD_ERASER_ID
     private var brushColor = OPAQUE_BLACK
+    private var activeColorMixer = ColorMixerResolver.resolve(
+        if (availableColorMixer.isPigment) MixerChoice.PIGMENT else MixerChoice.RGB,
+        availableColorMixer,
+    )
     private var hoverPointer: PointerTool? = null
 
     private val pool = TileBufferPool()
@@ -294,6 +305,12 @@ class CanvasViewModel @Inject constructor(
         viewModelScope.launch {
             prefs.eraserEndPreset.collect { id ->
                 eraserEndPreset = id
+                updateToolUi()
+            }
+        }
+        viewModelScope.launch {
+            prefs.mixerChoice.collect { choice ->
+                activeColorMixer = ColorMixerResolver.resolve(choice, availableColorMixer)
                 updateToolUi()
             }
         }
@@ -435,6 +452,7 @@ class CanvasViewModel @Inject constructor(
             brushPresets = brushPresets,
             toolSelection = toolSwitcher.selection.value,
             brushColor = brushColor,
+            mixerIsPigment = activeColorMixer.isPigment,
             penButtonAction = penButtonAction,
             eraserEndPreset = eraserEndPreset,
             layerCap = layerCap,
@@ -456,6 +474,7 @@ class CanvasViewModel @Inject constructor(
             brushPresets = brushPresets,
             toolSelection = toolSwitcher.selection.value,
             brushColor = brushColor,
+            mixerIsPigment = activeColorMixer.isPigment,
             penButtonAction = penButtonAction,
             eraserEndPreset = eraserEndPreset,
         )
@@ -498,6 +517,9 @@ class CanvasViewModel @Inject constructor(
     }
 
     fun currentBrushColor(): Int = brushColor
+
+    internal fun strokeMode(preset: BrushPreset): StrokeMode =
+        BrushMixingPolicy.mode(preset, activeColorMixer)
 
     /** Rail tuning is session state; the settings sheet persists explicitly. */
     fun updateBrushSize(value: Float) = updateActiveBrush { it.withSize(value) }

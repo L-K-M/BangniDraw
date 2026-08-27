@@ -68,7 +68,15 @@ fun CanvasSurface(
         },
         factory = { ctx ->
             SurfaceView(ctx).also { surface ->
-                val session = EngineSession(surface, canvas, budget, debugBuild, onTile, revisions)
+                val session = EngineSession(
+                    surface = surface,
+                    canvas = canvas,
+                    budget = budget,
+                    assets = ctx.assets,
+                    debugBuild = debugBuild,
+                    onTile = onTile,
+                    revisions = revisions,
+                )
                 sessionHolder[0] = session
                 session.setStack(stack)
                 session.setPaperColor(paperColor)

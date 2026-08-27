@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.engine.gl
 
+import android.content.res.AssetManager
 import android.opengl.GLES30
 import android.util.Log
 import ch.lkmc.bangnidraw.engine.core.BlendMode
@@ -28,6 +29,8 @@ import ch.lkmc.bangnidraw.engine.core.SampleSource
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.engine.mixbox.MixboxLut
+import ch.lkmc.bangnidraw.engine.mixbox.MixboxShaderSource
 
 /**
  * Frame orchestration: the GL-thread half of a canvas
@@ -57,6 +60,7 @@ import ch.lkmc.bangnidraw.engine.core.ViewTransform
 class CanvasRenderer(
     private val canvas: CanvasSize,
     private val budget: MemoryBudget.Result,
+    private val assets: AssetManager,
     /**
      * §11's budgets, measured (`10-performance.md` §5.3). Written here on the
      * GL thread and read by the debug overlay on the main thread; the default
@@ -153,9 +157,12 @@ class CanvasRenderer(
     private var layerPixelPass: LayerPixelPass? = null
     private var dab: GlProgram? = null
     private var merge: GlProgram? = null
+    private var mergeMix: GlProgram? = null
     private var dabPass: DabPass? = null
     private var mergePass: MergePass? = null
     private var preview: GlProgram? = null
+    private var previewMix: GlProgram? = null
+    private var mixboxLut = 0
     private var strokeBuffer: StrokeBuffer? = null
 
     /**
@@ -312,14 +319,17 @@ class CanvasRenderer(
         // inserting a program above PREVIEW would silently hand the preview
         // pass someone else's shaders. The `onContextLost` comment records that
         // this family of lists has already been wrong twice.
-        val linked = ArrayList<GlProgram>(7)
+        val linked = ArrayList<GlProgram>(9)
         var compositeProgram: GlProgram? = null
         var presentProgram: GlProgram? = null
         var checkerProgram: GlProgram? = null
         var tileCompositeProgram: GlProgram? = null
         var dabProgram: GlProgram? = null
         var mergeProgram: GlProgram? = null
+        var mergeMixProgram: GlProgram? = null
         var previewProgram: GlProgram? = null
+        var previewMixProgram: GlProgram? = null
+        var lutTexture = 0
         try {
             compositeProgram = GlProgram.link(Shaders.COMPOSITE).also { linked += it }
             presentProgram = GlProgram.link(Shaders.PRESENT).also { linked += it }
@@ -328,14 +338,19 @@ class CanvasRenderer(
             dabProgram = GlProgram.link(Shaders.DAB).also { linked += it }
             mergeProgram = GlProgram.link(Shaders.MERGE).also { linked += it }
             previewProgram = GlProgram.link(Shaders.PREVIEW).also { linked += it }
-        } catch (e: GlProgramException) {
+            val mixboxSource = MixboxShaderSource.load(assets)
+            if (mixboxSource.isNotEmpty()) {
+                mergeMixProgram = GlProgram.link(Shaders.mergeMix(mixboxSource)).also { linked += it }
+                previewMixProgram = GlProgram.link(Shaders.previewMix(mixboxSource)).also { linked += it }
+                lutTexture = MixboxLut.upload(assets)
+            }
+        } catch (e: Exception) {
             linked.forEach(GlProgram::release)
-            Log.e(GL_TAG, "shader link failed on ${probed.describe()}", e)
+            Log.e(GL_TAG, "engine startup failed on ${probed.describe()}", e)
             isReady = false
             return false
         }
-        // Every one of them is non-null here: the try either assigned all seven
-        // or returned from the catch.
+        // The seven plain programs are mandatory; pigment variants are optional.
         checkNotNull(compositeProgram)
         checkNotNull(presentProgram)
         checkNotNull(checkerProgram)
@@ -348,7 +363,13 @@ class CanvasRenderer(
         checker = checkerProgram
         tileComposite = tileCompositeProgram
         preview = previewProgram
-        val canvasCompositePass = CompositePass(compositeProgram, state, previewProgram)
+        val canvasCompositePass = CompositePass(
+            compositeProgram,
+            state,
+            previewProgram,
+            previewMixProgram,
+            lutTexture,
+        )
         compositePass = canvasCompositePass
         thumbnailPass = LayerThumbnailPass(canvas, state, canvasCompositePass)
         val tiles = TilePool(probed, budget)
@@ -357,8 +378,11 @@ class CanvasRenderer(
         layerPixelPass = LayerPixelPass(tiles, tileCompositeProgram, state)
         dab = dabProgram
         merge = mergeProgram
+        mergeMix = mergeMixProgram
+        previewMix = previewMixProgram
+        mixboxLut = lutTexture
         dabPass = DabPass(dabProgram, state)
-        mergePass = MergePass(mergeProgram, state, tiles, mergeQuad)
+        mergePass = MergePass(mergeProgram, state, tiles, mergeQuad, mergeMixProgram, lutTexture)
         strokeBuffer = StrokeBuffer(grid, tiles)
         tailBuffer = StrokeBuffer(grid, tiles)
         isReady = true
@@ -1489,20 +1513,22 @@ class CanvasRenderer(
         dabPass = null
         mergePass = null
         layerPixelPass = null
-        // EVERY program reference — seven now that the tile compositor exists.
+        // EVERY program reference, including the optional pigment variants.
         // The ids died with the context, and `release()` releases each of them;
         // if a recreated context has reused one of those names, that
         // glDeleteProgram deletes a live program belonging to the new context.
-        // This list has been wrong twice: once when it covered none of the five,
-        // and once when 2.5a added a sixth and left it out. Adding a program
-        // means adding it here and in `release()`.
+        // This list has been wrong twice; adding a program means adding it here
+        // and in `release()`.
         composite = null
         present = null
         checker = null
         tileComposite = null
         dab = null
         merge = null
+        mergeMix = null
         preview = null
+        previewMix = null
+        mixboxLut = 0
         compositePass = null
         thumbnailPass = null
         sandwich = null
@@ -1546,7 +1572,15 @@ class CanvasRenderer(
         tileComposite?.release()
         dab?.release()
         merge?.release()
+        mergeMix?.release()
         preview?.release()
+        previewMix?.release()
+        if (mixboxLut != 0) {
+            val texture = intArrayOf(mixboxLut)
+            GLES30.glDeleteTextures(1, texture, 0)
+            state.forgetTexture(mixboxLut)
+            mixboxLut = 0
+        }
         accum.release(state)
         scratch.release(state)
         fbo.release()

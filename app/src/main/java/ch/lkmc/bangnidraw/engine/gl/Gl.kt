@@ -6,6 +6,9 @@ import android.util.Log
 /** Logcat tag for every GL-side message; one tag makes a filtered capture readable. */
 const val GL_TAG = "BangniGl"
 
+/** Dedicated unit for the one context-wide Mixbox LUT (`09` §5.1). */
+const val MIXBOX_LUT_UNIT = 7
+
 /** A shader failed to compile or a program failed to link (`docs/plan/03-canvas-engine.md` §13). */
 class GlProgramException(message: String) : IllegalStateException(message)
 

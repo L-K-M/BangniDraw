@@ -285,15 +285,17 @@ private fun CanvasContent(
                     // a finger as a pen for the whole rest of the stroke.
                     strokeState.source = source
                     strokeState.setColor(viewModel.currentBrushColor())
+                    val strokeMode = viewModel.strokeMode(preset)
                     val spec = StrokeSpec(
                         layerId = active.id,
-                        mode = if (preset.eraseMode) StrokeMode.ERASE else StrokeMode.PAINT,
+                        mode = strokeMode,
                         // The ceiling is only known once the stroke has ended —
                         // it is the maximum pressure actually used — so the
                         // spec sent at pen-down carries the preset's own
                         // opacity and endStroke re-sends the measured one.
                         opacity = preset.opacity,
                         alphaLock = active.props.alphaLock,
+                        dilution = if (strokeMode == StrokeMode.MIX) preset.dilution else 0f,
                         grainMode = preset.grainMode,
                     )
                     engine.beginStroke(

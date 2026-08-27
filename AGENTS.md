@@ -86,6 +86,8 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - **"Works in debug, breaks in release"** is almost always a missing R8
   keep rule for a new reflection/serialization entry point — check
   `app/proguard-rules.pro` first.
+- AGP 9's built-in Kotlin source sets use `kotlin.srcDir`; `java.srcDir`
+  silently leaves conditional `.kt` files out of `compileDebugKotlin`.
 - The CPU reference implementations in `engine/core` (`Composite`, the
   mixing formula, dab falloff) and the GLSL must stay trivially close; when
   one changes, change both, and let the unit tests pin the semantics.
@@ -111,7 +113,10 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - **Mixbox is CC BY-NC 4.0** (ADR 0003). The attribution lives in the About
   string, the README and `third-party/mixbox/`; keep all three when
   touching any of them. Vendored `mixbox.glsl`/`mixbox_lut.png` must stay
-  byte-identical to upstream.
+  byte-identical to upstream commit
+  `a1bdb75a668f638ba066aa74bfd32809ed7fef45`. Their SHA-256 values are
+  `1ca60762c730405f8df18ef08ea0501d43606a67a6d309a610a077c8781cfce4`
+  and `b13d7532033d96d963c7e3a854ba2b4e98b8a44d324456386e9b34e0615552be`.
 - The app has **no permissions**. Keep it that way; adding any is a
   product decision requiring an ADR.
 - App display name lives ONLY in `strings.xml` (`app_name`). Never

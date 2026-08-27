@@ -58,4 +58,5 @@ Natural color mixing is [Mixbox](https://github.com/scrtwpns/mixbox)
 © 2022 Secret Weapons, licensed **CC BY-NC 4.0 — non-commercial use only**
 (`third-party/mixbox/`). Because Mixbox ships inside the app, 帮你Draw as
 distributed is non-commercial; the reasoning and the way out are recorded in
-`docs/decisions/0003-mixbox-non-commercial.md`.
+`docs/decisions/0003-mixbox-non-commercial.md`. Build without it with
+`-Pbangnidraw.mixbox=false`.

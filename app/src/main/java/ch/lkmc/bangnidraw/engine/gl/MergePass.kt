@@ -4,6 +4,7 @@ import android.opengl.GLES30
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.PoolExhausted
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
+import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.TileKey
 
 /**
@@ -31,6 +32,8 @@ class MergePass(
     private val state: GlState,
     private val pool: TilePool,
     private val quad: FullRectQuad,
+    private val mixProgram: GlProgram? = null,
+    private val mixboxLut: Int = 0,
 ) {
 
     private val fbo = GlFbo()
@@ -75,13 +78,20 @@ class MergePass(
         buffer.keys(keys)
         if (keys.isEmpty()) return 0
 
-        state.useProgram(program)
-        program.uniform1i("u_strokeMode", spec.mode.ordinal)
-        program.uniform1f("u_strokeOpacity", spec.opacity)
-        program.uniform1f("u_dilution", spec.dilution)
-        program.uniform1i("u_alphaLock", if (spec.alphaLock) 1 else 0)
-        program.uniform1i("u_layerPage", LAYER_UNIT)
-        program.uniform1i("u_strokePage", STROKE_UNIT)
+        val usesPigment = spec.mode == StrokeMode.MIX && mixProgram != null && mixboxLut != 0
+        val activeProgram = if (usesPigment) checkNotNull(mixProgram) else program
+        state.useProgram(activeProgram)
+        activeProgram.uniform1i("u_strokeMode", spec.mode.ordinal)
+        activeProgram.uniform1f("u_strokeOpacity", spec.opacity)
+        activeProgram.uniform1f("u_dilution", spec.dilution)
+        activeProgram.uniform1i("u_alphaLock", if (spec.alphaLock) 1 else 0)
+        activeProgram.uniform1i("u_layerPage", LAYER_UNIT)
+        activeProgram.uniform1i("u_strokePage", STROKE_UNIT)
+        if (usesPigment) {
+            activeProgram.uniform1i("mixbox_lut", MIXBOX_LUT_UNIT)
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + MIXBOX_LUT_UNIT)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, mixboxLut)
+        }
         // The merge writes a finished pixel; the shader has already done the
         // compositing. Hardware blending on top of it would composite twice.
         state.blendOff()
@@ -121,8 +131,8 @@ class MergePass(
 
             bindPage(LAYER_UNIT, layer.pageTexture(layerSlice.page))
             bindPage(STROKE_UNIT, buffer.pageTexture(strokeSlice.page))
-            program.uniform1f("u_layerSlice", layerSlice.slice.toFloat())
-            program.uniform1f("u_strokeSlice", strokeSlice.slice.toFloat())
+            activeProgram.uniform1f("u_layerSlice", layerSlice.slice.toFloat())
+            activeProgram.uniform1f("u_strokeSlice", strokeSlice.slice.toFloat())
             quad.draw(TILE_SIZE.toFloat(), TILE_SIZE.toFloat())
 
             // The layer adopts the scratch and frees what it held. `swap` does

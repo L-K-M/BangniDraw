@@ -461,10 +461,9 @@ object Shaders {
      * Substituted textually rather than through a GLSL `#include`, which ES 3.0
      * has no preprocessor support for.
      *
-     * `MIXLERP` is the compile-time mixing variant of §7.4. Only the plain
-     * `mix` form is built today: decision 5 selects `RgbMixer`, which §7.4 says
-     * "means the plain variant always", and the pigment form needs the Mixbox
-     * LUT that `09-color-and-mixing.md` §5 owns and this PR does not ship.
+     * `MIXLERP` is the compile-time mixing variant of §7.4. [mergeMix] and
+     * [previewMix] replace the plain define with the licensed shader and LUT
+     * sampler; plain strokes keep this source and pay no LUT cost.
      *
      * **One deviation from the document's own skeleton, following its table.**
      * §7.4's table says of ERASE "(alpha-lock: the eraser is a no-op on locked
@@ -750,7 +749,39 @@ object Shaders {
         ),
     )
 
+    /** Builds the pigment merge variant from the verbatim vendored source. */
+    fun mergeMix(vendoredGlsl: String): Source = mixingSource(MERGE, vendoredGlsl)
+
+    /** Builds the pigment live-preview variant from the same source. */
+    fun previewMix(vendoredGlsl: String): Source = mixingSource(PREVIEW, vendoredGlsl)
+
+    private fun mixingSource(plain: Source, vendoredGlsl: String): Source {
+        require(vendoredGlsl.startsWith(MIXBOX_HEADER)) { "Mixbox license header is missing" }
+        require(PLAIN_MIX_DEFINE in plain.fragment) { "${plain.name} has no plain mixing seam" }
+
+        val preamble = listOf(
+            MIXING_DEFINE,
+            PIGMENT_MIX_DEFINE,
+            MIXBOX_LUT_DECLARATION,
+            vendoredGlsl,
+        ).joinToString("\n")
+
+        return plain.copy(
+            name = "${plain.name}-mix",
+            fragment = plain.fragment.replaceFirst(PLAIN_MIX_DEFINE, preamble),
+            uniforms = plain.uniforms + Uniform(MIXBOX_LUT_UNIFORM, "sampler2D"),
+        )
+    }
+
     val ALL: List<Source> = listOf(COMPOSITE, PRESENT, CHECKER, DAB, MERGE, TILE_COMPOSITE, PREVIEW)
+
+    private const val PLAIN_MIX_DEFINE = "#define MIXLERP mix"
+    private const val MIXING_DEFINE = "#define BANGNI_MIXING 1"
+    private const val PIGMENT_MIX_DEFINE = "#define MIXLERP mixbox_lerp"
+    private const val MIXBOX_LUT_UNIFORM = "mixbox_lut"
+    private const val MIXBOX_LUT_DECLARATION = "uniform sampler2D $MIXBOX_LUT_UNIFORM;"
+    private const val MIXBOX_HEADER = "// ==========================================================\n" +
+        "//  MIXBOX 2.0 (c) 2022 Secret Weapons. All rights reserved.\n"
 
     /**
      * The `switch` body of `blendStraight`, built from [BlendMode] so the two

@@ -235,7 +235,15 @@ fun StudioScreen(
         AlertDialog(
             onDismissRequest = { showAbout = false },
             title = { Text(stringResource(R.string.about_title, BuildConfig.VERSION_NAME)) },
-            text = { Text(stringResource(R.string.about_body)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.about_body))
+                    if (BuildConfig.MIXBOX) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(stringResource(R.string.about_mixbox))
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = { showAbout = false }) {
                     Text(stringResource(R.string.about_close))

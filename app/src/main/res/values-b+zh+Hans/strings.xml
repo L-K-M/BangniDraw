@@ -164,6 +164,7 @@
     <string name="err_layers_unreadable">这张画的一些图层无法读取。</string>
     <string name="err_storage_full">存储空间已满——请清理空间以继续保存。</string>
 
-    <string name="about_body">帮你Draw 帮你画画：一款简单、快速的手机和平板速写与绘画应用，为 S Pen 而生。完全离线——不需要任何权限，不联网，除了你保存到相册的画，什么都不会离开你的设备。\n\n几乎完全由 LLM 智能体开发。公有领域（Unlicense）。\n\n自然混色由 Mixbox 提供，© 2022 Secret Weapons（Šárka Sochorová 与 Ondřej Jamriška），许可证 CC BY-NC 4.0——仅限非商业用途。</string>
+    <string name="about_body">帮你Draw 帮你画画：一款简单、快速的手机和平板速写与绘画应用，为 S Pen 而生。完全离线——不需要任何权限，不联网，除了你保存到相册的画，什么都不会离开你的设备。\n\n几乎完全由 LLM 智能体开发。公有领域（Unlicense）。</string>
+    <string name="about_mixbox">MIXBOX 2.0 (c) 2022 Secret Weapons. All rights reserved. License: Creative Commons Attribution-NonCommercial 4.0. Authors: Sarka Sochorova and Ondrej Jamriska. https://creativecommons.org/licenses/by-nc/4.0/。未经修改，用于颜料式混色。因此，本应用的发行版本仅限非商业用途。</string>
     <string name="about_close">关闭</string>
 </resources>

@@ -189,9 +189,9 @@
     <string name="err_layers_unreadable">Some layers of this painting could not be read.</string>
     <string name="err_storage_full">Storage full — free up space to keep saving.</string>
 
-    <!-- About. The Mixbox line is a license obligation (ADR 0003): the
-         library is in the APK from the first build, so the notice is too. -->
+    <!-- About. The Mixbox notice is shown only when BuildConfig.MIXBOX. -->
     <string name="about_title" translatable="false">帮你Draw %1$s</string>
-    <string name="about_body">帮你Draw helps you draw: a simple, fast sketching and painting app for phones and tablets, made for the S Pen. Fully offline — no permissions, no network, nothing leaves your device except the paintings you keep in your gallery.\n\nBuilt almost entirely by LLM agents. Public domain (Unlicense).\n\nNatural color mixing by Mixbox © 2022 Secret Weapons (Šárka Sochorová and Ondřej Jamriška), licensed CC BY-NC 4.0 — non-commercial use only.</string>
+    <string name="about_body">帮你Draw helps you draw: a simple, fast sketching and painting app for phones and tablets, made for the S Pen. Fully offline — no permissions, no network, nothing leaves your device except the paintings you keep in your gallery.\n\nBuilt almost entirely by LLM agents. Public domain (Unlicense).</string>
+    <string name="about_mixbox">MIXBOX 2.0 (c) 2022 Secret Weapons. All rights reserved. License: Creative Commons Attribution-NonCommercial 4.0. Authors: Sarka Sochorova and Ondrej Jamriska. https://creativecommons.org/licenses/by-nc/4.0/. Unmodified; used for pigment-style color mixing. This makes the app non-commercial as distributed.</string>
     <string name="about_close">Close</string>
 </resources>

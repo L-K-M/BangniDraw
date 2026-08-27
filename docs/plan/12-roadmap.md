@@ -758,7 +758,17 @@ hand-computed, global mode).
 the fill runs on `Dispatchers.Default` with a progress indicator and is
 cancellable; the tiles land atomically as one journal entry.
 
-### Step 9 — Adaptive UI polish (M)
+### Step 9 — Adaptive UI polish (M, **landed on main** — commits `097d96c..28183eb`, 2026-08-27, direct push)
+
+**Landed.** One pure layout policy drives the adaptive Studio grid, full,
+grouped and short rails, compact dock, slider ledges, handed panels and their
+clear-zone geometry. Canvas chrome owns focus, deferred dialogs, the first-run
+hint, immersive bars, gesture exclusion, hover, haptics, accessibility
+semantics, export actions and DeX shortcuts. Viewport rebasing preserves the
+centred source point through window changes. **Phone, Tab S, Fold, fold/unfold,
+multi-window, rotation, 200 % font, Accessibility Scanner, TalkBack and
+reduced-motion device checks have not been run — no device has ever been
+available.**
 
 **Goal.** One app that is roomy on a tablet and usable one-handed on a
 phone, chosen by window size class.

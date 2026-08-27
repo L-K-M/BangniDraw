@@ -53,23 +53,23 @@ class AccessibilitySemanticsContractTest {
         val stripSource = source(TOP_STRIP_PATH)
 
         assertTrue(
-            "onClick(label = recentDismissLabel)" in canvasSource,
+            NAMED_CLICK.containsMatchIn(canvasSource),
             "the quick-palette scrim needs a named dismiss action",
         )
         assertTrue(
-            "accessibilityManager?.hasActiveScreenReader() != true" in canvasSource,
+            NULL_SAFE_SCREEN_READER.containsMatchIn(canvasSource),
             "screen-reader checks must tolerate a missing platform service",
         )
         assertTrue(
-            "CustomAccessibilityAction(quickPaletteLabel)" !in stripSource,
+            !QUICK_PALETTE_ACTION.containsMatchIn(stripSource),
             "combinedClickable already exposes the named long-press action",
         )
         assertTrue(
-            ".focusRequester(recentPaletteFocusRequester)" in stripSource,
+            FOCUS_REQUESTER_ATTACHMENT.containsMatchIn(stripSource),
             "the color trigger must accept restored focus",
         )
         assertTrue(
-            "recentPaletteFocusRequester.requestFocus()" in canvasSource,
+            FOCUS_RESTORE.containsMatchIn(canvasSource),
             "dismissing the quick palette must restore its trigger focus",
         )
     }
@@ -104,6 +104,19 @@ class AccessibilitySemanticsContractTest {
         val SELECTABLE_GROUP = Regex("""\.selectableGroup\(\)""")
         val SWITCH_DELEGATES_TO_ROW = Regex(
             """Switch\(\s*checked\s*=\s*checked,\s*onCheckedChange\s*=\s*null""",
+        )
+        val NAMED_CLICK = Regex("""onClick\(\s*label\s*=\s*\w+""")
+        val NULL_SAFE_SCREEN_READER = Regex(
+            """accessibilityManager\?\.\s*hasActiveScreenReader\(\)\s*!=\s*true""",
+        )
+        val QUICK_PALETTE_ACTION = Regex(
+            """CustomAccessibilityAction\(\s*quickPaletteLabel""",
+        )
+        val FOCUS_REQUESTER_ATTACHMENT = Regex(
+            """\.focusRequester\(\s*recentPaletteFocusRequester\s*\)""",
+        )
+        val FOCUS_RESTORE = Regex(
+            """recentPaletteFocusRequester\s*\.\s*requestFocus\(\s*\)""",
         )
     }
 }

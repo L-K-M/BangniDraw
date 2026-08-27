@@ -30,7 +30,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -44,6 +44,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -63,11 +64,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.data.ImageEncode
 import ch.lkmc.bangnidraw.data.GalleryExportOutcome
 import ch.lkmc.bangnidraw.engine.core.Hand
+import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.WidthClass
 
@@ -85,12 +86,20 @@ import ch.lkmc.bangnidraw.engine.core.WidthClass
 @Composable
 fun StudioScreen(
     onOpenPainting: (String) -> Unit,
+    openSettings: Boolean = false,
+    onSettingsOpened: () -> Unit = {},
     viewModel: StudioViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    var showAbout by rememberSaveable { mutableStateOf(false) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
     var showNewCanvas by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+
+    LaunchedEffect(openSettings) {
+        if (!openSettings) return@LaunchedEffect
+        showSettings = true
+        onSettingsOpened()
+    }
 
     // Re-list on every return to the foreground of this screen — coming back
     // from the Canvas is the case that matters: its leave checkpoint has
@@ -137,10 +146,10 @@ fun StudioScreen(
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = { showAbout = true }) {
+                IconButton(onClick = { showSettings = true }) {
                     Icon(
-                        Icons.Outlined.Info,
-                        contentDescription = stringResource(R.string.studio_about),
+                        Icons.Outlined.Settings,
+                        contentDescription = stringResource(R.string.studio_settings),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -199,6 +208,7 @@ fun StudioScreen(
                     items(state.paintings, key = { it.id }) { painting ->
                         PaintingCell(
                             painting = painting,
+                            hapticsMode = state.hapticsMode,
                             onOpen = { onOpenPainting(painting.id) },
                             onRename = { title -> viewModel.rename(painting.id, title) },
                             onDuplicate = { viewModel.duplicate(painting.id) },
@@ -252,24 +262,20 @@ fun StudioScreen(
         )
     }
 
-    if (showAbout) {
-        AlertDialog(
-            onDismissRequest = { showAbout = false },
-            title = { Text(stringResource(R.string.about_title, BuildConfig.VERSION_NAME)) },
-            text = {
-                Column {
-                    Text(stringResource(R.string.about_body))
-                    if (BuildConfig.MIXBOX) {
-                        Spacer(Modifier.height(12.dp))
-                        Text(stringResource(R.string.about_mixbox))
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAbout = false }) {
-                    Text(stringResource(R.string.about_close))
-                }
-            },
+    if (showSettings) {
+        SettingsSheet(
+            state = state,
+            historyMaxSteps = viewModel.budget.historyMaxSteps,
+            historyMaxBytes = viewModel.budget.historyMaxBytes,
+            onHandedness = viewModel::setHandedness,
+            onTouchDrawingMode = viewModel::setTouchDrawingMode,
+            onPenButtonAction = viewModel::setPenButtonAction,
+            onPressurePreference = viewModel::setPressurePreference,
+            onHapticsMode = viewModel::setHapticsMode,
+            onGallerySync = viewModel::setGallerySync,
+            onMixerChoice = viewModel::setMixerChoice,
+            onDebugLatency = viewModel::setDebugLatency,
+            onDismiss = { showSettings = false },
         )
     }
 }
@@ -312,6 +318,7 @@ private fun NewPaintingCell(onClick: () -> Unit) {
 @Composable
 private fun PaintingCell(
     painting: StudioViewModel.Painting,
+    hapticsMode: HapticsMode,
     onOpen: () -> Unit,
     onRename: (String) -> Unit,
     onDuplicate: () -> Unit,
@@ -343,7 +350,9 @@ private fun PaintingCell(
                 .combinedClickable(
                     onClick = onOpen,
                     onLongClick = {
-                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        if (hapticsMode == HapticsMode.ENABLED) {
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        }
                         menuOpen = true
                     },
                 ),

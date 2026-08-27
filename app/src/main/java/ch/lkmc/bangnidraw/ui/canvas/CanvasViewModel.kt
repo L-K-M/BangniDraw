@@ -94,6 +94,7 @@ import ch.lkmc.bangnidraw.engine.core.StackEdit
 import ch.lkmc.bangnidraw.engine.core.StackResult
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
 import ch.lkmc.bangnidraw.engine.core.PointerTool
+import ch.lkmc.bangnidraw.engine.core.PressurePreference
 import ch.lkmc.bangnidraw.engine.core.ReadbackDrainResult
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
@@ -213,6 +214,8 @@ class CanvasViewModel @Inject constructor(
             val handedness: Hand,
             val touchDrawingMode: TouchDrawingMode,
             val hapticsMode: HapticsMode,
+            val pressurePreference: PressurePreference,
+            val debugLatency: Boolean,
             val layerCap: Int,
             val strokeInFlight: Boolean = false,
             val documentBusy: Boolean = false,
@@ -243,6 +246,8 @@ class CanvasViewModel @Inject constructor(
     private var handedness = Hand.RIGHT
     private var touchDrawingMode = TouchDrawingMode.ENABLED
     private var hapticsMode = HapticsMode.ENABLED
+    private var pressurePreference = PressurePreference.LINEAR
+    private var debugLatency = false
     private var chrome = CanvasChromeState()
     private var brushColor = OPAQUE_BLACK
     private var previousBrushColor = OPAQUE_BLACK
@@ -404,6 +409,18 @@ class CanvasViewModel @Inject constructor(
         viewModelScope.launch {
             prefs.hapticsMode.collect { mode ->
                 hapticsMode = mode
+                updateChromeUi()
+            }
+        }
+        viewModelScope.launch {
+            prefs.pressurePreference.collect { preference ->
+                pressurePreference = preference
+                updateChromeUi()
+            }
+        }
+        viewModelScope.launch {
+            prefs.debugLatency.collect { enabled ->
+                debugLatency = enabled
                 updateChromeUi()
             }
         }
@@ -589,6 +606,8 @@ class CanvasViewModel @Inject constructor(
             handedness = handedness,
             touchDrawingMode = touchDrawingMode,
             hapticsMode = hapticsMode,
+            pressurePreference = pressurePreference,
+            debugLatency = debugLatency,
             layerCap = layerCap,
             strokeInFlight = actionGate.strokeInFlight,
             documentBusy = actionGate.busy,
@@ -625,6 +644,8 @@ class CanvasViewModel @Inject constructor(
             handedness = handedness,
             touchDrawingMode = touchDrawingMode,
             hapticsMode = hapticsMode,
+            pressurePreference = pressurePreference,
+            debugLatency = debugLatency,
         )
     }
 

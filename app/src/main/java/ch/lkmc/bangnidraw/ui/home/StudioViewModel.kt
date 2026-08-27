@@ -15,9 +15,15 @@ import ch.lkmc.bangnidraw.data.ShareCache
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Document
 import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
+import ch.lkmc.bangnidraw.engine.core.Hand
+import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
+import ch.lkmc.bangnidraw.engine.core.MixerChoice
+import ch.lkmc.bangnidraw.engine.core.PenButtonAction
+import ch.lkmc.bangnidraw.engine.core.PressurePreference
+import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
 import ch.lkmc.bangnidraw.ui.canvas.readDeviceMemory
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -31,6 +37,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -53,7 +60,7 @@ class StudioViewModel @Inject constructor(
 
     private var staleSyncJob: Job? = null
 
-    data class Painting(
+    internal data class Painting(
         val id: String,
         val title: String,
         val updatedAtMillis: Long,
@@ -62,7 +69,7 @@ class StudioViewModel @Inject constructor(
         val galleryUri: String?,
     )
 
-    data class UiState(
+    internal data class UiState(
         /** Newest first. */
         val paintings: List<Painting> = emptyList(),
         /** Sum of the project folders — 08 §2's "the only question that justifies deleting". */
@@ -70,41 +77,125 @@ class StudioViewModel @Inject constructor(
         val freeBytes: Long = 0L,
         /** False until the first listing lands, so "empty" is never a flash of a lie. */
         val loaded: Boolean = false,
+        val handedness: Hand = Hand.RIGHT,
+        val touchDrawingMode: TouchDrawingMode = TouchDrawingMode.ENABLED,
+        val penButtonAction: PenButtonAction = PenButtonAction.Eraser,
+        val pressurePreference: PressurePreference = PressurePreference.LINEAR,
+        val hapticsMode: HapticsMode = HapticsMode.ENABLED,
+        val gallerySync: Boolean = true,
+        val mixerChoice: MixerChoice = MixerChoice.PIGMENT,
+        val debugLatency: Boolean = false,
     )
 
     private val _uiState = MutableStateFlow(UiState())
-    val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+    internal val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     /**
      * The device budget the New Canvas dialog annotates its rows with. The
      * reference canvas only seeds the computation; the per-row layer counts
      * come from `MemoryBudget.maxLayersFor` per size (08 §2.1).
      */
-    val budget: MemoryBudget.Result by lazy {
+    internal val budget: MemoryBudget.Result by lazy {
         MemoryBudget.compute(readDeviceMemory(context), CanvasSize(2048, 2048))
+    }
+
+    init {
+        collectPreferences()
+    }
+
+    private fun collectPreferences() {
+        viewModelScope.launch {
+            prefs.handedness.collect { value -> _uiState.update { it.copy(handedness = value) } }
+        }
+        viewModelScope.launch {
+            prefs.touchDrawingMode.collect { value ->
+                _uiState.update { it.copy(touchDrawingMode = value) }
+            }
+        }
+        viewModelScope.launch {
+            prefs.penButtonAction.collect { value ->
+                _uiState.update { it.copy(penButtonAction = value) }
+            }
+        }
+        viewModelScope.launch {
+            prefs.pressurePreference.collect { value ->
+                _uiState.update { it.copy(pressurePreference = value) }
+            }
+        }
+        viewModelScope.launch {
+            prefs.hapticsMode.collect { value -> _uiState.update { it.copy(hapticsMode = value) } }
+        }
+        viewModelScope.launch {
+            prefs.gallerySync.collect { value -> _uiState.update { it.copy(gallerySync = value) } }
+        }
+        viewModelScope.launch {
+            prefs.mixerChoice.collect { value -> _uiState.update { it.copy(mixerChoice = value) } }
+        }
+        viewModelScope.launch {
+            prefs.debugLatency.collect { value -> _uiState.update { it.copy(debugLatency = value) } }
+        }
     }
 
     /** Re-lists the shelf — on first show and every return from the Canvas. */
     fun refresh() {
         viewModelScope.launch(Dispatchers.IO) {
             val listed = store.list()
-            _uiState.value = UiState(
-                paintings = listed.map {
-                    Painting(
-                        id = it.id,
-                        title = it.title,
-                        updatedAtMillis = it.updatedAt,
-                        thumbnail = it.thumbnail,
-                        bytes = it.bytes,
-                        galleryUri = it.galleryUri,
-                    )
-                },
-                totalBytes = listed.sumOf { it.bytes },
-                freeBytes = store.freeBytes(),
-                loaded = true,
-            )
+            _uiState.update { current ->
+                current.copy(
+                    paintings = listed.map {
+                        Painting(
+                            id = it.id,
+                            title = it.title,
+                            updatedAtMillis = it.updatedAt,
+                            thumbnail = it.thumbnail,
+                            bytes = it.bytes,
+                            galleryUri = it.galleryUri,
+                        )
+                    },
+                    totalBytes = listed.sumOf { it.bytes },
+                    freeBytes = store.freeBytes(),
+                    loaded = true,
+                )
+            }
             syncStale(listed)
         }
+    }
+
+    internal fun setHandedness(value: Hand) {
+        viewModelScope.launch { prefs.setHandedness(value) }
+    }
+
+    internal fun setTouchDrawingMode(value: TouchDrawingMode) {
+        viewModelScope.launch { prefs.setTouchDrawingMode(value) }
+    }
+
+    internal fun setPenButtonAction(value: PenButtonAction) {
+        viewModelScope.launch { prefs.setPenButtonAction(value) }
+    }
+
+    internal fun setPressurePreference(value: PressurePreference) {
+        viewModelScope.launch { prefs.setPressurePreference(value) }
+    }
+
+    internal fun setHapticsMode(value: HapticsMode) {
+        viewModelScope.launch { prefs.setHapticsMode(value) }
+    }
+
+    internal fun setGallerySync(value: Boolean) {
+        if (!value) staleSyncJob?.cancel()
+
+        viewModelScope.launch {
+            prefs.setGallerySync(value)
+            if (value) refresh()
+        }
+    }
+
+    internal fun setMixerChoice(value: MixerChoice) {
+        viewModelScope.launch { prefs.setMixerChoice(value) }
+    }
+
+    internal fun setDebugLatency(value: Boolean) {
+        viewModelScope.launch { prefs.setDebugLatency(value) }
     }
 
     /**

@@ -95,6 +95,7 @@ import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.HintVisibility
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
+import ch.lkmc.bangnidraw.engine.core.PressureCurve
 import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
 import ch.lkmc.bangnidraw.engine.core.ShortcutContext
@@ -130,7 +131,11 @@ import kotlinx.coroutines.launch
  * landed, so the Studio never lists a shelf the write has not reached.
  */
 @Composable
-fun CanvasScreen(onBack: () -> Unit, viewModel: CanvasViewModel = hiltViewModel()) {
+fun CanvasScreen(
+    onBack: () -> Unit,
+    onSettings: () -> Unit = onBack,
+    viewModel: CanvasViewModel = hiltViewModel(),
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val leave = { viewModel.leave(onBack) }
     BackHandler { viewModel.handleBack(onBack) }
@@ -173,6 +178,7 @@ fun CanvasScreen(onBack: () -> Unit, viewModel: CanvasViewModel = hiltViewModel(
             state = current,
             viewModel = viewModel,
             onLeave = leave,
+            onSettings = { viewModel.leave(onSettings) },
         )
     }
 }
@@ -182,6 +188,7 @@ private fun CanvasContent(
     state: CanvasViewModel.UiState.Ready,
     viewModel: CanvasViewModel,
     onLeave: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     var view by rememberSaveable(stateSaver = VIEW_TRANSFORM_SAVER) {
         mutableStateOf(ViewTransform())
@@ -552,9 +559,10 @@ private fun CanvasContent(
     // Keyed on the handler, not Unit: a recreated handler starts from an
     // identity transform, and without re-seeding its first gesture would
     // measure from the wrong baseline and jump.
-    LaunchedEffect(touch, state.touchDrawingMode) {
+    LaunchedEffect(touch, state.touchDrawingMode, state.pressurePreference) {
         touch.setView(view)
         touch.stylusOnly = state.touchDrawingMode == TouchDrawingMode.STYLUS_ONLY
+        touch.pressureCurve = PressureCurve.of(preference = state.pressurePreference)
     }
 
     val shortcutContext = if (
@@ -800,11 +808,10 @@ private fun CanvasContent(
             // button and the reset pill stay on top of it and reachable — the
             // overlay fills the box and would otherwise swallow their taps.
             //
-            // `Prefs.debugLatency` is what 07 §8 and the roadmap call this
-            // switch; no `Prefs` exists until step 3c, so the gate is
-            // BuildConfig.DEBUG, the same one the session already takes.
+            // The preference is developer-facing, and release builds never
+            // carry the overlay even if a restored DataStore says it is on.
             val engine = session
-            if (BuildConfig.DEBUG && engine != null) {
+            if (BuildConfig.DEBUG && state.debugLatency && engine != null) {
                 DebugOverlay(
                     perf = engine.perf,
                     prediction = touch.prediction,
@@ -909,7 +916,7 @@ private fun CanvasContent(
                 },
                 onFocus = viewModel::toggleFocus,
                 onRename = viewModel::requestRename,
-                onSettings = null,
+                onSettings = onSettings,
                 )
             }
 

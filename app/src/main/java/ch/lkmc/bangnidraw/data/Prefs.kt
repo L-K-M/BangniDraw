@@ -17,6 +17,7 @@ import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
 import ch.lkmc.bangnidraw.engine.core.PigmentAvailability
+import ch.lkmc.bangnidraw.engine.core.PressurePreference
 import ch.lkmc.bangnidraw.engine.core.StoredColors
 import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -85,6 +86,13 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
 
     internal suspend fun setHapticsMode(mode: HapticsMode) {
         dataStore.edit { it[KEY_HAPTICS] = mode.name }
+    }
+
+    internal val pressurePreference: Flow<PressurePreference> =
+        dataStore.data.map { PressurePreference.fromStored(it[KEY_PRESSURE_PREFERENCE]) }
+
+    internal suspend fun setPressurePreference(preference: PressurePreference) {
+        dataStore.edit { it[KEY_PRESSURE_PREFERENCE] = preference.name }
     }
 
     val hintShown: Flow<Boolean> =
@@ -193,6 +201,7 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         val KEY_HANDEDNESS = stringPreferencesKey("handedness")
         val KEY_TOUCH_DRAWING = stringPreferencesKey("touchDrawing")
         val KEY_HAPTICS = stringPreferencesKey("haptics")
+        val KEY_PRESSURE_PREFERENCE = stringPreferencesKey("pressurePreference")
         val KEY_HINT_SHOWN = booleanPreferencesKey("hintShown")
         val KEY_DEBUG_LATENCY = booleanPreferencesKey("debugLatency")
         val KEY_PEN_BUTTON_ACTION = stringPreferencesKey("penButtonAction")

@@ -4,6 +4,9 @@ import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.PointerTool
+import ch.lkmc.bangnidraw.engine.core.PressureCalibration
+import ch.lkmc.bangnidraw.engine.core.PressureCurve
+import ch.lkmc.bangnidraw.engine.core.PressurePreference
 import ch.lkmc.bangnidraw.engine.core.RotationSnap
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
@@ -160,6 +163,26 @@ class CanvasTouchHandlerTest {
         assertEquals(listOf("begin(STYLUS)"), host.events, "a palm must produce nothing at all")
         h.handleUp(9, ms(300))
         assertTrue("end" in host.events)
+    }
+
+    @Test
+    fun `stylus pressure uses the selected preference but finger pressure stays full`() {
+        val host = Host()
+        val h = handler(host)
+        val curve = PressureCurve.of(
+            PressureCalibration.NONE,
+            PressurePreference.SOFTER,
+        )
+        h.pressureCurve = curve
+
+        h.handleDown(9, PointerTool.STYLUS, 50f, 50f, ms(0), pressure = 0.25f)
+        assertEquals(curve.apply(0.25f), host.lastPressure, 1e-6f)
+        h.handleUp(9, ms(20))
+
+        val fingerDownMs = StylusState.HOVER_GRACE_MS + 40L
+        h.handleDown(1, PointerTool.FINGER, 50f, 50f, ms(fingerDownMs), pressure = 0.25f)
+        h.handleTick(ms(fingerDownMs + GestureArbiter.PENDING_MS))
+        assertEquals(1f, host.lastPressure, "finger drawing ignores capacitive pressure")
     }
 
     @Test
@@ -527,7 +550,10 @@ class CanvasTouchHandlerTest {
             host.samples.none { it.first > 300f },
             "the superseded palm must not emit samples: ${host.samples}",
         )
-        assertEquals(0.75f, host.lastPressure, 1e-6f, "the sample must carry the PEN's pressure, not the palm's")
+        assertEquals(
+            PressureCurve.of().apply(0.75f), host.lastPressure, 1e-6f,
+            "the sample must carry the normalized PEN pressure, not the palm's",
+        )
         assertEquals(0.4f, host.lastTilt, 1e-6f, "and the pen's tilt")
         assertEquals(0.6f, host.lastOrientation, 1e-6f, "and the pen's orientation")
     }
@@ -622,8 +648,8 @@ class CanvasTouchHandlerTest {
         assertTrue("begin(FINGER)" in host.events, "the pending window must resolve into a stroke: ${host.events}")
         assertEquals(1, host.samples.size, "opening the stroke must emit exactly one sample")
         assertEquals(
-            0.8f, host.lastPressure, 1e-6f,
-            "the opening sample must carry the DRAWING finger's pressure, not the palm's",
+            1f, host.lastPressure, 1e-6f,
+            "finger drawing must ignore capacitive pressure",
         )
         assertEquals(0.25f, host.lastTilt, 1e-6f, "and the drawing finger's tilt")
         assertEquals(0.55f, host.lastOrientation, 1e-6f, "and the drawing finger's orientation")

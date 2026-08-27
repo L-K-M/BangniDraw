@@ -10,6 +10,7 @@
     <string name="studio_empty">No paintings yet.</string>
     <string name="studio_empty_hint">Tap + to start one. Everything you draw is saved as you go.</string>
     <string name="studio_about">About</string>
+    <string name="studio_settings">Settings</string>
     <!-- The word new paintings are titled with: "Sketch N", the number from
          Prefs.nextSketchNumber (06 §10). Also the display fallback for a
          painting whose stored title is empty. -->
@@ -47,6 +48,7 @@
     <string name="canvas_preset_too_large">Too large for this device</string>
     <string name="canvas_width">Width</string>
     <string name="canvas_height">Height</string>
+    <string name="dimension_separator" translatable="false"> × </string>
     <string name="size_too_small">Each side needs at least %1$d px</string>
     <string name="size_too_large_format">The format tops out at %1$d px per side</string>
     <string name="size_too_many_tiles">Too many tiles — make one side smaller</string>
@@ -245,11 +247,46 @@
          key names are the ones 02-architecture.md §9 assigns). -->
     <string name="err_tiles_unreadable">Some parts of this painting could not be read.</string>
     <string name="err_layers_unreadable">Some layers of this painting could not be read.</string>
-    <string name="err_storage_full">Storage full — free up space to keep saving.</string>
+    <string name="err_storage_full">Storage full — free up space to keep your work.</string>
 
-    <!-- About. The Mixbox notice is shown only when BuildConfig.MIXBOX. -->
+    <!-- Settings/About. Mixbox rows are shown only when BuildConfig.MIXBOX. -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_drawing">Drawing</string>
+    <string name="settings_handedness">Drawing hand</string>
+    <string name="settings_hand_right">Right</string>
+    <string name="settings_hand_left">Left</string>
+    <string name="settings_stylus_only">Stylus-only drawing</string>
+    <string name="settings_stylus_only_help">Fingers still move, zoom, and rotate the canvas.</string>
+    <string name="settings_pen_button">S Pen button</string>
+    <string name="settings_pen_button_eraser">Eraser</string>
+    <string name="settings_pen_button_eyedropper">Eyedropper</string>
+    <string name="settings_pen_button_none">No action</string>
+    <string name="settings_pressure">Pressure</string>
+    <string name="settings_pressure_softer">Softer</string>
+    <string name="settings_pressure_linear">Linear</string>
+    <string name="settings_pressure_harder">Harder</string>
+    <string name="settings_feedback">Feedback</string>
+    <string name="settings_haptics">Haptics</string>
+    <string name="settings_storage">Storage</string>
+    <string name="settings_gallery_sync">Gallery copies</string>
+    <string name="settings_gallery_sync_help">Keep a copy of every painting in the gallery (Pictures/帮你Draw).</string>
+    <string name="settings_undo_limit">Undo history</string>
+    <string name="settings_undo_limit_value">Up to %1$d steps · %2$d MB</string>
+    <string name="settings_color">Color</string>
+    <string name="settings_mixer">Color mixing</string>
+    <string name="settings_mixer_pigment">Pigment (Mixbox)</string>
+    <string name="settings_mixer_rgb">RGB</string>
+    <string name="settings_mixbox_license">Mixbox is CC BY-NC 4.0; this build is non-commercial.</string>
+    <string name="settings_accessibility_help">TalkBack announces the controls, but explore-by-touch intercepts drawing on the canvas.</string>
+    <string name="settings_debug">Debug</string>
+    <string name="settings_latency_overlay">Latency overlay</string>
+    <string name="settings_about">About and licenses</string>
+    <string name="settings_close">Close settings</string>
     <string name="about_title" translatable="false">帮你Draw %1$s</string>
-    <string name="about_body">帮你Draw helps you draw: a simple, fast sketching and painting app for phones and tablets, made for the S Pen. Fully offline — no permissions, no network, nothing leaves your device except the paintings you keep in your gallery.\n\nBuilt almost entirely by LLM agents. Public domain (Unlicense).</string>
+    <string name="about_body">帮你Draw helps you draw: a simple, fast sketching and painting app for phones and tablets, made for the S Pen. Fully offline — no permissions or network access. Paintings leave only when you share them or keep gallery copies.\n\nBuilt almost entirely by LLM agents. Public domain (Unlicense).</string>
+    <string name="about_autosave">Autosave runs after %1$d quiet seconds and never waits longer than %2$d seconds.</string>
+    <string name="about_uninstall">Uninstalling removes paintings and undo history from the app. Gallery copies remain.</string>
     <string name="about_mixbox">MIXBOX 2.0 (c) 2022 Secret Weapons. All rights reserved. License: Creative Commons Attribution-NonCommercial 4.0. Authors: Sarka Sochorova and Ondrej Jamriska. https://creativecommons.org/licenses/by-nc/4.0/. Unmodified; used for pigment-style color mixing. This makes the app non-commercial as distributed.</string>
+    <string name="about_mixbox_license">Open CC BY-NC 4.0 license</string>
     <string name="about_close">Close</string>
 </resources>

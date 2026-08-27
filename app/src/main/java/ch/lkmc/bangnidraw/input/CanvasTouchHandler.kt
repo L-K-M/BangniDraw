@@ -14,6 +14,7 @@ import ch.lkmc.bangnidraw.engine.core.LatencyTrace
 import ch.lkmc.bangnidraw.engine.core.NavigationStep
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PredictionGate
+import ch.lkmc.bangnidraw.engine.core.PressureCurve
 import ch.lkmc.bangnidraw.engine.core.RotationSnap
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
@@ -120,6 +121,9 @@ class CanvasTouchHandler(
         get() = arbiter.stylusOnly
         set(value) { arbiter.stylusOnly = value }
 
+    /** Device pressure normalization selected in Settings. */
+    var pressureCurve: PressureCurve = PressureCurve.of()
+
     /**
      * `Prefs.snapRightAngles` (§7). Off by default.
      *
@@ -200,6 +204,7 @@ class CanvasTouchHandler(
             navigating = false
             strokeLive = true
             drawingId = pointerId
+            drawingSource = source
             startPredicting(source)
             host.onStrokeBegin(pointerId, source)
             // The down that opened the stroke is a sample too. Without it a tap
@@ -220,6 +225,7 @@ class CanvasTouchHandler(
             if (!strokeLive) return
             strokeLive = false
             drawingId = NO_POINTER
+            drawingSource = null
             stopPredicting()
             host.onStrokeCancel()
         }
@@ -231,6 +237,7 @@ class CanvasTouchHandler(
         override fun onStrokeEnd(pointerId: Int) {
             strokeLive = false
             drawingId = NO_POINTER
+            drawingSource = null
             stopPredicting()
             host.onStrokeEnd(pointerId)
         }
@@ -361,7 +368,7 @@ class CanvasTouchHandler(
         host.onStrokeSample(
             canvasX(x, y),
             canvasY(x, y),
-            pressure,
+            pressureFor(drawingSource, pressure),
             tilt,
             canvasOrientation(orientation),
             timeNs,
@@ -414,6 +421,14 @@ class CanvasTouchHandler(
 
     /** Which pointer the arbiter said is drawing, or [NO_POINTER]. */
     private var drawingId = NO_POINTER
+
+    /** Source is fixed from pen-down to pen-up. */
+    private var drawingSource: StrokeSource? = null
+
+    private fun pressureFor(source: StrokeSource?, raw: Float): Float = when (source) {
+        StrokeSource.STYLUS, StrokeSource.ERASER_END -> pressureCurve.apply(raw)
+        StrokeSource.FINGER, StrokeSource.MOUSE, null -> 1f
+    }
 
     /** Applies one navigation step from every pointer's position in this event. */
     internal fun handleMoveEnd(timeNs: Long) {
@@ -804,7 +819,10 @@ class CanvasTouchHandler(
         sample.set(
             x = canvasX(windowX, windowY),
             y = canvasY(windowX, windowY),
-            pressure = if (current) e.getPressure(pointer) else e.getHistoricalPressure(pointer, history),
+            pressure = pressureFor(
+                predictedSource,
+                if (current) e.getPressure(pointer) else e.getHistoricalPressure(pointer, history),
+            ),
             tilt = if (current) {
                 e.getAxisValue(MotionEvent.AXIS_TILT, pointer)
             } else {

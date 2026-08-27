@@ -10,6 +10,7 @@ class UserPreferencesTest {
         assertEquals(Hand.RIGHT, Hand.fromStored("ambidextrous"))
         assertEquals(TouchDrawingMode.ENABLED, TouchDrawingMode.fromStored("sometimes"))
         assertEquals(HapticsMode.ENABLED, HapticsMode.fromStored("maybe"))
+        assertEquals(PressurePreference.LINEAR, PressurePreference.fromStored("curved"))
     }
 
     @Test
@@ -20,6 +21,9 @@ class UserPreferencesTest {
         }
         for (mode in HapticsMode.entries) {
             assertEquals(mode, HapticsMode.fromStored(mode.name))
+        }
+        for (preference in PressurePreference.entries) {
+            assertEquals(preference, PressurePreference.fromStored(preference.name))
         }
     }
 }

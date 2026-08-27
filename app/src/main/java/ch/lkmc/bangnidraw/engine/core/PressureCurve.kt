@@ -12,6 +12,12 @@ enum class PressurePreference(val gamma: Float) {
     SOFTER(0.7f),
     LINEAR(1f),
     HARDER(1.4f),
+    ;
+
+    companion object {
+        fun fromStored(value: String?): PressurePreference =
+            entries.firstOrNull { it.name == value } ?: LINEAR
+    }
 }
 
 /**

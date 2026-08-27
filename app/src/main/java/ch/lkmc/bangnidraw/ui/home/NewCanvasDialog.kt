@@ -124,7 +124,10 @@ fun NewCanvasDialog(
                         modifier = Modifier.width(96.dp),
                         enabled = isCustom,
                     )
-                    Text(" × ", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        stringResource(R.string.dimension_separator),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                     OutlinedTextField(
                         value = customH,
                         onValueChange = { customH = it.filter(Char::isDigit).take(5) },

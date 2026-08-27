@@ -217,6 +217,17 @@ entries below.
 
 ## Declined, with reasons
 
+- **R-093 ⏸️ Tick the settings-open tap on the rail's smudge/blur/eyedropper
+  slots.** (PR #24 round 3.) The new "tap an already-active RMW tool to open
+  its settings" path skips the haptic tick that `switch()` gives tool
+  *changes*. Declined: the established settings-open gesture — the brush
+  slot's `if (active) onSettingsRequested()` — deliberately does not tick
+  either, and `08-ui-and-layout.md` §5.1's haptic list (tool switch, drag
+  reorder, rotation snap, reset arrival, slider detents, hue detents,
+  long-press menus) does not include settings-open. Ticking only the three
+  new slots would make them inconsistent with the brush slot; ticking all
+  four is a change to a shipped interaction the plan does not call for.
+
 - **R-010 ⏸️ (third raising, first on PR #9) "`assertIs` does not smart-cast,
   so `kind.preset` no longer resolves and the test source set fails to
   compile."** Refuted, and this raising is the easiest of the three to settle

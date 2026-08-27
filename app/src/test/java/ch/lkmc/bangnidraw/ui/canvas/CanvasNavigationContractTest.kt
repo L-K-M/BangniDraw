@@ -40,7 +40,12 @@ class CanvasNavigationContractTest {
         if (end <= start) fail("missing $CLOSING_SCRIM after closing effect")
 
         val effect = screen.substring(start, end)
-        assertTrue(effect.indexOf(CLEAR_FOCUS) in 0 until effect.indexOf(SCRIM_DELAY))
+        val closingBranch = effect.indexOf(CLOSING_EARLY_RETURN)
+        if (closingBranch < 0) fail("missing closing early return")
+
+        assertTrue(
+            effect.indexOf(CLEAR_FOCUS) in closingBranch + 1 until effect.indexOf(SCRIM_DELAY),
+        )
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
@@ -69,6 +74,7 @@ class CanvasNavigationContractTest {
         const val NOTE_LEAVE_FAILURE = "private fun noteLeaveFailure()"
         const val CLOSING_EFFECT = "LaunchedEffect(state.closing)"
         const val CLOSING_SCRIM = "if (closingScrim)"
+        const val CLOSING_EARLY_RETURN = "return@LaunchedEffect"
         const val CLEAR_FOCUS = "focusManager.clearFocus()"
         const val SCRIM_DELAY = "delay(CLOSING_SCRIM_DELAY_MS)"
         val HANDLE_BACK = Regex("""viewModel\.handleBack\(onBack\)""")

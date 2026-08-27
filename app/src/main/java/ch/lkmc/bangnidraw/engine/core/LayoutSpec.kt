@@ -1,5 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
+import kotlin.math.ceil
+
 /** Android window width classes without an Android or Compose dependency. */
 internal enum class WidthClass {
     COMPACT,
@@ -73,6 +75,14 @@ internal data class LayoutRect(
     }
 }
 
+/** Edge space a panel must leave for persistent canvas chrome. */
+internal data class PanelInsets(
+    val leftDp: Int,
+    val topDp: Int,
+    val rightDp: Int,
+    val bottomDp: Int,
+)
+
 /**
  * Pure adaptive-layout decision table from `docs/plan/08-ui-and-layout.md` §1.
  *
@@ -128,6 +138,50 @@ internal data class LayoutSpec(
         }
 
         return chrome
+    }
+
+    /** Keeps panels outside the strip, rail, dock, and slider ledge. */
+    fun panelInsets(windowWidthDp: Int, windowHeightDp: Int): PanelInsets {
+        require(windowWidthDp >= 0 && windowHeightDp >= 0) {
+            "window dimensions must not be negative"
+        }
+
+        val width = windowWidthDp.toFloat()
+        val height = windowHeightDp.toFloat()
+        val chrome = persistentChrome(windowWidthDp, windowHeightDp)
+        val top = chrome.asSequence()
+            .filter { it.top == 0f && it.left == 0f && it.right == width }
+            .maxOfOrNull(LayoutRect::bottom)
+            ?: 0f
+        val sideWidth = chrome.asSequence()
+            .filter { it.top <= top && it.bottom == height }
+            .filter {
+                if (panelSide == Hand.LEFT) it.left == 0f && it.right < width
+                else it.right == width && it.left > 0f
+            }
+            .maxOfOrNull { it.right - it.left }
+            ?: 0f
+        val sideGap = if (panelMode == PanelMode.FLOATING && sideWidth > 0f) {
+            FLOATING_PANEL_GAP_DP.toFloat()
+        } else {
+            0f
+        }
+        val left = if (panelSide == Hand.LEFT) sideWidth + sideGap else 0f
+        val right = if (panelSide == Hand.RIGHT) sideWidth + sideGap else 0f
+        val laneLeft = left
+        val laneRight = width - right
+        val lowerChromeTop = chrome.asSequence()
+            .filter { it.bottom > top }
+            .filter { it.left < laneRight && it.right > laneLeft }
+            .minOfOrNull(LayoutRect::top)
+        val bottom = lowerChromeTop?.let { height - it } ?: 0f
+
+        return PanelInsets(
+            leftDp = ceil(left).toInt(),
+            topDp = ceil(top).toInt(),
+            rightDp = ceil(right).toInt(),
+            bottomDp = ceil(bottom).toInt(),
+        )
     }
 
     private fun addDockChrome(
@@ -246,6 +300,7 @@ internal data class LayoutSpec(
         const val COMPACT_GRID_CELL_DP = 150
         const val MEDIUM_GRID_CELL_DP = 180
         const val EXPANDED_GRID_CELL_DP = 220
+        const val FLOATING_PANEL_GAP_DP = 8
 
         private const val SHORT_MIN_DP = 288
         private const val MEDIUM_GROUPED_MIN_DP = 461

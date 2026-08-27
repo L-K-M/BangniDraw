@@ -143,6 +143,65 @@ class LayoutSpecTest {
         )
     }
 
+    @Test
+    fun `panel lane clears persistent chrome in every rail mode`() {
+        val windows = listOf(
+            Window(WidthClass.COMPACT, 360, 800),
+            Window(WidthClass.MEDIUM, 700, 400),
+            Window(WidthClass.MEDIUM, 700, 600),
+            Window(WidthClass.EXPANDED, 1200, 900),
+        )
+
+        for (window in windows) {
+            for (hand in Hand.entries) {
+                val railHeight = window.height - LayoutSpec.TOP_STRIP_DP
+                val spec = LayoutSpec.forWindow(window.widthClass, railHeight, hand)
+                val insets = spec.panelInsets(window.width, window.height)
+                val panel = panelRect(spec, window, insets)
+
+                for (chrome in spec.persistentChrome(window.width, window.height)) {
+                    assertFalse(
+                        panel.intersects(chrome),
+                        "$panel intersects $chrome for $window, $hand, and ${spec.railMode}",
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `panel insets reserve the dock ledge and short ledge`() {
+        val dock = LayoutSpec.forWindow(WidthClass.COMPACT, 752, Hand.RIGHT)
+            .panelInsets(windowWidthDp = 360, windowHeightDp = 800)
+        val short = LayoutSpec.forWindow(WidthClass.MEDIUM, 352, Hand.RIGHT)
+            .panelInsets(windowWidthDp = 700, windowHeightDp = 400)
+
+        assertEquals(LayoutSpec.TOP_STRIP_DP, dock.topDp)
+        assertEquals(DOCK_AND_LEDGE_DP, dock.bottomDp)
+        assertEquals(SHORT_LEDGE_DP, short.bottomDp)
+        assertEquals(LayoutSpec.MIN_TARGET_DP + RAIL_EXTRA_DP, short.rightDp)
+    }
+
+    private fun panelRect(
+        spec: LayoutSpec,
+        window: Window,
+        insets: PanelInsets,
+    ): LayoutRect {
+        val availableWidth = window.width - insets.leftDp - insets.rightDp
+        val width = minOf(PANEL_TEST_WIDTH_DP, availableWidth).toFloat()
+        val left = if (spec.panelSide == Hand.LEFT) {
+            insets.leftDp.toFloat()
+        } else {
+            window.width - insets.rightDp - width
+        }
+        return LayoutRect(
+            left = left,
+            top = insets.topDp.toFloat(),
+            right = left + width,
+            bottom = (window.height - insets.bottomDp).toFloat(),
+        )
+    }
+
     private fun assertMode(width: WidthClass, height: Int, expected: RailMode) {
         assertEquals(expected, LayoutSpec.forWindow(width, height, Hand.RIGHT).railMode)
     }
@@ -159,5 +218,9 @@ class LayoutSpecTest {
         const val RAIL_HORIZONTAL_PADDING_DP = 4
         const val MIN_SLIDER_RAIL_WIDTH_DP =
             SLIDER_COUNT * SLIDER_TOUCH_SLAB_DP + 2 * RAIL_HORIZONTAL_PADDING_DP
+        const val PANEL_TEST_WIDTH_DP = 300
+        const val DOCK_AND_LEDGE_DP = 112
+        const val SHORT_LEDGE_DP = 48
+        const val RAIL_EXTRA_DP = 8
     }
 }

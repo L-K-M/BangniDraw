@@ -8,8 +8,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.PanelMode
+import kotlin.math.roundToInt
 
 internal enum class PanelVisibility { HIDDEN, VISIBLE }
 
@@ -31,6 +32,7 @@ internal enum class PanelVisibility { HIDDEN, VISIBLE }
 internal fun BoxScope.PanelHost(
     layout: LayoutSpec,
     windowWidth: Dp,
+    windowHeight: Dp,
     visibility: PanelVisibility,
     announcement: String,
     modifier: Modifier = Modifier,
@@ -46,22 +48,20 @@ internal fun BoxScope.PanelHost(
         PanelMode.SIDE_SHEET -> PANEL_SIDE_WIDTH
         PanelMode.FLOATING -> PANEL_MAX_WIDTH
     }
-    val railGap = if (layout.panelMode == PanelMode.FLOATING) {
-        (layout.railWidthDp + FLOATING_GAP_DP).dp
-    } else {
-        0.dp
-    }
-    val sidePadding = if (onRight) {
-        Modifier.padding(end = railGap)
-    } else {
-        Modifier.padding(start = railGap)
-    }
+    val insets = layout.panelInsets(
+        windowWidthDp = windowWidth.value.roundToInt(),
+        windowHeightDp = windowHeight.value.roundToInt(),
+    )
+    val chromePadding = Modifier.absolutePadding(
+        left = insets.leftDp.dp,
+        top = insets.topDp.dp,
+        right = insets.rightDp.dp,
+        bottom = insets.bottomDp.dp,
+    )
     val height = if (layout.panelMode == PanelMode.FLOATING) {
         Modifier.fillMaxHeight(FLOATING_HEIGHT_FRACTION)
     } else {
-        Modifier
-            .fillMaxHeight()
-            .padding(top = TOP_STRIP_HEIGHT)
+        Modifier.fillMaxHeight()
     }
     val direction = if (onRight) 1 else -1
     val animationMs = if (ValueAnimator.areAnimatorsEnabled()) PANEL_ANIMATION_MS else 0
@@ -78,7 +78,7 @@ internal fun BoxScope.PanelHost(
         ) + fadeOut(tween(animationMs)),
         modifier = modifier
             .align(alignment)
-            .then(sidePadding)
+            .then(chromePadding)
             .then(height)
             .width(panelWidth)
             .semantics {
@@ -92,8 +92,6 @@ internal fun BoxScope.PanelHost(
 
 private val PANEL_SIDE_WIDTH = 300.dp
 private val PANEL_MAX_WIDTH = 320.dp
-private val TOP_STRIP_HEIGHT = 48.dp
-private const val FLOATING_GAP_DP = 8
 private const val PANEL_ANIMATION_MS = 220
 private const val COMPACT_WIDTH_FRACTION = 0.85f
 private const val FLOATING_HEIGHT_FRACTION = 0.9f

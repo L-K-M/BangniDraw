@@ -122,6 +122,8 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - Android caps each edge's system-gesture exclusion to 200 dp vertically.
   Canvas centres that segment beside the side rail; dock mode excludes
   nothing so the bottom system gesture remains available.
+- Canvas panels use `LayoutSpec.panelInsets`, derived from `persistentChrome`.
+  Do not duplicate rail, dock, ledge, or strip padding in Compose.
 - An `AlertDialog` owns a smaller, separate window. Capture activity-window
   dimensions in its caller before applying screen-fit defaults; do not read
   `LocalWindowInfo` from inside the dialog.

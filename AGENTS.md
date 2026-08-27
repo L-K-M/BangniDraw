@@ -143,6 +143,11 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - Third-party assets (brush grains, sample art, fonts) must be public
   domain / CC0 with provenance recorded in this file when added. Currently
   none besides Mixbox.
+- Marker and eraser rail glyphs are repo-owned `ImageVector` silhouettes.
+  Material's `Highlight` adds attention rays and `DeleteSweep` depicts a trash
+  can, so neither communicates these local drawing tools. Preset glyph roles
+  resolve from the stored `BrushPreset.icon` key in `engine/core`; eraser mode
+  always wins, and unknown keys use the settings glyph.
 - Proposals for post-v1 features live in `docs/proposals/` as numbered
   pre-decision docs (same Status/Date header as ADRs); an accepted proposal
   graduates into `docs/plan/12-roadmap.md`, a declined one stays with its

@@ -99,7 +99,7 @@ class PerfStats {
      * Clears the peaks and the frame count.
      *
      * **Called on the GL thread**, from `CanvasRenderer.beginStroke` — which
-     * `EngineSession.beginStroke` queues through `frontBuffered.execute`, like
+     * `EngineSession.beginStroke` queues through the shared `GLRenderer`, like
      * every other command it sends the renderer. So this is the same thread
      * that runs [frame] and writes `commitMs`, and the read-modify-write on the
      * peaks needs nothing beyond the `@Volatile` that publishes it to the

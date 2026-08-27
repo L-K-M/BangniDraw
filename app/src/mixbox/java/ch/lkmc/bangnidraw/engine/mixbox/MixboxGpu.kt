@@ -48,28 +48,45 @@ object MixboxLut {
         pixels.rewind()
 
         val names = IntArray(1)
-        GLES30.glGenTextures(1, names, 0)
+        val allocationError = GlErrors.checkAllocation("Mixbox LUT") {
+            GLES30.glGenTextures(1, names, 0)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, names[0])
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_MIN_FILTER,
+                GLES30.GL_LINEAR,
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_MAG_FILTER,
+                GLES30.GL_LINEAR,
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_WRAP_S,
+                GLES30.GL_CLAMP_TO_EDGE,
+            )
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_WRAP_T,
+                GLES30.GL_CLAMP_TO_EDGE,
+            )
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAX_LEVEL, 0)
+            GLES30.glTexImage2D(
+                GLES30.GL_TEXTURE_2D,
+                0,
+                GLES30.GL_RGBA8,
+                LUT_EDGE,
+                LUT_EDGE,
+                0,
+                GLES30.GL_RGBA,
+                GLES30.GL_UNSIGNED_BYTE,
+                pixels,
+            )
+        }
         val texture = names[0]
         require(texture != 0) { "Mixbox LUT texture allocation returned 0" }
-
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAX_LEVEL, 0)
-        GLES30.glTexImage2D(
-            GLES30.GL_TEXTURE_2D,
-            0,
-            GLES30.GL_RGBA8,
-            LUT_EDGE,
-            LUT_EDGE,
-            0,
-            GLES30.GL_RGBA,
-            GLES30.GL_UNSIGNED_BYTE,
-            pixels,
-        )
-        if (GlErrors.checkAllocation("Mixbox LUT") == GLES30.GL_NO_ERROR) return texture
+        if (allocationError == GLES30.GL_NO_ERROR) return texture
 
         GLES30.glDeleteTextures(1, names, 0)
         error("Mixbox LUT upload failed")

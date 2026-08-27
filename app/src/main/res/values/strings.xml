@@ -16,7 +16,10 @@
          painting whose stored title is empty. -->
     <string name="studio_untitled">Sketch</string>
     <!-- {count} paintings · {bytes} on device · {free} free (08 §2). -->
-    <string name="studio_storage">%1$d paintings · %2$s on device · %3$s free</string>
+    <plurals name="studio_storage">
+        <item quantity="one">%1$d painting · %2$s on device · %3$s free</item>
+        <item quantity="other">%1$d paintings · %2$s on device · %3$s free</item>
+    </plurals>
     <string name="studio_open">Open</string>
     <string name="studio_rename">Rename</string>
     <string name="studio_duplicate">Duplicate</string>
@@ -44,10 +47,14 @@
     <string name="canvas_preset_tablet">Tablet</string>
     <string name="canvas_preset_large">Large 4096</string>
     <string name="canvas_preset_custom">Custom</string>
-    <string name="canvas_preset_fits">fits %1$d layers</string>
+    <plurals name="canvas_preset_fits">
+        <item quantity="one">fits %1$d layer</item>
+        <item quantity="other">fits %1$d layers</item>
+    </plurals>
     <string name="canvas_preset_too_large">Too large for this device</string>
     <string name="canvas_width">Width</string>
     <string name="canvas_height">Height</string>
+    <string name="canvas_dimensions" translatable="false">%1$d × %2$d</string>
     <string name="dimension_separator" translatable="false"> × </string>
     <string name="size_too_small">Each side needs at least %1$d px</string>
     <string name="size_too_large_format">The format tops out at %1$d px per side</string>
@@ -61,6 +68,7 @@
     <string name="paper_gray">Gray paper</string>
     <string name="paper_black">Black paper</string>
     <string name="paper_transparent">Transparent paper</string>
+    <string name="paper_transparent_symbol" translatable="false">∅</string>
 
     <!-- Canvas -->
     <string name="canvas_back">Back to the Studio</string>
@@ -70,9 +78,17 @@
     <string name="panel_color_opened">Color panel opened</string>
     <string name="panel_brush_opened">Brush settings opened</string>
     <string name="panel_fill_opened">Fill settings opened</string>
+    <string name="panel_smudge_opened">Smudge settings opened</string>
+    <string name="panel_blur_opened">Blur settings opened</string>
+    <string name="panel_eyedropper_opened">Eyedropper settings opened</string>
     <string name="canvas_undo">Undo</string>
     <string name="canvas_redo">Redo</string>
     <string name="canvas_more">More actions</string>
+    <plurals name="canvas_history_readout">
+        <item quantity="one">Undo history: %1$d step · %2$s of %3$s</item>
+        <item quantity="other">Undo history: %1$d steps · %2$s of %3$s</item>
+    </plurals>
+    <string name="cd_unavailable">Unavailable</string>
     <string name="canvas_export_png">Export PNG</string>
     <string name="canvas_export_jpeg">Export JPEG</string>
     <string name="canvas_focus">Focus mode</string>
@@ -175,6 +191,7 @@
     <string name="brush_jitter_position">Position jitter</string>
     <string name="brush_stabilizer">Stabilizer</string>
     <string name="brush_group_paint">Paint</string>
+    <string name="brush_group_mixing">Mixing</string>
     <string name="brush_pigment">Pigment mixing</string>
     <string name="brush_dilution">Dilution</string>
     <string name="brush_grain">Paper grain</string>
@@ -182,6 +199,12 @@
     <string name="brush_buffer_max">Capped</string>
     <string name="brush_buffer_accumulate">Builds up</string>
     <string name="brush_reset">Reset to preset</string>
+    <string name="smudge_strength">Strength</string>
+    <string name="smudge_pickup">Pickup</string>
+    <string name="smudge_pressure_strength">Pressure → strength</string>
+    <string name="blur_radius">Radius</string>
+    <string name="eyedropper_sample">Sample</string>
+    <string name="eyedropper_radius">Sample radius</string>
     <string name="brush_value_px">%1$.1f px</string>
     <string name="brush_value_percent">%1$.0f%%</string>
     <string name="brush_value_number">%1$.2f</string>
@@ -204,6 +227,10 @@
     <string name="layer_more">Layer actions</string>
     <string name="layer_panel_more">Layer panel actions</string>
     <string name="layer_drag">Reorder layer</string>
+    <string name="layer_move_up">Move up</string>
+    <string name="layer_move_down">Move down</string>
+    <string name="layer_move_top">Move to top</string>
+    <string name="layer_move_bottom">Move to bottom</string>
     <string name="layer_show">Show layer</string>
     <string name="layer_hide">Hide layer</string>
     <string name="layer_opacity">Layer opacity</string>
@@ -224,9 +251,15 @@
     <string name="layer_rename_hint">Layer name</string>
     <string name="layer_merge_title">Merge these layers?</string>
     <string name="layer_merge_body">Their blend modes will be baked into a Normal layer.</string>
-    <string name="layer_flatten_title">Flatten %1$d layers?</string>
+    <plurals name="layer_flatten_title">
+        <item quantity="one">Flatten %1$d layer?</item>
+        <item quantity="other">Flatten %1$d layers?</item>
+    </plurals>
     <string name="layer_flatten_body">Hidden layers are discarded. You can undo this.</string>
-    <string name="layer_limit">This %1$d×%2$d canvas allows %3$d layers on this device. Merge or delete a layer to add one.</string>
+    <plurals name="layer_limit">
+        <item quantity="one">This %1$d×%2$d canvas allows %3$d layer on this device. Delete it to add another.</item>
+        <item quantity="other">This %1$d×%2$d canvas allows %3$d layers on this device. Merge or delete a layer to add one.</item>
+    </plurals>
     <string name="layer_only">Can’t delete the only layer — clear it instead.</string>
     <string name="layer_locked">Layer is locked.</string>
     <string name="layer_hidden">Layer is hidden. Your stroke is still added.</string>

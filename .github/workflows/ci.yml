@@ -52,3 +52,7 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      # The stripped source set and its R8 graph differ from the default APK.
+      - name: Assemble release without Mixbox
+        run: ./gradlew -Pbangnidraw.mixbox=false assembleRelease

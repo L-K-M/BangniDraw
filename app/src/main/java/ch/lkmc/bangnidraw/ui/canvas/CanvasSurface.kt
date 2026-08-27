@@ -51,6 +51,8 @@ internal fun CanvasSurface(
     canvasDescription: String,
     undoLabel: String,
     redoLabel: String,
+    undoAvailability: ActionAvailability,
+    redoAvailability: ActionAvailability,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     gestureExclusionSide: Hand?,
@@ -76,18 +78,22 @@ internal fun CanvasSurface(
     val appliedPaperColor = remember { arrayOfNulls<Int>(1) }
     val appliedView = remember { arrayOfNulls<ViewTransform>(1) }
     val density = context.resources.displayMetrics.density
+    val historyActions = availableCanvasHistoryActions(undoAvailability, redoAvailability)
     val accessibility = Modifier.semantics {
         contentDescription = canvasDescription
-        customActions = listOf(
-            CustomAccessibilityAction(undoLabel) {
-                onUndo()
-                true
-            },
-            CustomAccessibilityAction(redoLabel) {
-                onRedo()
-                true
-            },
-        )
+        customActions = historyActions.map { action ->
+            when (action) {
+                CanvasHistoryAction.UNDO -> CustomAccessibilityAction(undoLabel) {
+                    onUndo()
+                    true
+                }
+
+                CanvasHistoryAction.REDO -> CustomAccessibilityAction(redoLabel) {
+                    onRedo()
+                    true
+                }
+            }
+        }
     }
 
     // `key(canvas)` because the session takes its CanvasSize and its budget at

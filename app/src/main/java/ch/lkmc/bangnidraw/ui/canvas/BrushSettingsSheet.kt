@@ -51,6 +51,7 @@ import ch.lkmc.bangnidraw.engine.core.BrushSizeScale
 import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.Curve
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
+import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.TiltEffect
 import ch.lkmc.bangnidraw.engine.core.TipOrientation
@@ -67,6 +68,7 @@ internal fun BrushSettingsSheet(
     brushColor: Int,
     paperColor: Int,
     hapticsMode: HapticsMode,
+    mixerChoice: MixerChoice,
     onPresetSelected: (String) -> Unit,
     onPresetChanged: (BrushPreset) -> Unit,
     onPresetPersisted: () -> Unit,
@@ -411,7 +413,9 @@ internal fun BrushSettingsSheet(
                     onPresetPersisted()
                 },
             )
-            if (!active.eraseMode) {
+            // RGB ignores these stored values; retaining them restores the
+            // brush's pigment tuning when the user switches back.
+            if (BrushSettingsPolicy.showsPigmentControls(active, mixerChoice)) {
                 ToggleRow(
                     label = stringResource(R.string.brush_pigment),
                     value = if (active.mixing) ToggleValue.On else ToggleValue.Off,
@@ -457,7 +461,7 @@ internal fun BrushSettingsSheet(
 }
 
 @Composable
-private fun SettingsGroup(title: String) {
+internal fun SettingsGroup(title: String) {
     Spacer(Modifier.height(GROUP_GAP))
     HorizontalDivider()
     Text(
@@ -468,7 +472,7 @@ private fun SettingsGroup(title: String) {
 }
 
 @Composable
-private fun ChoiceLabel(label: String) {
+internal fun ChoiceLabel(label: String) {
     Text(
         text = label,
         style = MaterialTheme.typography.labelLarge,
@@ -477,13 +481,14 @@ private fun ChoiceLabel(label: String) {
 }
 
 @Composable
-private fun SettingSlider(
+internal fun SettingSlider(
     label: String,
     value: Float,
     valueText: String,
     range: ClosedFloatingPointRange<Float>,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
+    steps: Int = 0,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -496,6 +501,7 @@ private fun SettingSlider(
         value = value.coerceIn(range.start, range.endInclusive),
         onValueChange = onValueChange,
         valueRange = range,
+        steps = steps,
         onValueChangeFinished = onValueChangeFinished,
         modifier = Modifier
             .fillMaxWidth()
@@ -504,7 +510,7 @@ private fun SettingSlider(
 }
 
 @Composable
-private fun ToggleRow(label: String, value: ToggleValue, onChanged: (ToggleValue) -> Unit) {
+internal fun ToggleRow(label: String, value: ToggleValue, onChanged: (ToggleValue) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
@@ -521,7 +527,7 @@ private fun ToggleRow(label: String, value: ToggleValue, onChanged: (ToggleValue
 }
 
 @Composable
-private fun CurveEditor(
+internal fun CurveEditor(
     title: String,
     curve: Curve,
     onChanged: (Curve) -> Unit,
@@ -599,7 +605,7 @@ private fun BufferChip(
     )
 }
 
-private enum class ToggleValue {
+internal enum class ToggleValue {
     Off,
     On,
     ;

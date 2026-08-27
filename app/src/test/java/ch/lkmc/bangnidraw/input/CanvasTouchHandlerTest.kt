@@ -67,6 +67,7 @@ class CanvasTouchHandlerTest {
         }
         override fun onStrokeEnd(pointerId: Int) { events += "end" }
         override fun onStrokeCancel() { events += "cancel" }
+        override fun onNavigateActive(active: Boolean) { events += if (active) "nav+" else "nav-" }
     }
 
     private fun ms(v: Long) = v * 1_000_000L
@@ -104,6 +105,37 @@ class CanvasTouchHandlerTest {
         h.handleMoveEnd(ms(30))
         assertTrue(host.events.contains("view"), "a two-finger drag must move the view")
         assertTrue(host.view.tx > 0f, "panning right must move the view right: ${host.view}")
+    }
+
+    @Test
+    fun `navigation activity reaches the host`() {
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        h.handleDown(2, PointerTool.FINGER, 300f, 100f, ms(10))
+        h.handleMove(1, 150f, 100f, ms(30))
+        h.handleMove(2, 350f, 100f, ms(30))
+        h.handleMoveEnd(ms(30))
+        assertTrue(host.events.contains("nav+"), "entering navigation must tell the host: ${host.events}")
+
+        h.handleUp(1, ms(40))
+        h.handleUp(2, ms(41))
+        assertTrue(host.events.contains("nav-"), "leaving navigation must tell the host: ${host.events}")
+    }
+
+    @Test
+    fun `a cancelled navigation still reports its end`() {
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        h.handleDown(2, PointerTool.FINGER, 300f, 100f, ms(10))
+        h.handleMove(1, 150f, 100f, ms(30))
+        h.handleMove(2, 350f, 100f, ms(30))
+        h.handleMoveEnd(ms(30))
+        host.events.clear()
+
+        h.handleCancel(ms(50))
+        assertTrue(host.events.contains("nav-"), "cancel must end navigation for the host: ${host.events}")
     }
 
     @Test
@@ -213,8 +245,13 @@ class CanvasTouchHandlerTest {
         h.handleDown(2, PointerTool.FINGER, 300f, 100f, ms(10))
         h.handleUp(1, ms(80))
         h.handleUp(2, ms(90))
+        // The tap legitimately passes through Navigate (the second finger
+        // enters it, the lifts end it), so the host's navigation readout sees
+        // one full transition before the tap resolves to undo — the interface
+        // promises exactly once per transition, and the UI hides the readout
+        // for blips this short.
         assertEquals(
-            listOf("undo"),
+            listOf("nav+", "nav-", "undo"),
             host.events,
             "a tap must not tell the host to roll back a stroke that never began",
         )

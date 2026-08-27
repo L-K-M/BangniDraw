@@ -6,8 +6,8 @@ import android.text.format.DateUtils
 import android.text.format.Formatter
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,10 +54,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,6 +77,7 @@ import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.WidthClass
+import kotlin.math.ceil
 
 /**
  * The Studio: the shelf of paintings, newest first, and the way to start a
@@ -94,6 +101,7 @@ fun StudioScreen(
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showNewCanvas by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val screenSizePx = LocalWindowInfo.current.containerSize
 
     LaunchedEffect(openSettings) {
         if (!openSettings) return@LaunchedEffect
@@ -158,8 +166,9 @@ fun StudioScreen(
                 // 08 §2's readout: it answers the only question that ever
                 // justifies deleting.
                 Text(
-                    text = stringResource(
-                        R.string.studio_storage,
+                    text = pluralStringResource(
+                        R.plurals.studio_storage,
+                        state.paintings.size,
                         state.paintings.size,
                         Formatter.formatShortFileSize(context, state.totalBytes),
                         Formatter.formatShortFileSize(context, state.freeBytes),
@@ -190,6 +199,7 @@ fun StudioScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 8.dp),
                         )
                     }
                 }
@@ -203,6 +213,36 @@ fun StudioScreen(
                     if (!compact) {
                         item(key = NEW_PAINTING_KEY) {
                             NewPaintingCell { showNewCanvas = true }
+                        }
+                        // 08 §2's empty state is for every width; on
+                        // medium/expanded it sits above the + tile (the grid
+                        // never drops the way in).
+                        if (state.loaded && state.paintings.isEmpty()) {
+                            item(key = EMPTY_PAINTING_KEY, span = { GridItemSpan(maxLineSpan) }) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 48.dp),
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.studio_empty),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center,
+                                    )
+                                    Text(
+                                        // The one place the app explains
+                                        // autosave: the Canvas will never
+                                        // prompt (08 §2).
+                                        text = stringResource(R.string.studio_empty_hint),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(top = 8.dp),
+                                    )
+                                }
+                            }
                         }
                     }
                     items(state.paintings, key = { it.id }) { painting ->
@@ -254,6 +294,7 @@ fun StudioScreen(
     if (showNewCanvas) {
         NewCanvasDialog(
             budget = viewModel.budget,
+            screenSizePx = screenSizePx,
             onDismiss = { showNewCanvas = false },
             onCreate = { size, paper ->
                 showNewCanvas = false
@@ -332,41 +373,42 @@ private fun PaintingCell(
     var sharing by remember { mutableStateOf(false) }
     val view = LocalView.current
     val title = painting.title.ifEmpty { stringResource(R.string.studio_untitled) }
+    val cellShape = RoundedCornerShape(CELL_RADIUS_DP.dp)
 
-    Column {
+    Column(
+        modifier = Modifier.combinedClickable(
+            onClick = onOpen,
+            onLongClick = {
+                if (hapticsMode == HapticsMode.ENABLED) {
+                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                }
+                menuOpen = true
+            },
+        ),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(PAINTING_ASPECT)
+                .clip(cellShape)
                 .border(
                     1.dp,
                     MaterialTheme.colorScheme.outlineVariant,
-                    RoundedCornerShape(CELL_RADIUS_DP.dp),
-                )
-                .background(
-                    MaterialTheme.colorScheme.surface,
-                    RoundedCornerShape(CELL_RADIUS_DP.dp),
-                )
-                .combinedClickable(
-                    onClick = onOpen,
-                    onLongClick = {
-                        if (hapticsMode == HapticsMode.ENABLED) {
-                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                        }
-                        menuOpen = true
-                    },
+                    cellShape,
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            // Decoded off the main thread, keyed by the file: a checkpoint
-            // rewrites thumb.png in place, but the shelf re-lists (and this
-            // recomposes) on every resume, so the stale-bitmap window is one
-            // screen visit at most.
-            val thumbFile = painting.thumbnail
-            val bitmap by produceState<android.graphics.Bitmap?>(null, thumbFile) {
-                value = thumbFile?.let { file ->
+            ThumbnailCheckerboard()
+
+            // Checkpoints rewrite thumb.png in place, so path alone is stale.
+            val thumbKey = StudioThumbnailKey(
+                path = painting.thumbnail?.path,
+                revision = painting.updatedAtMillis,
+            )
+            val bitmap by produceState<android.graphics.Bitmap?>(null, thumbKey) {
+                value = thumbKey.path?.let { path ->
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        BitmapFactory.decodeFile(file.path)
+                        BitmapFactory.decodeFile(path)
                     }
                 }
             }
@@ -374,7 +416,7 @@ private fun PaintingCell(
             if (decoded != null) {
                 Image(
                     bitmap = decoded.asImageBitmap(),
-                    contentDescription = title,
+                    contentDescription = null,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -524,6 +566,33 @@ private fun PaintingCell(
     }
 }
 
+@Composable
+private fun ThumbnailCheckerboard() {
+    val checkerA = MaterialTheme.colorScheme.surface
+    val checkerB = MaterialTheme.colorScheme.surfaceVariant
+
+    Canvas(Modifier.fillMaxSize()) {
+        drawRect(checkerA)
+        if (size.width <= 0f) return@Canvas
+
+        val cell = size.width / THUMBNAIL_CHECKER_COLUMNS
+        val rows = ceil(size.height / cell).toInt()
+        for (y in 0 until rows) {
+            for (x in 0 until THUMBNAIL_CHECKER_COLUMNS) {
+                if ((x + y) % 2 == 0) continue
+
+                drawRect(
+                    color = checkerB,
+                    topLeft = Offset(x * cell, y * cell),
+                    size = Size(cell, cell),
+                )
+            }
+        }
+    }
+}
+
 private const val NEW_PAINTING_KEY = "new-painting"
+private const val EMPTY_PAINTING_KEY = "empty-state"
+private const val THUMBNAIL_CHECKER_COLUMNS = 12
 private const val PAINTING_ASPECT = 4f / 3f
 private const val CELL_RADIUS_DP = 4

@@ -76,7 +76,7 @@ data class ColorUiState(
     val palettes: List<Palette>,
     val activePaletteId: String,
     val dish: DishState,
-    val mixerIsPigment: Boolean,
+    val mixerChoice: MixerChoice,
     val pigmentMixerAvailable: Boolean,
 ) {
     val activePalette: Palette

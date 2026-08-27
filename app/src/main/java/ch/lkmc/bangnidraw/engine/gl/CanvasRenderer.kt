@@ -11,6 +11,9 @@ import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.BufferMode
+import ch.lkmc.bangnidraw.engine.core.BufferPresentationDecision
+import ch.lkmc.bangnidraw.engine.core.BufferPresentationPolicy
+import ch.lkmc.bangnidraw.engine.core.CanvasVoidColorPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.FillReference
@@ -34,6 +37,7 @@ import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.RmwTouchTracker
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
+import ch.lkmc.bangnidraw.engine.core.ThemeTone
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxLut
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxShaderSource
 
@@ -50,10 +54,10 @@ import ch.lkmc.bangnidraw.engine.mixbox.MixboxShaderSource
  *
  * Per frame, in §3.2's order, all into `Accum` and then presented:
  *
- * 1. **Paper** — clear `Accum` to the premultiplied paper colour, or draw the
- *    checkerboard when the paper is transparent. When the sandwich is in use
- *    the paper is already baked into `Below`, so this clears to transparent
- *    instead and `Below` is drawn Normal over it.
+ * 1. **Canvas void + paper** — clear `Accum` to the themed surround, then draw
+ *    the canvas-sized paper (or checkerboard) through the same screen transform
+ *    as the layer tiles. When the sandwich is in use opaque paper is already
+ *    baked into `Below`, so only the surround is needed before `Below`.
  * 2. **Layers bottom to top** — `Below → active → Above`, or every layer
  *    individually when a cache half is unavailable.
  * 3. **Present** — `Accum` into the window buffer as a textured quad through
@@ -231,7 +235,12 @@ class CanvasRenderer(
     /** Reused across strokes: the merge walks it and the readback reads it. */
     private val mergedKeys = ArrayList<TileKey>()
     private val mergeQuad = FullRectQuad()
-    /** Present and checker passes share `Accum`'s logical full-screen quad. */
+    /**
+     * Canvas-sized paper/checker geometry; stable even when the viewport is a
+     * different shape.
+     */
+    private val paperQuad = FullRectQuad()
+    /** The `Accum` present uses the viewport's logical full-screen quad. */
     private val screenQuad = FullRectQuad()
     private var sandwich: SandwichCache? = null
 
@@ -269,6 +278,9 @@ class CanvasRenderer(
     /** Theme colours for the transparent-paper checkerboard (`ui/theme/Color.kt` owns them). */
     var checkerA: Int = 0xFFFFFFFF.toInt()
     var checkerB: Int = 0xFFE0E0E0.toInt()
+
+    /** Theme colour outside the transformed paper (`08-ui-and-layout.md` §5.1). */
+    var canvasVoid: Int = CanvasVoidColorPolicy.argb(ThemeTone.LIGHT)
 
     /**
      * True once [onContextCreated] has run and the device can render at all.
@@ -1192,7 +1204,8 @@ class CanvasRenderer(
      * [bufferTransform] is graphics-core's pre-rotation matrix, applied in
      * **buffer pixel space before the projection** (§3.1's `projection ×
      * transform × pixelPos`). It is identity for every offscreen pass here and
-     * only ever binds on the present quad.
+     * only ever binds on the present quad. The canonical half-turn takes the
+     * device fallback documented in §8.5.
      */
     fun drawFrame(
         frameBufferId: Int,
@@ -1230,7 +1243,12 @@ class CanvasRenderer(
 
         if (!compositeIntoAccum(current, screenTransform, pass, fullCanvasRect, null, null)) return
 
-        presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform, null)
+        val effectiveBufferTransform = effectiveBufferTransform(
+            bufferTransform,
+            bufferWidth,
+            bufferHeight,
+        )
+        presentToWindow(frameBufferId, bufferWidth, bufferHeight, effectiveBufferTransform, null)
         GlErrors.checkGlDebug("drawFrame")
     }
 
@@ -1283,9 +1301,14 @@ class CanvasRenderer(
             viewportHeight,
         )
         if (presentWindowRect.isEmpty) return false
+        val effectiveBufferTransform = effectiveBufferTransform(
+            bufferTransform,
+            bufferWidth,
+            bufferHeight,
+        )
         val bufferRect = BufferScissor.bounds(
             presentWindowRect,
-            bufferTransform,
+            effectiveBufferTransform,
             bufferWidth,
             bufferHeight,
         )
@@ -1319,9 +1342,14 @@ class CanvasRenderer(
             )
             if (!composited) return false
         }
-        if (!presentToWindow(frameBufferId, bufferWidth, bufferHeight, bufferTransform, bufferRect)) {
-            return false
-        }
+        val presented = presentToWindow(
+            frameBufferId,
+            bufferWidth,
+            bufferHeight,
+            effectiveBufferTransform,
+            bufferRect,
+        )
+        if (!presented) return false
         // The clock stops HERE, before the error check. `checkGlDebug` drains
         // `glGetError` in a loop — a driver round-trip, and a synchronisation
         // point on some drivers — and it is a cost only debug builds pay. Since
@@ -1416,7 +1444,7 @@ class CanvasRenderer(
         val readyCache = sandwich?.takeIf { it.aboveAvailable && it.belowAvailable }
         val useSandwich = readyCache != null
 
-        drawPaper(bakedIntoBelow = useSandwich)
+        drawPaper(screenTransform, bakedIntoBelow = useSandwich)
 
         if (readyCache != null) {
             pass.draw(
@@ -1559,40 +1587,52 @@ class CanvasRenderer(
         return true
     }
 
-    private fun drawPaper(bakedIntoBelow: Boolean) {
+    private fun drawPaper(screenTransform: ScreenTransform, bakedIntoBelow: Boolean) {
+        // `Accum` is viewport-sized, while the paper is not. The void clear is
+        // deliberately first and obeys the active front-buffer scissor, so a
+        // dirty stroke frame replaces complete pixels without repainting the
+        // whole viewport. The paper quad below is clipped by that same scissor.
+        clearColor(canvasVoid)
+
         val transparent = (paperColor ushr 24) == 0
-        if (bakedIntoBelow || transparent) {
-            // Below already carries the paper, so Accum starts empty and Below
-            // is drawn Normal over it. A transparent paper gets the
-            // checkerboard instead, in SCREEN space: canvas-space squares
-            // would shrink to noise zoomed out and become slabs zoomed in.
-            fbo.clear(0f, 0f, 0f, 0f)
-            if (transparent) drawChecker()
-            return
-        }
-        val a = ((paperColor ushr 24) and 0xFF) / 255f
-        fbo.clear(
-            (((paperColor ushr 16) and 0xFF) / 255f) * a,
-            (((paperColor ushr 8) and 0xFF) / 255f) * a,
-            ((paperColor and 0xFF) / 255f) * a,
-            a,
-        )
+        // Opaque Below already covers every visible canvas tile with paper.
+        // Transparent Below does not: its checkerboard is a display backdrop,
+        // not document pixels, so it must still be drawn here inside the
+        // transformed canvas boundary.
+        if (bakedIntoBelow && !transparent) return
+
+        val colorA = if (transparent) checkerA else paperColor
+        val colorB = if (transparent) checkerB else paperColor
+        drawPaperQuad(screenTransform, colorA, colorB)
     }
 
-    private fun drawChecker() {
+    private fun drawPaperQuad(screenTransform: ScreenTransform, colorA: Int, colorB: Int) {
         val program = checker ?: return
         state.useProgram(program)
-        // Identity screen transform: the checkerboard is a screen-space
-        // pattern over the whole target, so the quad IS the target rect and
-        // the view must not move it.
-        program.uniform4f("u_screen", 1f, 0f, 0f, 0f)
+        program.uniform4f(
+            "u_screen",
+            screenTransform.a,
+            screenTransform.b,
+            screenTransform.tx,
+            screenTransform.ty,
+        )
         program.uniformMatrix4("u_projection", projection)
         program.uniformMatrix4("u_bufferTransform", identity)
         program.uniform1f("u_checkerPx", checkerPx)
-        setColorUniform(program, "u_checkerA", checkerA)
-        setColorUniform(program, "u_checkerB", checkerB)
+        setColorUniform(program, "u_checkerA", colorA)
+        setColorUniform(program, "u_checkerB", colorB)
         state.blendOff()
-        screenQuad.draw(accum.width.toFloat(), accum.height.toFloat())
+        paperQuad.draw(canvas.width.toFloat(), canvas.height.toFloat())
+    }
+
+    private fun clearColor(argb: Int) {
+        val a = ((argb ushr 24) and 0xFF) / 255f
+        fbo.clear(
+            (((argb ushr 16) and 0xFF) / 255f) * a,
+            (((argb ushr 8) and 0xFF) / 255f) * a,
+            ((argb and 0xFF) / 255f) * a,
+            a,
+        )
     }
 
     private fun setColorUniform(program: GlProgram, name: String, argb: Int) {
@@ -1604,6 +1644,24 @@ class CanvasRenderer(
             ((argb and 0xFF) / 255f) * a,
             a,
         )
+    }
+
+    private fun effectiveBufferTransform(
+        bufferTransform: FloatArray,
+        bufferWidth: Int,
+        bufferHeight: Int,
+    ): FloatArray {
+        val decision = BufferPresentationPolicy.decide(
+            transform = bufferTransform,
+            logicalWidth = accum.width,
+            logicalHeight = accum.height,
+            bufferWidth = bufferWidth,
+            bufferHeight = bufferHeight,
+        )
+        return when (decision) {
+            BufferPresentationDecision.USE_LIBRARY_TRANSFORM -> bufferTransform
+            BufferPresentationDecision.NEUTRALIZE_HALF_TURN -> identity
+        }
     }
 
     /**
@@ -1639,7 +1697,7 @@ class CanvasRenderer(
             // rect and is untouched outside it. That is what makes the stale
             // content of a front buffer irrelevant — nothing here is drawn
             // incrementally onto what was there before.
-            BufferScissor.toGlScissor(scissor, bufferHeight, scissorScratch)
+            BufferScissor.toHardwareBufferScissor(scissor, bufferHeight, scissorScratch)
             state.scissor(
                 scissorScratch[0], scissorScratch[1], scissorScratch[2], scissorScratch[3],
             )
@@ -1690,22 +1748,41 @@ class CanvasRenderer(
      * The inverse image of the viewport's four corners, bounding-boxed — the
      * same "not two corners" reasoning as `ScreenTransform.screenBoundsOf`,
      * in the other direction.
+     *
+     * The corners are derived from [viewportWidth]/[viewportHeight] here
+     * rather than cached in a parallel array: two int reads and two `toFloat`
+     * calls cost the same (nothing) as a `FloatArray` read, and a second
+     * copy of the one viewport fact is exactly the kind of cache a future
+     * resize path forgets to update.
+     *
+     * Through the scalar `invertX`/`invertY` pair rather than `invert`, whose
+     * `Pair` would allocate four times on every frame — this runs inside
+     * `compositeIntoAccum`, on the §2.4 render path. The one allocation that
+     * remains is the returned `IntRect`, unchanged from before; "nothing may
+     * allocate" is the direction this walks, not a state it reaches.
      */
     private fun visibleCanvasRect(screenTransform: ScreenTransform): IntRect {
-        val corners = listOf(
-            screenTransform.invert(0f, 0f),
-            screenTransform.invert(viewportWidth.toFloat(), 0f),
-            screenTransform.invert(viewportWidth.toFloat(), viewportHeight.toFloat()),
-            screenTransform.invert(0f, viewportHeight.toFloat()),
-        )
+        val vw = viewportWidth.toFloat()
+        val vh = viewportHeight.toFloat()
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE
         var maxY = -Float.MAX_VALUE
-        for ((x, y) in corners) {
-            if (!x.isFinite() || !y.isFinite()) return IntRect(0, 0, canvas.width, canvas.height)
-            minX = minOf(minX, x); maxX = maxOf(maxX, x)
-            minY = minOf(minY, y); maxY = maxOf(maxY, y)
+        // The four corners as a 2×2 walk over the viewport's edges; the
+        // min/max accumulation below is order-independent, so no ordering
+        // comment has to stay in sync with index arithmetic.
+        for (right in 0..1) {
+            for (bottom in 0..1) {
+                val sx = if (right == 1) vw else 0f
+                val sy = if (bottom == 1) vh else 0f
+                val x = screenTransform.invertX(sx, sy)
+                val y = screenTransform.invertY(sx, sy)
+                if (!x.isFinite() || !y.isFinite()) {
+                    return IntRect(0, 0, canvas.width, canvas.height)
+                }
+                minX = minOf(minX, x); maxX = maxOf(maxX, x)
+                minY = minOf(minY, y); maxY = maxOf(maxY, y)
+            }
         }
         val margin = SANDWICH_MARGIN_PX
         return IntRect(
@@ -1799,6 +1876,7 @@ class CanvasRenderer(
         layerPixelPass?.release()
         strokeBuffer?.reset()
         tailBuffer?.reset()
+        paperQuad.release()
         screenQuad.release()
         mergeQuad.release()
         composite?.release()

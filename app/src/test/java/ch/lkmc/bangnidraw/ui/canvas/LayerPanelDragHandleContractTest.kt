@@ -41,21 +41,28 @@ class LayerPanelDragHandleContractTest {
             "the drag must be ignored while document actions are busy",
         )
 
-        val panel = source().replace(WHITESPACE, " ")
+        val busyEffect = sourceSection(BUSY_EFFECT_START, BUSY_EFFECT_END)
+            .replace(WHITESPACE, " ")
         assertTrue(
-            "LaunchedEffect(documentBusy)" in panel &&
-                "draggedId = null" in panel &&
-                "dragOffset = 0f" in panel,
+            "if (!documentBusy) return@LaunchedEffect" in busyEffect &&
+                "draggedId = null" in busyEffect &&
+                "dragOffset = 0f" in busyEffect,
             "a busy transition must clear an active drag",
         )
     }
 
     private fun handleSection(): String {
+        return sourceSection(DRAG_HANDLE_START, DRAG_HANDLE_END)
+    }
+
+    private fun sourceSection(startMarker: String, endMarker: String): String {
         val text = source()
-        val start = text.indexOf(DRAG_HANDLE_START)
-        if (start < 0) fail("missing source marker: $DRAG_HANDLE_START")
-        val end = text.indexOf(DRAG_HANDLE_END, start)
-        if (end <= start) fail("missing source marker: $DRAG_HANDLE_END")
+        val start = text.indexOf(startMarker)
+        if (start < 0) fail("missing source marker: $startMarker")
+
+        val end = text.indexOf(endMarker, start)
+        if (end <= start) fail("missing source marker: $endMarker")
+
         return text.substring(start, end)
     }
 
@@ -86,6 +93,8 @@ class LayerPanelDragHandleContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/LayerPanel.kt"
         const val DRAG_HANDLE_START = "Touch-only affordance"
         const val DRAG_HANDLE_END = "LayerThumbnail(thumbnail)"
+        const val BUSY_EFFECT_START = "LaunchedEffect(documentBusy)"
+        const val BUSY_EFFECT_END = "LaunchedEffect(stack.active.id)"
         val NO_OP_CLICK = Regex("""onClick\s*=\s*\{\s*\}""")
         val WHITESPACE = Regex("\\s+")
     }

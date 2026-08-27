@@ -40,19 +40,20 @@ class FullRectQuad {
 
     private fun ensure() {
         if (vao[0] != 0) return
-        GLES30.glGenBuffers(1, vbo, 0)
-        GLES30.glGenVertexArrays(1, vao, 0)
-        GLES30.glBindVertexArray(vao[0])
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo[0])
-        GLES30.glBufferData(
-            GLES30.GL_ARRAY_BUFFER,
-            VERTICES * FLOATS_PER_VERTEX * 4,
-            null,
-            // DYNAMIC rather than STREAM: this is rewritten on a resize, not
-            // per frame, so the driver should keep it where it is.
-            GLES30.GL_DYNAMIC_DRAW,
-        )
-        GlErrors.checkAllocation("full-rect VBO")
+        GlErrors.checkAllocation("full-rect VBO") {
+            GLES30.glGenBuffers(1, vbo, 0)
+            GLES30.glGenVertexArrays(1, vao, 0)
+            GLES30.glBindVertexArray(vao[0])
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo[0])
+            GLES30.glBufferData(
+                GLES30.GL_ARRAY_BUFFER,
+                VERTICES * FLOATS_PER_VERTEX * 4,
+                null,
+                // DYNAMIC rather than STREAM: this is rewritten on a resize, not
+                // per frame, so the driver should keep it where it is.
+                GLES30.GL_DYNAMIC_DRAW,
+            )
+        }
         val stride = FLOATS_PER_VERTEX * 4
         GLES30.glEnableVertexAttribArray(Shaders.ATTR_POS)
         GLES30.glVertexAttribPointer(Shaders.ATTR_POS, 2, GLES30.GL_FLOAT, false, stride, 0)

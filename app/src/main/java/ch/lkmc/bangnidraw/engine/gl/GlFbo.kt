@@ -39,8 +39,9 @@ class GlFbo {
 
     private fun ensure() {
         if (ids[0] == 0) {
-            GLES30.glGenFramebuffers(1, ids, 0)
-            GlErrors.checkAllocation("glGenFramebuffers")
+            GlErrors.checkAllocation("glGenFramebuffers") {
+                GLES30.glGenFramebuffers(1, ids, 0)
+            }
         }
     }
 

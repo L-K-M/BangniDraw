@@ -85,7 +85,9 @@ class GlProgram private constructor(
             }
             GLES30.glAttachShader(id, vs)
             GLES30.glAttachShader(id, fs)
-            GLES30.glLinkProgram(id)
+            GlErrors.checkAllocation("link ${source.name}") {
+                GLES30.glLinkProgram(id)
+            }
             // Detach and delete regardless of the outcome: once linked, the
             // program owns its own copy, and on failure they are garbage.
             GLES30.glDetachShader(id, vs)
@@ -100,8 +102,6 @@ class GlProgram private constructor(
                 GLES30.glDeleteProgram(id)
                 throw GlProgramException("${source.name} failed to link: $log")
             }
-            GlErrors.checkAllocation("link ${source.name}")
-
             val locations = HashMap<String, Int>(source.uniforms.size * 2)
             for (u in source.uniforms) {
                 val location = GLES30.glGetUniformLocation(id, u.name)

@@ -42,9 +42,11 @@ class CanvasNavigationContractTest {
         val effect = screen.substring(start, end)
         val closingBranch = effect.indexOf(CLOSING_EARLY_RETURN)
         if (closingBranch < 0) fail("missing closing early return")
+        val scrimDelayAt = effect.indexOf(SCRIM_DELAY)
+        if (scrimDelayAt < 0) fail("missing $SCRIM_DELAY after closing early return")
 
         assertTrue(
-            effect.indexOf(CLEAR_FOCUS) in closingBranch + 1 until effect.indexOf(SCRIM_DELAY),
+            effect.indexOf(CLEAR_FOCUS) in closingBranch + 1 until scrimDelayAt,
         )
     }
 

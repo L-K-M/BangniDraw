@@ -52,17 +52,17 @@ otherwise; small sealed hierarchies share a file with their root.
 | `ViewTransform`, `FitTransform` | Meltorama's similarity transform, ported verbatim with its tests (`gesture`, `invert`, `invertVector`, `rebase`, `lerp`). `FitTransform` maps canvas pixels to the fitted view box for a given viewport size. |
 | `GestureArbiter` | Pointer timeline → decision: draw / navigate / two-finger-tap undo / three-finger-tap redo / long-press pick. Pure state machine fed by `StrokeInput`-level events; docs/plan/07-input-and-stylus.md. |
 | `StrokeInput` | One input sample in **canvas space**: x, y, pressure, tilt, orientation, timeNs, `source` (STYLUS / ERASER_END / FINGER / MOUSE), `predicted: Boolean` — the format is docs/plan/07-input-and-stylus.md §2. A mutable, pooled object inside a preallocated `StrokeInputBatch`; never allocated per sample. |
-| `Stabilizer` | Position smoothing (pull-string / EMA per preset strength). Stateful per stroke, `reset()` on pen-down. |
+| `Stabilizer` | Position and expressive-dynamics smoothing (pull-string / EMA per preset strength). Stateful per stroke, `reset()` on pen-down. `StrokeDriver` keeps the legacy position-only sample gate for `Standard` and enables the dynamics-aware gate for `ChineseInk`, so a flexible tuft can press in place without changing ordinary strokes. |
 | `PressureCurve` | The device-level pressure map (docs/plan/07-input-and-stylus.md §2: per-device calibration composed with the Softer / Linear / Harder preference), applied by the touch handler before a sample reaches the generator. Per-preset size/opacity/flow curves are docs/plan/04-tools.md's `Curve`. |
-| `DabGenerator`, `Dab` | Turns consecutive `StrokeInput` into `Dab`s at `spacing × radius` intervals with size/flow/angle dynamics (`begin` / `advance` / `end`, docs/plan/04-tools.md §3). Writes into a caller-supplied `DabBatch` (§3.2); allocates nothing after construction. |
-| `BrushPreset`, `ToolKind` | The JSON-serializable brush description (PLAN.md §6 parameter list) and the sealed interface `Brush(preset)`, `Smudge`, `Blur`, `Fill`, `Eyedropper` (docs/plan/04-tools.md §1 — erasers are `Brush` presets with `eraseMode`, not a kind). |
+| `DabGenerator`, `InkBrushDynamics`, `Dab`, `InkBrushMask` | Turns consecutive `StrokeInput` into `Dab`s at `spacing × radius` intervals with size/flow/angle dynamics (`begin` / `advance` / `end`, docs/plan/04-tools.md §3). `InkBrushDynamics` transports tuft direction, pressure splay and distance-based ink load for `ChineseInk`; `InkBrushMask` is the shader's CPU twin. Writes into a caller-supplied `DabBatch` (§3.2); allocates nothing after construction. |
+| `BrushPreset`, `BrushModel`, `ToolKind` | The JSON-serializable brush description, its footprint model (`Standard` / `ChineseInk`), and the sealed interface `Brush(preset)`, `Smudge`, `Blur`, `Fill`, `Eyedropper` (docs/plan/04-tools.md §1 — erasers are `Brush` presets with `eraseMode`, not a kind). |
 | `ColorMixer`, `RgbMixer` | `interface ColorMixer { fun mix(a: Int, b: Int, t: Float): Int; val isPigment: Boolean }` plus `LatentColorMixer` for weighted N-way mixes (docs/plan/09-color-and-mixing.md §4). `RgbMixer` is the license-free fallback (decision 5). |
 | `Composite` | CPU reference compositor: every `BlendMode` over premultiplied RGBA8, the pinned semantics the shaders must match (docs/plan/11-testing.md). Also used to flatten for thumbnails/gallery when the GPU is unavailable. |
 | `FloodFill` | Scanline flood fill over a CPU tile window with tolerance / contiguous / expand / AA; returns dirty tile keys. docs/plan/04-tools.md. |
 | `HistoryJournal`, `HistoryEntry` | The undo model: a cursor over a bounded list of entries; `push` (truncates redo, appends, prunes by `Limits(maxEntries, maxBytes)`), `undo`, `redo`, `canUndo`, `canRedo` — the API is docs/plan/06-document-and-persistence.md §5.1. Entries reference tile payloads by key — bytes live in `HistoryStore`. |
 | `AutosavePolicy` | Meltorama's two-clock policy (`QUIET_MS`, `ONE_CHECKPOINT_MS`, `delayMs(dirtyForMs)`), copied not re-derived. |
 | `CanvasPresets`, `MemoryBudget` | The fixed preset list annotated by the budget (`CanvasPresets.forDevice(result)`); `MemoryBudget.compute(DeviceMemory, CanvasSize) → Result(maxLayers, maxCanvasEdge, …)` — pure arithmetic over numbers the caller reads from `ActivityManager`; constants and signature in docs/plan/10-performance.md §4. |
-| `Clock`, `Random` *(helper)* | `fun interface Clock { fun nowNanos(): Long }` and `fun interface RandomSource { fun nextFloat(): Float }`. Injected wherever core needs time (stabilizer velocity, autosave) or randomness (jitter, grain phase), so tests are deterministic. |
+| `Clock`, `Random` *(helper)* | `fun interface Clock { fun nowNanos(): Long }` and `fun interface RandomSource { fun nextFloat(): Float }`. Injected wherever core needs time (stabilizer velocity, autosave) or randomness (jitter, grain and stroke-stable bristle phase), so tests are deterministic. |
 | `DabBatch`, `DabRing` *(helper)* | Preallocated SoA arrays for a batch of dabs and the SPSC ring of batches that crosses to the GL thread (§3.2). |
 
 ### 2.3 `engine/gl` — the GPU
@@ -169,11 +169,14 @@ graphics-core calls used, in full:
 ### 3.2 Main → GL: the dab ring
 
 ```kotlin
-class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {   // SoA, preallocated; the 8 per-dab fields = DAB_STRIDE (10 §4)
+class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {   // SoA; eleven fields, 10 §4
     val x = FloatArray(capacity); val y = FloatArray(capacity)
     val radius = FloatArray(capacity); val flow = FloatArray(capacity)
     val hardness = FloatArray(capacity); val angle = FloatArray(capacity)
-    val aspect = FloatArray(capacity); val seed = FloatArray(capacity)   // color and opacity are per stroke, not per dab
+    val aspect = FloatArray(capacity); val seed = FloatArray(capacity)
+    val wetness = FloatArray(capacity); val bristleAlong = FloatArray(capacity)
+    val bristleAcross = FloatArray(capacity)
+    // color, opacity and brush model are per stroke
     var count = 0
     var strokeId = 0L; var predictedFrom = -1   // index of the first predicted dab
     var dirtyLeft = 0; var dirtyTop = 0; var dirtyRight = 0; var dirtyBottom = 0

@@ -42,6 +42,9 @@ class DabGeneratorGoldenTest {
         val angle: Float,
         val aspect: Float,
         val seed: Float,
+        val wetness: Float,
+        val bristleAlong: Float,
+        val bristleAcross: Float,
     )
 
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
@@ -140,7 +143,10 @@ class DabGeneratorGoldenTest {
             }
             List(b.count) {
                 val d = b[it]
-                GoldenDab(d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed)
+                GoldenDab(
+                    d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed, d.wetness,
+                    d.bristleAlong, d.bristleAcross,
+                )
             }
         }
     }
@@ -161,10 +167,13 @@ class DabGeneratorGoldenTest {
         appendLine("# these values by ~1e-7, four orders of magnitude inside that. A diff")
         appendLine("# here is a real change in the stroke, not a change of JDK.")
         appendLine("#")
-        appendLine("# x y radius flow hardness angle aspect seed")
+        appendLine("# x y radius flow hardness angle aspect seed wetness bristleAlong bristleAcross")
         for (d in dabs) {
             appendLine(
-                listOf(d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed)
+                listOf(
+                    d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed, d.wetness,
+                    d.bristleAlong, d.bristleAcross,
+                )
                     .joinToString(" ") { fixed(it) },
             )
         }
@@ -178,7 +187,9 @@ class DabGeneratorGoldenTest {
             require(f.size == PerfConstants.DAB_STRIDE) {
                 "a golden row must have ${PerfConstants.DAB_STRIDE} fields, was \"$line\""
             }
-            GoldenDab(f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7])
+            GoldenDab(
+                f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8], f[9], f[10],
+            )
         }
         .toList()
 
@@ -219,6 +230,9 @@ class DabGeneratorGoldenTest {
             assertClose(e.angle, a.angle, "dab $i angle")
             assertClose(e.aspect, a.aspect, "dab $i aspect")
             assertClose(e.seed, a.seed, "dab $i seed")
+            assertClose(e.wetness, a.wetness, "dab $i wetness")
+            assertClose(e.bristleAlong, a.bristleAlong, "dab $i bristle-along phase")
+            assertClose(e.bristleAcross, a.bristleAcross, "dab $i bristle-across phase")
         }
     }
 
@@ -235,7 +249,7 @@ class DabGeneratorGoldenTest {
             val other = runStroke(chunk)
             assertEquals(reference.size, other.size, "chunk $chunk changed the dab count")
             for (i in reference.indices) {
-                // All eight fields: an angle or aspect that depended on where a
+                // All eleven fields: an angle or aspect that depended on where a
                 // batch boundary fell would be exactly the sort of bug this
                 // test is named for, and four of them went unchecked.
                 assertEquals(reference[i], other[i], "chunk $chunk, dab $i")

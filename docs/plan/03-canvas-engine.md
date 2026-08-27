@@ -539,12 +539,16 @@ class StrokeSpec(                   // fixed for the whole stroke
     val mode: StrokeMode,
     val opacity: Float,             // the stroke's ceiling, applied at merge
     val alphaLock: Boolean,         // from the layer
+    val brushModel: BrushModel,     // Standard / ChineseInk; uniform in DabPass
     val rmw: RmwKind?,              // SMUDGE / BLUR / null; RMW strokes bypass the stroke buffer (§7.6)
 )
 
-/** A dab is a slot in a DabBatch (SoA FloatArrays, 02 §3.2); the eight per-dab fields are
- *  x, y, radius, flow, hardness, angle, aspect, seed = DAB_STRIDE (10 §4). Colour and the
- *  stroke opacity are per stroke (uniforms), never per dab. No Dab objects exist at runtime. */
+/** A dab is a slot in a DabBatch (SoA FloatArrays, 02 §3.2); the eleven fields are
+ *  x, y, radius, flow, hardness, angle, aspect, seed, wetness,
+ *  bristleAlong, bristleAcross
+ *  = DAB_STRIDE (10 §4).
+ *  Colour, stroke opacity and brush model are per stroke (uniforms), never per dab.
+ *  No Dab objects exist at runtime. */
 ```
 
 `Dab` in PLAN.md §3's tree is this layout plus a tiny `data class Dab` used
@@ -553,11 +557,13 @@ emitting a dab every `spacing × radius` canvas px of arc length, carrying a
 remainder across samples so spacing is invariant under sample rate and
 zoom (PLAN.md §7: "spacing invariant under resolution"). Dynamics
 (pressure → size/flow/opacity curves, tilt, velocity, jitter) are
-`docs/plan/04-tools.md`'s; the generator only knows `BrushPreset`.
+`docs/plan/04-tools.md`'s. `BrushModel.ChineseInk` additionally transports
+a lagged tuft axis, splays it with pressure, emits stationary pressure
+changes and derives wetness from swept distance rather than dab count.
 
 `DabRing` is the preallocated single-producer/single-consumer ring of
 `DabBatch` slots defined in `docs/plan/02-architecture.md` §3.2
-(`DAB_RING_SLOTS` × `DAB_BATCH_CAPACITY` = 8 × 1024 dabs ≈ 256 KiB,
+(`DAB_RING_SLOTS` × `DAB_BATCH_CAPACITY` = 8 × 1024 dabs ≈ 352 KiB,
 `docs/plan/10-performance.md` §4) between the main thread and the GL
 thread. The main thread fills a batch (dabs plus the header: count, dirty
 rect, stroke id, `predictedFrom`) and publishes it as the `param` of
@@ -620,11 +626,22 @@ layout(location = 3) in float i_hardness;  // 0..1
 layout(location = 4) in float i_flow;      // 0..1 (already through the curves)
 layout(location = 5) in float i_angle;     // radians, orientation of the major axis
 layout(location = 6) in float i_aspect;    // minor/major, 0 < aspect ≤ 1
-layout(location = 7) in vec3  i_color;     // straight sRGB
+layout(location = 7) in float i_seed;      // active grain/bristle phase
+layout(location = 8) in float i_wetness;   // contacted-tuft ink load; ordinary dabs use 1
+layout(location = 9) in float i_bristleAlong;  // transported material phase; ordinary dabs use 0
+layout(location = 10) in float i_bristleAcross;
 uniform vec2 u_tileOrigin;                 // canvas px of this slice's (0,0)
+uniform vec3 u_color;                      // straight sRGB, fixed for the stroke
 out vec2 v_local;                          // dab-local, "major-axis px" (ellipse unwarped to a circle)
+out vec2 v_canvas;
 flat out float v_radius;
 flat out float v_hardness;
+flat out vec2 v_axisMajor;
+flat out vec2 v_center;
+flat out float v_seed;
+flat out float v_wetness;
+flat out float v_bristleAlong;
+flat out float v_bristleAcross;
 flat out vec4  v_color;                    // premultiplied color × flow
 
 void main() {
@@ -635,10 +652,17 @@ void main() {
     vec2 p = i_center + a_corner.x * pad * axisMajor + a_corner.y * pad * i_aspect * axisMinor;
     vec2 d = p - i_center;
     v_local = vec2(dot(d, axisMajor), dot(d, axisMinor) / i_aspect);
+    v_canvas = p;
     v_radius = r;
     v_hardness = i_hardness;
+    v_axisMajor = axisMajor;
+    v_center = i_center;
+    v_seed = i_seed;
+    v_wetness = i_wetness;
+    v_bristleAlong = i_bristleAlong;
+    v_bristleAcross = i_bristleAcross;
     float area = i_radius < 1.0 ? i_radius * i_radius : 1.0;
-    v_color = vec4(i_color, 1.0) * (i_flow * area);
+    v_color = vec4(u_color, 1.0) * (i_flow * area);
     vec2 t = (p - u_tileOrigin) / 256.0;
     gl_Position = vec4(t * 2.0 - 1.0, 0.0, 1.0);   // tile row 0 = canvas top (§3.1)
 }
@@ -649,9 +673,17 @@ void main() {
 #version 300 es
 precision highp float;
 in vec2 v_local;
+in vec2 v_canvas;
 flat in float v_radius;
 flat in float v_hardness;
+flat in vec2 v_axisMajor;
+flat in vec2 v_center;
+flat in float v_seed;
+flat in float v_wetness;
+flat in float v_bristleAlong;
+flat in float v_bristleAcross;
 flat in vec4  v_color;
+uniform int u_brushModel;
 out vec4 o_color;
 void main() {
     float d = length(v_local);
@@ -661,15 +693,27 @@ void main() {
     // even at hardness 1.0.
     float inner = clamp(min(r * v_hardness, r - 1.0), 0.0, r);
     float m = 1.0 - smoothstep(inner, r, d);
+    if (u_brushModel == 1) {                 // BrushModel.ChineseInk.shaderId
+        m *= inkBrushMask(
+            v_canvas, v_center, v_axisMajor, d / r, v_seed, v_wetness,
+            v_bristleAlong, v_bristleAcross
+        );
+    }
     o_color = v_color * m;                     // premultiplied; blended ONE, ONE_MINUS_SRC_ALPHA
 }
 ```
 
-Grain/texture (pencil) multiplies `m` by a tiled grain texture sampled in
-canvas space; bristle texture does the same with a rotated grain — both
-`docs/plan/04-tools.md`, both an extra `sampler2D` on this shader, nothing
-else changes. Eraser strokes use this exact shader with `i_color = 0`: the
-buffer then accumulates coverage in alpha only.
+Procedural pencil grain also multiplies `m` in canvas space. Chinese ink
+needs no texture asset: `inkBrushMask` hashes dab-local position plus two
+material-phase coordinates with the stable stroke seed. Those coordinates
+integrate centre motion projected onto the lagged tuft's midpoint axis, so
+lanes survive turns and sideways tuft motion. Paper tooth remains
+canvas-anchored. A loaded tuft stays dense; depletion raises a coherent
+split-hair threshold, producing actual zero-alpha paper gaps while retained
+lanes remain dark. Bristle lanes do not swim or acquire a canvas-origin-
+dependent rotation; only paper tooth remains tied to canvas location.
+The CPU `DabStamp` implements the same mask. Eraser strokes use this exact
+shader with `u_color = 0`: the buffer then accumulates coverage in alpha only.
 
 ### 7.4 Merge on pen-up
 
@@ -1235,7 +1279,7 @@ no preprocessor include).
 | Readback PBOs | 2 × 16 MiB | 64 tiles each |
 | `TailBuffer`, RMW `Reservoir`, sandwich scratch | ≤ 4 + 4 + 2 tiles | fixed |
 | Mixbox LUT | 1 MiB | 512² RGBA |
-| `DabRing` (CPU) | 256 KiB | fixed (8 × 1024 dabs × 8 floats) |
+| `DabRing` (CPU) | 352 KiB | fixed (8 × 1024 dabs × 11 floats) |
 
 Per layer, worst case (every tile painted), for the size presets
 `CanvasPresets` offers (`docs/plan/10-performance.md` §4; the dialog shows
@@ -1283,5 +1327,5 @@ Everything decision-shaped — which keys a rect touches, which cache half
 an edit invalidates, which filter a zoom uses, how many layers fit, the
 blend and merge arithmetic — has a pure-JVM twin in `engine/core`
 (`TileGrid`, `SandwichPolicy`, `FilterPolicy`, `MemoryBudget`, `Composite`,
-`DabStamp`, `StrokeMerge`) with tests; the GL classes call those and issue
-GL calls, nothing else.
+`DabStamp`, `InkBrushMask`, `StrokeMerge`) with tests; the GL classes call
+those and issue GL calls, nothing else.

@@ -33,6 +33,16 @@ class DabGenerator(
     private val sizeLut = preset.pressureSize.lut()
     private val opacityLut = preset.pressureOpacity.lut()
     private val flowLut = preset.pressureFlow.lut()
+    private val inkDynamics = if (preset.model == BrushModel.ChineseInk) {
+        InkBrushDynamics(
+            preset.baseRadius,
+            noise(0, SALT_INK_PATTERN),
+            preset.tip,
+            preset.orientation,
+        )
+    } else {
+        null
+    }
 
     // Both clamps, and `maxRadius` floored at `minRadius` — otherwise the two
     // can cross and every `coerceIn` below throws on an empty range. A preset
@@ -101,6 +111,7 @@ class DabGenerator(
         pendingDistance = 0f
         pressureOpacityMax = 0f
         maxPressure = 0f
+        inkDynamics?.reset(first.pressure)
         firstBatch = null
         firstBatchGeneration = -1L
         firstIndex = -1
@@ -127,12 +138,14 @@ class DabGenerator(
         val len = sqrt(dx * dx + dy * dy)
         updateVelocity(len, next.timeNs - last.timeNs)
         if (len <= 0f) {
-            // A zero-length move still carries the new dynamics forward: the
-            // pen can press harder without moving, and the next dab should
-            // know. It must not emit, though, or a stationary pen would stack
-            // dabs on one point until the batch filled.
+            // Ordinary brushes only carry the new dynamics. A flexible tuft
+            // also records meaningful pressure steps, so pressing in place
+            // forms the broad head seen in a real brush landing.
+            val stampPress = inkDynamics?.shouldStampStationary(next.pressure) == true
             last.set(next)
-            return 0
+            if (!stampPress) return 0
+
+            return if (emit(next.x, next.y, next, out)) 1 else 0
         }
         pathLength += len
 
@@ -143,6 +156,17 @@ class DabGenerator(
         val meanPressure = (last.pressure + next.pressure) * 0.5f
         val meanTilt = (last.tilt + next.tilt) * 0.5f
         val step = stepFor(meanPressure, meanTilt)
+        val pathAngle = atan2(dy, dx)
+        val speedFraction = velocityFraction()
+        inkDynamics?.prepareSegment(
+            pathAngle = pathAngle,
+            distance = len,
+            pressure = meanPressure,
+            tiltFraction = tiltFraction(meanTilt),
+            stylusAngle = next.orientation,
+            contactRadius = radiusFor(meanPressure, meanTilt, jitterIndex = -1),
+            speedFraction = speedFraction,
+        )
 
         // Clamped at zero. `carry` is bounded by the *previous* segment's
         // step, and `step` is recomputed here from this segment's mean
@@ -159,7 +183,19 @@ class DabGenerator(
             // The direction of travel, for a tip that follows the stroke. Taken
             // from the segment rather than from consecutive dabs so it is
             // defined for the very first dab of a segment too.
-            interpolated.strokeAngle = atan2(dy, dx)
+            val ink = inkDynamics
+            if (ink == null) {
+                interpolated.strokeAngle = pathAngle
+                interpolated.wetness = 1f
+                interpolated.bristleAlong = 0f
+                interpolated.bristleAcross = 0f
+            } else {
+                ink.writeSampleAt(t, inkSample)
+                interpolated.strokeAngle = inkSample.angle
+                interpolated.wetness = inkSample.wetness
+                interpolated.bristleAlong = inkSample.bristleAlong
+                interpolated.bristleAcross = inkSample.bristleAcross
+            }
             // Stop rather than keep walking: past a full batch every further
             // iteration burns a lerp, an atan2 and a noise draw, consumes the
             // seed stream, and leaves `carry` computed as though the dabs had
@@ -173,6 +209,7 @@ class DabGenerator(
         // segment does not restart the spacing and cluster dabs at every
         // sample — this is the whole of "spacing is measured along the path".
         carry = len - (t - step / len) * len
+        inkDynamics?.finishSegment(next.pressure)
         last.set(next)
         return emitted
     }
@@ -208,17 +245,25 @@ class DabGenerator(
         val elongation = elongationFor(last.tilt)
         val radius = finalRadiusFor(p, last.tilt, dabIndexOfFirst, elongation)
         val flow = flowFor(p, last.tilt)
-        val aspect = aspectFor(elongation)
-        val angle = angleFor(last.orientation, strokeAngle = 0f, elongation)
+        val ink = inkDynamics
+        val aspect = ink?.currentAspect(p, tiltFraction(last.tilt)) ?: aspectFor(elongation)
+        val angle = ink?.currentAngle() ?: angleFor(last.orientation, strokeAngle = 0f, elongation)
+        val wetness = ink?.currentWetness(velocityFraction()) ?: 1f
         val canReplace = batch === out &&
             batch.reuseGeneration == firstBatchGeneration &&
             i < batch.count
         if (canReplace) {
-            batch.replace(i, firstX, firstY, radius, flow, preset.hardness, angle, aspect, firstSeed)
+            batch.replace(
+                i, firstX, firstY, radius, flow, preset.hardness, angle, aspect, firstSeed, wetness,
+            )
             return 1
         }
 
-        if (!out.add(firstX, firstY, radius, flow, preset.hardness, angle, aspect, firstSeed)) return 0
+        val added = out.add(
+            firstX, firstY, radius, flow, preset.hardness, angle, aspect, firstSeed, wetness,
+        )
+        if (!added) return 0
+
         return 1
     }
 
@@ -274,6 +319,7 @@ class DabGenerator(
         other.dabCount = dabCount
         other.maxPressure = maxPressure
         other.dabIndexOfFirst = dabIndexOfFirst
+        inkDynamics?.copyInto(requireNotNull(other.inkDynamics))
         // `maxPressure` and `pressureOpacityMax` are carried for completeness,
         // not because a test can see them, and dropping either kills no test —
         // checked, not assumed. `maxPressure` feeds only `end()`'s tap rewrite
@@ -309,7 +355,12 @@ class DabGenerator(
         var tilt = 0f
         var orientation = 0f
         var strokeAngle = 0f
+        var wetness = 1f
+        var bristleAlong = 0f
+        var bristleAcross = 0f
     }
+
+    private val inkSample = InkBrushSample()
 
     private fun lerpInto(a: StrokeInput, b: StrokeInput, t: Float, out: InterpolatedSample) {
         out.pressure = a.pressure + (b.pressure - a.pressure) * t
@@ -321,7 +372,11 @@ class DabGenerator(
         interpolated.pressure = sample.pressure
         interpolated.tilt = sample.tilt
         interpolated.orientation = sample.orientation
-        interpolated.strokeAngle = 0f
+        val ink = inkDynamics
+        interpolated.strokeAngle = ink?.currentAngle() ?: 0f
+        interpolated.wetness = ink?.currentWetness(velocityFraction()) ?: 1f
+        interpolated.bristleAlong = ink?.currentBristleAlong() ?: 0f
+        interpolated.bristleAcross = ink?.currentBristleAcross() ?: 0f
         return emit(x, y, interpolated, out)
     }
 
@@ -332,7 +387,8 @@ class DabGenerator(
         val index = dabIndex++
         val radius = radiusFor(p, sample.tilt, index)
         val flow = flowFor(p, sample.tilt)
-        val dabSeed = noise(index, SALT_SEED)
+        val ink = inkDynamics
+        val dabSeed = ink?.patternSeed ?: noise(index, SALT_SEED)
 
         // Jitter is applied here, after the spacing walk, so it perturbs where
         // a dab is painted and never how many there are (`04` §3.2).
@@ -345,11 +401,21 @@ class DabGenerator(
         }
 
         val elongation = elongationFor(sample.tilt)
-        val angle = angleFor(sample.orientation, sample.strokeAngle, elongation)
+        val angle = if (ink == null) {
+            angleFor(sample.orientation, sample.strokeAngle, elongation)
+        } else {
+            sample.strokeAngle
+        }
         val finalRadius = (radius * elongation).coerceIn(minRadius, maxRadius)
-        val aspect = aspectFor(elongation)
+        val aspect = ink?.aspectAt(p, tiltFraction(sample.tilt)) ?: aspectFor(elongation)
+        val wetness = if (ink == null) 1f else sample.wetness
+        val bristleAlong = if (ink == null) 0f else sample.bristleAlong
+        val bristleAcross = if (ink == null) 0f else sample.bristleAcross
 
-        val ok = out.add(px, py, finalRadius, flow, preset.hardness, angle, aspect, dabSeed)
+        val ok = out.add(
+            px, py, finalRadius, flow, preset.hardness, angle, aspect, dabSeed, wetness,
+            bristleAlong, bristleAcross,
+        )
         if (!ok) return false
         if (firstBatch == null) {
             firstBatch = out
@@ -440,6 +506,9 @@ class DabGenerator(
         return 1f + (atFast - 1f) * u
     }
 
+    private fun velocityFraction(): Float =
+        (velocity / preset.velocity.fastPxPerMs).coerceIn(0f, 1f)
+
     /** `tilt / (π/2)`, clamped: 0 is perpendicular, 1 is flat against the glass. */
     private fun tiltFraction(tilt: Float): Float =
         if (tilt.isNaN()) 0f else (tilt / HALF_PI).coerceIn(0f, 1f)
@@ -512,6 +581,7 @@ class DabGenerator(
         const val SALT_JITTER_X = 1
         const val SALT_JITTER_Y = 2
         const val SALT_JITTER_SIZE = 3
+        const val SALT_INK_PATTERN = 4
     }
 }
 

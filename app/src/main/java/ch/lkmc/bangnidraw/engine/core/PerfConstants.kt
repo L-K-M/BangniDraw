@@ -20,7 +20,7 @@ object PerfConstants {
 
     // Touch path (all preallocated once per CanvasTouchHandler).
     const val STROKE_INPUT_CAPACITY = 8192
-    const val DAB_STRIDE = 8 // x y radius flow hardness angle aspect seed
+    const val DAB_STRIDE = 11 // x y radius flow hardness angle aspect seed wetness + 2 bristle phases
     const val DAB_BATCH_CAPACITY = 1024
     const val DAB_RING_SLOTS = 8
     const val DAB_RING_CAPACITY = DAB_BATCH_CAPACITY * DAB_RING_SLOTS

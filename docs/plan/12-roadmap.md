@@ -606,9 +606,13 @@ eraser/button precedence is pinned in JVM tests. **The per-preset and S Pen
 device checks have not been run — no device has ever been available.**
 
 **Extended.** Seven specialty presets later joined the same JSON/dab path:
-charcoal, soft pastel, technical pen, calligraphy, dry brush, oil paint, and
-pigment wash. Their parsing and dab dynamics are pinned on the JVM; physical
-feel remains unverified because no device was available.
+charcoal, soft pastel, technical pen, Chinese ink brush (formerly Calligraphy),
+dry brush, oil paint, and pigment wash. Chinese ink selects
+`BrushModel.ChineseInk`: stateful tuft direction and pressure splay on the CPU
+feed a stable stroke-local split-hair mask and distance-based wetness on
+CPU/GPU. `DabBatch` is now eleven floats, with seed, wetness, and two
+transported material phases active in the shader. Physical feel remains
+unverified because no device was available.
 
 **Goal.** Every preset in PLAN.md §6 feels like its name: pencil, ink pen,
 paintbrush, airbrush, marker, hard and soft eraser, plus the eyedropper;
@@ -616,7 +620,8 @@ S Pen eraser end and side button mapped.
 
 **Creates.** `tools/Tool`, `BrushTool`, `EraserTool`, `EyedropperTool`;
 `BrushPreset` full parameter set (size, opacity, flow, hardness, spacing,
-pressure curves ×3, tilt, velocity, jitter, stabilizer, pigment flag —
+pressure curves ×3, tilt, velocity, jitter, stabilizer, pigment flag,
+footprint model —
 mixing itself is step 7, the flag round-trips now); `data/BrushPresetStore`
 (built-in JSON in `assets/brushes/`, user edits in `filesDir/brushes/`);
 `DabPass` grows the grain, hardness and oriented (squared) tip paths;
@@ -633,7 +638,9 @@ lighter when the S Pen is tilted; ink pen line is smooth with a strong
 stabilizer and no grain; marker builds to its opacity cap and never past;
 airbrush is soft and slow; flipping the S Pen erases, the button erases
 while held, the eyedropper picks the composite color; hover shows the brush
-circle at the right size at any zoom. JVM: `DabGeneratorTest` per preset
+circle at the right size at any zoom; Chinese ink presses from point to belly,
+lags naturally through turns and runs into coherent flying-white lanes rather
+than uniform grey noise. JVM: `DabGeneratorTest` per preset
 (a fixture stroke → dab list with expected sizes/flows), `PressureCurveTest`,
 `BrushPresetStoreTest` (JSON round trip, unknown keys ignored, built-ins
 never overwritten), `StylusStateTest` (button/eraser precedence),
@@ -901,7 +908,7 @@ Each item enters through a proposal (§6) and, once accepted, a row in PLAN.md
 | Rulers / shape assist | `Stabilizer` gains a constraint stage: snap the stroke to a line, ellipse or bezier ruler placed with two fingers; strokes stay ordinary dab strokes, so every brush works on a ruler. | M | 5 |
 | Symmetry | `DabGenerator` emits N mirrored/rotated dab copies per input dab about an axis in canvas space; one journal entry; a guide overlay in Compose. | S | 5 |
 | Gradient fill | `FillTool` variant: linear/radial gradient between two swatches, optionally mixed through `ColorMixer` (a pigment gradient), masked by the flood region. | S | 8 |
-| Wet / watercolor brushes | A per-layer wetness tile channel and a diffusion RMW pass ticked on a timer while wet; pigment via Mixbox latents; dries to the layer. The first brush needing a timer-driven pass. | L | 7 |
+| Wet / watercolor brushes | A per-layer water tile channel and a diffusion RMW pass ticked on a timer while wet; distinct from Chinese ink's per-dab load, with pigment via Mixbox latents; dries to the layer. The first brush needing a timer-driven pass. | L | 7 |
 | Brush grains | Tiling grain textures (CC0, provenance in AGENTS.md) sampled in `DabPass` in canvas space so the grain does not swim; preset field `grain` with scale and depth. | S | 5 |
 | Import image as layer / reference | Photo picker → decode → tiles on a new layer (scaled to the canvas) or a floating reference panel with its own pan/zoom that is not part of the document. | M | 6 |
 | Canvas crop / resize | Document-space change journaled as a whole-document entry (all layers' before-tiles); crop by rect, resize by resampling on the GPU into a new tile set. | M | 3 |

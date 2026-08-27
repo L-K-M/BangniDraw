@@ -43,7 +43,14 @@ class DabStampTest {
         hardness: Float = 0.8f,
         angle: Float = 0f,
         aspect: Float = 1f,
-    ) = Dab(x, y, radius, flow, hardness, angle, aspect, seed = 0f)
+        seed: Float = 0f,
+        wetness: Float = 1f,
+        bristleAlong: Float = 0f,
+        bristleAcross: Float = 0f,
+    ) = Dab(
+        x, y, radius, flow, hardness, angle, aspect, seed, wetness,
+        bristleAlong, bristleAcross,
+    )
 
     // ------------------------------------------------------------- falloff
 
@@ -260,6 +267,168 @@ class DabStampTest {
         val plain = DabStamp.contribution(4.5f, 7.5f, d, white).a
         val grain = DabStamp.contribution(4.5f, 7.5f, d, white, GrainMode.Procedural).a
         assertEquals(plain * DabStamp.proceduralGrain(4.5f, 7.5f), grain, 1e-6f)
+    }
+
+    @Test
+    fun `a loaded Chinese ink tuft stays dense`() {
+        val loaded = dab(
+            x = 40f,
+            y = 40f,
+            radius = 20f,
+            hardness = 1f,
+            aspect = 0.6f,
+            seed = 0.37f,
+            wetness = 1f,
+        )
+        val interior = mutableListOf<Float>()
+        for (y in 34..46) {
+            for (x in 28..52) {
+                if (DabStamp.localDistance(x + 0.5f, y + 0.5f, 40f, 40f, 0f, 0.6f) >= 14f) continue
+                interior += DabStamp.alphaAt(
+                    x + 0.5f,
+                    y + 0.5f,
+                    loaded,
+                    brushModel = BrushModel.ChineseInk,
+                )
+            }
+        }
+
+        assertTrue(interior.isNotEmpty())
+        assertTrue(interior.count { it > 0.95f } > interior.size * 0.95f, "loaded ink must read as black")
+    }
+
+    @Test
+    fun `transported bristle phase does not move the dab footprint`() {
+        val shifted = dab(
+            radius = 20f,
+            hardness = 1f,
+            aspect = 0.6f,
+            wetness = 1f,
+            bristleAcross = 100f,
+        )
+
+        assertEquals(1f, InkBrushMask.weight(0f, 0f, shifted), 1e-6f)
+    }
+
+    @Test
+    fun `a dry Chinese ink tuft leaves dark bristles and real paper gaps`() {
+        val dry = dab(
+            x = 40f,
+            y = 40f,
+            radius = 20f,
+            hardness = 1f,
+            aspect = 0.6f,
+            seed = 0.37f,
+            wetness = 0.18f,
+        )
+        val interior = mutableListOf<Float>()
+        for (y in 34..46) {
+            for (x in 28..52) {
+                if (DabStamp.localDistance(x + 0.5f, y + 0.5f, 40f, 40f, 0f, 0.6f) >= 14f) continue
+                interior += DabStamp.alphaAt(
+                    x + 0.5f,
+                    y + 0.5f,
+                    dry,
+                    brushModel = BrushModel.ChineseInk,
+                )
+            }
+        }
+
+        assertTrue(
+            interior.count { it <= 0.01f } > interior.size * 0.2f,
+            "飞白 needs substantial uncovered paper, not uniform grey",
+        )
+        assertTrue(
+            interior.count { it >= 0.95f } > interior.size * 0.1f,
+            "the surviving hairs must stay ink-black; max was ${interior.max()}",
+        )
+    }
+
+    @Test
+    fun `Chinese ink bristle lanes survive overlapping dabs`() {
+        val first = dab(
+            x = 38f,
+            y = 40f,
+            radius = 20f,
+            aspect = 0.6f,
+            seed = 0.61f,
+            wetness = 0.2f,
+            bristleAlong = 38f,
+        )
+        val next = first.copy(x = 42f, bristleAlong = 42f)
+
+        for (y in 34..46) {
+            val px = 40.5f
+            val py = y + 0.5f
+            val a = DabStamp.alphaAt(px, py, first, brushModel = BrushModel.ChineseInk)
+            val b = DabStamp.alphaAt(px, py, next, brushModel = BrushModel.ChineseInk)
+            assertEquals(a, b, 1e-6f, "lane at y=$py swam between overlapping dabs")
+        }
+    }
+
+    @Test
+    fun `Chinese ink transports bristle lanes across a fixed axis`() {
+        val first = dab(
+            x = 40f,
+            y = 38f,
+            radius = 20f,
+            hardness = 1f,
+            aspect = 0.6f,
+            seed = 0.61f,
+            wetness = 0.2f,
+        )
+        val next = first.copy(y = 42f, bristleAcross = 4f)
+
+        // At the overlap midline, both ellipses have equal coverage. The
+        // transported cross-axis phase must make their hairs equal too.
+        for (x in 30..50) {
+            val px = x + 0.5f
+            val py = 40f
+            val a = DabStamp.alphaAt(px, py, first, brushModel = BrushModel.ChineseInk)
+            val b = DabStamp.alphaAt(px, py, next, brushModel = BrushModel.ChineseInk)
+
+            assertEquals(a, b, 1e-6f, "lane at x=$px swam under cross-axis motion")
+        }
+    }
+
+    @Test
+    fun `Chinese ink lanes do not decorrelate when a distant tuft turns`() {
+        val first = dab(
+            x = 2_000f,
+            y = 2_000f,
+            radius = 20f,
+            aspect = 0.6f,
+            seed = 0.43f,
+            wetness = 0.24f,
+        )
+        val next = first.copy(
+            x = 2_004f,
+            y = 2_000.08f,
+            angle = 0.02f,
+            bristleAlong = 4.0006f,
+            bristleAcross = 0.04f,
+        )
+        var compared = 0
+        var matching = 0
+
+        for (y in 1_994..2_006) {
+            for (x in 1_988..2_016) {
+                val px = x + 0.5f
+                val py = y + 0.5f
+                val a = DabStamp.alphaAt(px, py, first, brushModel = BrushModel.ChineseInk)
+                val b = DabStamp.alphaAt(px, py, next, brushModel = BrushModel.ChineseInk)
+                if (a <= 0.01f && b <= 0.01f) continue
+
+                compared++
+                if ((a >= 0.5f) == (b >= 0.5f)) matching++
+            }
+        }
+
+        assertTrue(compared > 40)
+        assertTrue(
+            matching.toFloat() / compared > 0.75f,
+            "a small turn changed ${compared - matching} of $compared contacted samples",
+        )
     }
 
     @Test

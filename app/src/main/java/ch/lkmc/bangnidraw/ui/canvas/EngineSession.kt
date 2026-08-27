@@ -838,7 +838,7 @@ class EngineSession(
      * the main thread fills a slot, the GL thread consumes it and returns it.
      *
      * A ring rather than a copy per event, because a copy would allocate a
-     * whole `DabBatch` — 8 KiB of `FloatArray`s at the default capacity — on
+     * whole `DabBatch` — 44 KiB of `FloatArray`s at the default capacity — on
      * every `ACTION_MOVE`, which is precisely the per-sample allocation
      * `10-performance.md` §2.4 exists to forbid. Handing the caller's own
      * scratch over instead would race the input path's refill against the GL

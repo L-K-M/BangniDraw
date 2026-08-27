@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.engine.core
 
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
@@ -20,7 +21,17 @@ import kotlin.math.sqrt
  * thread that reads the digitizer. The predicted tail runs through a [copy]
  * so it continues the stabilized line without ever advancing the real state.
  */
-class Stabilizer(strength: Float, zoom: Float = 1f) {
+class Stabilizer internal constructor(
+    strength: Float,
+    zoom: Float,
+    private val samplePolicy: StabilizerSamplePolicy,
+) {
+
+    constructor(strength: Float, zoom: Float = 1f) : this(
+        strength,
+        zoom,
+        StabilizerSamplePolicy.PositionOnly,
+    )
 
     // Before the derived properties below, not after them: Kotlin runs
     // initializers in declaration order, so an `init` placed further down
@@ -84,9 +95,10 @@ class Stabilizer(strength: Float, zoom: Float = 1f) {
     /**
      * Feeds one raw sample and writes the smoothed result into [out].
      *
-     * Returns false when the output moved less than [MIN_STEP_PX] — the
-     * caller should drop it rather than emit a dab on top of the last one.
-     * The state still advances, so the motion is not lost, only the sample.
+     * [StabilizerSamplePolicy.PositionOnly] preserves the ordinary brush gate.
+     * [StabilizerSamplePolicy.PositionOrDynamics] also forwards dynamics-only
+     * samples so a flexible brush can stamp pressure in place and carry the
+     * latest tilt and orientation into its next moving segment.
      */
     fun push(sample: StrokeInput, out: StrokeInput): Boolean {
         if (!started) {
@@ -97,6 +109,9 @@ class Stabilizer(strength: Float, zoom: Float = 1f) {
         raw.set(sample)
         val beforeX = state.x
         val beforeY = state.y
+        val beforePressure = state.pressure
+        val beforeTilt = state.tilt
+        val beforeOrientation = state.orientation
 
         // The leash first, then the ease. Order matters: easing from the
         // snapped position is what bounds the lag at `leash`, where easing
@@ -125,7 +140,11 @@ class Stabilizer(strength: Float, zoom: Float = 1f) {
         state.predicted = raw.predicted
 
         out.set(state)
-        return hypot(state.x - beforeX, state.y - beforeY) >= MIN_STEP_PX
+        if (hypot(state.x - beforeX, state.y - beforeY) >= MIN_STEP_PX) return true
+        if (samplePolicy == StabilizerSamplePolicy.PositionOnly) return false
+        if (abs(state.pressure - beforePressure) >= DYNAMICS_EPSILON) return true
+        if (abs(state.tilt - beforeTilt) >= DYNAMICS_EPSILON) return true
+        return abs(state.orientation - beforeOrientation) >= DYNAMICS_EPSILON
     }
 
     /**
@@ -190,7 +209,7 @@ class Stabilizer(strength: Float, zoom: Float = 1f) {
      * jumping ahead of it, and never advances the real state
      * (`03-canvas-engine.md` §9).
      */
-    fun copy(): Stabilizer = Stabilizer(strength, zoom).also { copyInto(it) }
+    fun copy(): Stabilizer = Stabilizer(strength, zoom, samplePolicy).also { copyInto(it) }
 
     /**
      * [copy] into a stabilizer that already exists, so the tail costs no
@@ -209,6 +228,9 @@ class Stabilizer(strength: Float, zoom: Float = 1f) {
      * of the stroke.
      */
     fun copyInto(other: Stabilizer) {
+        require(other.samplePolicy == samplePolicy) {
+            "a stabilizer copy must use the same sample policy"
+        }
         other.retune(strength = strength, zoom = zoom)
         other.state.set(state)
         other.raw.set(raw)
@@ -223,6 +245,9 @@ class Stabilizer(strength: Float, zoom: Float = 1f) {
     companion object {
         /** Below this the output has not meaningfully moved. */
         const val MIN_STEP_PX = 0.05f
+
+        /** Small enough to preserve pressure ramps without forwarding sensor noise forever. */
+        private const val DYNAMICS_EPSILON = 1e-4f
 
         /** The leash at full strength, in screen px. */
         const val LEASH_PX_AT_FULL = 24f
@@ -272,4 +297,10 @@ class Stabilizer(strength: Float, zoom: Float = 1f) {
             return from + delta * t
         }
     }
+}
+
+/** Which stabilized changes are meaningful to the active brush model. */
+internal enum class StabilizerSamplePolicy {
+    PositionOnly,
+    PositionOrDynamics,
 }

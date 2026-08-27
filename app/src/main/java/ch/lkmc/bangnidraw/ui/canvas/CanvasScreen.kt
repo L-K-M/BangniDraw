@@ -464,8 +464,8 @@ private fun CanvasContent(
                     }
 
                     val rmw = viewModel.rmwSpec(kind)
-                    // A new seed keeps each stroke's jitter independent;
-                    // procedural grain remains fixed to the canvas.
+                    // A new seed separates jitter and bristle patterns; paper
+                    // grain stays canvas-fixed while hairs follow the stroke.
                     val driver = StrokeDriver(
                         preset,
                         seed = strokeState.nextSeed(),
@@ -506,6 +506,7 @@ private fun CanvasContent(
                         alphaLock = active.props.alphaLock,
                         dilution = if (strokeMode == StrokeMode.MIX) preset.dilution else 0f,
                         grainMode = preset.grainMode,
+                        brushModel = preset.model,
                         rmw = rmw,
                     )
                     engine.beginStroke(

@@ -12,6 +12,7 @@ class StrokeSpecTest {
             mode = StrokeMode.PAINT,
             opacity = 0.9f,
             grainMode = GrainMode.Procedural,
+            brushModel = BrushModel.ChineseInk,
         )
 
         val finished = provisional.withOpacityCeiling(0.36f)
@@ -19,5 +20,6 @@ class StrokeSpecTest {
         assertEquals(0.9f, provisional.opacity, "the pen-down spec stays immutable")
         assertEquals(0.36f, finished.opacity)
         assertEquals(GrainMode.Procedural, finished.grainMode, "unrelated stroke state survives pen-up")
+        assertEquals(BrushModel.ChineseInk, finished.brushModel, "the brush model survives pen-up")
     }
 }

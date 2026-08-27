@@ -56,7 +56,7 @@ sealed interface RmwSpec {
  *
  * Fixed at pen-down and never re-read per dab, which is what lets colour and
  * [opacity] be shader *uniforms* rather than per-dab attributes: §6's dab
- * layout carries eight per-dab floats and no colour, because a stroke is one
+ * layout carries eleven per-dab floats and no colour, because a stroke is one
  * colour by definition.
  *
  * [opacity] is the stroke's **ceiling**, not a per-dab weight. Dabs accumulate
@@ -75,6 +75,8 @@ data class StrokeSpec(
     val dilution: Float = 0f,
     /** Procedural dab modulation; texture grains remain post-v1. */
     val grainMode: GrainMode = GrainMode.None,
+    /** Footprint model fixed with the rest of the preset at pen-down. */
+    val brushModel: BrushModel = BrushModel.Standard,
     /** Non-null bypasses the stroke buffer entirely (§7.6). */
     val rmw: RmwSpec? = null,
     /** Fill shares the merge path but remains distinct in history. */

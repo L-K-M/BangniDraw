@@ -34,9 +34,9 @@ tapering, stops curving, or gets short enough to pin nothing.
     timeMs          milliseconds from the start of the stroke
 
 `ink-pen-loop.dabs.txt` is one dab per line, six decimals, in the order
-`DabPass` reads them — the eight `DAB_STRIDE` fields:
+the generator writes them — the eleven `DAB_STRIDE` fields:
 
-    x y radius flow hardness angle aspect seed
+    x y radius flow hardness angle aspect seed wetness bristleAlong bristleAcross
 
 Lines beginning `#` are comments. One dab per line rather than a JSON array
 because the diff is meant to be read: a change to the dynamics *should* change

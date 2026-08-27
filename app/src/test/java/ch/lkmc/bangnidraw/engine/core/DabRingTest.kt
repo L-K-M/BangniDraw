@@ -17,14 +17,19 @@ import kotlin.test.assertTrue
 class DabRingTest {
 
     @Test
-    fun `a batch stores the eight per-dab fields and reads them back`() {
+    fun `a batch stores the eleven per-dab fields and reads them back`() {
         val batch = DabBatch(capacity = 4)
-        assertTrue(batch.add(1f, 2f, 3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f))
+        assertTrue(
+            batch.add(1f, 2f, 3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 10f, -2f),
+        )
         assertEquals(1, batch.count)
-        assertEquals(Dab(1f, 2f, 3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f), batch[0])
+        assertEquals(
+            Dab(1f, 2f, 3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 10f, -2f),
+            batch[0],
+        )
         // The stride is what the GL side uploads; if a field were dropped here
         // the shader would read a neighbour's value for it.
-        assertEquals(PerfConstants.DAB_STRIDE, 8, "the batch's field count is the stride")
+        assertEquals(PerfConstants.DAB_STRIDE, 11, "the batch's field count is the stride")
     }
 
     @Test

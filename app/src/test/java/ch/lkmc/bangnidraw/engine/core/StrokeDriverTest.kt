@@ -82,6 +82,41 @@ class StrokeDriverTest {
     }
 
     @Test
+    fun `a stationary press reaches the flexible tuft through the stabilizer`() {
+        val brush = preset(stabilizer = 0f).copy(
+            pressureSize = Curve.Linear,
+            model = BrushModel.ChineseInk,
+        )
+        val out = batch()
+        val driver = StrokeDriver(brush, seed = 3L)
+
+        driver.begin(100f, 100f, 0.05f, 0f, 0f, 0L, StrokeSource.STYLUS, out)
+        driver.sample(100f, 100f, 0.8f, 0f, 0f, 8_000_000L, StrokeSource.STYLUS, out)
+
+        assertEquals(2, out.count, "pressure-only samples must not stop at stabilization")
+        assertTrue(out.radius[1] > out.radius[0])
+    }
+
+    @Test
+    fun `stationary pressure does not reshape a Standard brush segment`() {
+        val brush = preset(stabilizer = 0f).copy(pressureSize = Curve.Linear)
+        val control = batch()
+        val withStationaryPress = batch()
+
+        StrokeDriver(brush, seed = 5L).run {
+            begin(100f, 100f, 0.1f, 0f, 0f, 0L, StrokeSource.STYLUS, control)
+            sample(120f, 100f, 1f, 0f, 0f, 16_000_000L, StrokeSource.STYLUS, control)
+        }
+        StrokeDriver(brush, seed = 5L).run {
+            begin(100f, 100f, 0.1f, 0f, 0f, 0L, StrokeSource.STYLUS, withStationaryPress)
+            sample(100f, 100f, 1f, 0f, 0f, 8_000_000L, StrokeSource.STYLUS, withStationaryPress)
+            sample(120f, 100f, 1f, 0f, 0f, 16_000_000L, StrokeSource.STYLUS, withStationaryPress)
+        }
+
+        assertSameDabs(control, withStationaryPress, "a Standard pressure-only sample")
+    }
+
+    @Test
     fun `spacing is measured along the path, not per sample`() {
         // §6: "spacing invariant under resolution". The same line sampled at
         // four times the rate must produce essentially the same dab count —
@@ -201,21 +236,7 @@ class StrokeDriverTest {
         val b = DabBatch()
         StrokeDriver(jitter, seed = 42L).line(a, 100f, 400f, steps = 40)
         StrokeDriver(jitter, seed = 42L).line(b, 100f, 400f, steps = 40)
-        assertEquals(a.count, b.count, "the same seed must emit the same dab count")
-        for (i in 0 until a.count) {
-            assertEquals(a.x[i], b.x[i], 0f, "dab $i x diverged")
-            assertEquals(a.y[i], b.y[i], 0f, "dab $i y diverged")
-            assertEquals(a.radius[i], b.radius[i], 0f, "dab $i radius diverged")
-            // Every field the generator varies, not the three that were easy
-            // to name. The test's own justification is journal replay, which
-            // needs the WHOLE dab to come back — a flow or aspect drawn from
-            // wall-clock time, accumulated distance or a mis-wired RNG stream
-            // would replay visibly differently while x, y and radius matched.
-            assertEquals(a.flow[i], b.flow[i], 0f, "dab $i flow diverged")
-            assertEquals(a.aspect[i], b.aspect[i], 0f, "dab $i aspect diverged")
-            assertEquals(a.angle[i], b.angle[i], 0f, "dab $i angle diverged")
-            assertEquals(a.hardness[i], b.hardness[i], 0f, "dab $i hardness diverged")
-        }
+        assertSameDabs(a, b, "the same seed must reproduce the whole dab")
     }
 
     @Test
@@ -260,8 +281,23 @@ class StrokeDriverTest {
             assertEquals(expected.y[i], actual.y[i], 0f, "dab $i y: $what")
             assertEquals(expected.radius[i], actual.radius[i], 0f, "dab $i radius: $what")
             assertEquals(expected.flow[i], actual.flow[i], 0f, "dab $i flow: $what")
+            assertEquals(expected.hardness[i], actual.hardness[i], 0f, "dab $i hardness: $what")
             assertEquals(expected.angle[i], actual.angle[i], 0f, "dab $i angle: $what")
+            assertEquals(expected.aspect[i], actual.aspect[i], 0f, "dab $i aspect: $what")
             assertEquals(expected.seed[i], actual.seed[i], 0f, "dab $i seed: $what")
+            assertEquals(expected.wetness[i], actual.wetness[i], 0f, "dab $i wetness: $what")
+            assertEquals(
+                expected.bristleAlong[i],
+                actual.bristleAlong[i],
+                0f,
+                "dab $i bristle along: $what",
+            )
+            assertEquals(
+                expected.bristleAcross[i],
+                actual.bristleAcross[i],
+                0f,
+                "dab $i bristle across: $what",
+            )
         }
     }
 
@@ -315,6 +351,48 @@ class StrokeDriverTest {
             realDriver.sample(s.x, s.y, s.pressure, s.tilt, s.orientation, s.timeNs, s.source, real)
         }
         assertSameDabs(real, tail, "the tail must be the real stroke's own continuation")
+    }
+
+    @Test
+    fun `a Chinese ink tail copies tuft state and transported bristle coordinates`() {
+        val ink = preset(spacing = 0.25f, stabilizer = 0.6f, size = 40f).copy(
+            tip = TipShape.Flat(0.58f),
+            orientation = TipOrientation.StrokeDirection,
+            velocity = VelocityEffect(sizeAtFast = 0.96f, fastPxPerMs = 2.5f),
+            model = BrushModel.ChineseInk,
+        )
+        val points = samples(200f, 260f, 130f, 96_000_000L, 6)
+
+        val tailDriver = StrokeDriver(ink, seed = 11L)
+        val tailWarmup = batch()
+        tailDriver.halfLine(tailWarmup, 100f, 200f, 100f, steps = 12)
+        val tail = batch()
+        assertTrue(tailDriver.predict(points, tail) > 0)
+
+        val realDriver = StrokeDriver(ink, seed = 11L)
+        realDriver.halfLine(batch(), 100f, 200f, 100f, steps = 12)
+        val real = batch()
+        for (i in 0 until points.size) {
+            val sample = points[i]
+            realDriver.sample(
+                sample.x,
+                sample.y,
+                sample.pressure,
+                sample.tilt,
+                sample.orientation,
+                sample.timeNs,
+                sample.source,
+                real,
+            )
+        }
+
+        assertTrue(
+            tail.bristleAlong[0] >= tailWarmup.bristleAlong[tailWarmup.count - 1],
+            "an overdue first tail dab may share, but not rewind, its along phase",
+        )
+        assertTrue(tail.bristleAcross[0] > 0.01f, "the turning tail must transport across-axis motion")
+        assertTrue(tail.wetness[0] < 1f, "the tail must continue the real stroke's ink load")
+        assertSameDabs(real, tail, "Chinese ink prediction must copy every stateful field")
     }
 
     @Test

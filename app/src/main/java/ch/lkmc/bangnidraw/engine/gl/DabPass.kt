@@ -1,11 +1,13 @@
 package ch.lkmc.bangnidraw.engine.gl
 
 import android.opengl.GLES30
+import ch.lkmc.bangnidraw.engine.core.BrushModel
 import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.DabBounds
 import ch.lkmc.bangnidraw.engine.core.GrainMode
 import ch.lkmc.bangnidraw.engine.core.IntRect
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.DAB_STRIDE
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.PoolExhausted
 import ch.lkmc.bangnidraw.engine.core.TileGrid
@@ -50,8 +52,8 @@ class DabPass(
      * Per-dab instance data, interleaved in [INSTANCE_LAYOUT]'s order.
      *
      * Interleaved rather than one buffer per attribute: the GPU reads a whole
-     * instance at once, and separate streams would be six strided fetches per
-     * dab for no gain.
+     * instance at once, and separate streams would multiply strided fetches
+     * for no gain.
      */
     private var instanceData = FloatArray(0)
     private var instanceBuffer: FloatBuffer =
@@ -95,6 +97,7 @@ class DabPass(
         buffer: StrokeBuffer,
         mode: BufferMode,
         grainMode: GrainMode,
+        brushModel: BrushModel,
         colorR: Float,
         colorG: Float,
         colorB: Float,
@@ -119,6 +122,7 @@ class DabPass(
         state.useProgram(program)
         program.uniform3f("u_color", colorR, colorG, colorB)
         program.uniform1i("u_grainMode", grainMode.shaderId)
+        program.uniform1i("u_brushModel", brushModel.shaderId)
         when (mode) {
             BufferMode.Accumulate -> state.blendSourceOver()
             BufferMode.Max -> state.blendMax()
@@ -237,7 +241,11 @@ class DabPass(
             instanceData[o++] = batch.hardness[i]
             instanceData[o++] = batch.flow[i]
             instanceData[o++] = batch.angle[i]
-            instanceData[o] = batch.aspect[i]
+            instanceData[o++] = batch.aspect[i]
+            instanceData[o++] = batch.seed[i]
+            instanceData[o++] = batch.wetness[i]
+            instanceData[o++] = batch.bristleAlong[i]
+            instanceData[o] = batch.bristleAcross[i]
             n++
         }
         return n
@@ -342,8 +350,8 @@ class DabPass(
     private companion object {
         const val CORNERS = 4
 
-        /** centre (2), radius, hardness, flow, angle, aspect — §6's per-dab fields. */
-        const val DAB_FLOATS = 7
+        /** All fields in the core dab layout; color and model remain per-stroke uniforms. */
+        const val DAB_FLOATS = DAB_STRIDE
 
         const val MIN_INSTANCE_DABS = 256
 
@@ -361,6 +369,10 @@ class DabPass(
             Shaders.ATTR_DAB_FLOW to 1,
             Shaders.ATTR_DAB_ANGLE to 1,
             Shaders.ATTR_DAB_ASPECT to 1,
+            Shaders.ATTR_DAB_SEED to 1,
+            Shaders.ATTR_DAB_WETNESS to 1,
+            Shaders.ATTR_DAB_BRISTLE_ALONG to 1,
+            Shaders.ATTR_DAB_BRISTLE_ACROSS to 1,
         )
     }
 }

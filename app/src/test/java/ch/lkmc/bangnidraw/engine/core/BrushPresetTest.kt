@@ -79,7 +79,19 @@ class BrushPresetTest {
         assertEquals(20f, decoded.size)
         assertEquals(preset().opacity, decoded.opacity, "opacity took its default")
         assertEquals(TipShape.Round, decoded.tip, "tip took its default")
+        assertEquals(BrushModel.Standard, decoded.model, "model took its default")
         assertEquals(BufferMode.Max, decoded.bufferMode, "bufferMode took its default")
+    }
+
+    @Test
+    fun `the Chinese ink model round-trips explicitly`() {
+        val original = preset().copy(model = BrushModel.ChineseInk)
+
+        val encoded = json.encodeToString(original)
+        val decoded = json.decodeFromString<BrushPreset>(encoded)
+
+        assertTrue(encoded.contains("\"model\":\"ChineseInk\""))
+        assertEquals(original, decoded)
     }
 
     @Test

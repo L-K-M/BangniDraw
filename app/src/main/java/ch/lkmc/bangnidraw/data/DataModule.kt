@@ -38,6 +38,14 @@ object DataModule {
 
     @Provides
     @Singleton
+    fun provideBrushPresetStore(@ApplicationContext context: Context): BrushPresetStore =
+        BrushPresetStore(
+            root = File(context.filesDir, BRUSH_PRESET_DIRECTORY),
+            assets = AndroidBrushPresetAssets(context.assets),
+        )
+
+    @Provides
+    @Singleton
     @ApplicationScope
     fun provideApplicationScope(): CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)

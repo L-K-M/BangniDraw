@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "builtin.pencil",
+  "name": "@string/preset_pencil",
+  "icon": "pencil",
+  "size": 4.0,
+  "sizeMin": 1.0,
+  "sizeMax": 40.0,
+  "opacity": 0.9,
+  "flow": 0.35,
+  "hardness": 0.75,
+  "spacing": 0.16,
+  "pressureSize": { "p0": 0.7, "p1": 0.8, "p2": 0.9, "p3": 1.0 },
+  "pressureOpacity": { "p0": 0.0, "p1": 0.415244, "p2": 0.722981, "p3": 1.0 },
+  "pressureFlow": { "p0": 0.0, "p1": 0.239741, "p2": 0.590312, "p3": 1.0 },
+  "tilt": { "sizeAtFlat": 2.2, "opacityAtFlat": 0.5, "elongate": true },
+  "jitter": { "size": 0.1, "position": 0.15 },
+  "stabilizer": 0.2,
+  "bufferMode": "Accumulate"
+}

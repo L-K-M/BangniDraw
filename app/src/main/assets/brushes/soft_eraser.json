@@ -1,0 +1,19 @@
+{
+  "v": 1,
+  "id": "builtin.soft_eraser",
+  "name": "@string/preset_soft_eraser",
+  "icon": "soft_eraser",
+  "size": 80.0,
+  "sizeMin": 4.0,
+  "sizeMax": 400.0,
+  "opacity": 0.5,
+  "flow": 0.4,
+  "hardness": 0.15,
+  "spacing": 0.16,
+  "pressureSize": { "p0": 0.6, "p1": 0.73333335, "p2": 0.8666667, "p3": 1.0 },
+  "pressureOpacity": { "p0": 0.0, "p1": 0.33333334, "p2": 0.6666667, "p3": 1.0 },
+  "pressureFlow": { "p0": 0.0, "p1": 0.33333334, "p2": 0.6666667, "p3": 1.0 },
+  "stabilizer": 0.2,
+  "eraseMode": true,
+  "bufferMode": "Accumulate"
+}

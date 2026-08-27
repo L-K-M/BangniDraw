@@ -69,6 +69,16 @@
          cap, and the byte cap in MB. -->
     <string name="canvas_history_cap">%1$d / %2$d steps · %3$d MB cap</string>
 
+    <!-- Built-in brush names. Stored presets keep these resource keys rather
+         than localized text, so a language change renames the rail too. -->
+    <string name="preset_pencil">Pencil</string>
+    <string name="preset_ink_pen">Ink pen</string>
+    <string name="preset_paintbrush">Paintbrush</string>
+    <string name="preset_airbrush">Airbrush</string>
+    <string name="preset_marker">Marker</string>
+    <string name="preset_hard_eraser">Hard eraser</string>
+    <string name="preset_soft_eraser">Soft eraser</string>
+
     <!-- Stored layer names are resource keys resolved at display time
          (AGENTS.md, "Generated layer names are a closed grammar"). The
          crash-recovery scan that reopens a painting matches the stored form

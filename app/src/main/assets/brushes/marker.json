@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "id": "builtin.marker",
+  "name": "@string/preset_marker",
+  "icon": "marker",
+  "size": 24.0,
+  "sizeMin": 4.0,
+  "sizeMax": 200.0,
+  "opacity": 0.6,
+  "hardness": 0.95,
+  "spacing": 0.12,
+  "tip": { "type": "flat", "aspect": 0.3 },
+  "orientation": "Stylus",
+  "stabilizer": 0.4
+}

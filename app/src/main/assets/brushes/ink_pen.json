@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "id": "builtin.ink_pen",
+  "name": "@string/preset_ink_pen",
+  "icon": "ink_pen",
+  "size": 6.0,
+  "sizeMin": 1.0,
+  "sizeMax": 60.0,
+  "hardness": 1.0,
+  "spacing": 0.1,
+  "pressureSize": { "p0": 0.15, "p1": 0.3, "p2": 0.6, "p3": 1.0 },
+  "velocity": { "sizeAtFast": 0.85, "opacityAtFast": 1.0, "fastPxPerMs": 2.0 },
+  "stabilizer": 0.7
+}

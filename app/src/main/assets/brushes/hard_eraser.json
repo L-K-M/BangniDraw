@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "id": "builtin.hard_eraser",
+  "name": "@string/preset_hard_eraser",
+  "icon": "hard_eraser",
+  "size": 30.0,
+  "sizeMin": 2.0,
+  "sizeMax": 400.0,
+  "hardness": 0.95,
+  "spacing": 0.2,
+  "pressureSize": { "p0": 0.5, "p1": 0.6666667, "p2": 0.8333333, "p3": 1.0 },
+  "stabilizer": 0.2,
+  "eraseMode": true
+}

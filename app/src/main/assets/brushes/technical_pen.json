@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "id": "builtin.technical_pen",
+  "name": "@string/preset_technical_pen",
+  "icon": "ink_pen",
+  "size": 2.5,
+  "sizeMin": 0.5,
+  "sizeMax": 20.0,
+  "hardness": 1.0,
+  "spacing": 0.08,
+  "pressureSize": { "p0": 1.0, "p1": 1.0, "p2": 1.0, "p3": 1.0 },
+  "stabilizer": 0.55
+}

@@ -11,6 +11,7 @@ import ch.lkmc.bangnidraw.engine.core.BrushPresets
 internal fun brushPresetName(preset: BrushPreset): String = when (preset.id) {
     BrushPresets.PENCIL_ID -> stringResource(R.string.preset_pencil)
     BrushPresets.INK_PEN_ID -> stringResource(R.string.preset_ink_pen)
+    BrushPresets.TECHNICAL_PEN_ID -> stringResource(R.string.preset_technical_pen)
     BrushPresets.PAINTBRUSH_ID -> stringResource(R.string.preset_paintbrush)
     BrushPresets.AIRBRUSH_ID -> stringResource(R.string.preset_airbrush)
     BrushPresets.MARKER_ID -> stringResource(R.string.preset_marker)

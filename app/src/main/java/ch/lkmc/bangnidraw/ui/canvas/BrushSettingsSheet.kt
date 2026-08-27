@@ -413,7 +413,9 @@ internal fun BrushSettingsSheet(
                     onPresetPersisted()
                 },
             )
-            if (!active.eraseMode && mixerChoice == MixerChoice.PIGMENT) {
+            // RGB ignores these stored values; retaining them restores the
+            // brush's pigment tuning when the user switches back.
+            if (BrushSettingsPolicy.showsPigmentControls(active, mixerChoice)) {
                 ToggleRow(
                     label = stringResource(R.string.brush_pigment),
                     value = if (active.mixing) ToggleValue.On else ToggleValue.Off,

@@ -964,14 +964,21 @@ private fun CanvasContent(
                 // starts at the newest swatches.
                 LaunchedEffect(Unit) { recentScroll.scrollTo(0) }
                 // The auto-dismiss pauses while the user is scrolling the
-                // swatch list, and never runs for screen readers — TalkBack
-                // traversal of a row of hex-named swatches cannot fit a
-                // fixed window (WCAG 2.2.1).
-                val screenReaderActive = remember {
-                    context.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
-                        ?.isTouchExplorationEnabled == true
-                }
+                // swatch list, and never runs for accessibility services —
+                // TalkBack traversal of a row of hex-named swatches cannot
+                // fit a fixed window (WCAG 2.2.1), and switch-scanning is
+                // slower still. Read fresh on every restart, so enabling a
+                // service mid-session is honored.
+                val accessibilityManager = context.getSystemService(
+                    android.view.accessibility.AccessibilityManager::class.java,
+                )
                 LaunchedEffect(showRecentSwatches, recentScroll.isScrollInProgress) {
+                    val screenReaderActive = accessibilityManager?.let { am ->
+                        am.isTouchExplorationEnabled ||
+                            am.getEnabledAccessibilityServiceList(
+                                android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK,
+                            ).isNotEmpty()
+                    } == true
                     if (!recentScroll.isScrollInProgress && !screenReaderActive) {
                         delay(RECENT_POPOVER_MS)
                         showRecentSwatches = false

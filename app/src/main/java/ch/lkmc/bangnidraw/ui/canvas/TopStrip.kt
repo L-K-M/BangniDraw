@@ -230,12 +230,11 @@ private fun ToolCluster(
                 .size(ICON_BUTTON)
                 .combinedClickable(
                     onClick = onColor,
-                    onLongClick = {
-                        if (hapticsMode == HapticsMode.ENABLED) {
-                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                        }
-                        onColorLongPress()
-                    },
+                    // No manual haptic here: combinedClickable fires
+                    // HapticFeedbackType.LongPress itself (Compose 1.6+),
+                    // and a manual one would double-buzz enabled users while
+                    // buzzing haptics-off users anyway.
+                    onLongClick = { onColorLongPress() },
                 )
                 .semantics {
                     role = Role.Button

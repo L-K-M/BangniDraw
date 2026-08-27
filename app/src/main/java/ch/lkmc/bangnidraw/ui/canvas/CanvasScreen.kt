@@ -1175,7 +1175,10 @@ private fun CanvasPanelContent(
                 active = kind.params,
                 onChanged = viewModel::updateEyedropperParams,
             )
-            is ToolKind.Fill -> Unit
+            is ToolKind.Fill -> FillSettingsSheet(
+                active = state.fillParams,
+                onChanged = viewModel::updateFillParams,
+            )
         }
         CanvasPanel.FILL_SETTINGS -> FillSettingsSheet(
             active = state.fillParams,
@@ -1193,6 +1196,7 @@ private fun panelAnnouncement(panel: CanvasPanel?, kind: ToolKind? = null): Stri
         is ToolKind.Smudge -> stringResource(R.string.panel_smudge_opened)
         is ToolKind.Blur -> stringResource(R.string.panel_blur_opened)
         is ToolKind.Eyedropper -> stringResource(R.string.panel_eyedropper_opened)
+        is ToolKind.Fill -> stringResource(R.string.panel_fill_opened)
         else -> stringResource(R.string.panel_brush_opened)
     }
     CanvasPanel.FILL_SETTINGS -> stringResource(R.string.panel_fill_opened)

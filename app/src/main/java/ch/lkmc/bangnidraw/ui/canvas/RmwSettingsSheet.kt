@@ -71,8 +71,6 @@ internal fun SmudgeSettingsSheet(
             onFinished = {},
             valueText = percent,
         )
-
-        SettingsGroup(stringResource(R.string.brush_stabilizer))
         SettingSlider(
             label = stringResource(R.string.brush_stabilizer),
             value = active.stabilizer,

@@ -31,6 +31,18 @@ class CanvasNavigationContractTest {
         assertTrue("leaveJob = null" in viewModel.substring(start, end))
     }
 
+    @Test
+    fun `closing clears keyboard focus before the delayed scrim`() {
+        val screen = source(CANVAS_SCREEN_PATH)
+        val start = screen.indexOf(CLOSING_EFFECT)
+        if (start < 0) fail("missing $CLOSING_EFFECT")
+        val end = screen.indexOf(CLOSING_SCRIM, start)
+        if (end <= start) fail("missing $CLOSING_SCRIM after closing effect")
+
+        val effect = screen.substring(start, end)
+        assertTrue(effect.indexOf(CLEAR_FOCUS) in 0 until effect.indexOf(SCRIM_DELAY))
+    }
+
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
 
     private fun repositoryRoot(): File {
@@ -55,6 +67,10 @@ class CanvasNavigationContractTest {
         const val DIRECT_LEAVE_ENTRY_POINTS = 2
         const val RELEASE_LEAVE_GATE = "private fun releaseLeaveGate()"
         const val NOTE_LEAVE_FAILURE = "private fun noteLeaveFailure()"
+        const val CLOSING_EFFECT = "LaunchedEffect(state.closing)"
+        const val CLOSING_SCRIM = "if (closingScrim)"
+        const val CLEAR_FOCUS = "focusManager.clearFocus()"
+        const val SCRIM_DELAY = "delay(CLOSING_SCRIM_DELAY_MS)"
         val HANDLE_BACK = Regex("""viewModel\.handleBack\(onBack\)""")
         val REQUEST_LEAVE = Regex("""viewModel\.requestLeave\(""")
     }

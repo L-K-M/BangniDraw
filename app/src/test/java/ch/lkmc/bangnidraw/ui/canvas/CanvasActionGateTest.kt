@@ -85,7 +85,8 @@ class CanvasActionGateTest {
         assertEquals(CanvasActionDecision.Parked, gate.request(CanvasDocumentAction.Undo))
         assertEquals(false, gate.beginStroke())
         journal.push(entry(2))
-        if (gate.completeStroke() == CanvasDocumentAction.Undo) journal.undo()
+        assertEquals(CanvasDocumentAction.Undo, gate.completeStroke())
+        journal.undo()
 
         assertEquals(listOf(1L, 2L), journal.entries.map { it.seq })
         assertEquals(1, journal.cursor)

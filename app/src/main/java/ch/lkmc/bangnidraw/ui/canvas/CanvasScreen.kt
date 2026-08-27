@@ -87,6 +87,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -1358,6 +1359,7 @@ private fun CanvasContent(
         // both (it takes keyboard focus and announces the state).
         var closingScrim by remember { mutableStateOf(false) }
         val scrimFocus = remember { FocusRequester() }
+        val focusManager = LocalFocusManager.current
         LaunchedEffect(closingScrim) {
             if (closingScrim) runCatching { scrimFocus.requestFocus() }
         }
@@ -1366,6 +1368,7 @@ private fun CanvasContent(
                 closingScrim = false
                 return@LaunchedEffect
             }
+            focusManager.clearFocus()
             delay(CLOSING_SCRIM_DELAY_MS)
             closingScrim = true
         }

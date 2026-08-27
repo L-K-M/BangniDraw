@@ -112,4 +112,21 @@ class PaletteTest {
         assertTrue(PalettePolicy.isCreatedNameTaken(" Cadmiums ", "My palette", existing))
         assertFalse(PalettePolicy.isCreatedNameTaken("Earths", "My palette", existing))
     }
+
+    @Test
+    fun `created palette names refuse every display token`() {
+        val existing = setOf("Painters", "Basic", "Recent", "My palette")
+
+        listOf(
+            PaletteCatalog.PAINTERS_NAME,
+            PaletteCatalog.BASIC_NAME,
+            PaletteCatalog.RECENT_NAME,
+            PaletteCatalog.MY_PALETTE_NAME,
+        ).forEach { token ->
+            assertTrue(
+                PalettePolicy.isCreatedNameTaken(token, "My palette", existing),
+                "display token should be reserved: $token",
+            )
+        }
+    }
 }

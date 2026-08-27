@@ -220,6 +220,8 @@ object PalettePolicy {
         existingDisplayNames: Set<String>,
     ): Boolean {
         val storedName = createdName(input)
+        if (input.isNotBlank() && isDisplayNameToken(storedName)) return true
+
         val displayName = if (storedName == PaletteCatalog.MY_PALETTE_NAME) {
             defaultDisplayName
         } else {
@@ -227,6 +229,15 @@ object PalettePolicy {
         }
 
         return displayName in existingDisplayNames
+    }
+
+    private fun isDisplayNameToken(name: String): Boolean = when (name) {
+        PaletteCatalog.PAINTERS_NAME,
+        PaletteCatalog.BASIC_NAME,
+        PaletteCatalog.RECENT_NAME,
+        PaletteCatalog.MY_PALETTE_NAME -> true
+
+        else -> false
     }
 
     /** Long enough for a real name, short enough for one chip. */

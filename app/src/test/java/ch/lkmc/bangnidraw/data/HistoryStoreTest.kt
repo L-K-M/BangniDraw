@@ -220,7 +220,10 @@ class HistoryStoreTest {
         writeEntry(off = 0, len = 16)
         val payloads = store.readPayloads(1, sidecar = false)
         assertNotNull(payloads, "the header must parse and its ref must address the body")
-        assertEquals(16, payloads!!.single().encoded.size)
+        // The body's bytes, not just its length: a slice from a wrong
+        // in-bounds offset would be 16 bytes of header text and pass a
+        // size-only check.
+        assertEquals("x".repeat(16), payloads!!.single().encoded.decodeToString())
     }
 
     @Test

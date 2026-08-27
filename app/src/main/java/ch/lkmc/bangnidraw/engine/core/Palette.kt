@@ -79,9 +79,6 @@ data class ColorUiState(
     val mixerChoice: MixerChoice,
     val pigmentMixerAvailable: Boolean,
 ) {
-    val mixerIsPigment: Boolean
-        get() = mixerChoice == MixerChoice.PIGMENT
-
     val activePalette: Palette
         get() = palettes.firstOrNull { it.id == activePaletteId }
             ?: palettes.firstOrNull()

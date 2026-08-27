@@ -16,5 +16,6 @@ class BrushSettingsPolicyTest {
         assertTrue(BrushSettingsPolicy.showsPigmentControls(paint, MixerChoice.PIGMENT))
         assertFalse(BrushSettingsPolicy.showsPigmentControls(paint, MixerChoice.RGB))
         assertFalse(BrushSettingsPolicy.showsPigmentControls(eraser, MixerChoice.PIGMENT))
+        assertFalse(BrushSettingsPolicy.showsPigmentControls(eraser, MixerChoice.RGB))
     }
 }

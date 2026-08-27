@@ -93,21 +93,47 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCrosshair(cente
     )
 }
 
+/**
+ * The eyedropper's mark, centred on the sample point: the picked colour
+ * is the one under the glyph's middle. The earlier pipette drew its tip
+ * circle offset from the centre, so the colour shown was a neighbour's.
+ */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPipette(center: Offset) {
-    val start = Offset(center.x - PIPETTE_HALF_PX, center.y + PIPETTE_HALF_PX)
-    val end = Offset(center.x + PIPETTE_HALF_PX, center.y - PIPETTE_HALF_PX)
-    drawLine(PaperSwatchBlack, start, end, OUTER_STROKE_PX * 2f)
-    drawLine(PaperSwatchWhite, start, end, INNER_STROKE_PX * 2f)
+    val arm = PIPETTE_TIP_PX + CROSSHAIR_PX
+    drawLine(
+        PaperSwatchBlack,
+        Offset(center.x - arm, center.y),
+        Offset(center.x + arm, center.y),
+        OUTER_STROKE_PX,
+    )
+    drawLine(
+        PaperSwatchBlack,
+        Offset(center.x, center.y - arm),
+        Offset(center.x, center.y + arm),
+        OUTER_STROKE_PX,
+    )
     drawCircle(
         color = PaperSwatchBlack,
         radius = PIPETTE_TIP_PX,
-        center = end,
+        center = center,
         style = Stroke(width = OUTER_STROKE_PX),
+    )
+    drawLine(
+        PaperSwatchWhite,
+        Offset(center.x - arm, center.y),
+        Offset(center.x + arm, center.y),
+        INNER_STROKE_PX,
+    )
+    drawLine(
+        PaperSwatchWhite,
+        Offset(center.x, center.y - arm),
+        Offset(center.x, center.y + arm),
+        INNER_STROKE_PX,
     )
     drawCircle(
         color = PaperSwatchWhite,
         radius = PIPETTE_TIP_PX,
-        center = end,
+        center = center,
         style = Stroke(width = INNER_STROKE_PX),
     )
 }
@@ -117,5 +143,4 @@ private const val INNER_STROKE_PX = 1f
 private const val CROSSHAIR_PX = 3f
 private const val DASH_ON_PX = 6f
 private const val DASH_OFF_PX = 4f
-private const val PIPETTE_HALF_PX = 8f
 private const val PIPETTE_TIP_PX = 4f

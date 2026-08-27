@@ -88,6 +88,7 @@ internal data class LayoutSpec(
     val sliderPlacement: SliderPlacement,
     val gridMinCellDp: Int,
     val toolSlotDp: Int,
+    val railWidthDp: Int,
     val sliderLengthDp: Int,
     val railContentHeightDp: Int,
 ) {
@@ -106,7 +107,7 @@ internal data class LayoutSpec(
             return chrome
         }
 
-        val railWidth = minOf(toolSlotDp + RAIL_EXTRA_WIDTH_DP, windowWidthDp).toFloat()
+        val railWidth = minOf(railWidthDp, windowWidthDp).toFloat()
         val rail = LayoutRect(
             left = windowWidthDp - railWidth,
             top = stripBottom,
@@ -163,6 +164,11 @@ internal data class LayoutSpec(
                 RailMode.GROUPED -> GROUPED_SLIDER_DP
                 RailMode.SHORT, RailMode.DOCK -> 0
             }
+            val sliderPlacement = if (railMode == RailMode.FULL || railMode == RailMode.GROUPED) {
+                SliderPlacement.IN_RAIL
+            } else {
+                SliderPlacement.LEDGE
+            }
             return LayoutSpec(
                 widthClass = width,
                 railMode = railMode,
@@ -173,17 +179,18 @@ internal data class LayoutSpec(
                     RailMode.SHORT, RailMode.GROUPED -> PanelMode.SIDE_SHEET
                     RailMode.FULL -> PanelMode.FLOATING
                 },
-                sliderPlacement = if (railMode == RailMode.FULL || railMode == RailMode.GROUPED) {
-                    SliderPlacement.IN_RAIL
-                } else {
-                    SliderPlacement.LEDGE
-                },
+                sliderPlacement = sliderPlacement,
                 gridMinCellDp = when (width) {
                     WidthClass.COMPACT -> COMPACT_GRID_CELL_DP
                     WidthClass.MEDIUM -> MEDIUM_GRID_CELL_DP
                     WidthClass.EXPANDED -> EXPANDED_GRID_CELL_DP
                 },
                 toolSlotDp = slot,
+                railWidthDp = if (sliderPlacement == SliderPlacement.IN_RAIL) {
+                    IN_RAIL_WIDTH_DP
+                } else {
+                    slot + RAIL_EXTRA_WIDTH_DP
+                },
                 sliderLengthDp = sliderLength,
                 railContentHeightDp = contentHeight(railMode, slot),
             )
@@ -257,6 +264,11 @@ internal data class LayoutSpec(
         private const val FULL_SLIDER_DP = 160
         private const val RAIL_PADDING_DP = 24
         private const val RAIL_EXTRA_WIDTH_DP = 8
+        private const val SLIDER_COUNT = 2
+        private const val SLIDER_TOUCH_SLAB_DP = 48
+        private const val RAIL_HORIZONTAL_PADDING_DP = 4
+        private const val IN_RAIL_WIDTH_DP =
+            SLIDER_COUNT * SLIDER_TOUCH_SLAB_DP + 2 * RAIL_HORIZONTAL_PADDING_DP
         private const val DOCK_HEIGHT_DP = 56
         private const val LEDGE_HEIGHT_DP = 48
         private const val LEDGE_GAP_DP = 8f

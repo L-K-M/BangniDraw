@@ -47,7 +47,7 @@ internal fun BoxScope.PanelHost(
         PanelMode.FLOATING -> PANEL_MAX_WIDTH
     }
     val railGap = if (layout.panelMode == PanelMode.FLOATING) {
-        (layout.toolSlotDp + RAIL_EXTRA_WIDTH_DP + FLOATING_GAP_DP).dp
+        (layout.railWidthDp + FLOATING_GAP_DP).dp
     } else {
         0.dp
     }
@@ -93,7 +93,6 @@ internal fun BoxScope.PanelHost(
 private val PANEL_SIDE_WIDTH = 300.dp
 private val PANEL_MAX_WIDTH = 320.dp
 private val TOP_STRIP_HEIGHT = 48.dp
-private const val RAIL_EXTRA_WIDTH_DP = 8
 private const val FLOATING_GAP_DP = 8
 private const val PANEL_ANIMATION_MS = 220
 private const val COMPACT_WIDTH_FRACTION = 0.85f

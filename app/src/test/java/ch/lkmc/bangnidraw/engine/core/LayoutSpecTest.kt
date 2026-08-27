@@ -73,6 +73,29 @@ class LayoutSpecTest {
     }
 
     @Test
+    fun `in rail sliders have separate touch slabs`() {
+        val windows = listOf(
+            Window(WidthClass.MEDIUM, 600, 509),
+            Window(WidthClass.MEDIUM, 600, 766),
+            Window(WidthClass.EXPANDED, 840, 557),
+            Window(WidthClass.EXPANDED, 840, 846),
+        )
+
+        for (window in windows) {
+            val railHeight = window.height - LayoutSpec.TOP_STRIP_DP
+            val spec = LayoutSpec.forWindow(window.widthClass, railHeight, Hand.RIGHT)
+            val rail = spec.persistentChrome(window.width, window.height).last()
+            val railWidth = rail.right - rail.left
+
+            assertEquals(SliderPlacement.IN_RAIL, spec.sliderPlacement)
+            assertTrue(
+                railWidth >= MIN_SLIDER_RAIL_WIDTH_DP,
+                "$railWidth dp cannot hold both slider touch slabs",
+            )
+        }
+    }
+
+    @Test
     fun `compact dock fits six targets on a 320 dp window`() {
         val spec = LayoutSpec.forWindow(WidthClass.COMPACT, 480, Hand.RIGHT)
 
@@ -129,4 +152,12 @@ class LayoutSpecTest {
         val width: Int,
         val height: Int,
     )
+
+    private companion object {
+        const val SLIDER_COUNT = 2
+        const val SLIDER_TOUCH_SLAB_DP = 48
+        const val RAIL_HORIZONTAL_PADDING_DP = 4
+        const val MIN_SLIDER_RAIL_WIDTH_DP =
+            SLIDER_COUNT * SLIDER_TOUCH_SLAB_DP + 2 * RAIL_HORIZONTAL_PADDING_DP
+    }
 }

@@ -1,6 +1,9 @@
 package ch.lkmc.bangnidraw.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import ch.lkmc.bangnidraw.engine.core.ThemeTone
+import ch.lkmc.bangnidraw.engine.core.ToolButtonEmphasis
+import ch.lkmc.bangnidraw.engine.core.ToolRailColorPolicy
 
 // A quiet studio (docs/plan/08-ui-and-layout.md "Design language"). The
 // chrome is neutral and low-saturation in both themes so nothing competes
@@ -11,25 +14,52 @@ import androidx.compose.ui.graphics.Color
 // Light: warm paper-white surfaces, near-black ink.
 val PaperLight = Color(0xFFF6F3EC)
 val PanelLight = Color(0xFFFFFFFF)
-val PanelLightVariant = Color(0xFFECE8DF)
-val InkLight = Color(0xFF1E1B16)
+private val LightInactiveRail = ToolRailColorPolicy.colors(
+    ThemeTone.LIGHT,
+    ToolButtonEmphasis.INACTIVE,
+)
+private val DarkInactiveRail = ToolRailColorPolicy.colors(
+    ThemeTone.DARK,
+    ToolButtonEmphasis.INACTIVE,
+)
+private val LightActiveRail = ToolRailColorPolicy.colors(
+    ThemeTone.LIGHT,
+    ToolButtonEmphasis.ACTIVE,
+)
+private val DarkActiveRail = ToolRailColorPolicy.colors(
+    ThemeTone.DARK,
+    ToolButtonEmphasis.ACTIVE,
+)
+
+val PanelLightVariant = Color(LightInactiveRail.containerArgb)
+val InkLight = Color(LightInactiveRail.iconArgb)
 val InkLightDim = Color(0xFF6E6A60)
 
 // Dark: slate, not black — a black UI makes every painting look darker
 // than it will print.
 val PaperDark = Color(0xFF15161A)
 val PanelDark = Color(0xFF22242A)
-val PanelDarkVariant = Color(0xFF2C2F36)
-val InkDark = Color(0xFFECE8DF)
+val PanelDarkVariant = Color(DarkInactiveRail.containerArgb)
+val InkDark = Color(DarkInactiveRail.iconArgb)
 val InkDarkDim = Color(0xFF9A978E)
 
 // Accents, from media-sources/icon.png.
-val Saffron = Color(0xFFFFB300)
-val SaffronDeep = Color(0xFFCC8A00)
+val Saffron = Color(LightActiveRail.containerArgb)
+val SaffronDeep = Color(DarkActiveRail.containerArgb)
 val Indigo = Color(0xFF2B2ED6)
 val IndigoSoft = Color(0xFF7D80FF)
 
-val OnAccent = Color(0xFF1E1B16)
+val OnAccent = Color(LightActiveRail.iconArgb)
+
+internal data class RailButtonColors(val container: Color, val icon: Color)
+
+internal fun railButtonColors(tone: ThemeTone, emphasis: ToolButtonEmphasis): RailButtonColors {
+    val colors = ToolRailColorPolicy.colors(tone, emphasis)
+    return RailButtonColors(
+        container = Color(colors.containerArgb),
+        icon = Color(colors.iconArgb),
+    )
+}
 
 // The New Canvas dialog's paper swatches (docs/plan/08-ui-and-layout.md
 // §2.1): white, warm white, mid-gray, black; transparent is

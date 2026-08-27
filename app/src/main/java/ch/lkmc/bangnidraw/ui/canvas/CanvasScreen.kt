@@ -686,7 +686,7 @@ private fun CanvasContent(
             onUndo = viewModel::undo,
             onRedo = viewModel::redo,
             gestureExclusionSide = if (layout.railMode == RailMode.DOCK) null else layout.railSide,
-            gestureExclusionWidthDp = layout.toolSlotDp + RAIL_EXTRA_WIDTH_DP + EXCLUSION_GAP_DP,
+            gestureExclusionWidthDp = layout.railWidthDp + EXCLUSION_GAP_DP,
             modifier = Modifier
                 .fillMaxSize()
                 .semantics { traversalIndex = CANVAS_TRAVERSAL },
@@ -709,8 +709,8 @@ private fun CanvasContent(
                 // `stampDabs`/`endStroke`/`cancelStroke` queue through
                 // `frontBuffered.execute` with no validity guard. A block that
                 // never runs also never returns its `DabRing` slot, so a
-                // handful of those would strand the ring and every later
-                // `acquireDabBatch` would fail. §4 makes dropping it correct:
+                // handful of those would strand the pool and backpressure all
+                // later input. §4 makes dropping it correct:
                 // a cancelled stroke leaves no trace, so there is nothing the
                 // dead engine still owes.
                 //
@@ -1033,7 +1033,7 @@ private fun CanvasContent(
                             if (layout.railSide == Hand.RIGHT) Alignment.BottomStart
                             else Alignment.BottomEnd,
                         )
-                        .width(windowWidth - (layout.toolSlotDp + RAIL_EXTRA_WIDTH_DP).dp)
+                        .width(windowWidth - layout.railWidthDp.dp)
                     RailMode.GROUPED, RailMode.FULL -> Modifier
                 }
                 AnimatedVisibility(
@@ -1371,7 +1371,6 @@ private const val DOCK_HEIGHT = 56
 private const val DOCK_CHROME_HEIGHT = 120
 private const val LEDGE_CHROME_HEIGHT = 64
 private const val RESET_EDGE_PADDING = 16
-private const val RAIL_EXTRA_WIDTH_DP = 8
 private const val EXCLUSION_GAP_DP = 16
 private const val CHROME_Z = 2f
 private const val HINT_Z = 3f

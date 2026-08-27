@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -57,7 +58,10 @@ import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.ToolKind
+import ch.lkmc.bangnidraw.engine.core.ToolButtonEmphasis
 import ch.lkmc.bangnidraw.engine.core.ToolSelection
+import ch.lkmc.bangnidraw.ui.theme.LocalThemeTone
+import ch.lkmc.bangnidraw.ui.theme.railButtonColors
 
 /** One adaptive control: full rail, grouped rail, short rail, or bottom dock. */
 @Composable
@@ -129,7 +133,7 @@ internal fun ToolRail(
         color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = RAIL_ALPHA),
         shape = MaterialTheme.shapes.large,
         tonalElevation = 2.dp,
-        modifier = modifier.width((layout.toolSlotDp + RAIL_EXTRA_WIDTH_DP).dp),
+        modifier = modifier.width(layout.railWidthDp.dp),
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -449,6 +453,8 @@ private fun ToolButton(
     val selectedText = stringResource(R.string.cd_selected)
     val shape = MaterialTheme.shapes.medium
     val temporaryColor = MaterialTheme.colorScheme.secondary
+    val emphasis = if (active) ToolButtonEmphasis.ACTIVE else ToolButtonEmphasis.INACTIVE
+    val buttonColors = railButtonColors(LocalThemeTone.current, emphasis)
     val visual = minOf(TOOL_VISUAL, slot - TOOL_VISUAL_INSET)
     val border = if (active) {
         Modifier.border(ACTIVE_BORDER, MaterialTheme.colorScheme.primary, shape)
@@ -457,13 +463,13 @@ private fun ToolButton(
     }
     Box(modifier = Modifier.size(slot), contentAlignment = Alignment.Center) {
         Surface(
-            color = if (active) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surfaceContainerHigh,
+            color = buttonColors.container,
             shape = shape,
             modifier = border.size(visual),
         ) {}
         IconButton(
             onClick = onClick,
+            colors = IconButtonDefaults.iconButtonColors(contentColor = buttonColors.icon),
             modifier = Modifier
                 .size(slot)
                 .semantics {
@@ -472,7 +478,7 @@ private fun ToolButton(
                     if (active) stateDescription = selectedText
                 },
         ) {
-            Icon(icon, contentDescription = description)
+            Icon(icon, contentDescription = description, tint = buttonColors.icon)
         }
         if (state == ToolButtonState.Temporary) {
             Canvas(Modifier.size(visual)) {
@@ -539,7 +545,6 @@ private val TEMPORARY_BORDER = 2.dp
 private val DIVIDER_MARGIN = 4.dp
 private val DASH_ON = 6.dp
 private val DASH_OFF = 4.dp
-private const val RAIL_EXTRA_WIDTH_DP = 8
 private const val FULL_PAINT_LAST_INDEX = 4
 private const val FULL_ERASER_INDEX = 5
 private const val GROUPED_ERASER_INDEX = 1

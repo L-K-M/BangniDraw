@@ -5,6 +5,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import ch.lkmc.bangnidraw.engine.core.ThemeTone
 
 // Follows the system: a painter working at night wants dark chrome, one
 // under a window wants light. Neither scheme uses dynamic color — the
@@ -46,14 +49,19 @@ private val DarkScheme = darkColorScheme(
     outline = InkDarkDim,
 )
 
+internal val LocalThemeTone = staticCompositionLocalOf { ThemeTone.LIGHT }
+
 @Composable
 fun BangniTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkScheme else LightScheme,
-        typography = BangniTypography,
-        content = content,
-    )
+    val tone = if (darkTheme) ThemeTone.DARK else ThemeTone.LIGHT
+    CompositionLocalProvider(LocalThemeTone provides tone) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) DarkScheme else LightScheme,
+            typography = BangniTypography,
+            content = content,
+        )
+    }
 }

@@ -32,6 +32,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -598,6 +599,7 @@ private fun ToolButton(
                 } else {
                     SilentHapticFeedback
                 },
+                LocalContentColor provides buttonColors.icon,
             ) {
                 Box(
                     modifier = Modifier

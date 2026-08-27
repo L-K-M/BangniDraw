@@ -13,6 +13,7 @@ class ToolRailAccessibilityContractTest {
 
         assertTrue("EraserTogglePolicy.next(eraser.id, presets)" in source)
         assertTrue(".minimumInteractiveComponentSize()" in source)
+        assertTrue("LocalContentColor provides buttonColors.icon" in source)
     }
 
     private fun repositoryRoot(): File {

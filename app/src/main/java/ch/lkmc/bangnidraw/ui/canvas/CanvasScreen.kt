@@ -977,7 +977,16 @@ private fun CanvasContent(
                         !recentScroll.isScrollInProgress &&
                         !accessibilityManager.hasActiveScreenReader()
                     ) {
-                        delay(RECENT_POPOVER_MS)
+                        // Switch Access (FEEDBACK_GENERIC) is missed by
+                        // hasActiveScreenReader but is far slower than a
+                        // fixed window; the platform's per-user "time to take
+                        // action" scales the wait for exactly that audience.
+                        delay(
+                            accessibilityManager?.getRecommendedTimeoutMillis(
+                                RECENT_POPOVER_MS.toInt(),
+                                android.view.accessibility.AccessibilityManager.FLAG_CONTENT_CONTROLS,
+                            )?.toLong() ?: RECENT_POPOVER_MS,
+                        )
                         // Re-check: TalkBack may have been enabled while the
                         // wait ran (its volume-key shortcut), and yanking the
                         // popover mid-traversal is the exact failure the

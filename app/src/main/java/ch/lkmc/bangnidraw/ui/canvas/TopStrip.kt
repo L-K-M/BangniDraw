@@ -93,6 +93,9 @@ internal fun TopStrip(
             onUndoLongPress,
         )
     }
+    // One token for the strip and its badge ring: the ring "cuts out" the
+    // badge against the strip, so the two must always agree.
+    val stripBackground = MaterialTheme.colorScheme.surfaceContainer
     val tools: @Composable () -> Unit = {
         ToolCluster(
             activeLayer,
@@ -112,9 +115,6 @@ internal fun TopStrip(
         )
     }
 
-    // One token for the strip and its badge ring: the ring "cuts out" the
-    // badge against the strip, so the two must always agree.
-    val stripBackground = MaterialTheme.colorScheme.surfaceContainer
     Surface(
         color = stripBackground,
         tonalElevation = 1.dp,

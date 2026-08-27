@@ -1108,61 +1108,62 @@ private fun CanvasContent(
                     modifier = Modifier.zIndex(HINT_Z),
                 )
             }
+        }
 
-            // 08 §4.8: "Closing…" appears only when the leave checkpoint
-            // outlives the 300 ms grace — a fast leave stays a silent pop.
-            // The scrim is the last child, so it covers the chrome while
-            // the checkpoint runs.
-            var closingScrim by remember { mutableStateOf(false) }
-            val scrimFocus = remember { FocusRequester() }
-            LaunchedEffect(closingScrim) {
-                if (closingScrim) runCatching { scrimFocus.requestFocus() }
+        // 08 §4.8: "Closing…" appears only when the leave checkpoint
+        // outlives the 300 ms grace — a fast leave stays a silent pop.
+        // Composed OUTSIDE the gated chrome box on purpose: the chrome box
+        // drops focus and a11y while closing, and the scrim itself must keep
+        // both (it takes keyboard focus and announces the state).
+        var closingScrim by remember { mutableStateOf(false) }
+        val scrimFocus = remember { FocusRequester() }
+        LaunchedEffect(closingScrim) {
+            if (closingScrim) runCatching { scrimFocus.requestFocus() }
+        }
+        LaunchedEffect(state.closing) {
+            if (!state.closing) {
+                closingScrim = false
+                return@LaunchedEffect
             }
-            LaunchedEffect(state.closing) {
-                if (!state.closing) {
-                    closingScrim = false
-                    return@LaunchedEffect
-                }
-                delay(CLOSING_SCRIM_DELAY_MS)
-                closingScrim = true
-            }
-            if (closingScrim) {
-                Surface(
-                    color = MaterialTheme.colorScheme.scrim.copy(alpha = CLOSING_SCRIM_ALPHA),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        // The scrim is the front-most hit node while visible:
-                        // consume every change of every gesture, so no tap,
-                        // drag or stroke can reach the chrome or the canvas
-                        // mid-flush. Focus and a11y gating for the chrome
-                        // lives on the chrome box itself.
-                        .focusRequester(scrimFocus)
-                        .focusable()
-                        .pointerInput(Unit) {
-                            awaitEachGesture {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    event.changes.forEach { it.consume() }
-                                    if (event.changes.none { it.pressed }) break
-                                }
+            delay(CLOSING_SCRIM_DELAY_MS)
+            closingScrim = true
+        }
+        if (closingScrim) {
+            Surface(
+                color = MaterialTheme.colorScheme.scrim.copy(alpha = CLOSING_SCRIM_ALPHA),
+                modifier = Modifier
+                    .fillMaxSize()
+                    // The scrim is the front-most hit node while visible:
+                    // consume every change of every gesture, so no tap,
+                    // drag or stroke can reach the chrome or the canvas
+                    // mid-flush. Focus and a11y gating for the chrome
+                    // lives on the chrome box itself.
+                    .focusRequester(scrimFocus)
+                    .focusable()
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { it.consume() }
+                                if (event.changes.none { it.pressed }) break
                             }
                         }
-                        .zIndex(CLOSING_SCRIM_Z),
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        CircularProgressIndicator()
-                        Text(
-                            text = stringResource(R.string.canvas_closing),
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier
-                                .padding(top = 12.dp)
-                                .semantics { liveRegion = LiveRegionMode.Polite },
-                        )
                     }
+                    .zIndex(CLOSING_SCRIM_Z),
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    CircularProgressIndicator()
+                    Text(
+                        text = stringResource(R.string.canvas_closing),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .padding(top = 12.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                    )
                 }
             }
         }

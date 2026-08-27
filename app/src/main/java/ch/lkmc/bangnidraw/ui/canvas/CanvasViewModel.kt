@@ -2160,12 +2160,17 @@ class CanvasViewModel @Inject constructor(
                 // flush carries its own flag.
                 if (!flushed) withContext(Dispatchers.Main) { noteLeaveFailure() }
             } finally {
+                val self = coroutineContext[Job]
                 if (!handedOff) {
                     // Ownership-guarded like the success branch: on a
                     // rethrown cancellation this coroutine is already
                     // inactive while its finally runs, so a newer leave()
-                    // may have started and only that job may clear.
-                    if (leaveJob === coroutineContext[Job]) setClosing(false)
+                    // may have started and only that job may clear. Runs on
+                    // the main thread so the check and the clear cannot
+                    // interleave with leave() reassigning leaveJob.
+                    withContext(NonCancellable + Dispatchers.Main) {
+                        if (leaveJob === self) setClosing(false)
+                    }
                 } else {
                     // If navigation was swallowed (a cancelled predictive-back
                     // gesture, an uncollected event), lift the scrim rather
@@ -2176,8 +2181,11 @@ class CanvasViewModel @Inject constructor(
                     // would throw and skip the reset.
                     withContext(NonCancellable) { delay(LEAVE_HANDOFF_GRACE_MS) }
                     // A newer leave may have started during the grace window;
-                    // only the latest job owns clearing the scrim.
-                    if (leaveJob === coroutineContext[Job]) setClosing(false)
+                    // only the latest job owns clearing the scrim. Main-thread
+                    // for the same atomicity reason as the failure branch.
+                    withContext(NonCancellable + Dispatchers.Main) {
+                        if (leaveJob === self) setClosing(false)
+                    }
                 }
             }
         }

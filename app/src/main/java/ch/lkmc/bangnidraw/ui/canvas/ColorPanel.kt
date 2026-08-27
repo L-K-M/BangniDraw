@@ -11,12 +11,15 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -45,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -63,6 +67,8 @@ import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.MixingDish
 import ch.lkmc.bangnidraw.engine.core.Palette
 import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
+import ch.lkmc.bangnidraw.engine.core.RgbFieldArrangement
+import ch.lkmc.bangnidraw.engine.core.RgbFieldLayoutPolicy
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -329,10 +335,39 @@ private fun ColorFields(
                 )
             },
     )
-    Row(horizontalArrangement = Arrangement.spacedBy(FIELD_GAP)) {
-        ChannelField(red, R.string.color_red, onTextInputFocus) { red = it; selectRgb() }
-        ChannelField(green, R.string.color_green, onTextInputFocus) { green = it; selectRgb() }
-        ChannelField(blue, R.string.color_blue, onTextInputFocus) { blue = it; selectRgb() }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val layout = RgbFieldLayoutPolicy.forContentWidth(
+            contentWidthDp = maxWidth.value,
+            fontScale = LocalDensity.current.fontScale,
+        )
+        val fieldModifier = Modifier.width(layout.fieldWidthDp.dp)
+        val fields: @Composable () -> Unit = {
+            ChannelField(red, R.string.color_red, onTextInputFocus, fieldModifier) {
+                red = it
+                selectRgb()
+            }
+            ChannelField(green, R.string.color_green, onTextInputFocus, fieldModifier) {
+                green = it
+                selectRgb()
+            }
+            ChannelField(blue, R.string.color_blue, onTextInputFocus, fieldModifier) {
+                blue = it
+                selectRgb()
+            }
+        }
+
+        when (layout.arrangement) {
+            RgbFieldArrangement.ROW -> Row(
+                horizontalArrangement = Arrangement.spacedBy(layout.gapDp.dp),
+                modifier = Modifier.fillMaxWidth(),
+                content = { fields() },
+            )
+            RgbFieldArrangement.COLUMN -> Column(
+                verticalArrangement = Arrangement.spacedBy(layout.gapDp.dp),
+                modifier = Modifier.fillMaxWidth(),
+                content = { fields() },
+            )
+        }
     }
 }
 
@@ -341,6 +376,7 @@ private fun ChannelField(
     value: String,
     label: Int,
     onTextInputFocus: (TextInputFocus) -> Unit,
+    modifier: Modifier,
     onValueChange: (String) -> Unit,
 ) {
     OutlinedTextField(
@@ -348,8 +384,8 @@ private fun ChannelField(
         onValueChange = onValueChange,
         label = { Text(stringResource(label)) },
         singleLine = true,
-        modifier = Modifier
-            .size(width = CHANNEL_FIELD_WIDTH, height = CHANNEL_FIELD_HEIGHT)
+        modifier = modifier
+            .heightIn(min = CHANNEL_FIELD_MIN_HEIGHT)
             .onFocusChanged { focus ->
                 onTextInputFocus(
                     if (focus.hasFocus) TextInputFocus.FOCUSED else TextInputFocus.CLEAR,
@@ -571,8 +607,7 @@ private val SELECTED_BORDER = 3.dp
 private val PANEL_PADDING = 20.dp
 private val PANEL_GAP = 12.dp
 private val FIELD_GAP = 6.dp
-private val CHANNEL_FIELD_WIDTH = 92.dp
-private val CHANNEL_FIELD_HEIGHT = 64.dp
+private val CHANNEL_FIELD_MIN_HEIGHT = 64.dp
 private const val CHANNEL_MAX = 255
 private const val NO_SWATCH = -1
 private const val RING_WIDTH_FRACTION = 0.12f

@@ -9,7 +9,7 @@ phones and tablets, made for the S Pen.
 
 [![CI](https://github.com/L-K-M/BangniDraw/actions/workflows/ci.yml/badge.svg)](https://github.com/L-K-M/BangniDraw/actions/workflows/ci.yml)
 
-Latest release: v<!-- version -->1.0.0<!-- /version --> · [Download](https://github.com/L-K-M/BangniDraw/releases/latest)
+Latest release: v<!-- version -->1.0.1<!-- /version --> · [Download](https://github.com/L-K-M/BangniDraw/releases/latest)
 
 </div>
 

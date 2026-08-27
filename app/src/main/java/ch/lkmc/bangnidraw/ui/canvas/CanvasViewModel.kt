@@ -47,8 +47,11 @@ import ch.lkmc.bangnidraw.engine.core.CanvasPanel
 import ch.lkmc.bangnidraw.engine.core.CanvasTapEffect
 import ch.lkmc.bangnidraw.engine.core.CanvasUiPolicy
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.core.CheckpointProjectState
 import ch.lkmc.bangnidraw.engine.core.CheckpointResult
 import ch.lkmc.bangnidraw.engine.core.CheckpointRetryPolicy
+import ch.lkmc.bangnidraw.engine.core.CheckpointStrokeState
+import ch.lkmc.bangnidraw.engine.core.CheckpointWorkPolicy
 import ch.lkmc.bangnidraw.engine.core.ColorMixer
 import ch.lkmc.bangnidraw.engine.core.ColorMixerResolver
 import ch.lkmc.bangnidraw.engine.core.ColorPickSession
@@ -165,6 +168,7 @@ private data class CheckpointSnapshot(
     val deletes: List<Long>,
     val revision: Int,
     val pixelRevision: Int,
+    val strokeState: CheckpointStrokeState,
     val dirty: Boolean,
     val writeThumbnail: Boolean,
     val capturedAt: Long,
@@ -398,8 +402,6 @@ class CanvasViewModel @Inject constructor(
     @Volatile
     private var lastSyncedRevision = 0
 
-    private var gallerySyncJob: Job? = null
-
     /** When the document first differed from disk — the ceiling clock's anchor. */
     @Volatile
     private var dirtySinceMs: Long? = null
@@ -598,6 +600,17 @@ class CanvasViewModel @Inject constructor(
             if (it.stack.nextName >= floor) it
             else it.copy(stack = it.stack.copy(nextName = floor))
         }.copy(historyCursor = loadedHistory.cursor)
+        val budget = MemoryBudget.compute(
+            readDeviceMemory(context),
+            CanvasSize(doc.width, doc.height),
+        )
+        val residentTiles = doc.stack.layers.sumOf { it.tiles.size.toLong() }
+        val poolSlices = budget.poolArraySlices.toLong() * budget.poolArrayCount.toLong()
+        if (!TileCapacityPolicy.residentTilesFit(residentTiles, poolSlices)) {
+            _uiState.value = UiState.Failed(R.string.canvas_over_capacity)
+            return
+        }
+
         document = doc
         if (recovery.appliedCount > 0 || transition.applied) {
             dirty = true
@@ -605,7 +618,7 @@ class CanvasViewModel @Inject constructor(
             thumbDirty = true
         }
         transitionToCheckpoint = transitions.pending().takeIf { transition.applied }
-        wireHistory(doc, loadedHistory)
+        wireHistory(doc, loadedHistory, budget)
         _uiState.value = readyState(
             doc,
             warningFor(unreadableLayers = result.unreadableLayers, unreadableTiles = 0),
@@ -622,6 +635,7 @@ class CanvasViewModel @Inject constructor(
     private fun wireHistory(
         doc: Document,
         loaded: HistoryStore.Loaded,
+        budget: MemoryBudget.Result,
     ) {
         val history = HistoryStore(historyDir(doc.id))
         historyStore = history
@@ -637,10 +651,6 @@ class CanvasViewModel @Inject constructor(
                 ?.let { runCatching { it.readBytes() }.getOrNull() }
         }
         historyPixels = HistoryPixels(flusher, history)
-        val budget = MemoryBudget.compute(
-            readDeviceMemory(context),
-            CanvasSize(doc.width, doc.height),
-        )
         layerCap = budget.maxLayers
         journalLimits = HistoryJournal.Limits(budget.historyMaxSteps, budget.historyMaxBytes)
         journal = HistoryJournal(journalLimits, loaded.entries, loaded.cursor)
@@ -832,6 +842,7 @@ class CanvasViewModel @Inject constructor(
         val state = _uiState.value
         if (state is UiState.Ready) _uiState.value = state.copy(title = title)
         dismissDialog()
+        revisions.incrementAndGet()
         noteChange()
     }
 
@@ -2739,6 +2750,11 @@ class CanvasViewModel @Inject constructor(
         val now = System.currentTimeMillis()
         val revision = documentRevision.get()
         val pixelRevision = revisions.get()
+        val strokeState = if (actionGate.strokeInFlight) {
+            CheckpointStrokeState.LIVE
+        } else {
+            CheckpointStrokeState.IDLE
+        }
         val folded = fold(current, now)
         document = folded
         val sequence = nextSeq.observe()
@@ -2756,8 +2772,9 @@ class CanvasViewModel @Inject constructor(
             deletes = ArrayList(pendingDeletes),
             revision = revision,
             pixelRevision = pixelRevision,
+            strokeState = strokeState,
             dirty = dirty,
-            writeThumbnail = thumbDirty,
+            writeThumbnail = thumbDirty && strokeState == CheckpointStrokeState.IDLE,
             capturedAt = now,
         )
     }
@@ -2766,28 +2783,68 @@ class CanvasViewModel @Inject constructor(
         snapshot: CheckpointSnapshot,
         trigger: GallerySyncDecision.Trigger,
     ): CheckpointResult {
-        val current = snapshot.document
-        if (!snapshot.dirty && store.exists(current.id)) return CheckpointResult.COMPLETE
-
         return checkpointMutex.withLock {
-            val engine = session
-            // §5.6's order: (readbacks land) → queued jobs and tiles flushed
-            // → project.json last, the commit point → only then the files a
-            // truncation or pruning dropped.
-            if (awaitReadbacks(engine) == TileFlusher.ReadbackResult.PENDING) {
-                return@withLock CheckpointResult.READBACK_PENDING
+            val current = withLatestGalleryState(snapshot.document)
+            val projectState = when {
+                !store.exists(current.id) -> CheckpointProjectState.MISSING
+                snapshot.dirty -> CheckpointProjectState.DIRTY_EXISTING
+                else -> CheckpointProjectState.CLEAN_EXISTING
             }
-            if (!flusher.checkpointFlush()) return@withLock CheckpointResult.STORAGE_PENDING
+            val work = CheckpointWorkPolicy.decide(projectState, snapshot.strokeState)
+
+            if (work.flushesTiles) {
+                // Tiles become durable before either CPU flatten or project.json.
+                if (awaitReadbacks(session) == TileFlusher.ReadbackResult.PENDING) {
+                    return@withLock CheckpointResult.READBACK_PENDING
+                }
+                if (!flusher.checkpointFlush()) {
+                    return@withLock CheckpointResult.STORAGE_PENDING
+                }
+            }
+
+            val galleryDocument = if (work.syncsGallery) {
+                runCatching {
+                    maybeSyncGallery(
+                        doc = current,
+                        trigger = trigger,
+                        now = snapshot.capturedAt,
+                        pixelRevision = snapshot.pixelRevision,
+                    )
+                }
+                    .onFailure { android.util.Log.w(TAG, "gallery checkpoint sync skipped", it) }
+                    .getOrNull()
+            } else {
+                null
+            }
+            val checkpointDocument = galleryDocument ?: current
+            if (!work.writesProject && galleryDocument == null) {
+                return@withLock CheckpointResult.COMPLETE
+            }
 
             try {
-                store.checkpoint(current, snapshot.history)
+                store.checkpoint(checkpointDocument, snapshot.history)
             } catch (_: java.io.IOException) {
                 checkpointStorageFull.value = true
+                if (galleryDocument != null) {
+                    withContext(Dispatchers.Main) {
+                        retainGallerySync(galleryDocument, snapshot.pixelRevision)
+                    }
+                }
                 return@withLock CheckpointResult.STORAGE_PENDING
             }
 
+            if (galleryDocument != null) {
+                withContext(Dispatchers.Main) {
+                    publishGallerySync(galleryDocument, snapshot.pixelRevision)
+                }
+            }
+
             val transition = transitionToCheckpoint
-            if (transition != null && snapshot.history.cursor == transition.toCursor) {
+            if (
+                work.writesProject &&
+                transition != null &&
+                snapshot.history.cursor == transition.toCursor
+            ) {
                 val completed = historyTransitions?.complete(transition) == true
                 if (!completed) {
                     checkpointStorageFull.value = true
@@ -2799,34 +2856,54 @@ class CanvasViewModel @Inject constructor(
             }
 
             checkpointStorageFull.value = false
-            historyStore?.deleteRecoveryBefore(snapshot.history.nextSeq)
-            // Now — and only now — the dropped entries' files (§5.6).
-            if (snapshot.deletes.isNotEmpty()) {
-                historyStore?.delete(snapshot.deletes)
-            }
-            // The thumbnail follows the checkpoint (06 §6.4): the tiles
-            // it reads are on disk by the flush above, and only when
-            // pixels actually changed — never per stroke.
-            if (snapshot.writeThumbnail) {
-                Thumbnails.write(
-                    current,
-                    layerDirFor = { store.layerDir(current.id, it) },
-                    target = File(store.projectDir(current.id), "thumb.png"),
-                )
+            if (work.writesProject) {
+                historyStore?.deleteRecoveryBefore(snapshot.history.nextSeq)
+                // The project commit is now authoritative, so old journal files may go.
+                if (snapshot.deletes.isNotEmpty()) {
+                    historyStore?.delete(snapshot.deletes)
+                }
+                if (snapshot.writeThumbnail) {
+                    Thumbnails.write(
+                        checkpointDocument,
+                        layerDirFor = { store.layerDir(checkpointDocument.id, it) },
+                        target = File(store.projectDir(checkpointDocument.id), "thumb.png"),
+                    )
+                }
+
+                withContext(Dispatchers.Main) { commitCheckpointSnapshot(snapshot) }
             }
 
-            withContext(Dispatchers.Main) { commitCheckpointSnapshot(snapshot) }
-            runCatching {
-                maybeSyncGallery(
-                    doc = current,
-                    trigger = trigger,
-                    now = snapshot.capturedAt,
-                    pixelRevision = snapshot.pixelRevision,
-                )
-            }
-                .onFailure { android.util.Log.w(TAG, "gallery checkpoint sync skipped", it) }
             CheckpointResult.COMPLETE
         }
+    }
+
+    /** Keeps a pinned document generation while carrying newer gallery metadata. */
+    private fun withLatestGalleryState(snapshot: Document): Document {
+        val latest = document?.takeIf { it.id == snapshot.id } ?: return snapshot
+        return snapshot.copy(
+            galleryUri = latest.galleryUri,
+            lastGallerySyncAt = latest.lastGallerySyncAt,
+            galleryModifiedAt = latest.galleryModifiedAt,
+            galleryBytes = latest.galleryBytes,
+        )
+    }
+
+    private fun publishGallerySync(synced: Document, pixelRevision: Int) {
+        val current = document?.takeIf { it.id == synced.id } ?: return
+        document = current.copy(
+            galleryUri = synced.galleryUri,
+            lastGallerySyncAt = synced.lastGallerySyncAt,
+            galleryModifiedAt = synced.galleryModifiedAt,
+            galleryBytes = synced.galleryBytes,
+        )
+        lastSyncedRevision = pixelRevision
+    }
+
+    /** Retains an external success until its failed metadata write retries. */
+    private fun retainGallerySync(synced: Document, pixelRevision: Int) {
+        publishGallerySync(synced, pixelRevision)
+        dirty = true
+        documentRevision.incrementAndGet()
     }
 
     /** Clears only the generation project.json actually committed. */
@@ -2843,18 +2920,16 @@ class CanvasViewModel @Inject constructor(
     }
 
     /**
-     * §9's mirror, after a checkpoint: the tiles it flattens are on disk by
-     * the flush that just ran. The §9.3 debounce is [GallerySyncDecision]'s;
-     * a newer sync cancels a running one (conflated), and a failed sync
-     * changes nothing — the next trigger retries.
+     * §9's mirror runs after tile flush and before the project commit point.
+     * A successful outcome therefore joins the same `project.json` write.
      */
     private suspend fun maybeSyncGallery(
         doc: Document,
         trigger: GallerySyncDecision.Trigger,
         now: Long,
         pixelRevision: Int,
-    ) {
-        if (!prefs.gallerySync.first()) return
+    ): Document? {
+        if (!prefs.gallerySync.first()) return null
         val due = GallerySyncDecision.isDue(
             trigger = trigger,
             pixelRevision = pixelRevision,
@@ -2862,38 +2937,28 @@ class CanvasViewModel @Inject constructor(
             nowMs = now,
             lastSyncAtMs = doc.lastGallerySyncAt,
         )
-        if (!due) return
-        gallerySyncJob?.cancel()
-        gallerySyncJob = appScope.launch {
-            val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
-            coroutineContext.ensureActive()
-            val png = ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
-            coroutineContext.ensureActive()
-            val name = GalleryNames.sanitizeDisplayName(
-                doc.title,
-                context.getString(R.string.studio_untitled),
-            )
-            val outcome = exporter.sync(
-                recordedUri = doc.galleryUri,
-                recordedModifiedAt = doc.galleryModifiedAt,
-                recordedBytes = doc.galleryBytes,
-                displayName = name,
-                png = png,
-            ) ?: return@launch
-            withContext(Dispatchers.Main) {
-                lastSyncedRevision = pixelRevision
-                document = document?.copy(
-                    galleryUri = outcome.galleryUri,
-                    lastGallerySyncAt = outcome.syncedAt,
-                    galleryModifiedAt = outcome.modifiedAt,
-                    galleryBytes = outcome.bytes,
-                )
-                // Metadata only: the next checkpoint persists it, and
-                // updatedAt stays put — a sync is looking, not painting.
-                dirty = true
-                documentRevision.incrementAndGet()
-            }
-        }
+        if (!due) return null
+
+        val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+        val png = ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
+        val name = GalleryNames.sanitizeDisplayName(
+            doc.title,
+            context.getString(R.string.studio_untitled),
+        )
+        val outcome = exporter.sync(
+            recordedUri = doc.galleryUri,
+            recordedModifiedAt = doc.galleryModifiedAt,
+            recordedBytes = doc.galleryBytes,
+            displayName = name,
+            png = png,
+        ) ?: return null
+
+        return doc.copy(
+            galleryUri = outcome.galleryUri,
+            lastGallerySyncAt = outcome.syncedAt,
+            galleryModifiedAt = outcome.modifiedAt,
+            galleryBytes = outcome.bytes,
+        )
     }
 
     /** The model's tile sets catch up with what the readback delivered. */

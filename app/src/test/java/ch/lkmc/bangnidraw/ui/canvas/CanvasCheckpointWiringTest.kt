@@ -91,6 +91,66 @@ class CanvasCheckpointWiringTest {
     }
 
     @Test
+    fun `a clean checkpoint skips only the project write`() {
+        val checkpoint = source.substringAfter("private suspend fun checkpoint(")
+            .substringBefore("private suspend fun maybeSyncGallery(")
+
+        assertTrue(checkpoint.contains("CheckpointWorkPolicy.decide"))
+        assertFalse(checkpoint.contains("!snapshot.dirty && store.exists(current.id)) return"))
+        assertTrue(checkpoint.contains("maybeSyncGallery("))
+    }
+
+    @Test
+    fun `a live stroke is captured before checkpoint work is chosen`() {
+        val capture = source.substringAfter("private fun captureCheckpointSnapshot()")
+            .substringBefore("private suspend fun checkpoint(")
+        val checkpoint = source.substringAfter("private suspend fun checkpoint(")
+            .substringBefore("private suspend fun maybeSyncGallery(")
+
+        assertTrue(capture.contains("actionGate.strokeInFlight"))
+        assertTrue(capture.contains("thumbDirty && strokeState == CheckpointStrokeState.IDLE"))
+        assertTrue(checkpoint.contains("snapshot.strokeState"))
+    }
+
+    @Test
+    fun `renaming a painting advances gallery revision`() {
+        val rename = source.substringAfter("private fun renamePaintingNow(")
+            .substringBefore("internal fun share(")
+
+        assertTrue(rename.contains("revisions.incrementAndGet()"))
+        assertTrue(
+            rename.indexOf("revisions.incrementAndGet()") < rename.indexOf("noteChange()"),
+        )
+    }
+
+    @Test
+    fun `gallery export finishes inside the checkpoint gate`() {
+        val checkpoint = source.substringAfter("private suspend fun checkpoint(")
+            .substringBefore("private suspend fun maybeSyncGallery(")
+        val gallery = source.substringAfter("private suspend fun maybeSyncGallery(")
+            .substringBefore("private fun fold(")
+
+        val sync = checkpoint.indexOf("maybeSyncGallery(")
+        val projectWrite = checkpoint.indexOf("store.checkpoint(checkpointDocument")
+        assertTrue(sync >= 0)
+        assertTrue(projectWrite > sync)
+        assertFalse(gallery.contains("appScope.launch"))
+    }
+
+    @Test
+    fun `a successful gallery outcome is checkpointed before completion`() {
+        val checkpoint = source.substringAfter("private suspend fun checkpoint(")
+            .substringBefore("private suspend fun maybeSyncGallery(")
+
+        assertTrue(checkpoint.contains("val checkpointDocument = galleryDocument ?: current"))
+        assertTrue(checkpoint.contains("store.checkpoint(checkpointDocument, snapshot.history)"))
+        assertTrue(
+            checkpoint.indexOf("store.checkpoint(checkpointDocument") <
+                checkpoint.lastIndexOf("CheckpointResult.COMPLETE"),
+        )
+    }
+
+    @Test
     fun `failed tile flush cannot advance the project commit point`() {
         val checkpoint = source.substringAfter("private suspend fun checkpoint(")
             .substringBefore("private suspend fun maybeSyncGallery(")

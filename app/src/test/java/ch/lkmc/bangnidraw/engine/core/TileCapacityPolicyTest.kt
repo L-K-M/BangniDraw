@@ -9,6 +9,12 @@ import kotlin.test.assertTrue
 class TileCapacityPolicyTest {
 
     @Test
+    fun `resident tiles must fit the pool before reopen`() {
+        assertTrue(TileCapacityPolicy.residentTilesFit(residentTiles = 1_024L, poolSlices = 1_024L))
+        assertFalse(TileCapacityPolicy.residentTilesFit(residentTiles = 1_025L, poolSlices = 1_024L))
+    }
+
+    @Test
     fun `legacy stacks above the new cap keep transient allocations disabled`() {
         val canvas = CanvasSize(4096, 4096)
         val budget = MemoryBudget.compute(device(lowRam = false), canvas)

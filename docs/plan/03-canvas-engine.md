@@ -94,7 +94,7 @@ every layer, the two sandwich caches, the stroke buffer and the RMW scratch
 slices come from the same pool.
 
 `slicesPerPage = min(GL_MAX_ARRAY_TEXTURE_LAYERS, 256)`. The spec minimum
-is 256 and we query at startup (§13); we do not use more than 256 even
+is 256 and we reject a lower report at startup (§13); we do not use more than 256 even
 where the driver allows 2048 because a page is the allocation granule
 (64 MiB at 256 slices) and the first page must not be bigger than a
 phone-sized painting needs. Pages are created lazily when the free list
@@ -1159,7 +1159,7 @@ allocation:
 | Query | Use | Degrade |
 | --- | --- | --- |
 | `GL_VERSION` / EGL client version 3 | ES 3.0 is required (texture arrays, PBO, `glTexStorage3D`, instancing) | No ES 3.0 (does not exist on API 29 hardware in practice): show the "unsupported device" screen; the Studio still works, the Canvas refuses to open. |
-| `GL_MAX_ARRAY_TEXTURE_LAYERS` | `slicesPerPage = min(v, 256)` | `< 256` would violate the spec; if it ever happens pages are just smaller. |
+| `GL_MAX_ARRAY_TEXTURE_LAYERS` | `slicesPerPage = min(v, 256)` | `< 256` violates the ES 3.0 minimum: show the unsupported-device screen. |
 | `GL_MAX_TEXTURE_SIZE` | must be ≥ 256 for tiles (always) and ≥ viewport size for `Accum` | Below viewport size: `Accum` is tiled into two halves (never seen on a real device; guard only). |
 | `GL_MAX_RENDERBUFFER_SIZE`, `GL_MAX_VIEWPORT_DIMS` | same as above | same |
 | Extensions: `EXT_shader_framebuffer_fetch`, `EXT_color_buffer_half_float` | optional fast paths (§3.2), recorded, unused in v1 | nothing |

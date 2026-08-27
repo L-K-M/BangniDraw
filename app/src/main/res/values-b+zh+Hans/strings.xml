@@ -227,6 +227,7 @@
     <string name="blend_add">添加</string>
     <string name="blend_difference">差值</string>
     <string name="canvas_open_failed">这张画无法打开。它的文件保持原样，没有被改动。</string>
+    <string name="canvas_over_capacity">这张画使用的图形内存超出了此设备的容量。</string>
     <string name="canvas_newer_version">这张画由更新版本的 帮你Draw 创建。</string>
 
     <string name="err_tiles_unreadable">这张画的一部分无法读取。</string>

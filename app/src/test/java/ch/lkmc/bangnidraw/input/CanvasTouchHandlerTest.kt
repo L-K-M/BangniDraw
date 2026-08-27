@@ -96,6 +96,30 @@ class CanvasTouchHandlerTest {
     }
 
     @Test
+    fun `zero viewport preserves the last valid fit for the next rebase`() {
+        val host = Host()
+        val h = handler(host)
+        val canvas = CanvasSize(1000, 500)
+        val oldFit = FitTransform(500f, 1000f, 1000f, 500f)
+        h.setViewport(canvas, width = 500, height = 1000)
+        h.setView(ViewTransform(scale = 2f, rotation = 0.2f, tx = 80f, ty = -40f))
+        val oldCanvas = h.view.invert(oldFit.viewWidth / 2f, oldFit.viewHeight / 2f)
+        val oldUv = oldFit.viewToUv(oldCanvas.first, oldCanvas.second)
+
+        h.setViewport(canvas, width = 0, height = 0)
+        h.setView(h.view)
+        assertEquals(h.view.scale, h.canvasToScreenScale, "an invalid viewport clears the screen")
+
+        val newFit = FitTransform(600f, 1000f, 1000f, 500f)
+        h.setViewport(canvas, width = 600, height = 1000)
+        val newCanvas = h.view.invert(newFit.viewWidth / 2f, newFit.viewHeight / 2f)
+        val newUv = newFit.viewToUv(newCanvas.first, newCanvas.second)
+
+        assertEquals(oldUv.first, newUv.first, 1e-5f)
+        assertEquals(oldUv.second, newUv.second, 1e-5f)
+    }
+
+    @Test
     fun `viewport changes cancel input before rebasing`() {
         val host = Host()
         val h = handler(host)

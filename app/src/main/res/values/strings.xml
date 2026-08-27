@@ -255,6 +255,7 @@
     <string name="blend_add">Add</string>
     <string name="blend_difference">Difference</string>
     <string name="canvas_open_failed">This painting could not be opened. Its files are left untouched.</string>
+    <string name="canvas_over_capacity">This painting uses more graphics memory than this device can provide.</string>
     <string name="canvas_newer_version">This painting was made by a newer version of 帮你Draw.</string>
 
     <!-- Persistence errors (docs/plan/06-document-and-persistence.md §4, §6.3;

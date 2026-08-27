@@ -205,11 +205,10 @@ object MemoryBudget {
             else -> (device.totalMemBytes * GPU_TILE_FRACTION).toLong()
                 .coerceIn(GPU_TILE_MIN_BYTES, GPU_TILE_MAX_BYTES)
         }
-        // A driver reporting fewer slices than the ES 3.0 minimum of 256 is
-        // trusted as-is rather than refused: the capacity arithmetic stays
-        // self-consistent (smaller arrays, more of them), so no cap comes out
-        // wrong — the pool just degenerates toward many near-empty arrays.
-        // Zero or negative means "no GL context yet", which takes the page size.
+        // Zero or negative means "no GL context yet", which takes the ES 3.0
+        // minimum. GlCaps rejects a later report below that minimum before a
+        // pool is allocated; positive synthetic values remain useful for
+        // testing this arithmetic in isolation.
         val slices =
             if (device.glMaxArrayLayers > 0) minOf(device.glMaxArrayLayers, SLICES_PER_PAGE)
             else SLICES_PER_PAGE

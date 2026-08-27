@@ -243,7 +243,9 @@ fun StudioScreen(
                         PaintingCell(
                             painting = painting,
                             hapticsMode = state.hapticsMode,
-                            onOpen = { onOpenPainting(painting.id) },
+                            onOpen = {
+                                viewModel.openPainting(painting.id, onOpenPainting)
+                            },
                             onRename = { title -> viewModel.rename(painting.id, title) },
                             onDuplicate = { viewModel.duplicate(painting.id) },
                             onSaveAs = {

@@ -4,10 +4,10 @@ Findings from full security/bug reviews of `main`. Each entry states
 what was found, the impact, and what was done about it — a declined fix
 says why, so a later reader does not re-litigate it blind.
 
-## Review 3 — 2026-08-27, `b69f4bd`
+## Review 3 — 2026-08-27, `4712efa`
 
-Scope: all 45 commits after step 5 through v1.0.2
-(`e8d30a8`…`b69f4bd`), including the fixes merged after Review 2. Method:
+Scope: all 56 commits after step 5 through PR #28
+(`e8d30a8`…`4712efa`), including the fixes merged after Review 2. Method:
 commit-by-commit plan comparison, close read, then failing JVM tests before
 each fix.
 
@@ -62,8 +62,9 @@ each fix.
   merge/flatten scratch passes; partial caches could also hide paper or
   layers. The cap reserves four full-canvas transient equivalents, cache use
   requires every requested tile, and over-cap legacy stacks use the exact
-  direct path until reduced. Runtime admission uses the pool's probed slice
-  capacity, including low-array drivers and oversized reopened documents.
+  direct path until reduced. Reopen also verifies that all resident tiles fit
+  before publishing the renderer; nonconforming low-array drivers are rejected
+  instead of running with a smaller pool than the UI advertised.
 - **Live front-buffer ink reused stale accumulation state.** A view,
   background, or surface-size change during contact deferred the committed
   redraw but left the next dab incremental, so existing ink could jump,
@@ -106,6 +107,12 @@ release/reattach ordering, transient tile capacity, cache readiness, live
 preview recovery, stable layer targets, fill mixing, color drafts, mouse
 navigation, and adaptive panel intersections. The normal and Mixbox-disabled
 JVM suites, lint, and debug assembly pass.
+
+### Reviewed and clean
+
+The post-v1.0.2 tail correctly reports failed sparse-tile deletion, stages
+concurrent shares independently, and rejects a missing Canvas project instead
+of recreating it with default content.
 
 ## Review 2 — 2026-08-27, `9f4ad22`
 

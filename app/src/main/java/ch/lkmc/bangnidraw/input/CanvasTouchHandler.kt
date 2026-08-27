@@ -129,6 +129,7 @@ class CanvasTouchHandler(
 
     private var fit: FitTransform? = null
     private var screen: ScreenTransform? = null
+    private var viewportAvailable = false
 
     val canvasToScreenScale: Float
         get() = screen?.effectiveScale ?: view.scale
@@ -280,22 +281,25 @@ class CanvasTouchHandler(
     }
 
     fun setViewport(canvas: CanvasSize, width: Int, height: Int) {
-        val next = if (width > 0 && height > 0) {
-            FitTransform(
-                viewWidth = width.toFloat(),
-                viewHeight = height.toFloat(),
-                imageWidth = canvas.width.toFloat(),
-                imageHeight = canvas.height.toFloat(),
-            )
-        } else {
-            null
+        if (width <= 0 || height <= 0) {
+            handleCancel(uptimeNs())
+            viewportAvailable = false
+            updateScreen()
+            return
         }
+
+        val next = FitTransform(
+            viewWidth = width.toFloat(),
+            viewHeight = height.toFloat(),
+            imageWidth = canvas.width.toFloat(),
+            imageHeight = canvas.height.toFloat(),
+        )
         val previous = fit
         if (previous != next) {
             // A live driver cannot connect samples across two coordinate maps.
             handleCancel(uptimeNs())
         }
-        if (previous != null && next != null) {
+        if (previous != null) {
             val resized = ViewportResizePolicy.resize(
                 ViewportResizeState(view, previous),
                 next,
@@ -304,6 +308,7 @@ class CanvasTouchHandler(
             view = resized.view
         }
         fit = next
+        viewportAvailable = true
         updateScreen()
     }
 
@@ -323,7 +328,7 @@ class CanvasTouchHandler(
     }
 
     private fun updateScreen() {
-        screen = fit?.let { ScreenTransform.of(it, view) }
+        screen = fit?.takeIf { viewportAvailable }?.let { ScreenTransform.of(it, view) }
     }
 
     // ------------------------------------------------------- primitive path

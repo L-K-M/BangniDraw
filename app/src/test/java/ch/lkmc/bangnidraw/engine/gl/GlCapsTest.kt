@@ -47,16 +47,14 @@ class GlCapsTest {
     }
 
     @Test
-    fun `a driver below the spec minimum just gets smaller pages`() {
-        // Trusted as-is rather than refused: the capacity arithmetic stays
-        // self-consistent (smaller pages, more of them), so no cap comes out
-        // wrong — the pool degenerates toward many near-empty pages.
-        assertEquals(64, caps(arrayLayers = 64).slicesPerPage)
-        assertEquals(1, caps(arrayLayers = 1).slicesPerPage)
+    fun `a driver below the array-layer spec minimum is unsupported`() {
+        assertFalse(caps(arrayLayers = SLICES_PER_PAGE - 1).isSupported)
+        assertFalse(caps(arrayLayers = 1).isSupported)
+        assertTrue(caps(arrayLayers = SLICES_PER_PAGE).isSupported)
     }
 
     @Test
-    fun `support needs ES 3, a tile-sized texture, and at least one array layer`() {
+    fun `support needs ES 3, a tile-sized texture, and spec array depth`() {
         assertTrue(caps().isSupported)
         assertTrue(caps(major = 3, minor = 2).isSupported)
         assertFalse(caps(major = 2, minor = 0).isSupported, "ES 2 has no texture arrays")

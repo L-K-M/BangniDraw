@@ -419,9 +419,10 @@ and the contradiction is noted here.
   direct per-layer path for that rect. A reopened stack above the current
   device cap releases and disables the sandwich until the stack shrinks back
   to the cap, avoiding two more full-canvas allocations on an already
-  over-budget stack. Runtime admission uses `TilePool.sliceCapacity`, not the
-  pre-context layer cap: the probed array depth can change the number of pages,
-  and an oversized reopened canvas makes `maxLayers` only a floor.
+  over-budget stack. Before a renderer is published, every relisted resident
+  tile must fit the pool; a sparse over-cap stack may still open for deletion.
+  Drivers below ES 3.0's 256-array-layer minimum are rejected, so the
+  pre-context budget and live pool cannot disagree on page depth.
 - **Pen-up owns the action gate through journal admission.** `endStroke` is
   asynchronous. Undo, leave, share, export, and later edits wait until the
   merged step is pushed (or explicitly completes empty/failed).

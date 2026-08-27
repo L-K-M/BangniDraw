@@ -46,7 +46,10 @@ data class GlCaps(
      * fallback path.
      */
     val isSupported: Boolean
-        get() = glesMajor >= 3 && maxTextureSize >= TILE_SIZE && maxArrayTextureLayers >= 1
+        get() =
+            glesMajor >= 3 &&
+                maxTextureSize >= TILE_SIZE &&
+                maxArrayTextureLayers >= SLICES_PER_PAGE
 
     /**
      * Slices in one [TilePool] page.
@@ -54,9 +57,8 @@ data class GlCaps(
      * `min(GL_MAX_ARRAY_TEXTURE_LAYERS, 256)` — we do not use more than 256
      * even where the driver allows 2048, because a page is the allocation
      * granule (64 MiB at 256 slices) and the first page must not be bigger
-     * than a phone-sized painting needs (§2.1). A driver reporting fewer than
-     * the spec minimum of 256 is trusted as-is: pages are simply smaller, and
-     * the capacity arithmetic in `MemoryBudget` stays self-consistent.
+     * than a phone-sized painting needs (§2.1). [isSupported] rejects a driver
+     * below the ES 3.0 minimum before the pool is allocated.
      */
     val slicesPerPage: Int get() = minOf(maxArrayTextureLayers, SLICES_PER_PAGE)
 

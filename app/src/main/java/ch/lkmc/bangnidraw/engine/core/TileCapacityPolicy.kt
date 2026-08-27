@@ -5,6 +5,14 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.TRANSIENT_TILE_RESERVE_LAYER
 /** Protects transient tile capacity when reopening on a smaller device. */
 internal object TileCapacityPolicy {
 
+    /** Every relisted sparse tile needs one pool slice before the canvas opens. */
+    fun residentTilesFit(residentTiles: Long, poolSlices: Long): Boolean {
+        require(residentTiles >= 0L) { "residentTiles must not be negative" }
+        require(poolSlices >= 0L) { "poolSlices must not be negative" }
+
+        return residentTiles <= poolSlices
+    }
+
     fun withinLayerCap(layerCount: Int, maxLayers: Int): Boolean {
         require(layerCount >= 0) { "layerCount must not be negative" }
         require(maxLayers >= 0) { "maxLayers must not be negative" }

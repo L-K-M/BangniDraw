@@ -63,8 +63,8 @@ object Shaders {
     // ---------------------------------------------------------------- vertex
 
     /**
-     * The one vertex shader of §3.1: a quad per tile, corners in canvas px,
-     * mapped through the composed `view ∘ fit` similarity.
+     * The offscreen vertex shader of §3.1: a quad per tile, corners in canvas
+     * px, mapped through the composed `view ∘ fit` similarity.
      *
      * Two deviations from the snippet in §3.1, both because the snippet
      * declares uniforms its own body never reads:
@@ -87,9 +87,9 @@ object Shaders {
      * the offscreen passes, where there is no pre-rotation to absorb.
      *
      * Row convention: texture row 0 is the canvas's **top** row — tiles are
-     * stored y-down like the CPU copies and like `glReadPixels` returns them,
-     * so there are no flips anywhere, and the y-down ortho in `u_projection`
-     * is the single place GL's y-up-ness appears.
+     * stored y-down like the CPU copies and like `glReadPixels` returns them.
+     * Offscreen passes absorb GL's y-up-ness in their y-down projection. The
+     * final SurfaceControl present has its own convention below.
      */
     val COMPOSITE_VERT = """
         $VERSION_LINE
@@ -109,6 +109,33 @@ object Shaders {
                           u_screen.y * a_canvas.x + u_screen.x * a_canvas.y + u_screen.w);
             gl_Position = u_projection * u_bufferTransform * vec4(p, 0.0, 1.0);
             v_uvw = a_uvw;
+        }
+    """.trimIndent()
+
+    /**
+     * `Accum` into a SurfaceControl-backed window buffer.
+     *
+     * SurfaceControl treats GL framebuffer row zero as the buffer's top row,
+     * so this shader pairs a y-up projection with a vertically flipped source
+     * uv. The pair leaves identity presentation unchanged and makes a
+     * graphics-core quarter-turn map pixels by exactly `u_bufferTransform`.
+     * Reusing [COMPOSITE_VERT] would conjugate that transform by two vertical
+     * flips, reversing 90° and 270° rotations.
+     */
+    val PRESENT_VERT = """
+        $VERSION_LINE
+        precision highp float;
+        layout(location = $ATTR_POS) in vec2 a_canvas;
+        layout(location = $ATTR_UV) in vec3 a_uvw;
+        uniform vec4 u_screen;
+        uniform mat4 u_projection;
+        uniform mat4 u_bufferTransform;
+        out vec3 v_uvw;
+        void main() {
+            vec2 p = vec2(u_screen.x * a_canvas.x - u_screen.y * a_canvas.y + u_screen.z,
+                          u_screen.y * a_canvas.x + u_screen.x * a_canvas.y + u_screen.w);
+            gl_Position = u_projection * u_bufferTransform * vec4(p, 0.0, 1.0);
+            v_uvw = vec3(a_uvw.x, 1.0 - a_uvw.y, a_uvw.z);
         }
     """.trimIndent()
 
@@ -304,7 +331,7 @@ object Shaders {
 
     val PRESENT = Source(
         name = "present",
-        vertex = COMPOSITE_VERT,
+        vertex = PRESENT_VERT,
         fragment = PRESENT_FRAG,
         uniforms = listOf(
             Uniform("u_screen", "vec4"),

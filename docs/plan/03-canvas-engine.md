@@ -215,7 +215,7 @@ layout(location = 0) in vec2 a_canvas;      // tile corner, canvas px (clipped t
 layout(location = 1) in vec3 a_uvw;         // texel uv inside the tile (0..1), slice index
 uniform vec4 u_screen;                      // a', b', tx', ty'
 uniform vec2 u_viewport;                    // target size in px: Accum's size for offscreen passes, bufferInfo.width/height for the window pass
-uniform mat4 u_projection;                  // ortho over u_viewport (y-down), applied AFTER u_bufferTransform
+uniform mat4 u_projection;                  // offscreen: y-down ortho; applied AFTER u_bufferTransform
 uniform mat4 u_bufferTransform;             // graphics-core pre-rotation, applied in buffer pixel space; identity offscreen
 out vec3 v_uvw;
 out vec2 v_canvas;
@@ -233,14 +233,16 @@ meant to be applied in **buffer pixel space**, *before* an orthographic
 projection of `bufferInfo.width × bufferInfo.height` (the library's KDoc:
 buffers are pre-rotated in advance and the transform "should be consumed
 as input to any vertex shader"). So the shader multiplies
-`projection × transform × pixelPos`; `u_projection` is built on the JVM as
-`ortho(0, u_viewport.x, u_viewport.y, 0)` — y-down, which is where the
-y-up-ness of GL is absorbed (see the row convention below).
+`projection × transform × pixelPos`. Offscreen `u_projection` is built on the
+JVM as `ortho(0, u_viewport.x, u_viewport.y, 0)` — y-down, which is where the
+y-up-ness of GL is absorbed for texture FBOs. The SurfaceControl window pass
+uses the present-only variant described below.
 
 Row convention: **texture row 0 is the canvas's top row** (tiles are stored
-"y-down", exactly like the CPU copies and like `glReadPixels` returns them,
-so no flips anywhere); the y-down ortho `u_projection` is the only place
-the y-up-ness of GL appears.
+"y-down", exactly like the CPU copies and like `glReadPixels` returns them).
+Offscreen passes use the y-down ortho without a texture flip. SurfaceControl
+instead consumes GL row zero as the HardwareBuffer's top row, so the final
+present uses a y-up ortho and flips only its `Accum` source v (§8.5).
 
 ### 3.2 Passes and the accumulation target
 
@@ -278,9 +280,10 @@ rect in window space (steps 1–2) or in buffer space (step 3):
    bufferInfo.width, bufferInfo.height)`, scissor = the dirty rect mapped
    through `transform` (§8.1 step 3) while keeping the HardwareBuffer's
    top-first row (`y = top`, not `height - bottom`), and a full-rect textured
-   quad of `Accum` drawn with the §3.1 vertex shader — `u_screen` identity,
-   `u_viewport = (bufferInfo.width, bufferInfo.height)`, `u_bufferTransform
-   = transform`. A `glBlitFramebuffer` cannot rotate: when graphics-core
+   quad of `Accum` drawn with the present-only §3.1 vertex variant — `u_screen`
+   identity, y-up projection over `bufferInfo.width × bufferInfo.height`,
+   vertically flipped source v, and `u_bufferTransform = transform`. A
+   `glBlitFramebuffer` cannot rotate: when graphics-core
    hands a pre-rotated buffer (`bufferInfo.width/height` swapped relative
    to the viewport), a same-size blit of the viewport-oriented `Accum` is
    wrong or out of bounds. `glBlitFramebuffer` is used only for
@@ -960,10 +963,13 @@ graphics-core hands each callback a `transform` because the buffer may be
 pre-rotated relative to the display (the compositor then rotates it for
 free). `CanvasRenderer` binds it as `u_bufferTransform` (§3.1) for the one
 pass that writes a window buffer — the `Accum` present quad of §3.2 step
-3 — with `u_viewport = (bufferInfo.width, bufferInfo.height)` and
-`u_projection` the y-down ortho over that size, and uses it to map the
-scissor rect (§8.1 step 3). Offscreen passes (dab, merge, sandwich,
-`Accum`) use identity and `Accum`'s size. Verified from the library's
+3 — with a y-up ortho over `bufferInfo.width × bufferInfo.height`, and uses
+it to map the scissor rect (§8.1 step 3).
+The present-only vertex shader flips the viewport-oriented `Accum` source v;
+SurfaceControl consumes GL row zero as the HardwareBuffer's top row, so this
+pair makes the producer mapping exactly `transform`. Offscreen passes (dab,
+merge, sandwich, `Accum`) retain their y-down projection, identity transform,
+and `Accum`'s size. Verified from the library's
 source and KDoc: `transform` is a 16-float 4×4 matrix to apply in buffer
 pixel space before the projection (§3.1's `projection × transform ×
 pixelPos`), and `bufferInfo.frameBufferId` is the FBO the callback is
@@ -972,13 +978,17 @@ after rendering to intermediate frame buffer objects", which is exactly
 what the present step does after our per-tile binds. The contract test
 pins the uniform names.
 
-One real Samsung tablet reports the canonical 180° transform but displays
-producer-transformed pixels as though both axes were transformed again. A
-half-turn does not swap the buffer dimensions, so that exact matrix takes a
-correctness fallback: the present shader and front damage use identity, and
-the matching front or multi-buffer transaction replaces graphics-core's
-consumer transform with identity before commit. Quarter-turns still use the
-library transform because their buffer dimensions are swapped.
+The y-up/source-flip pairing is load-bearing for quarter-turns. A y-down
+window projection with unflipped uv applies
+`verticalFlip × transform × verticalFlip`: identity and 180° appear correct,
+but 90° and 270° reverse. SurfaceControl then leaves a residual 180° rotation,
+while live damage still follows the original transform and clips the stroke
+until the unscissored pen-up frame. This was reproduced by the differing
+phone/tablet paths; no Samsung callback matrix was captured.
+
+Canonical 180° matrices retain a separate correctness fallback: producer and
+damage use identity, and the matching front or multi-buffer transaction
+replaces graphics-core's consumer transform with identity before commit.
 
 ### 8.6 View changes during a stroke
 

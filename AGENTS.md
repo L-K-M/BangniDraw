@@ -293,15 +293,21 @@ and the contradiction is noted here.
   whole reason the present step is a quad through `u_bufferTransform` and not
   a blit. That quad starts at `Accum`'s logical dimensions; starting at the
   swapped buffer dimensions clips a band after the transform.
-- **Canonical 180° buffer transforms are neutralized on both sides.** A real
-  Samsung tablet displayed top-right input at bottom-left when graphics-core
-  supplied its half-turn transform. Because 180° preserves the buffer
-  dimensions, `CanvasRenderer` safely uses identity for both presentation and
-  front damage, while `EngineSession` replaces the matching SurfaceControl
-  transform with identity in the same completion transaction. Never change
-  only one side: that either rotates twice or clips damage in the opposite
-  quadrant. The 90°/270° paths retain graphics-core's transform because their
-  dimensions swap.
+- **Window presentation is y-up and flips only its source uv.** `Accum` is a
+  viewport-oriented texture, but SurfaceControl consumes GL row zero as the
+  HardwareBuffer's top row. The present-only vertex shader therefore flips
+  `Accum`'s v coordinate and projects into the buffer with `orthoYUp`; this
+  makes both pixels and `BufferScissor` follow graphics-core's transform
+  exactly. Reusing the offscreen y-down shader conjugates that transform by
+  two vertical flips. Identity devices hide the error, while a 90°/270°
+  pre-rotated buffer reverses direction, leaves a visible 180° rotation after
+  SurfaceControl, and clips live ink outside its damage rect until pen-up.
+- **Canonical 180° buffer transforms are neutralized on both sides.** The
+  fallback uses identity for presentation/damage and replaces the matching
+  SurfaceControl transform with identity in the same transaction. The first
+  Samsung report was inferred to be this path without transform telemetry;
+  the later phone/tablet comparison instead exposed the quarter-turn row bug
+  above. Keep producer and consumer changes paired if this fallback is touched.
 - **Front damage has two bounds.** The inflated window-space scissor decides
   which `Accum` pixels are cleared. Tile selection uses that scissor
   inverse-mapped to canvas space, not the original dab rect. Otherwise the
@@ -523,7 +529,10 @@ and the contradiction is noted here.
 - **Pen-up ends input, not the stroke transaction.** `CanvasActionGate` stays
   closed until the entry is pushed or the unjournaled fallback finishes.
   Every engine end path must report merged or not-merged exactly once; the
-  not-merged callback returns on Main.
+  not-merged callback returns on Main. Leave is one terminal gate action:
+  system Back, top Back, and Settings coalesce there, then checkpoint only
+  after the final stroke outcome. A failed checkpoint or cancelled handoff
+  reopens the gate.
 - **RMW tile coordinates are canvas-top-first.** Unlike window-space and
   accumulation scissors, an RMW tile target maps canvas row zero directly to
   GL row zero; do not Y-flip `RmwTileScissor`.

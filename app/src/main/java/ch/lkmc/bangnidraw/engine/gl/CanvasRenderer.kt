@@ -1711,9 +1711,10 @@ class CanvasRenderer(
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, accum.texture)
         program.uniform1i("u_source", 0)
-        // The projection is over the BUFFER, which may be rotated relative to
-        // the viewport, so it is rebuilt here rather than reusing the frame's.
-        val bufferProjection = Mat4.orthoYDown(bufferWidth.toFloat(), bufferHeight.toFloat())
+        // SurfaceControl consumes GL row zero as the buffer's top row. The
+        // present-only shader flips its Accum uv, so a y-up projection makes
+        // this geometry and BufferScissor follow the same buffer transform.
+        val bufferProjection = Mat4.orthoYUp(bufferWidth.toFloat(), bufferHeight.toFloat())
         program.uniform4f("u_screen", 1f, 0f, 0f, 0f)
         program.uniformMatrix4("u_projection", bufferProjection)
         program.uniformMatrix4("u_bufferTransform", bufferTransform)

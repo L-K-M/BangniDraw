@@ -87,6 +87,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -178,7 +179,6 @@ fun CanvasScreen(
     viewModel: CanvasViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val leave = { viewModel.leave(onBack) }
     BackHandler { viewModel.handleBack(onBack) }
 
     // §6.2's ON_STOP row: the last callback before the process may be
@@ -200,7 +200,10 @@ fun CanvasScreen(
                 .fillMaxSize()
                 .safeDrawingPadding(),
         ) {
-            IconButton(onClick = leave, modifier = Modifier.align(Alignment.TopStart)) {
+            IconButton(
+                onClick = { viewModel.requestLeave(onBack) },
+                modifier = Modifier.align(Alignment.TopStart),
+            ) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = stringResource(R.string.canvas_back),
@@ -218,8 +221,8 @@ fun CanvasScreen(
         is CanvasViewModel.UiState.Ready -> CanvasContent(
             state = current,
             viewModel = viewModel,
-            onLeave = leave,
-            onSettings = { viewModel.leave(onSettings) },
+            onBack = onBack,
+            onSettings = { viewModel.requestLeave(onSettings) },
         )
     }
 }
@@ -228,7 +231,7 @@ fun CanvasScreen(
 private fun CanvasContent(
     state: CanvasViewModel.UiState.Ready,
     viewModel: CanvasViewModel,
-    onLeave: () -> Unit,
+    onBack: () -> Unit,
     onSettings: () -> Unit,
 ) {
     var view by rememberSaveable(stateSaver = VIEW_TRANSFORM_SAVER) {
@@ -1029,7 +1032,7 @@ private fun CanvasContent(
                 brushColor = state.color.current,
                 openPanel = state.chrome.openPanel,
                 hapticsMode = state.hapticsMode,
-                onBack = { viewModel.handleBack(onLeave) },
+                onBack = { viewModel.handleBack(onBack) },
                 onUndo = viewModel::undo,
                 onRedo = viewModel::redo,
                 onUndoLongPress = { historyReadout++ },
@@ -1381,6 +1384,7 @@ private fun CanvasContent(
         // both (it takes keyboard focus and announces the state).
         var closingScrim by remember { mutableStateOf(false) }
         val scrimFocus = remember { FocusRequester() }
+        val focusManager = LocalFocusManager.current
         LaunchedEffect(closingScrim) {
             if (closingScrim) runCatching { scrimFocus.requestFocus() }
         }
@@ -1389,6 +1393,7 @@ private fun CanvasContent(
                 closingScrim = false
                 return@LaunchedEffect
             }
+            focusManager.clearFocus()
             delay(CLOSING_SCRIM_DELAY_MS)
             closingScrim = true
         }
@@ -1839,7 +1844,7 @@ private const val CHROME_Z = 2f
 private const val HINT_Z = 3f
 private const val CLOSING_SCRIM_Z = 5f
 private const val CLOSING_SCRIM_ALPHA = 0.55f
-// 08 §4.8 fixes the scrim threshold at 300 ms; the leave() grace period in
+// 08 §4.8 fixes the scrim threshold at 300 ms; the leave grace period in
 // CanvasViewModel (LEAVE_HANDOFF_GRACE_MS) is the stranded-scrim reset, not
 // a scrim threshold — a cancelled back gesture may therefore flash the scrim
 // briefly before the canvas pops back, which is honest feedback, not a bug.

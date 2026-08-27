@@ -1734,6 +1734,15 @@ touchscreen hover too, not only a pen.
   sampling loop would double-represent state the snapshot system already
   invalidates.
 
+## PR #53 — stroke-gated navigation (2026-08-27)
+
+- **R-101 ⏸️ Final round, minor: make `finishLeave` tolerate an unstarted or
+  repeated release.** Declined: `requestLeave` is the sole Leave producer and
+  stores its callback before dispatch. `beginLeave` starts gate work before
+  launching the job. Its handed-off and failure branches are exclusive, and a
+  retry clears `leaveJob` ownership before reopening the gate, so the old grace
+  timer cannot release again. The checks expose a broken invariant; relaxing
+  them would hide one.
 ## PR #58 — Canvas share chooser title (2026-08-27)
 
 - **R-101 ⏸️ Round 1, major: "Empty painting name produces a blank chooser

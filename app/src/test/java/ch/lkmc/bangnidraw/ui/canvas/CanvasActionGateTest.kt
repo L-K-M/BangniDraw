@@ -85,7 +85,8 @@ class CanvasActionGateTest {
         assertEquals(CanvasActionDecision.Parked, gate.request(CanvasDocumentAction.Undo))
         assertEquals(false, gate.beginStroke())
         journal.push(entry(2))
-        if (gate.completeStroke() == CanvasDocumentAction.Undo) journal.undo()
+        assertEquals(CanvasDocumentAction.Undo, gate.completeStroke())
+        journal.undo()
 
         assertEquals(listOf(1L, 2L), journal.entries.map { it.seq })
         assertEquals(1, journal.cursor)
@@ -102,5 +103,49 @@ class CanvasActionGateTest {
         assertEquals(CanvasDocumentAction.Undo, gate.endStrokeInput())
         assertNull(gate.endStrokeInput())
         assertNull(gate.completeStroke())
+    }
+
+    @Test
+    fun `leave waits for stroke history and becomes terminal`() {
+        val gate = CanvasActionGate()
+        gate.beginStroke()
+
+        assertEquals(
+            CanvasActionDecision.Parked,
+            gate.request(CanvasDocumentAction.Leave),
+        )
+        assertEquals(
+            CanvasActionDecision.Rejected,
+            gate.request(CanvasDocumentAction.Leave),
+        )
+        assertEquals(CanvasActionDecision.Rejected, gate.request(CanvasDocumentAction.Undo))
+        assertEquals(1, gate.pendingCount)
+
+        assertNull(gate.endStrokeInput())
+        assertEquals(CanvasDocumentAction.Leave, gate.completeStroke())
+        assertNull(gate.next())
+        assertEquals(false, gate.beginStroke())
+    }
+
+    @Test
+    fun `leave survives stroke completion before pen-up`() {
+        val gate = CanvasActionGate()
+        gate.beginStroke()
+        gate.request(CanvasDocumentAction.Leave)
+
+        assertNull(gate.completeStroke())
+        assertEquals(CanvasDocumentAction.Leave, gate.endStrokeInput())
+        assertNull(gate.next())
+    }
+
+    @Test
+    fun `failed leave reopens the action gate`() {
+        val gate = CanvasActionGate()
+        assertIs<CanvasActionDecision.Run>(gate.request(CanvasDocumentAction.Leave))
+        gate.beginWork()
+
+        gate.finishLeave()
+
+        assertTrue(gate.beginStroke())
     }
 }

@@ -3,7 +3,7 @@ package ch.lkmc.bangnidraw.ui.canvas
 import androidx.annotation.MainThread
 import ch.lkmc.bangnidraw.engine.core.BlendMode
 
-/** Document mutations parked while the front-buffered stroke owns the GPU. */
+/** Canvas actions parked while a stroke or document transaction owns state. */
 internal sealed interface CanvasDocumentAction {
     data object Undo : CanvasDocumentAction
     data object Redo : CanvasDocumentAction
@@ -22,11 +22,13 @@ internal sealed interface CanvasDocumentAction {
     data class ToggleLayerAlphaLock(val index: Int) : CanvasDocumentAction
     data class ToggleLayerLock(val index: Int) : CanvasDocumentAction
     data class SetPaperColor(val color: Int) : CanvasDocumentAction
+    data object Leave : CanvasDocumentAction
 }
 
 internal sealed interface CanvasActionDecision {
     data class Run(val action: CanvasDocumentAction) : CanvasActionDecision
     data object Parked : CanvasActionDecision
+    data object Rejected : CanvasActionDecision
 }
 
 /** Main-confined queue behind the no-mutation-during-stroke UI invariant. */
@@ -40,6 +42,7 @@ internal class CanvasActionGate {
 
     private val pending = ArrayDeque<CanvasDocumentAction>()
     private var strokePhase = StrokePhase.IDLE
+    private var leaveRequested = false
 
     val strokeInFlight: Boolean get() = strokePhase != StrokePhase.IDLE
     val strokeInputInFlight: Boolean
@@ -52,7 +55,7 @@ internal class CanvasActionGate {
 
     @MainThread
     fun beginStroke(): Boolean {
-        if (busy || strokeInFlight) return false
+        if (busy || strokeInFlight || leaveRequested) return false
 
         strokePhase = StrokePhase.INPUT
         return true
@@ -84,6 +87,9 @@ internal class CanvasActionGate {
 
     @MainThread
     fun request(action: CanvasDocumentAction): CanvasActionDecision {
+        if (leaveRequested) return CanvasActionDecision.Rejected
+        if (action == CanvasDocumentAction.Leave) leaveRequested = true
+
         if (!strokeInFlight && !busy) return CanvasActionDecision.Run(action)
         pending += action
         return CanvasActionDecision.Parked
@@ -100,6 +106,17 @@ internal class CanvasActionGate {
         check(busy) { "no document work is running" }
         busy = false
         return next()
+    }
+
+    /** Reopens the terminal gate after a leave failed or navigation was cancelled. */
+    @MainThread
+    fun finishLeave() {
+        check(leaveRequested) { "no leave is pending" }
+        check(busy) { "leave work is not running" }
+        check(pending.isEmpty()) { "actions cannot follow a terminal leave" }
+
+        busy = false
+        leaveRequested = false
     }
 
     @MainThread

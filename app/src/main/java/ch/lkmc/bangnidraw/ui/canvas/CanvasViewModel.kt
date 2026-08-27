@@ -380,11 +380,7 @@ class CanvasViewModel @Inject constructor(
 
     private var gallerySyncJob: Job? = null
 
-    /**
-     * One leave at a time: the guard lets a failed leave retry. Read on the
-     * app scope's dispatcher by the grace-delay ownership check, hence
-     * volatile like its siblings.
-     */
+    /** Active leave job; ownership prevents an older grace timer clearing a retry. */
     @Volatile
     private var leaveJob: Job? = null
 
@@ -401,6 +397,7 @@ class CanvasViewModel @Inject constructor(
     /** One journal mutation at a time; later chrome actions wait in order. */
     private val actionGate = CanvasActionGate()
     private val applyBusy: Boolean get() = actionGate.busy
+    private var leaveAfterWrite: (() -> Unit)? = null
     private var layerCap = 1
     private var layerRefusal: Refusal? = null
     private var layerFeedbackRevision = 0L
@@ -732,10 +729,22 @@ class CanvasViewModel @Inject constructor(
     internal fun handleBack(afterWrite: () -> Unit) {
         val result = CanvasUiPolicy.back(chrome)
         if (result.effect == CanvasBackEffect.LEAVE) {
-            leave(afterWrite)
+            requestLeave(afterWrite)
             return
         }
         applyChrome(result.state)
+    }
+
+    /** Parks navigation behind the active stroke and every earlier action. */
+    internal fun requestLeave(afterWrite: () -> Unit) {
+        if (leaveAfterWrite != null) {
+            if (!leaveHandedOff) return
+
+            releaseLeaveGate()
+        }
+
+        leaveAfterWrite = afterWrite
+        requestAction(CanvasDocumentAction.Leave)
     }
 
     internal fun requestRename() {
@@ -1857,6 +1866,7 @@ class CanvasViewModel @Inject constructor(
         when (val decision = actionGate.request(action)) {
             is CanvasActionDecision.Run -> executeAction(decision.action)
             CanvasActionDecision.Parked -> Unit
+            CanvasActionDecision.Rejected -> Unit
         }
     }
 
@@ -1902,6 +1912,7 @@ class CanvasViewModel @Inject constructor(
                 applyStackResult(locked?.let { stack.setLocked(action.index, !it) })
             }
             is CanvasDocumentAction.SetPaperColor -> setPaperColorNow(action.color)
+            CanvasDocumentAction.Leave -> beginLeave()
         }
         if (!applyBusy) runNextPendingAction()
     }
@@ -2287,21 +2298,14 @@ class CanvasViewModel @Inject constructor(
         }
     }
 
-    /**
-     * The leave checkpoint (§6.2's Leave row): flush everything, then run
-     * [afterWrite] on the main thread — the caller navigates in it, so the
-     * Studio never lists a stale shelf. The closing flag drives 08 §4.8's
-     * scrim: shown only if the flush takes longer than 300 ms.
-     *
-     * [afterWrite] may run again if a fresh leave supersedes a handed-off
-     * job whose navigation was cancelled (predictive back) — keep it
-     * idempotent.
-     */
-    fun leave(afterWrite: () -> Unit) {
-        // After a handoff the job is only running its grace delay; a second
-        // back press there starts a fresh leave rather than being dropped
-        // (a cancelled predictive-back gesture is exactly the case).
-        if (leaveJob?.isActive == true && !leaveHandedOff) return
+    /** Flushes the final committed stroke before navigation. */
+    private fun beginLeave() {
+        val afterWrite = checkNotNull(leaveAfterWrite) {
+            "Leave dispatched without requestLeave"
+        }
+
+        actionGate.beginWork()
+        updateInteractionUi()
         leaveHandedOff = false
         setClosing(true)
         leaveJob = appScope.launch {
@@ -2333,12 +2337,12 @@ class CanvasViewModel @Inject constructor(
                 if (!handedOff) {
                     // Ownership-guarded like the success branch: on a
                     // rethrown cancellation this coroutine is already
-                    // inactive while its finally runs, so a newer leave()
+                    // inactive while its finally runs, so a newer request
                     // may have started and only that job may clear. Runs on
                     // the main thread so the check and the clear cannot
-                    // interleave with leave() reassigning leaveJob.
+                    // interleave with beginLeave() reassigning leaveJob.
                     withContext(NonCancellable + Dispatchers.Main) {
-                        if (leaveJob === self) setClosing(false)
+                        if (leaveJob === self) finishLeaveAttempt()
                     }
                 } else {
                     // If navigation was swallowed (a cancelled predictive-back
@@ -2353,11 +2357,24 @@ class CanvasViewModel @Inject constructor(
                     // only the latest job owns clearing the scrim. Main-thread
                     // for the same atomicity reason as the failure branch.
                     withContext(NonCancellable + Dispatchers.Main) {
-                        if (leaveJob === self) setClosing(false)
+                        if (leaveJob === self) finishLeaveAttempt()
                     }
                 }
             }
         }
+    }
+
+    private fun finishLeaveAttempt() {
+        setClosing(false)
+        releaseLeaveGate()
+    }
+
+    private fun releaseLeaveGate() {
+        leaveJob = null
+        leaveAfterWrite = null
+        leaveHandedOff = false
+        actionGate.finishLeave()
+        updateInteractionUi()
     }
 
     private fun noteLeaveFailure() {
@@ -2390,7 +2407,7 @@ class CanvasViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        // Belt and braces behind [leave]: whatever is still unwritten when the
+        // Belt and braces behind [requestLeave]: whatever is still unwritten when the
         // screen is torn down gets one more drain. The session is gone by now,
         // so there is no readback left to wait on — release() already
         // delivered or dropped it.

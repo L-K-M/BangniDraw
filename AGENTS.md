@@ -91,6 +91,8 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - The CPU reference implementations in `engine/core` (`Composite`, the
   mixing formula, dab falloff) and the GLSL must stay trivially close; when
   one changes, change both, and let the unit tests pin the semantics.
+- `DabBounds` owns dab-edge arithmetic. Live `DabBatch` and `DabPass` paths
+  retain primitive edges; do not rebuild `IntRect` per dab.
 - Sandwich tile passes must ping-pong into a pool page distinct from both
   sampled pages. `Below` supports every blend mode; `Above` is unavailable
   when a visible non-Normal layer breaks source-over associativity. Grouping

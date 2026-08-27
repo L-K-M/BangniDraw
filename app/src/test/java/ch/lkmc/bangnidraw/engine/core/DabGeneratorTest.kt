@@ -236,6 +236,26 @@ class DabGeneratorTest {
     }
 
     @Test
+    fun `stationary Chinese ink retains its depleted tuft state`() {
+        val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
+        val generator = DabGenerator(brush, seed = 13L)
+        val batch = DabBatch(4096)
+
+        generator.begin(sample(0f, 0f, pressure = 0.35f), batch)
+        generator.advance(sample(500f, 0f, pressure = 0.35f, timeMs = 600), batch)
+        generator.advance(sample(500f, 120f, pressure = 0.35f, timeMs = 800), batch)
+        val beforePress = batch.count
+        generator.advance(sample(500f, 120f, pressure = 0.9f, timeMs = 816), batch)
+
+        assertEquals(beforePress + 1, batch.count, "the pressure rise must stamp once")
+        val pressed = batch[batch.count - 1]
+        assertTrue(pressed.wetness < 0.8f, "a stationary press must not reload the tuft")
+        assertTrue(abs(pressed.angle) > 0.1f, "a stationary press must retain the turned tuft axis")
+        assertTrue(pressed.bristleAlong > 100f, "a stationary press must retain material phase")
+        assertTrue(abs(pressed.bristleAcross) > 1f, "a turned tuft must retain its cross phase")
+    }
+
+    @Test
     fun `Chinese ink keeps brush direction through a turn`() {
         val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
         val generator = DabGenerator(brush, seed = 17L)
@@ -344,15 +364,19 @@ class DabGeneratorTest {
     fun `Chinese ink contains malformed contact dynamics`() {
         data class Contact(
             val label: String,
+            val pressure: Float = 0.5f,
             val tilt: Float = 0f,
             val orientation: Float = 0f,
             val radius: Float = 10f,
+            val speed: Float = 0f,
         )
 
         val contacts = listOf(
+            Contact("pressure", pressure = Float.NaN),
             Contact("tilt", tilt = Float.NaN),
             Contact("orientation", orientation = Float.NaN),
             Contact("radius", radius = Float.NaN),
+            Contact("speed", speed = Float.NaN),
         )
 
         for (contact in contacts) {
@@ -367,11 +391,11 @@ class DabGeneratorTest {
             dynamics.prepareSegment(
                 pathAngle = 0f,
                 distance = 20f,
-                pressure = 0.5f,
+                pressure = contact.pressure,
                 tiltFraction = contact.tilt,
                 stylusAngle = contact.orientation,
                 contactRadius = contact.radius,
-                speedFraction = 0f,
+                speedFraction = contact.speed,
             )
             dynamics.writeSampleAt(1f, ink)
             dynamics.finishSegment(0.5f)

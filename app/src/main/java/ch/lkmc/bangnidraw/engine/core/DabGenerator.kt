@@ -115,7 +115,7 @@ class DabGenerator(
         firstBatch = null
         firstBatchGeneration = -1L
         firstIndex = -1
-        return if (emit(first.x, first.y, first, out)) 1 else 0
+        return if (emitCurrent(first.x, first.y, first, out)) 1 else 0
     }
 
     /**
@@ -145,7 +145,7 @@ class DabGenerator(
             last.set(next)
             if (!stampPress) return 0
 
-            return if (emit(next.x, next.y, next, out)) 1 else 0
+            return if (emitCurrent(next.x, next.y, next, out)) 1 else 0
         }
         pathLength += len
 
@@ -368,7 +368,8 @@ class DabGenerator(
         out.orientation = Stabilizer.easeAngle(a.orientation, b.orientation, t)
     }
 
-    private fun emit(x: Float, y: Float, sample: StrokeInput, out: DabBatch): Boolean {
+    /** Adds current brush-local state to one raw or stabilized input sample. */
+    private fun emitCurrent(x: Float, y: Float, sample: StrokeInput, out: DabBatch): Boolean {
         interpolated.pressure = sample.pressure
         interpolated.tilt = sample.tilt
         interpolated.orientation = sample.orientation

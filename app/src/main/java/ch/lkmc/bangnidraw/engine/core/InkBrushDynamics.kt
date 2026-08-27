@@ -68,7 +68,8 @@ internal class InkBrushDynamics(
         speedFraction: Float,
     ) {
         // One malformed digitizer sample must not poison the remaining stroke.
-        val tilt = if (tiltFraction.isFinite()) tiltFraction.coerceIn(0f, 1f) else 0f
+        val tilt = normalizedUnit(tiltFraction)
+        val speed = normalizedUnit(speedFraction)
         val penAngle = if (stylusAngle.isFinite()) stylusAngle else pathAngle
         val radius = if (contactRadius.isFinite()) contactRadius.coerceAtLeast(0f) else baseRadius
         val stylusWeight = smoothUnit(tilt) * STYLUS_AXIS_WEIGHT
@@ -100,7 +101,7 @@ internal class InkBrushDynamics(
         segmentInkEnd = inkUse + distance / maxOf(baseRadius, 1f) * contact
 
         val push = abs(cos(pathAngle - penAngle)) * tilt
-        val drying = 1f - FAST_DRYING * speedFraction.coerceIn(0f, 1f) - PUSH_DRYING * push
+        val drying = 1f - FAST_DRYING * speed - PUSH_DRYING * push
         segmentDrying = drying.coerceIn(MIN_DRYING, 1f)
     }
 
@@ -150,7 +151,7 @@ internal class InkBrushDynamics(
         aspectAt(pressure, tiltFraction)
 
     fun currentWetness(speedFraction: Float): Float =
-        loadedFraction(inkUse) * (1f - FAST_DRYING * speedFraction.coerceIn(0f, 1f))
+        loadedFraction(inkUse) * (1f - FAST_DRYING * normalizedUnit(speedFraction))
 
     fun currentBristleAlong(): Float = bristleAlong
 
@@ -196,7 +197,10 @@ internal class InkBrushDynamics(
     private fun loadedFraction(use: Float): Float = 1f / (1f + use / INK_CAPACITY)
 
     private fun normalizedPressure(pressure: Float): Float =
-        if (pressure.isFinite()) pressure.coerceIn(0f, 1f) else 0f
+        normalizedUnit(pressure)
+
+    private fun normalizedUnit(value: Float): Float =
+        if (value.isFinite()) value.coerceIn(0f, 1f) else 0f
 
     private fun axisDelta(from: Float, to: Float): Float {
         var delta = (to - from) % PI_FLOAT

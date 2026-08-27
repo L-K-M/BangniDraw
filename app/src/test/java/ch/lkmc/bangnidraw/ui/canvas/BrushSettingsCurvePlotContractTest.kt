@@ -30,7 +30,7 @@ class BrushSettingsCurvePlotContractTest {
 
         listOf(
             "curve.eval(",
-            "KNOT_X[k]",
+            "Curve.knotX(k)",
             "R.string.brush_curve_plot",
             "contentDescription = description",
             ".clipToBounds()",

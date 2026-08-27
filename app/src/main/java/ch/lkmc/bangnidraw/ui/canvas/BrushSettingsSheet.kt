@@ -604,8 +604,8 @@ private fun CurvePlot(curve: Curve) {
         val knotRadius = KNOT_RADIUS.toPx()
 
         drawRect(color = grid, style = Stroke(width = gridStroke))
-        for (k in 1 until KNOT_X.size - 1) {
-            val x = size.width * KNOT_X[k]
+        for (k in 1 until KNOT_COUNT - 1) {
+            val x = size.width * Curve.knotX(k)
             drawLine(grid, Offset(x, 0f), Offset(x, size.height), gridStroke)
         }
         val mid = size.height / 2f
@@ -625,11 +625,11 @@ private fun CurvePlot(curve: Curve) {
         )
 
         val knotY = floatArrayOf(curve.p0, curve.p1, curve.p2, curve.p3)
-        for (k in KNOT_X.indices) {
+        for (k in 0 until KNOT_COUNT) {
             drawCircle(
                 color = knot,
                 radius = knotRadius,
-                center = Offset(size.width * KNOT_X[k], (1f - knotY[k]) * size.height),
+                center = Offset(size.width * Curve.knotX(k), (1f - knotY[k]) * size.height),
             )
         }
     }
@@ -700,5 +700,5 @@ private val GRID_STROKE = 1.dp
 private val CURVE_STROKE = 2.dp
 private val KNOT_RADIUS = 3.dp
 
-/** The four knots' fixed x positions — `Curve`'s contract (04 §2). */
-private val KNOT_X = floatArrayOf(0f, 1f / 3f, 2f / 3f, 1f)
+/** The editor's four knots; their x positions are `Curve.knotX`'s contract. */
+private const val KNOT_COUNT = 4

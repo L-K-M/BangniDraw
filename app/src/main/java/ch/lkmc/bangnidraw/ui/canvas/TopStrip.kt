@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.ui.canvas
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -57,6 +59,7 @@ internal fun TopStrip(
     onBack: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onUndoLongPress: () -> Unit,
     onLayers: () -> Unit,
     onColor: () -> Unit,
     onShare: () -> Unit,
@@ -75,6 +78,7 @@ internal fun TopStrip(
             onBack,
             onUndo,
             onRedo,
+            onUndoLongPress,
         )
     }
     val tools: @Composable () -> Unit = {
@@ -125,6 +129,7 @@ private fun NavigationCluster(
     onBack: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onUndoLongPress: () -> Unit,
 ) {
     val view = LocalView.current
     Row(horizontalArrangement = Arrangement.Start) {
@@ -134,19 +139,34 @@ private fun NavigationCluster(
                 contentDescription = stringResource(R.string.canvas_back),
             )
         }
-        IconButton(
-            enabled = undoAvailability == ActionAvailability.ENABLED,
-            onClick = {
-                if (hapticsMode == HapticsMode.ENABLED) {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                }
-                onUndo()
+        // Long-press = the §3.1 readout: how deep the undo history is and
+        // how close to the cap. The detector sits on the parent Box so it
+        // also works while the button is disabled — a painter with nothing
+        // to undo still wants to know why.
+        Box(
+            modifier = Modifier.pointerInput(onUndoLongPress, hapticsMode) {
+                detectTapGestures(onLongPress = {
+                    if (hapticsMode == HapticsMode.ENABLED) {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    }
+                    onUndoLongPress()
+                })
             },
         ) {
-            Icon(
-                Icons.AutoMirrored.Filled.Undo,
-                contentDescription = stringResource(R.string.canvas_undo),
-            )
+            IconButton(
+                enabled = undoAvailability == ActionAvailability.ENABLED,
+                onClick = {
+                    if (hapticsMode == HapticsMode.ENABLED) {
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
+                    onUndo()
+                },
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Undo,
+                    contentDescription = stringResource(R.string.canvas_undo),
+                )
+            }
         }
         IconButton(
             enabled = redoAvailability == ActionAvailability.ENABLED,

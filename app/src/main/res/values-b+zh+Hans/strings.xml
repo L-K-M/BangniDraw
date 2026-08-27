@@ -65,6 +65,7 @@
     <string name="canvas_undo">撤销</string>
     <string name="canvas_redo">重做</string>
     <string name="canvas_more">更多操作</string>
+    <string name="canvas_history_readout">撤销历史：%1$d 步 · %2$s（上限 %3$s）</string>
     <string name="canvas_export_png">导出 PNG</string>
     <string name="canvas_export_jpeg">导出 JPEG</string>
     <string name="canvas_focus">专注模式</string>

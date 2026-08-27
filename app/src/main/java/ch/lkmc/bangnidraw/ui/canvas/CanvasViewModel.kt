@@ -132,6 +132,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -2112,14 +2113,23 @@ class CanvasViewModel @Inject constructor(
     fun leave(afterWrite: () -> Unit) {
         setClosing(true)
         appScope.launch {
-            withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
-            withContext(Dispatchers.Main) { afterWrite() }
+            try {
+                withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
+                withContext(Dispatchers.Main) { afterWrite() }
+            } finally {
+                // Even a failed flush must not strand the scrim: whatever
+                // went wrong, the user keeps a live canvas.
+                setClosing(false)
+            }
         }
     }
 
     private fun setClosing(closing: Boolean) {
-        val state = _uiState.value
-        if (state is UiState.Ready) _uiState.value = state.copy(closing = closing)
+        // Atomic update, not read-copy-write: the finally above can run off
+        // the main thread while the flusher's tickers emit state.
+        _uiState.update { state ->
+            if (state is UiState.Ready) state.copy(closing = closing) else state
+        }
     }
 
     /**

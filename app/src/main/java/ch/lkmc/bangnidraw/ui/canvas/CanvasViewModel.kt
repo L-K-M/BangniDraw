@@ -143,6 +143,7 @@ class CanvasViewModel @Inject constructor(
     private var penButtonAction = PenButtonAction.Eraser
     private var eraserEndPreset = BrushPresets.HARD_ERASER_ID
     private var brushColor = OPAQUE_BLACK
+    private var hoverPointer: PointerTool? = null
 
     private val pool = TileBufferPool()
 
@@ -247,9 +248,18 @@ class CanvasViewModel @Inject constructor(
         }
     }
 
-    private fun open() {
-        brushPresets = BrushPresets.railOrder(presetStore.load()).ifEmpty {
+    private suspend fun open() {
+        val loadedPresets = BrushPresets.railOrder(presetStore.load()).ifEmpty {
             listOf(BrushPresets.DEFAULT)
+        }
+        val tunings = runCatching { prefs.brushTunings(loadedPresets.map { it.id }) }
+            .onFailure { android.util.Log.w(TAG, "brush tuning could not be loaded", it) }
+            .getOrDefault(emptyMap())
+        brushPresets = loadedPresets.map { preset ->
+            val tuning = tunings[preset.id]
+            preset
+                .withSize(tuning?.size ?: preset.size)
+                .withOpacity(tuning?.opacity ?: preset.opacity)
         }
         val default = brushPresets.firstOrNull { it.id == BrushPresets.PENCIL_ID }
             ?: brushPresets.first()
@@ -385,6 +395,10 @@ class CanvasViewModel @Inject constructor(
     }
 
     fun selectEyedropper() {
+        // Rail selection can arrive while the eraser end hovers. Remove that
+        // top entry before Rail so hover exit cannot release out of order.
+        hoverPointer = null
+        toolSwitcher.popTemporary(TemporaryReason.Hover)
         toolSwitcher.pushTemporary(ToolKind.Eyedropper(), TemporaryReason.Rail)
         updateToolUi()
     }
@@ -396,16 +410,17 @@ class CanvasViewModel @Inject constructor(
 
     fun currentBrushColor(): Int = brushColor
 
-    fun updateBrushSize(value: Float) = updateBrush { it.withSize(value) }
+    /** Rail tuning is session state; the settings sheet persists explicitly. */
+    fun updateBrushSize(value: Float) = updateActiveBrush { it.withSize(value) }
 
-    fun updateBrushOpacity(value: Float) = updateBrush { it.withOpacity(value) }
+    fun updateBrushOpacity(value: Float) = updateActiveBrush { it.withOpacity(value) }
 
-    private fun updateBrush(transform: (BrushPreset) -> BrushPreset) {
+    internal fun updateActiveBrush(updated: BrushPreset) {
         val selection = toolSwitcher.selection.value
         val kind = selection.kind
         if (kind !is ToolKind.Brush) return
+        if (kind.preset.id != updated.id) return
 
-        val updated = transform(kind.preset)
         brushPresets = brushPresets.map { if (it.id == updated.id) updated else it }
         val reason = selection.temporaryReason
         if (reason == null) {
@@ -414,13 +429,82 @@ class CanvasViewModel @Inject constructor(
             toolSwitcher.pushTemporary(ToolKind.Brush(updated), reason)
         }
         updateToolUi()
+    }
+
+    internal fun persistActiveBrush() {
+        val preset = (toolSwitcher.selection.value.kind as? ToolKind.Brush)?.preset ?: return
         appScope.launch(Dispatchers.IO) {
-            runCatching { presetStore.save(updated) }
-                .onFailure { android.util.Log.w(TAG, "brush ${updated.id} could not be saved", it) }
+            runCatching {
+                presetStore.save(preset)
+                prefs.setBrushTuning(preset.id, preset.size, preset.opacity)
+            }
+                .onFailure { android.util.Log.w(TAG, "brush ${preset.id} could not be saved", it) }
         }
     }
 
+    internal fun persistBrushTuning() {
+        val preset = (toolSwitcher.selection.value.kind as? ToolKind.Brush)?.preset ?: return
+        appScope.launch(Dispatchers.IO) {
+            runCatching { prefs.setBrushTuning(preset.id, preset.size, preset.opacity) }
+                .onFailure { android.util.Log.w(TAG, "brush ${preset.id} tuning could not be saved", it) }
+        }
+    }
+
+    internal fun resetActiveBrush() {
+        val id = (toolSwitcher.selection.value.kind as? ToolKind.Brush)?.preset?.id ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!presetStore.reset(id)) return@launch
+            runCatching { prefs.clearBrushTuning(id) }
+                .onFailure { android.util.Log.w(TAG, "brush $id tuning could not be reset", it) }
+            val reset = presetStore.load().firstOrNull { it.id == id } ?: return@launch
+
+            withContext(Dispatchers.Main) {
+                brushPresets = brushPresets.map { if (it.id == id) reset else it }
+                val current = toolSwitcher.selection.value
+                val kind = current.kind as? ToolKind.Brush
+                if (kind?.preset?.id == id) {
+                    if (current.temporaryReason == null) toolSwitcher.select(ToolKind.Brush(reset))
+                    else toolSwitcher.pushTemporary(ToolKind.Brush(reset), current.temporaryReason)
+                }
+                updateToolUi()
+            }
+        }
+    }
+
+    private fun updateActiveBrush(transform: (BrushPreset) -> BrushPreset) {
+        val preset = (toolSwitcher.selection.value.kind as? ToolKind.Brush)?.preset ?: return
+        updateActiveBrush(transform(preset))
+    }
+
+    internal fun beginHoverTool(pointer: PointerTool) {
+        if (hoverPointer == pointer) return
+        hoverPointer = pointer
+        if (pointer == PointerTool.ERASER) {
+            toolSwitcher.pushTemporary(
+                ToolKind.Brush(resolveEraserPreset()),
+                TemporaryReason.Hover,
+            )
+        } else {
+            toolSwitcher.popTemporary(TemporaryReason.Hover)
+        }
+        updateToolUi()
+    }
+
+    internal fun endHoverTool() {
+        if (hoverPointer == null) return
+        hoverPointer = null
+        toolSwitcher.popTemporary(TemporaryReason.Hover)
+        updateToolUi()
+    }
+
     fun beginStrokeTool(source: StrokeSource, button: ButtonState): ToolSelection {
+        // Contact replaces hover before stroke-specific overrides are pushed.
+        if (hoverPointer != null) {
+            hoverPointer = null
+            toolSwitcher.popTemporary(TemporaryReason.Hover)
+            updateToolUi()
+        }
+
         val pointer = when (source) {
             StrokeSource.STYLUS -> PointerTool.STYLUS
             StrokeSource.ERASER_END -> PointerTool.ERASER

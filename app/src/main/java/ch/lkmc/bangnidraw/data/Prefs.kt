@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
@@ -13,7 +14,10 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+
+internal data class BrushTuning(val size: Float?, val opacity: Float?)
 
 /**
  * The app's few durable settings (`docs/plan/06-document-and-persistence.md`
@@ -79,6 +83,32 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
     suspend fun setEraserEndPreset(id: String) {
         dataStore.edit { it[KEY_ERASER_END_PRESET] = id }
     }
+
+    /** Rail size/opacity live outside preset JSON (`04-tools.md` §5.1). */
+    internal suspend fun brushTunings(ids: Iterable<String>): Map<String, BrushTuning> {
+        val snapshot = dataStore.data.first()
+        return ids.associateWith { id ->
+            BrushTuning(snapshot[sizeKey(id)], snapshot[opacityKey(id)])
+        }
+    }
+
+    internal suspend fun setBrushTuning(id: String, size: Float, opacity: Float) {
+        dataStore.edit {
+            it[sizeKey(id)] = size
+            it[opacityKey(id)] = opacity
+        }
+    }
+
+    internal suspend fun clearBrushTuning(id: String) {
+        dataStore.edit {
+            it.remove(sizeKey(id))
+            it.remove(opacityKey(id))
+        }
+    }
+
+    private fun sizeKey(id: String) = floatPreferencesKey("brushSize.$id")
+
+    private fun opacityKey(id: String) = floatPreferencesKey("brushOpacity.$id")
 
     private companion object {
         const val STORE_NAME = "bangni"

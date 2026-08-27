@@ -79,6 +79,52 @@
     <string name="preset_hard_eraser">Hard eraser</string>
     <string name="preset_soft_eraser">Soft eraser</string>
 
+    <!-- Tool rail and brush settings (04-tools.md; 08-ui-and-layout.md §3.2, §3.5). -->
+    <string name="tool_eraser">Eraser</string>
+    <string name="tool_eyedropper">Eyedropper</string>
+    <string name="cd_selected">Selected</string>
+    <string name="brush_settings">Brush settings</string>
+    <string name="brush_group_stroke">Stroke</string>
+    <string name="brush_size">Size</string>
+    <string name="brush_opacity">Opacity</string>
+    <string name="brush_flow">Flow</string>
+    <string name="brush_group_tip">Tip</string>
+    <string name="brush_hardness">Hardness</string>
+    <string name="brush_spacing">Spacing</string>
+    <string name="brush_tip_shape">Shape</string>
+    <string name="brush_tip_round">Round</string>
+    <string name="brush_tip_flat">Flat</string>
+    <string name="brush_tip_aspect">Flatness</string>
+    <string name="brush_tip_orientation">Orientation</string>
+    <string name="brush_tip_fixed">Fixed</string>
+    <string name="brush_tip_stylus">Stylus</string>
+    <string name="brush_tip_direction">Stroke</string>
+    <string name="brush_group_dynamics">Dynamics</string>
+    <string name="brush_pressure_size">Pressure → size</string>
+    <string name="brush_pressure_opacity">Pressure → opacity</string>
+    <string name="brush_pressure_flow">Pressure → flow</string>
+    <string name="brush_curve_knot">Knot %1$d</string>
+    <string name="brush_tilt_size">Tilt size</string>
+    <string name="brush_tilt_opacity">Tilt opacity</string>
+    <string name="brush_tilt_elongate">Elongate with tilt</string>
+    <string name="brush_velocity_size">Fast-stroke size</string>
+    <string name="brush_velocity_opacity">Fast-stroke opacity</string>
+    <string name="brush_velocity_threshold">Fast threshold</string>
+    <string name="brush_jitter_size">Size jitter</string>
+    <string name="brush_jitter_position">Position jitter</string>
+    <string name="brush_stabilizer">Stabilizer</string>
+    <string name="brush_group_paint">Paint</string>
+    <string name="brush_pigment">Pigment mixing</string>
+    <string name="brush_dilution">Dilution</string>
+    <string name="brush_grain">Paper grain</string>
+    <string name="brush_buffer_mode">Build-up</string>
+    <string name="brush_buffer_max">Capped</string>
+    <string name="brush_buffer_accumulate">Builds up</string>
+    <string name="brush_reset">Reset to preset</string>
+    <string name="brush_value_px">%1$.1f px</string>
+    <string name="brush_value_percent">%1$.0f%%</string>
+    <string name="brush_value_number">%1$.2f</string>
+
     <!-- Stored layer names are resource keys resolved at display time
          (AGENTS.md, "Generated layer names are a closed grammar"). The
          crash-recovery scan that reopens a painting matches the stored form

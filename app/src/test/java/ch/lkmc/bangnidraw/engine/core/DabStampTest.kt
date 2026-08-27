@@ -16,6 +16,23 @@ import kotlin.test.assertTrue
  */
 class DabStampTest {
 
+    @Test
+    fun `allocation-free alpha helpers match the rgba reference`() {
+        val d = dab(radius = 7f, flow = 0.4f)
+        val alpha = DabStamp.alphaAt(2f, 1f, d)
+        val contribution = DabStamp.contribution(2f, 1f, d, floatArrayOf(0.2f, 0.4f, 0.6f))
+
+        assertEquals(contribution.a, alpha, 1e-6f)
+        for (mode in BufferMode.entries) {
+            val rgba = DabStamp.blendIntoBuffer(
+                StrokeMerge.Rgba(0.1f, 0.1f, 0.1f, 0.25f),
+                contribution,
+                mode,
+            )
+            assertEquals(rgba.a, DabStamp.blendAlpha(0.25f, alpha, mode), 1e-6f)
+        }
+    }
+
     private val white = floatArrayOf(1f, 1f, 1f)
 
     private fun dab(

@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -32,7 +33,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -40,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.DisposableEffect
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
@@ -123,6 +125,8 @@ private fun CanvasContent(
     var view by remember { mutableStateOf(ViewTransform()) }
     val stack = state.stack
     var session by remember { mutableStateOf<EngineSession?>(null) }
+    var hoverRevision by remember { mutableIntStateOf(0) }
+    var showBrushSettings by remember { mutableStateOf(false) }
 
     // The stroke in flight. Plain vars, not Compose state: they change several
     // hundred times a second on the input path and nothing draws from them, so
@@ -159,6 +163,14 @@ private fun CanvasContent(
                 // journal; the ViewModel drops a request that lands mid-apply.
                 override fun onUndoRequested() = viewModel.undo()
                 override fun onRedoRequested() = viewModel.redo()
+                override fun onHoverChanged() {
+                    hoverRevision++
+                    if (handler.stylus.isHovering) {
+                        viewModel.beginHoverTool(handler.stylus.tool)
+                    } else {
+                        viewModel.endHoverTool()
+                    }
+                }
                 override fun onColorPick(x: Float, y: Float) {
                     val engine = session ?: return
                     engine.sampleColor(x, y, EyedropperParams()) { color ->
@@ -441,6 +453,18 @@ private fun CanvasContent(
             )
         }
 
+        val eraserPreset = state.brushPresets.firstOrNull {
+            it.id == state.eraserEndPreset && it.eraseMode
+        } ?: state.brushPresets.firstOrNull { it.eraseMode } ?: BrushPresets.DEFAULT
+        HoverCursor(
+            stylus = touch.stylus,
+            active = state.toolSelection.kind,
+            eraserPreset = eraserPreset,
+            canvasToScreenScale = touch.canvasToScreenScale,
+            revision = hoverRevision,
+            modifier = Modifier.fillMaxSize(),
+        )
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -462,6 +486,25 @@ private fun CanvasContent(
                     describe = engine::describeEngine,
                 )
             }
+
+            ToolRail(
+                presets = state.brushPresets,
+                selection = state.toolSelection,
+                brushColor = state.brushColor,
+                onBrushSelected = {
+                    showBrushSettings = false
+                    viewModel.selectBrush(it)
+                },
+                onEyedropperSelected = {
+                    showBrushSettings = false
+                    viewModel.selectEyedropper()
+                },
+                onSettingsRequested = { showBrushSettings = true },
+                onSizeChanged = viewModel::updateBrushSize,
+                onOpacityChanged = viewModel::updateBrushOpacity,
+                onTuningFinished = viewModel::persistBrushTuning,
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
 
             IconButton(
                 onClick = onLeave,
@@ -546,6 +589,21 @@ private fun CanvasContent(
                 }
             }
         }
+    }
+
+    val settingsPreset = (state.toolSelection.kind as? ToolKind.Brush)?.preset
+    if (showBrushSettings && settingsPreset != null) {
+        BrushSettingsSheet(
+            active = settingsPreset,
+            presets = state.brushPresets,
+            brushColor = state.brushColor,
+            paperColor = state.paperColor,
+            onPresetSelected = viewModel::selectBrush,
+            onPresetChanged = viewModel::updateActiveBrush,
+            onPresetPersisted = viewModel::persistActiveBrush,
+            onReset = viewModel::resetActiveBrush,
+            onDismiss = { showBrushSettings = false },
+        )
     }
 }
 

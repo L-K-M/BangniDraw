@@ -105,11 +105,27 @@ object DabStamp {
         colorRgb: FloatArray,
         grainMode: GrainMode = GrainMode.None,
     ): StrokeMerge.Rgba {
-        var m = coverageAt(px, py, dab)
-        if (grainMode == GrainMode.Procedural) m *= proceduralGrain(px, py)
-        if (m <= 0f) return StrokeMerge.Rgba.TRANSPARENT
-        val w = dab.flow * areaWeight(dab.radius) * m
+        val w = alphaAt(px, py, dab, grainMode)
+        if (w <= 0f) return StrokeMerge.Rgba.TRANSPARENT
         return StrokeMerge.Rgba(colorRgb[0] * w, colorRgb[1] * w, colorRgb[2] * w, w)
+    }
+
+    /** Allocation-free coverage for CPU previews, which have one stroke colour. */
+    internal fun alphaAt(
+        px: Float,
+        py: Float,
+        dab: Dab,
+        grainMode: GrainMode = GrainMode.None,
+    ): Float {
+        var coverage = coverageAt(px, py, dab)
+        if (grainMode == GrainMode.Procedural) coverage *= proceduralGrain(px, py)
+        return dab.flow * areaWeight(dab.radius) * coverage
+    }
+
+    /** The alpha component of [blendIntoBuffer], without allocating an RGBA value. */
+    internal fun blendAlpha(buffer: Float, incoming: Float, mode: BufferMode): Float = when (mode) {
+        BufferMode.Accumulate -> incoming + buffer * (1f - incoming)
+        BufferMode.Max -> max(buffer, incoming)
     }
 
     /** CPU twin of `dab.frag`'s `fwidth(d)` ellipse feather. */

@@ -42,6 +42,9 @@ interface CanvasInputHost {
     /** Sample the colour under the finger (stylus-only long press). */
     fun onColorPick(x: Float, y: Float)
 
+    /** Coalesced to one callback per frame while hover state changes. */
+    fun onHoverChanged() {}
+
     /** Roadmap 2.4b. A stroke began with [source] at this pointer. */
     fun onStrokeBegin(pointerId: Int, source: StrokeSource) {}
 
@@ -632,6 +635,14 @@ class CanvasTouchHandler(
     /** Whether a frame callback is outstanding, so it is posted exactly once. */
     private var framePosted = false
 
+    /** Hover is UI-only, but still coalesced so a fast digitizer cannot recompose per sample. */
+    private var hoverFramePosted = false
+
+    private val hoverFrameCallback = Choreographer.FrameCallback {
+        hoverFramePosted = false
+        host.onHoverChanged()
+    }
+
     /**
      * The source the stroke opened with, carried onto every predicted sample.
      *
@@ -703,6 +714,12 @@ class CanvasTouchHandler(
         if (framePosted) return
         framePosted = true
         Choreographer.getInstance().postFrameCallback(frameCallback)
+    }
+
+    private fun postHoverFrame() {
+        if (hoverFramePosted) return
+        hoverFramePosted = true
+        Choreographer.getInstance().postFrameCallback(hoverFrameCallback)
     }
 
     /**
@@ -902,6 +919,12 @@ class CanvasTouchHandler(
             MotionEvent.ACTION_CANCEL -> handleCancel(timeNs)
             else -> return false
         }
+        val downTool = toolOf(e.getToolType(index))
+        val isDown = e.actionMasked == MotionEvent.ACTION_DOWN ||
+            e.actionMasked == MotionEvent.ACTION_POINTER_DOWN
+        if (isDown && (downTool == PointerTool.STYLUS || downTool == PointerTool.ERASER)) {
+            postHoverFrame()
+        }
         return true
     }
 
@@ -923,6 +946,7 @@ class CanvasTouchHandler(
             MotionEvent.ACTION_HOVER_EXIT -> stylus.onHoverExit(timeNs)
             else -> return false
         }
+        postHoverFrame()
         return true
     }
 

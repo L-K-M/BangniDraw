@@ -3,7 +3,7 @@ package ch.lkmc.bangnidraw.ui.canvas
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -132,6 +132,8 @@ private fun NavigationCluster(
     onUndoLongPress: () -> Unit,
 ) {
     val view = LocalView.current
+    val undoEnabled = undoAvailability == ActionAvailability.ENABLED
+    val iconColor = MaterialTheme.colorScheme.onSurface
     Row(horizontalArrangement = Arrangement.Start) {
         IconButton(onClick = onBack) {
             Icon(
@@ -140,33 +142,35 @@ private fun NavigationCluster(
             )
         }
         // Long-press = the §3.1 readout: how deep the undo history is and
-        // how close to the cap. The detector sits on the parent Box so it
-        // also works while the button is disabled — a painter with nothing
-        // to undo still wants to know why.
+        // how close to the cap. combinedClickable keeps tap and long-press
+        // mutually exclusive — checking the budget never costs a stroke —
+        // and the node stays enabled either way, so the readout also works
+        // with nothing to undo (the click itself is gated below).
         Box(
-            modifier = Modifier.pointerInput(onUndoLongPress, hapticsMode) {
-                detectTapGestures(onLongPress = {
-                    if (hapticsMode == HapticsMode.ENABLED) {
-                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    }
-                    onUndoLongPress()
-                })
-            },
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(ICON_BUTTON)
+                .combinedClickable(
+                    onClick = {
+                        if (!undoEnabled) return@combinedClickable
+                        if (hapticsMode == HapticsMode.ENABLED) {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        }
+                        onUndo()
+                    },
+                    onLongClick = {
+                        if (hapticsMode == HapticsMode.ENABLED) {
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        }
+                        onUndoLongPress()
+                    },
+                ),
         ) {
-            IconButton(
-                enabled = undoAvailability == ActionAvailability.ENABLED,
-                onClick = {
-                    if (hapticsMode == HapticsMode.ENABLED) {
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    }
-                    onUndo()
-                },
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Undo,
-                    contentDescription = stringResource(R.string.canvas_undo),
-                )
-            }
+            Icon(
+                Icons.AutoMirrored.Filled.Undo,
+                contentDescription = stringResource(R.string.canvas_undo),
+                tint = if (undoEnabled) iconColor else iconColor.copy(alpha = DISABLED_ALPHA),
+            )
         }
         IconButton(
             enabled = redoAvailability == ActionAvailability.ENABLED,
@@ -296,6 +300,8 @@ private fun OverflowItem(label: Int, action: () -> Unit, dismiss: () -> Unit) {
 }
 
 private val STRIP_HEIGHT = 48.dp
+private val ICON_BUTTON = 48.dp
+private const val DISABLED_ALPHA = 0.38f
 private val COLOR_SWATCH = 24.dp
 private val COLOR_RADIUS = 6.dp
 private val BADGE_RADIUS = 8.dp

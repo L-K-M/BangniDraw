@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Draw
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Highlight
@@ -184,11 +185,13 @@ private fun dividersAfter(
         if (paints.isNotEmpty()) {
             add(paints.lastIndex)
             if (eraser != null) add(paints.size)
+        } else if (eraser != null) {
+            add(0)
         }
     }
     RailMode.GROUPED -> {
         val eraserIndex = if (paint != null) 1 else 0
-        if (eraser != null) setOf(eraserIndex) else emptySet()
+        if (eraser != null) setOf(eraserIndex) else if (paint != null) setOf(0) else emptySet()
     }
     RailMode.SHORT, RailMode.DOCK -> emptySet()
 }
@@ -547,7 +550,7 @@ private fun iconFor(id: String): ImageVector = when (id) {
     BrushPresets.PAINTBRUSH_ID -> Icons.Filled.Brush
     BrushPresets.AIRBRUSH_ID -> Icons.Filled.Air
     BrushPresets.MARKER_ID -> Icons.Filled.Highlight
-    else -> Icons.Filled.Brush
+    else -> Icons.Filled.Edit
 }
 
 private data class ToolSlot(

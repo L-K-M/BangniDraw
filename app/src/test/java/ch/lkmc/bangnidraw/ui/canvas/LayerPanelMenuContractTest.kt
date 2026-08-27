@@ -10,9 +10,18 @@ class LayerPanelMenuContractTest {
     @Test
     fun `empty reorder section stays out of the layer menu`() {
         val source = File(repositoryRoot(), LAYER_PANEL_PATH).readText()
-        val menu = source.substringAfter(LAYER_MENU_START).substringBefore(ACTION_ITEM_START)
+        val menuStart = source.indexOf(LAYER_MENU_START)
+        require(menuStart >= 0) { "$LAYER_MENU_START not found in $LAYER_PANEL_PATH" }
 
-        assertTrue("if (reorderActions.isNotEmpty())" in menu)
+        val menuEnd = source.indexOf(ACTION_ITEM_START, menuStart)
+        require(menuEnd > menuStart) { "$ACTION_ITEM_START not found after LayerMenu" }
+
+        val menu = source.substring(menuStart, menuEnd)
+
+        assertTrue(
+            "if (reorderActions.isNotEmpty())" in menu,
+            "layer menu does not guard the empty reorder section",
+        )
     }
 
     private fun repositoryRoot(): File {

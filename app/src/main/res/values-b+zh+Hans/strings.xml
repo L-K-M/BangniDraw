@@ -13,7 +13,9 @@
     <string name="studio_about">关于</string>
     <string name="studio_settings">设置</string>
     <string name="studio_untitled">草图</string>
-    <string name="studio_storage">%1$d 张画 · 占用 %2$s · 可用 %3$s</string>
+    <plurals name="studio_storage">
+        <item quantity="other">%1$d 张画 · 占用 %2$s · 可用 %3$s</item>
+    </plurals>
     <string name="studio_open">打开</string>
     <string name="studio_rename">重命名</string>
     <string name="studio_duplicate">创建副本</string>
@@ -38,7 +40,9 @@
     <string name="canvas_preset_tablet">平板</string>
     <string name="canvas_preset_large">大幅 4096</string>
     <string name="canvas_preset_custom">自定义</string>
-    <string name="canvas_preset_fits">可容纳 %1$d 个图层</string>
+    <plurals name="canvas_preset_fits">
+        <item quantity="other">可容纳 %1$d 个图层</item>
+    </plurals>
     <string name="canvas_preset_too_large">对此设备来说太大</string>
     <string name="canvas_width">宽</string>
     <string name="canvas_height">高</string>
@@ -63,14 +67,22 @@
     <string name="panel_color_opened">颜色面板已打开</string>
     <string name="panel_brush_opened">画笔设置已打开</string>
     <string name="panel_fill_opened">填充设置已打开</string>
+    <string name="panel_smudge_opened">涂抹设置已打开</string>
+    <string name="panel_blur_opened">模糊设置已打开</string>
+    <string name="panel_eyedropper_opened">吸管设置已打开</string>
     <string name="canvas_undo">撤销</string>
     <string name="canvas_redo">重做</string>
     <string name="canvas_more">更多操作</string>
+    <plurals name="canvas_history_readout">
+        <item quantity="other">撤销历史：%1$d 步 · %2$s（上限 %3$s）</item>
+    </plurals>
+    <string name="cd_unavailable">不可用</string>
     <string name="canvas_export_png">导出 PNG</string>
     <string name="canvas_export_jpeg">导出 JPEG</string>
     <string name="canvas_focus">专注模式</string>
     <string name="canvas_settings">设置</string>
     <string name="cd_color">颜色，%1$s</string>
+    <string name="cd_quick_palette">显示最近颜色</string>
     <string name="canvas_show_controls">显示控件</string>
     <string name="canvas_hint_draw">用手指或笔绘画</string>
     <string name="canvas_hint_navigate">双指移动、缩放和旋转</string>
@@ -161,6 +173,7 @@
     <string name="brush_jitter_position">位置抖动</string>
     <string name="brush_stabilizer">防抖</string>
     <string name="brush_group_paint">颜料</string>
+    <string name="brush_group_mixing">混色</string>
     <string name="brush_pigment">颜料混色</string>
     <string name="brush_dilution">稀释</string>
     <string name="brush_grain">纸张纹理</string>
@@ -168,6 +181,12 @@
     <string name="brush_buffer_max">封顶</string>
     <string name="brush_buffer_accumulate">逐渐叠加</string>
     <string name="brush_reset">恢复预设</string>
+    <string name="smudge_strength">强度</string>
+    <string name="smudge_pickup">吸色量</string>
+    <string name="smudge_pressure_strength">压力 → 强度</string>
+    <string name="blur_radius">半径</string>
+    <string name="eyedropper_sample">取样</string>
+    <string name="eyedropper_radius">取样半径</string>
     <string name="brush_value_px">%1$.1f 像素</string>
     <string name="brush_value_percent">%1$.0f%%</string>
     <string name="brush_value_number">%1$.2f</string>
@@ -180,6 +199,10 @@
     <string name="layer_more">图层操作</string>
     <string name="layer_panel_more">图层面板操作</string>
     <string name="layer_drag">调整图层顺序</string>
+    <string name="layer_move_up">上移</string>
+    <string name="layer_move_down">下移</string>
+    <string name="layer_move_top">移到顶层</string>
+    <string name="layer_move_bottom">移到底层</string>
     <string name="layer_show">显示图层</string>
     <string name="layer_hide">隐藏图层</string>
     <string name="layer_opacity">图层不透明度</string>
@@ -200,9 +223,13 @@
     <string name="layer_rename_hint">图层名称</string>
     <string name="layer_merge_title">合并这两个图层？</string>
     <string name="layer_merge_body">混合模式将烘焙到一个正常图层中。</string>
-    <string name="layer_flatten_title">拼合 %1$d 个图层？</string>
+    <plurals name="layer_flatten_title">
+        <item quantity="other">拼合 %1$d 个图层？</item>
+    </plurals>
     <string name="layer_flatten_body">隐藏图层将被丢弃。此操作可以撤销。</string>
-    <string name="layer_limit">此设备上的 %1$d×%2$d 画布最多允许 %3$d 个图层。请合并或删除一个图层后再添加。</string>
+    <plurals name="layer_limit">
+        <item quantity="other">此设备上的 %1$d×%2$d 画布最多允许 %3$d 个图层。请合并或删除一个图层后再添加。</item>
+    </plurals>
     <string name="layer_only">无法删除唯一图层——请改为清除。</string>
     <string name="layer_locked">图层已锁定。</string>
     <string name="layer_hidden">图层已隐藏。笔触仍会添加到图层中。</string>

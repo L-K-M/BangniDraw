@@ -136,16 +136,24 @@ class BufferScissorTest {
     }
 
     @Test
-    fun `toGlScissor refuses the inputs GL would mishandle`() {
+    fun `hardware buffer scissor refuses invalid inputs`() {
         val out = IntArray(4)
         // An INVERTED rect is the one glScissor genuinely rejects: it raises
         // GL_INVALID_VALUE for a negative width or height, and leaves the
         // previous box in force. Caught here rather than silently installed.
         assertFailsWith<IllegalArgumentException> {
-            BufferScissor.toGlScissor(IntRect(50, 10, 10, 40), bufferHeight = 100, out = out)
+            BufferScissor.toHardwareBufferScissor(
+                IntRect(50, 10, 10, 40),
+                bufferHeight = 100,
+                out = out,
+            )
         }
         assertFailsWith<IllegalArgumentException> {
-            BufferScissor.toGlScissor(IntRect(10, 40, 50, 10), bufferHeight = 100, out = out)
+            BufferScissor.toHardwareBufferScissor(
+                IntRect(10, 40, 50, 10),
+                bufferHeight = 100,
+                out = out,
+            )
         }
         // And an unclipped rect. GL would ACCEPT this one — a negative y is
         // legal — and intersecting the box with the framebuffer reproduces the
@@ -154,11 +162,15 @@ class BufferScissorTest {
         // `bounds`; unlike the inverted rects above, nothing visible is at
         // stake here.
         assertFailsWith<IllegalArgumentException> {
-            BufferScissor.toGlScissor(IntRect(0, 0, 50, 150), bufferHeight = 100, out = out)
+            BufferScissor.toHardwareBufferScissor(
+                IntRect(0, 0, 50, 150),
+                bufferHeight = 100,
+                out = out,
+            )
         }
         // Everything `bounds` produces passes, or the guard would be a bug of
         // its own: this is its output for a whole-buffer rect.
-        BufferScissor.toGlScissor(
+        BufferScissor.toHardwareBufferScissor(
             BufferScissor.bounds(IntRect(-9, -9, 999, 999), identity(), 100, 100),
             bufferHeight = 100,
             out = out,
@@ -167,14 +179,16 @@ class BufferScissorTest {
     }
 
     @Test
-    fun `toGlScissor flips y to GL's bottom-left origin`() {
+    fun `present scissor keeps the hardware buffer row`() {
         val out = IntArray(4)
-        // Top 10 px of a 100-tall buffer: y-down (0,0)..(50,10) is y-up y = 90.
-        BufferScissor.toGlScissor(IntRect(0, 0, 50, 10), bufferHeight = 100, out = out)
-        assertEquals(listOf(0, 90, 50, 10), out.toList())
-        // And the bottom band, where a missing flip would look identical if the
-        // rect happened to be centred — so this pins the asymmetric case.
-        BufferScissor.toGlScissor(IntRect(0, 90, 50, 100), bufferHeight = 100, out = out)
-        assertEquals(listOf(0, 0, 50, 10), out.toList())
+        // The front target is a HardwareBuffer consumed by SurfaceControl, not
+        // the viewport-oriented Accum texture. A touch near y = 816 on a
+        // 1280-high device must open that row, not its reflected row 464.
+        BufferScissor.toHardwareBufferScissor(
+            IntRect(320, 806, 340, 826),
+            bufferHeight = 1280,
+            out = out,
+        )
+        assertEquals(listOf(320, 806, 20, 20), out.toList())
     }
 }

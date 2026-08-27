@@ -156,15 +156,17 @@ internal class LayerThumbnailPass(
         if (built) return true
         val bytes = width * height * CHANNELS
         for (chunk in chunks) {
-            GLES30.glGenBuffers(1, chunk.pbo, 0)
-            GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, chunk.pbo[0])
-            GLES30.glBufferData(
-                GLES30.GL_PIXEL_PACK_BUFFER,
-                bytes,
-                null,
-                GLES30.GL_STREAM_READ,
-            )
-            if (GlErrors.checkAllocation("layer thumbnail PBO") != GLES30.GL_NO_ERROR) {
+            val error = GlErrors.checkAllocation("layer thumbnail PBO") {
+                GLES30.glGenBuffers(1, chunk.pbo, 0)
+                GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, chunk.pbo[0])
+                GLES30.glBufferData(
+                    GLES30.GL_PIXEL_PACK_BUFFER,
+                    bytes,
+                    null,
+                    GLES30.GL_STREAM_READ,
+                )
+            }
+            if (error != GLES30.GL_NO_ERROR) {
                 GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, 0)
                 releaseBuffers()
                 return false

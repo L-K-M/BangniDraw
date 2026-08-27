@@ -88,12 +88,45 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
     var predictedFrom = -1
         private set
 
-    /** The union of the dabs' dirty rects, in canvas px. [IntRect.EMPTY] when empty. */
-    var dirty: IntRect = IntRect.EMPTY
-        private set
+    private var dirtyLeft = 0
+    private var dirtyTop = 0
+    private var dirtyRight = 0
+    private var dirtyBottom = 0
+    private var dirtyEmpty = true
+
+    /** One value allocation when consumed; adding dabs mutates primitive edges. */
+    val dirty: IntRect
+        get() = if (dirtyEmpty) {
+            IntRect.EMPTY
+        } else {
+            IntRect(dirtyLeft, dirtyTop, dirtyRight, dirtyBottom)
+        }
 
     val capacity: Int get() = x.size
     val isFull: Boolean get() = count == x.size
+
+    /** Exact canvas bounds for a populated subrange of this batch. */
+    fun bounds(from: Int = 0, until: Int = count): IntRect {
+        require(from in 0..until && until <= count) {
+            "dab range [$from, $until) is not valid for $count dabs"
+        }
+        if (from == until) return IntRect.EMPTY
+        if (from == 0 && until == count) return dirty
+
+        DabBounds.requireValid(x[from], y[from], radius[from])
+        var left = DabBounds.left(x[from], radius[from])
+        var top = DabBounds.top(y[from], radius[from])
+        var right = DabBounds.right(x[from], radius[from])
+        var bottom = DabBounds.bottom(y[from], radius[from])
+        for (index in from + 1 until until) {
+            DabBounds.requireValid(x[index], y[index], radius[index])
+            left = minOf(left, DabBounds.left(x[index], radius[index]))
+            top = minOf(top, DabBounds.top(y[index], radius[index]))
+            right = maxOf(right, DabBounds.right(x[index], radius[index]))
+            bottom = maxOf(bottom, DabBounds.bottom(y[index], radius[index]))
+        }
+        return IntRect(left, top, right, bottom)
+    }
 
     /**
      * Appends one dab and returns true, or returns false when the batch is
@@ -119,11 +152,12 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         require(radius >= Dab.MIN_RADIUS && radius <= Dab.MAX_RADIUS) {
             "dab radius $radius is outside ${Dab.MIN_RADIUS}..${Dab.MAX_RADIUS}"
         }
+        DabBounds.requireValid(x, y, radius)
         if (isFull) return false
         val i = count
         write(i, x, y, radius, flow, hardness, angle, aspect, seed)
         count = i + 1
-        dirty = dirty.union(IntRect.forDab(x, y, radius))
+        includeDirtyDab(x, y, radius)
         return true
     }
 
@@ -143,9 +177,30 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         require(radius in Dab.MIN_RADIUS..Dab.MAX_RADIUS) {
             "dab radius $radius is outside ${Dab.MIN_RADIUS}..${Dab.MAX_RADIUS}"
         }
+        DabBounds.requireValid(x, y, radius)
 
         write(index, x, y, radius, flow, hardness, angle, aspect, seed)
-        dirty = dirty.union(IntRect.forDab(x, y, radius))
+        includeDirtyDab(x, y, radius)
+    }
+
+    private fun includeDirtyDab(x: Float, y: Float, radius: Float) {
+        val left = DabBounds.left(x, radius)
+        val top = DabBounds.top(y, radius)
+        val right = DabBounds.right(x, radius)
+        val bottom = DabBounds.bottom(y, radius)
+        if (dirtyEmpty) {
+            dirtyLeft = left
+            dirtyTop = top
+            dirtyRight = right
+            dirtyBottom = bottom
+            dirtyEmpty = false
+            return
+        }
+
+        dirtyLeft = minOf(dirtyLeft, left)
+        dirtyTop = minOf(dirtyTop, top)
+        dirtyRight = maxOf(dirtyRight, right)
+        dirtyBottom = maxOf(dirtyBottom, bottom)
     }
 
     private fun write(
@@ -195,7 +250,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         count = 0
         predictedFrom = -1
         strokeId = 0L
-        dirty = IntRect.EMPTY
+        dirtyEmpty = true
     }
 
     /** Marks the dabs from here on as predicted — the removable tail. */

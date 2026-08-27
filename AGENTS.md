@@ -91,6 +91,8 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - The CPU reference implementations in `engine/core` (`Composite`, the
   mixing formula, dab falloff) and the GLSL must stay trivially close; when
   one changes, change both, and let the unit tests pin the semantics.
+- `DabBounds` owns dab-edge arithmetic. Live `DabBatch` and `DabPass` paths
+  retain primitive edges; do not rebuild `IntRect` per dab.
 - Sandwich tile passes must ping-pong into a pool page distinct from both
   sampled pages. `Below` supports every blend mode; `Above` is unavailable
   when a visible non-Normal layer breaks source-over associativity. Grouping
@@ -122,6 +124,12 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - Android caps each edge's system-gesture exclusion to 200 dp vertically.
   Canvas centres that segment beside the side rail; dock mode excludes
   nothing so the bottom system gesture remains available.
+- Canvas panels use `LayoutSpec.panelInsets`, derived from `persistentChrome`.
+  Do not duplicate rail, dock, ledge, or strip padding in Compose. Panel side
+  is the user's physical hand side and must not mirror under RTL layout.
+- An `AlertDialog` owns a smaller, separate window. Capture activity-window
+  dimensions in its caller before applying screen-fit defaults; do not read
+  `LocalWindowInfo` from inside the dialog.
 - App display name lives ONLY in `strings.xml` (`app_name`). Never
   hardcode "帮你Draw" in a composable (rename checklist: PLAN.md "Renaming").
 - Colors come from `ui/theme/Color.kt` — no ad-hoc `Color(0x…)` in
@@ -266,6 +274,11 @@ and the contradiction is noted here.
   Keep new pool logic on the core side; the `engine/gl` classes should stay
   "call the twin, then issue GL calls".
 
+- **`GlErrors.checkAllocation` owns the GL call it checks.** Release passes do
+  not drain `glGetError`, so a stale pass flag may remain queued. The wrapper
+  clears that flag before its operation and checks again after it; issuing the
+  allocation first can misattribute the stale error and refuse valid GPU work.
+
 - **graphics-core 1.0.4's callback is not the one `03-canvas-engine.md` §8.2
   names.** The plan writes `onDrawMultiDoubleBufferedLayer(eglManager,
   bufferInfo, transform, params)`; the pinned library actually declares
@@ -277,17 +290,66 @@ and the contradiction is noted here.
   whole reason the present step is a quad through `u_bufferTransform` and not
   a blit. That quad starts at `Accum`'s logical dimensions; starting at the
   swapped buffer dimensions clips a band after the transform.
+- **Canonical 180° buffer transforms are neutralized on both sides.** A real
+  Samsung tablet displayed top-right input at bottom-left when graphics-core
+  supplied its half-turn transform. Because 180° preserves the buffer
+  dimensions, `CanvasRenderer` safely uses identity for both presentation and
+  front damage, while `EngineSession` replaces the matching SurfaceControl
+  transform with identity in the same completion transaction. Never change
+  only one side: that either rotates twice or clips damage in the opposite
+  quadrant. The 90°/270° paths retain graphics-core's transform because their
+  dimensions swap.
 - **Front damage has two bounds.** The inflated window-space scissor decides
   which `Accum` pixels are cleared. Tile selection uses that scissor
   inverse-mapped to canvas space, not the original dab rect. Otherwise the
   clear crosses a tile edge without redrawing its neighbor and leaves 1 px
   white grid seams until pen-up.
+- **Accum and the window target use different scissor row conventions.**
+  `Accum` is an ordinary texture FBO, so its y-down dirty rect becomes
+  `height - bottom` for `glScissor`. graphics-core's HardwareBuffer is consumed
+  by SurfaceControl in top-first buffer rows; the present quad already accounts
+  for that orientation, so its scissor keeps `y = top`. Flipping it again opens
+  the vertically reflected damage band: live ink appears only where the stroke
+  crosses that reflection, then the unscissored pen-up frame reveals everything.
+- **Paper is a transformed canvas quad, not a viewport clear.** The old
+  `03-canvas-engine.md` §3.2 step 1 said to clear viewport-sized `Accum` to the
+  paper colour, while `08-ui-and-layout.md` §5.1 explicitly defines
+  `canvasVoid` as the area outside the paper. The UI styling rule wins: clear
+  `Accum` to `canvasVoid`, then draw paper/checker geometry through the same
+  `ScreenTransform` as layer tiles. The sandwich's opaque `Below` already
+  contains paper and skips that extra quad; transparent paper still draws its
+  checker beneath `Below`. Keep a dedicated canvas-sized `FullRectQuad` —
+  sharing the viewport present quad alternates dimensions and uploads geometry
+  twice per transparent frame.
 - **`renderMultiBufferedLayer(Collection<T>)` exists in 1.0.4 but bypasses
   commit coordination.** It does not increment the library's `mCommitCount`,
   so a new front render can race the later release-time clear.
-  `EngineSession.redraw()` uses `commit()` with an empty active segment instead.
-  Equal Compose state is filtered before it can request another redraw, and
-  initial stack, paper, and view configuration schedules one commit.
+  But `commit()` increments that count before checking whether its render
+  target exists; calling it before `surfaceChanged` schedules nothing and
+  strands every later render behind a count that cannot fall. The first
+  `commit()` after attachment also deadlocks: its displayed buffer is the one
+  whose later release would decrement the count, while a second `commit()` sees
+  the nonzero count and schedules no replacement. `EngineSession` therefore
+  gates every render on its own `SurfaceHolder` callback and seeds each
+  generation with exactly one direct multi-buffered frame. Its completion
+  makes the attachment ready; only then may ordinary redraws use `commit()` or
+  input use the front layer. A generation-tagged GL FIFO marker starts that
+  bootstrap only after graphics-core creates its targets; stale markers are
+  ignored. A direct multi draw is safe only for this pre-front, pre-commit
+  baseline; never mix another one into a ready generation.
+  Each attachment gets a fresh `GLFrontBufferedRenderer`, resetting 1.0.4's
+  sticky counters, while one shared `GLRenderer` preserves the canvas GL
+  resources. The app callback is registered first, so it retires the old
+  wrapper before graphics-core handles the same redraw event. Equal Compose
+  state is filtered before it requests another redraw. Every actionable gate
+  result carries its attachment generation; the dispatcher accepts only the
+  matching wrapper, because redraw and upload completion can arrive off-main.
+  `Callback2` completion waits for a GL FIFO marker queued by the multi-buffer
+  completion callback, after graphics-core submits its transaction. Do not use
+  `Transaction.addTransactionCommittedListener`: graphics-core delivers it
+  only from API 31, while the app supports API 29. Normal creation stays posted
+  so startup configuration reaches GL first; the blocking synchronous-redraw
+  fallback creates inline.
 - **A commit-backed multi-buffer completion hides the front layer before its
   buffer is released.** Front requests stay queued while `mCommitCount` is
   nonzero. Release marks the front buffer dirty; the next front callback clears
@@ -295,6 +357,13 @@ and the contradiction is noted here.
   live preview once after an active completion, then returns to incremental
   front-buffer drawing. Re-presenting the cumulative stroke every frame defeats
   scan-line racing and produces a moving horizontal cutoff.
+- **graphics-core 1.0.4 holds `ParamQueue.mLock` while the app draws a front
+  frame.** A raw front request per input batch therefore blocks the input
+  thread behind GL work. `EngineSession` keeps one raw request outstanding;
+  later batches only latch one follow-up, dispatched from the generation-checked
+  completion after a GL FIFO marker. Each live callback snapshots its queue
+  depth before returning ring slots, so a producer cannot keep that frame
+  draining indefinitely. Pen-up and cancel still drain exhaustively.
 - **`execute` blocks and render requests ARE FIFO on the GL thread.**
   `03-canvas-engine.md` §8.3 flags this as an assumption "to verify against
   graphics-core", with a prepared fallback (do the merge at the top of the
@@ -370,6 +439,10 @@ and the contradiction is noted here.
   mid-gesture at all — the risk 06's timeout exists to hedge. Revisit when
   the flatten lands.
 
+- **Studio thumbnail identity includes the painting revision.** Checkpoints
+  rewrite the same `thumb.png` path, so path-only Compose or image-cache keys
+  can retain stale pixels after the shelf refreshes.
+
 - **Step 4's flattens are `CpuFlatten` over `Composite`, not the GL band
   flatten.** Same trade as the thumbnail note above, extended: gallery syncs
   and shares always run after a checkpoint (or from the Studio with no canvas
@@ -427,6 +500,11 @@ and the contradiction is noted here.
   `HistoryStore.load` only proves the post-checkpoint journal prefix; it does
   not update `project.json`'s stale stack. Replay that prefix through
   `HistoryRecovery`, then relist every recovered layer directory.
+- **Project duplication commits by directory rename.** Build the copy under
+  `<uuid>.duplicating`, write its `project.json` last, then rename it to the
+  final UUID. The next Studio listing sweeps abandoned duplicate stages while
+  sparing every store instance's active stages through the process-wide
+  companion guard.
 - **Entry payload keys and changed tile keys differ.** Duplicate and flatten
   write tiles under new owners that have no before-payload. `WriteEntry` must
   flush `LayerEditPolicy.changedTiles`, and layer directories may be deleted
@@ -439,6 +517,10 @@ and the contradiction is noted here.
   immutable stack refuses structural pixel edits, but strokes bypass those
   operations. `StrokeLayerPolicy` is the matching input-boundary guard; a
   hidden active layer remains drawable and previews until pen-up.
+- **Pen-up ends input, not the stroke transaction.** `CanvasActionGate` stays
+  closed until the entry is pushed or the unjournaled fallback finishes.
+  Every engine end path must report merged or not-merged exactly once; the
+  not-merged callback returns on Main.
 - **RMW tile coordinates are canvas-top-first.** Unlike window-space and
   accumulation scissors, an RMW tile target maps canvas row zero directly to
   GL row zero; do not Y-flip `RmwTileScissor`.
@@ -451,10 +533,25 @@ and the contradiction is noted here.
   use the plan's disk journal literally. Pen-up persists the ordinary history
   entry; context loss restores the captured pre-stroke state before reopening
   the persisted document.
+- **RMW scratch targets separate logical size from retained capacity.**
+  `SmudgePass` keeps its pressure-sized `before` and blur-work textures at
+  their high-water dimensions. Smudge pickup textures remain exact-sized
+  because their viewport UVs assume the allocation matches `pickupEdge`.
+  Viewports use `OffscreenTarget.width`/`height`, shader UVs use
+  `capacityWidth`/`capacityHeight`, and `bytes` reports the capacity. Mixing
+  those dimensions stretches samples or under-reports GPU memory without
+  producing a GL error.
 - **Generated palette names use a closed token grammar.** Only the four exact
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.
   User names are literal; never resolve arbitrary stored `@string/` values.
+
+- **Redo-sidecar accounting can prune both sides of the history cursor.** A
+  first undo adds bytes after the original push, so `noteRedoBytes` enforces
+  the cap immediately. It drops the oldest applied entries first, then the
+  far redo tail if needed; keeping the nearest redo entry preserves a valid
+  transition from the current pixels. The returned seqs join `pendingDeletes`
+  and remain on disk until the next checkpoint commits their absence.
 
 - **What "`engine/core` is pure JVM" actually forbids.**
   `docs/plan/02-architecture.md` §1 writes the rule as "`kotlin.*` and

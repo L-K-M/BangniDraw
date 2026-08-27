@@ -110,6 +110,9 @@ class CanvasRenderer(
         return readbackPending
     }
 
+    /** `(x, y)` viewport corners, flattened; written by [onSurfaceChanged]. */
+    private val viewportCorners = FloatArray(CORNER_COMPONENTS)
+
     private val grid = TileGrid(canvas.width, canvas.height)
     private val state = GlState()
 
@@ -701,6 +704,10 @@ class CanvasRenderer(
         val previous = fit
         viewportWidth = width
         viewportHeight = height
+        viewportCorners[0] = 0f; viewportCorners[1] = 0f
+        viewportCorners[2] = width.toFloat(); viewportCorners[3] = 0f
+        viewportCorners[4] = width.toFloat(); viewportCorners[5] = height.toFloat()
+        viewportCorners[6] = 0f; viewportCorners[7] = height.toFloat()
         val next = FitTransform(
             viewWidth = width.toFloat(),
             viewHeight = height.toFloat(),
@@ -1690,19 +1697,20 @@ class CanvasRenderer(
      * The inverse image of the viewport's four corners, bounding-boxed — the
      * same "not two corners" reasoning as `ScreenTransform.screenBoundsOf`,
      * in the other direction.
+     *
+     * Through the scalar `invertX`/`invertY` pair rather than `invert`, whose
+     * `Pair` would allocate four times on every frame — this runs inside
+     * `compositeIntoAccum`, so it sits squarely on the §2.4 render path where
+     * nothing may allocate.
      */
     private fun visibleCanvasRect(screenTransform: ScreenTransform): IntRect {
-        val corners = listOf(
-            screenTransform.invert(0f, 0f),
-            screenTransform.invert(viewportWidth.toFloat(), 0f),
-            screenTransform.invert(viewportWidth.toFloat(), viewportHeight.toFloat()),
-            screenTransform.invert(0f, viewportHeight.toFloat()),
-        )
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE
         var maxY = -Float.MAX_VALUE
-        for ((x, y) in corners) {
+        for (i in viewportCorners.indices step XY) {
+            val x = screenTransform.invertX(viewportCorners[i], viewportCorners[i + 1])
+            val y = screenTransform.invertY(viewportCorners[i], viewportCorners[i + 1])
             if (!x.isFinite() || !y.isFinite()) return IntRect(0, 0, canvas.width, canvas.height)
             minX = minOf(minX, x); maxX = maxOf(maxX, x)
             minY = minOf(minY, y); maxY = maxOf(maxY, y)
@@ -1862,5 +1870,9 @@ class CanvasRenderer(
         const val CHANNEL_MASK = 0xFF
         const val CHANNEL_MAX = 255f
         const val FULL_OPACITY = 1f
+
+        /** Four corners, two components each. */
+        const val CORNER_COMPONENTS = 8
+        const val XY = 2
     }
 }

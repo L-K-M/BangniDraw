@@ -297,6 +297,7 @@
     <string name="settings_stylus_only">Stylus-only drawing</string>
     <string name="settings_stylus_only_help">Fingers still move, zoom, and rotate the canvas.</string>
     <string name="settings_pen_button">S Pen button</string>
+    <string name="settings_eraser_end">Eraser end</string>
     <string name="settings_pen_button_eraser">Eraser</string>
     <string name="settings_pen_button_eyedropper">Eyedropper</string>
     <string name="settings_pen_button_none">No action</string>

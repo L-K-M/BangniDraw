@@ -17,12 +17,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BlurOn
+import androidx.compose.material.icons.filled.BorderColor
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Gesture
+import androidx.compose.material.icons.filled.Grain
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -510,12 +512,18 @@ private fun View.tick(mode: HapticsMode) {
     performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
 }
 
+/**
+ * One distinct glyph per tool. Two pairs used to collide — pencil and smudge
+ * shared [Icons.Filled.Gesture], airbrush and blur shared
+ * [Icons.Filled.BlurOn], and marker's pencil glyph clashed with ink pen's —
+ * so the active ring could not disambiguate four of ten rail slots.
+ */
 private fun iconFor(id: String): ImageVector = when (id) {
-    BrushPresets.PENCIL_ID -> Icons.Filled.Gesture
-    BrushPresets.INK_PEN_ID -> Icons.Filled.Create
+    BrushPresets.PENCIL_ID -> Icons.Filled.Edit
+    BrushPresets.INK_PEN_ID -> Icons.Filled.BorderColor
     BrushPresets.PAINTBRUSH_ID -> Icons.Filled.Brush
-    BrushPresets.AIRBRUSH_ID -> Icons.Filled.BlurOn
-    BrushPresets.MARKER_ID -> Icons.Filled.Edit
+    BrushPresets.AIRBRUSH_ID -> Icons.Filled.Grain
+    BrushPresets.MARKER_ID -> Icons.Filled.Create
     else -> Icons.Filled.Brush
 }
 

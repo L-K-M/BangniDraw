@@ -10,6 +10,7 @@ import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** `docs/plan/11-testing.md` §5's `HistoryStoreTest` plus 06 §5.6's load rules. */
@@ -188,15 +189,16 @@ class HistoryStoreTest {
     }
 
     /**
-     * A hand-edited `<seq>.entry` whose payload ref carries `off` near
-     * `Long.MAX_VALUE`. The naive guard `bodyOffset + off + len > size`
+     * A hand-edited `<seq>.entry` with one payload ref of the caller's
+     * `off`/`len`, over a 16-byte body. Used with an `off` near
+     * `Long.MAX_VALUE`: the naive guard `bodyOffset + off + len > size`
      * wraps negative and passes, and the slice below then either throws
      * `IndexOutOfBoundsException` out of a path documented "never an
      * exception for content" or reads the payload from a wrong offset.
      * Both halves are pinned: load must truncate at the lying entry, and
      * readPayloads must answer null.
      */
-    private fun writeOverflowingEntry() {
+    private fun writeEntry(off: Long, len: Int) {
         val json = java.lang.String.join(
             "",
             "{\"v\":1,\"seq\":1,\"kind\":\"Stroke\",\"ts\":10,",
@@ -204,18 +206,26 @@ class HistoryStoreTest {
             "\"layerId\":\"layer-a\",",
             "\"payloads\":[{",
             "\"layer\":\"layer-a\",\"tx\":0,\"ty\":0,",
-            // Long.MAX_VALUE: bodyOffset + off + len wraps negative.
-            "\"off\":9223372036854775807,\"len\":$TILE_BYTES}",
+            "\"off\":$off,\"len\":$len}",
             "],\"data\":{}}",
         )
-        // A token body: the ref's (off, len) cannot legitimately address
-        // any part of this file, overflow aside.
+        // A token body: an honest ref addresses it as (0, 16) and nothing else.
         store.entryFile(1).writeText(json + "\n" + "x".repeat(16))
+    }
+
+    /** The crafted header parses and an honest ref reads — the control the
+     *  overflow tests need so they cannot pass on a parse failure instead. */
+    @Test
+    fun `an honest offset against the same crafted file still reads`() {
+        writeEntry(off = 0, len = 16)
+        val payloads = store.readPayloads(1, sidecar = false)
+        assertNotNull(payloads, "the header must parse and its ref must address the body")
+        assertEquals(16, payloads!!.single().encoded.size)
     }
 
     @Test
     fun `a payload offset that overflows the guard truncates the journal`() {
-        writeOverflowingEntry()
+        writeEntry(off = Long.MAX_VALUE, len = TILE_BYTES)
         val loaded = store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
         assertTrue(loaded.entries.isEmpty(), "an entry whose payloads exceed the file is a lie")
         assertEquals(0, loaded.cursor)
@@ -223,7 +233,7 @@ class HistoryStoreTest {
 
     @Test
     fun `readPayloads answers null for an offset that overflows the guard`() {
-        writeOverflowingEntry()
+        writeEntry(off = Long.MAX_VALUE, len = TILE_BYTES)
         assertEquals(null, store.readPayloads(1, sidecar = false))
     }
 }

@@ -1220,9 +1220,10 @@ private fun CanvasContent(
                 }
             }
 
-            // The card must clear whatever chrome owns the bottom edge — the
-            // dock mode's rail sits 56 dp tall there, and the card composed
-            // after it would otherwise cover the dock's top half mid-fill.
+            // The fill card must clear whatever chrome owns the bottom edge
+            // in each rail mode, or it covers it mid-fill. Dock mode pads by
+            // the full DOCK_CHROME_HEIGHT stack — the 56 dp rail plus the
+            // 48 dp slider ledge and its gap — matching the reset pill.
             val fillCardBottomPadding = when (layout.railMode) {
                 RailMode.DOCK -> DOCK_CHROME_HEIGHT.dp
                 RailMode.SHORT -> LEDGE_CHROME_HEIGHT.dp

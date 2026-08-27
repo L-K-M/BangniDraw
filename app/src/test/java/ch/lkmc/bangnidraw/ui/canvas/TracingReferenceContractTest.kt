@@ -30,9 +30,12 @@ class TracingReferenceContractTest {
         val viewModel = File(root, VIEW_MODEL_PATH).readText()
         val panel = File(root, REFERENCE_PANEL_PATH).readText()
 
-        assertTrue("ready !is UiState.Ready" in viewModel)
         assertTrue(
-            Regex("modifier = Modifier\\.weight\\(1f\\)").findAll(panel).count() ==
+            Regex("ready\\s+!is\\s+UiState\\.Ready").containsMatchIn(viewModel),
+        )
+        assertTrue(
+            Regex("modifier\\s*=\\s*Modifier\\.weight\\(\\s*1f\\s*\\)")
+                .findAll(panel).count() ==
                 REFERENCE_ACTION_COUNT,
         )
     }

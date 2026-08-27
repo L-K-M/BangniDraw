@@ -12,6 +12,7 @@ internal fun brushPresetName(preset: BrushPreset): String = when (preset.id) {
     BrushPresets.PENCIL_ID -> stringResource(R.string.preset_pencil)
     BrushPresets.INK_PEN_ID -> stringResource(R.string.preset_ink_pen)
     BrushPresets.PAINTBRUSH_ID -> stringResource(R.string.preset_paintbrush)
+    BrushPresets.PIGMENT_WASH_ID -> stringResource(R.string.preset_pigment_wash)
     BrushPresets.AIRBRUSH_ID -> stringResource(R.string.preset_airbrush)
     BrushPresets.MARKER_ID -> stringResource(R.string.preset_marker)
     BrushPresets.HARD_ERASER_ID -> stringResource(R.string.preset_hard_eraser)

@@ -100,9 +100,14 @@ internal fun ToolRail(
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
-    val paints = BrushPresets.railOrder(presets).filterNot(BrushPreset::eraseMode)
+    val allPaints = BrushPresets.railOrder(presets).filterNot(BrushPreset::eraseMode)
+    val paints = if (layout.railMode == RailMode.FULL) {
+        BrushPresets.railPaints(presets, paintBrushId)
+    } else {
+        allPaints
+    }
     val sliderPreset = ToolSliderPreset.forKind(selection.kind)
-    val currentPaint = paints.firstOrNull { it.id == paintBrushId } ?: paints.firstOrNull()
+    val currentPaint = allPaints.firstOrNull { it.id == paintBrushId } ?: allPaints.firstOrNull()
     val eraser = presets.firstOrNull { it.id == eraserBrushId && it.eraseMode }
         ?: presets.firstOrNull { it.eraseMode }
     val eraserToggle = if (

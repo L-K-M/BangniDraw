@@ -99,6 +99,7 @@
     <string name="preset_pencil">铅笔</string>
     <string name="preset_ink_pen">墨水笔</string>
     <string name="preset_paintbrush">画笔</string>
+    <string name="preset_pigment_wash">淡彩笔</string>
     <string name="preset_airbrush">喷枪</string>
     <string name="preset_marker">马克笔</string>
     <string name="preset_hard_eraser">硬橡皮擦</string>

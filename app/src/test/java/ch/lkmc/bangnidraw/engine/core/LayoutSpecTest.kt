@@ -62,6 +62,25 @@ class LayoutSpecTest {
     }
 
     @Test
+    fun `the full rail budgets exactly the paint slots that fit`() {
+        // The FULL thresholds are sized for the v1 catalogue of five paints:
+        // at the minimum height the budget is exactly five, and it grows by
+        // one slot per slot-plus-gap of extra height.
+        assertEquals(5, LayoutSpec.forWindow(WidthClass.MEDIUM, 718, Hand.RIGHT).paintSlotBudget)
+        assertEquals(5, LayoutSpec.forWindow(WidthClass.EXPANDED, 798, Hand.RIGHT).paintSlotBudget)
+        assertEquals(6, LayoutSpec.forWindow(WidthClass.MEDIUM, 770, Hand.RIGHT).paintSlotBudget)
+        assertEquals(6, LayoutSpec.forWindow(WidthClass.EXPANDED, 858, Hand.RIGHT).paintSlotBudget)
+    }
+
+    @Test
+    fun `only the full rail caps paint slots`() {
+        for (mode in listOf(200, 288, 461, 509)) {
+            val spec = LayoutSpec.forWindow(WidthClass.MEDIUM, mode, Hand.RIGHT)
+            assertEquals(Int.MAX_VALUE, spec.paintSlotBudget, "height $mode")
+        }
+    }
+
+    @Test
     fun `every tool target stays at least 48 dp`() {
         for (width in WidthClass.entries) {
             for (height in listOf(200, 288, 461, 509, 718, 798)) {

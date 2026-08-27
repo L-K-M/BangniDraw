@@ -46,7 +46,7 @@ data class LayoutSpec(
 | MEDIUM/EXPANDED, rail height < `SHORT_MIN` (288 dp) — split-screen slivers | DOCK, as compact | FULL_HEIGHT_SHEET | LEDGE, one slider |
 | MEDIUM/EXPANDED, rail height `SHORT_MIN` … < `GROUPED_MIN` (phone landscape) | SHORT — 6 grouped slots, 48 dp, no gaps, no padding | SIDE_SHEET 300 dp, full height | LEDGE at the bottom edge, opposite the rail, two sliders |
 | MEDIUM/EXPANDED, rail height `GROUPED_MIN` … < `FULL_MIN` | GROUPED — 6 grouped slots + sliders | SIDE_SHEET 300 dp | IN_RAIL, 120 dp long |
-| MEDIUM/EXPANDED, rail height ≥ `FULL_MIN` (tablets) | FULL — all 10 tools + sliders | FLOATING 320 dp card beside the rail | IN_RAIL, 160 dp long |
+| MEDIUM/EXPANDED, rail height ≥ `FULL_MIN` (tablets) | FULL — every tool that fits (paint presets up to the height's `paintSlotBudget`, the rest in the settings sheet's chip row) + sliders | FLOATING 320 dp card beside the rail | IN_RAIL, 160 dp long |
 
 "Rail height" is window height minus the top strip (48 dp plus the status-bar
 inset it pads for). The tool slot is `slot` = 48 dp on MEDIUM and 56 dp on
@@ -60,6 +60,15 @@ asserts each mode's content height against them:
 | SHORT | 6 × 48 (gap and padding collapse to 0; the slot stays 48 dp because a 360 dp phone in landscape has 288 dp of rail: 360 − 48 − 24 status bar) | `SHORT_MIN` = 288 | 288 |
 | GROUPED | 6 × slot + 5 × 4 + 9 + 120 + 24 | `GROUPED_MIN` = 461 | 509 |
 | FULL | 10 × slot + 9 × 4 + 2 × 9 + 160 + 24 | `FULL_MIN` = 718 | 798 |
+
+`FULL_MIN` is sized for the v1 catalogue (five paints, one eraser, four
+secondary tools). A larger catalogue does not stretch the rail past the
+window: `LayoutSpec.paintSlotBudget` solves `paints·slot + (paints−1)·gap +
+non-paint ≤ rail height` for the number of paint slots that fit (exactly
+five at each `FULL_MIN`), the active preset always keeps a slot
+(`RailSlotPolicy`), and the remaining presets stay reachable through the
+settings sheet's chip row — the same path GROUPED/SHORT/DOCK already use
+for every preset but the active one.
 
 SHORT is the one place the rail keeps 48 dp slots on an expanded width (an
 S-series Ultra in landscape is ≥ 840 dp wide and ~288 dp tall); T1's 56 dp

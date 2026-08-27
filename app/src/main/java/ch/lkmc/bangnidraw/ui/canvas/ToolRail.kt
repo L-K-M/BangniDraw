@@ -70,6 +70,7 @@ import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.RailMode
+import ch.lkmc.bangnidraw.engine.core.RailSlotPolicy
 import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.ToolButtonEmphasis
@@ -103,6 +104,17 @@ internal fun ToolRail(
     val paints = BrushPresets.railOrder(presets).filterNot(BrushPreset::eraseMode)
     val sliderPreset = ToolSliderPreset.forKind(selection.kind)
     val currentPaint = paints.firstOrNull { it.id == paintBrushId } ?: paints.firstOrNull()
+    // The FULL rail shows as many paint slots as the window fits; the rest
+    // stay one tap away in the settings sheet's chip row.
+    val railPaints = if (layout.railMode == RailMode.FULL) {
+        RailSlotPolicy.visible(
+            paints,
+            activePaintId = (selection.kind as? ToolKind.Brush)?.preset?.id,
+            budget = layout.paintSlotBudget,
+        )
+    } else {
+        paints
+    }
     val eraser = presets.firstOrNull { it.id == eraserBrushId && it.eraseMode }
         ?: presets.firstOrNull { it.eraseMode }
     val eraserToggle = if (
@@ -115,7 +127,7 @@ internal fun ToolRail(
 
     val slots = if (layout.railMode == RailMode.FULL) {
         fullSlots(
-            paints = paints,
+            paints = railPaints,
             eraser = eraser,
             selection = selection,
             view = view,
@@ -168,7 +180,7 @@ internal fun ToolRail(
                 slot = layout.toolSlotDp.dp,
                 dividersAfter = dividersAfter(
                     railMode = layout.railMode,
-                    paints = paints,
+                    paints = railPaints,
                     paint = currentPaint,
                     eraser = eraser,
                 ),

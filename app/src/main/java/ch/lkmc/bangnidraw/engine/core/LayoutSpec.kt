@@ -101,6 +101,12 @@ internal data class LayoutSpec(
     val railWidthDp: Int,
     val sliderLengthDp: Int,
     val railContentHeightDp: Int,
+    /**
+     * Paint-preset slots the FULL rail shows; the rest overflow to the
+     * settings sheet's chip row. `Int.MAX_VALUE` outside FULL mode, where
+     * the rail never lists presets (GROUPED/SHORT/DOCK show the active one).
+     */
+    val paintSlotBudget: Int,
 ) {
     /** Persistent chrome only; transient panels and the first-run hint are excluded. */
     fun persistentChrome(windowWidthDp: Int, windowHeightDp: Int): List<LayoutRect> {
@@ -249,6 +255,7 @@ internal data class LayoutSpec(
                 },
                 sliderLengthDp = sliderLength,
                 railContentHeightDp = contentHeight(railMode, slot),
+                paintSlotBudget = paintSlotBudget(railMode, slot, heightDp),
             )
         }
 
@@ -296,6 +303,23 @@ internal data class LayoutSpec(
                     RAIL_PADDING_DP
         }
 
+        /**
+         * How many paint-preset slots the FULL rail shows before the rest
+         * moves to the settings sheet's chip row (`docs/plan/08-ui-and-layout.md`
+         * §1). The mode thresholds above are sized for the v1 set of five
+         * paints; a larger catalogue must not stretch the rail past the
+         * window, so extra presets overflow into the sheet instead. Solves
+         * `paints·slot + (paints − 1)·gap + NON_PAINT ≤ heightDp`.
+         */
+        private fun paintSlotBudget(mode: RailMode, slotDp: Int, heightDp: Int): Int {
+            if (mode != RailMode.FULL) return Int.MAX_VALUE
+
+            val available = heightDp - FULL_NON_PAINT_SLOTS * slotDp -
+                FULL_NON_PAINT_GAPS * TOOL_GAP_DP -
+                FULL_DIVIDER_COUNT * DIVIDER_HEIGHT_DP - FULL_SLIDER_DP - RAIL_PADDING_DP
+            return (available / (slotDp + TOOL_GAP_DP)).coerceAtLeast(1)
+        }
+
         const val MIN_TARGET_DP = 48
         const val EXPANDED_TARGET_DP = 56
         const val TOP_STRIP_DP = 48
@@ -312,6 +336,8 @@ internal data class LayoutSpec(
         private const val SHORT_TOOL_COUNT = 6
         private const val GROUPED_TOOL_COUNT = 6
         private const val FULL_TOOL_COUNT = 10
+        private const val FULL_NON_PAINT_SLOTS = 5
+        private const val FULL_NON_PAINT_GAPS = 4
         private const val GROUPED_GAP_COUNT = 5
         private const val FULL_GAP_COUNT = 9
         private const val FULL_DIVIDER_COUNT = 2

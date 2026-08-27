@@ -193,6 +193,29 @@ private fun HsvRingSquare(
     val latestPreview = rememberUpdatedState(onPreview)
     val latestCommit = rememberUpdatedState(onCommit)
     val view = LocalView.current
+    // The brushes are remembered: a picker drag redraws per input frame, and
+    // a fresh Brush per draw is a fresh native Shader per draw — ShaderBrush
+    // caches by size, so a remembered instance pays one shader at worst. The
+    // endpoints must be explicit: the shader is not translated to the rect.
+    val pickerPx = with(LocalDensity.current) { PICKER_SIZE.toPx() }
+    val squareHalf = pickerPx * HsvPicker.SQUARE_HALF_EDGE
+    val squareLeft = pickerPx / 2f - squareHalf
+    val hueColor = Color(HsvColor(hsv.h, 1f, 1f).toArgb())
+    val hueRingBrush = remember { Brush.sweepGradient(HUE_COLORS) }
+    val saturationBrush = remember(hueColor, pickerPx) {
+        Brush.horizontalGradient(
+            listOf(Color.White, hueColor),
+            squareLeft,
+            squareLeft + squareHalf * 2f,
+        )
+    }
+    val valueBrush = remember(pickerPx) {
+        Brush.verticalGradient(
+            listOf(Color.Transparent, Color.Black),
+            squareLeft,
+            squareLeft + squareHalf * 2f,
+        )
+    }
     Canvas(
         modifier = Modifier
             .size(PICKER_SIZE)
@@ -243,26 +266,20 @@ private fun HsvRingSquare(
     ) {
         val ringWidth = size.minDimension * RING_WIDTH_FRACTION
         drawCircle(
-            brush = Brush.sweepGradient(HUE_COLORS),
+            brush = hueRingBrush,
             radius = size.minDimension / 2f - ringWidth / 2f,
             style = Stroke(ringWidth),
         )
 
-        val half = size.minDimension * HsvPicker.SQUARE_HALF_EDGE
-        val topLeft = Offset(center.x - half, center.y - half)
-        val squareSize = Size(half * 2f, half * 2f)
-        val hue = Color(HsvColor(hsv.h, 1f, 1f).toArgb())
+        val topLeft = Offset(squareLeft, squareLeft)
+        val squareSize = Size(squareHalf * 2f, squareHalf * 2f)
         drawRect(
-            brush = Brush.horizontalGradient(listOf(Color.White, hue), topLeft.x, topLeft.x + squareSize.width),
+            brush = saturationBrush,
             topLeft = topLeft,
             size = squareSize,
         )
         drawRect(
-            brush = Brush.verticalGradient(
-                listOf(Color.Transparent, Color.Black),
-                topLeft.y,
-                topLeft.y + squareSize.height,
-            ),
+            brush = valueBrush,
             topLeft = topLeft,
             size = squareSize,
         )
@@ -653,8 +670,11 @@ private fun MixingDishControls(
     onPickWell: (DishWell) -> Unit,
 ) {
     var t by remember { mutableFloatStateOf(state.dish.t) }
-    val gradient = mixSteps(state.dish.a, state.dish.b)
-    val result = mixColor(state.dish.a, state.dish.b, t)
+    // The nine-mix gradient and the current mix are remembered: the panel
+    // recomposes per frame while the picker ring drags, and the wells did
+    // not change — nine Mixbox mixes per drag frame buy nothing.
+    val gradient = remember(state.dish.a, state.dish.b) { mixSteps(state.dish.a, state.dish.b) }
+    val result = remember(state.dish.a, state.dish.b, t) { mixColor(state.dish.a, state.dish.b, t) }
     val wellALabel = stringResource(R.string.mixing_well_a)
     val wellBLabel = stringResource(R.string.mixing_well_b)
     Row(horizontalArrangement = Arrangement.spacedBy(FIELD_GAP), verticalAlignment = Alignment.CenterVertically) {

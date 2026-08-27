@@ -74,15 +74,3 @@ val PaperSwatchWhite = Color(0xFFFFFFFF)
 val PaperSwatchWarm = Color(0xFFF8F1E3)
 val PaperSwatchGray = Color(0xFF9E9E9E)
 val PaperSwatchBlack = Color(0xFF000000)
-
-/** Compact painting palette; unlike chrome colors these become document pixels. */
-val DrawingSwatches = listOf(
-    Color(0xFF111111),
-    Color(0xFFFFFFFF),
-    Color(0xFFE53935),
-    Color(0xFFFFC107),
-    Color(0xFF43A047),
-    Color(0xFF1E88E5),
-    Color(0xFF5E35B1),
-    Color(0xFF8D6E63),
-)

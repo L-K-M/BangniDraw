@@ -45,10 +45,6 @@ jobs:
       - name: Test, lint, and assemble
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug
 
-      # The stripped source set and its R8 graph differ from the default APK.
-      - name: Assemble release without Mixbox
-        run: ./gradlew -Pbangnidraw.mixbox=false assembleRelease
-
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
@@ -56,3 +52,7 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      # The stripped source set and its R8 graph differ from the default APK.
+      - name: Assemble release without Mixbox
+        run: ./gradlew -Pbangnidraw.mixbox=false assembleRelease

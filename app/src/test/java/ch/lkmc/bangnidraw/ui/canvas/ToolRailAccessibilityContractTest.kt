@@ -16,6 +16,7 @@ class ToolRailAccessibilityContractTest {
         assertTrue(".minimumInteractiveComponentSize()" in source)
         assertTrue("LocalContentColor provides buttonColors.icon" in source)
         assertTrue(".clip(shape)" in source)
+        assertTrue(".fillMaxSize()" in source)
         assertFalse("hapticsEnabled: Boolean" in source)
     }
 

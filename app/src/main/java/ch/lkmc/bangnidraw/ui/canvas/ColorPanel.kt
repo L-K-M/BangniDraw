@@ -59,6 +59,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.ColorText
@@ -208,6 +209,28 @@ private fun HsvRingSquare(
     onPreview: (HsvColor) -> Unit,
     onCommit: (HsvColor) -> Unit,
 ) {
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
+    ) {
+        HsvRingSquareSized(
+            hsv = hsv,
+            hapticsMode = hapticsMode,
+            pickerSize = minOf(PICKER_SIZE, maxWidth),
+            onPreview = onPreview,
+            onCommit = onCommit,
+        )
+    }
+}
+
+@Composable
+private fun HsvRingSquareSized(
+    hsv: HsvColor,
+    hapticsMode: HapticsMode,
+    pickerSize: Dp,
+    onPreview: (HsvColor) -> Unit,
+    onCommit: (HsvColor) -> Unit,
+) {
     val markerColor = MaterialTheme.colorScheme.onSurface
     val latestHsv = rememberUpdatedState(hsv)
     val latestPreview = rememberUpdatedState(onPreview)
@@ -217,7 +240,7 @@ private fun HsvRingSquare(
     // a fresh Brush per draw is a fresh native Shader per draw — ShaderBrush
     // caches by size, so a remembered instance pays one shader at worst. The
     // endpoints must be explicit: the shader is not translated to the rect.
-    val pickerPx = with(LocalDensity.current) { PICKER_SIZE.toPx() }
+    val pickerPx = with(LocalDensity.current) { pickerSize.toPx() }
     val pickerCenter = Offset(pickerPx / 2f, pickerPx / 2f)
     val squareHalf = pickerPx * HsvPicker.SQUARE_HALF_EDGE
     val squareLeft = pickerPx / 2f - squareHalf
@@ -239,7 +262,7 @@ private fun HsvRingSquare(
     }
     Canvas(
         modifier = Modifier
-            .size(PICKER_SIZE)
+            .size(pickerSize)
             .pointerInput(hapticsMode) {
                 detectTapGestures { position ->
                     val next = HsvPicker.select(

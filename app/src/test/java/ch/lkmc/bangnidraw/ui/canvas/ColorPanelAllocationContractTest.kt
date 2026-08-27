@@ -36,8 +36,15 @@ class ColorPanelAllocationContractTest {
             "a Brush is still constructed inside the Canvas draw block",
         )
         assertTrue(
-            "pickerPx * RING_WIDTH_FRACTION" in draw,
+            "pickerPx * RING_WIDTH_FRACTION" in draw &&
+                "size.minDimension * RING_WIDTH_FRACTION" !in draw,
             "ring geometry does not share the picker's measured basis",
+        )
+        assertTrue(
+            "minOf(PICKER_SIZE, maxWidth)" in picker &&
+                ".size(pickerSize)" in picker &&
+                "pickerSize.toPx()" in picker,
+            "the picker does not shrink with its panel",
         )
     }
 

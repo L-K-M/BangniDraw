@@ -324,7 +324,8 @@ internal data class LayoutSpec(
          * §1). The mode thresholds above are sized for the v1 set of five
          * paints; a larger catalogue must not stretch the rail past the
          * window, so extra presets overflow into the sheet instead. Solves
-         * `paints·slot + (paints − 1)·gap + NON_PAINT ≤ heightDp`.
+         * `paints·(slot + gap) + NON_PAINT ≤ heightDp`, where NON_PAINT is
+         * the fixed non-paint slots, their gaps, dividers, slider, and padding.
          */
         private fun paintSlotBudget(
             mode: RailMode,

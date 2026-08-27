@@ -63,8 +63,8 @@ asserts each mode's content height against them:
 
 `FULL_MIN` is sized for the v1 catalogue (five paints, one eraser, four
 secondary tools). A larger catalogue does not stretch the rail past the
-window: `LayoutSpec.paintSlotBudget` solves `paints·slot + (paints−1)·gap +
-non-paint ≤ rail height` for the number of paint slots that fit (exactly
+window: `LayoutSpec.paintSlotBudget` solves `paints·(slot + gap) + non-paint
+≤ rail height` for the number of paint slots that fit (exactly
 five at each `FULL_MIN`, capped by the loaded paint count), the active preset always keeps a slot
 (`RailSlotPolicy`), and the remaining presets stay reachable through the
 settings sheet's chip row — the same path GROUPED/SHORT/DOCK already use

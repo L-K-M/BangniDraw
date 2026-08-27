@@ -74,6 +74,17 @@ class RgbFieldLayoutTest {
     }
 
     @Test
+    fun `zero width returns a degenerate column without throwing`() {
+        val layout = RgbFieldLayoutPolicy.forContentWidth(
+            contentWidthDp = 0f,
+            fontScale = 1f,
+        )
+
+        assertEquals(RgbFieldArrangement.COLUMN, layout.arrangement)
+        assertEquals(0f, layout.fieldWidthDp, FLOAT_TOLERANCE)
+    }
+
+    @Test
     fun `unbounded content keeps a finite readable row`() {
         val layout = RgbFieldLayoutPolicy.forContentWidth(
             contentWidthDp = Float.POSITIVE_INFINITY,

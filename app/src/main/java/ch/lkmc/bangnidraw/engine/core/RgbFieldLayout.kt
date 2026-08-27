@@ -20,8 +20,8 @@ internal data class RgbFieldLayout(
 internal object RgbFieldLayoutPolicy {
 
     fun forContentWidth(contentWidthDp: Float, fontScale: Float): RgbFieldLayout {
-        require(!contentWidthDp.isNaN() && contentWidthDp > 0f) {
-            "contentWidthDp must be positive"
+        require(!contentWidthDp.isNaN() && contentWidthDp >= 0f) {
+            "contentWidthDp must be non-negative"
         }
         require(fontScale.isFinite() && fontScale > 0f) {
             "fontScale must be finite and positive"

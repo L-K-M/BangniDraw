@@ -398,6 +398,10 @@ and the contradiction is noted here.
   mid-gesture at all — the risk 06's timeout exists to hedge. Revisit when
   the flatten lands.
 
+- **Studio thumbnail identity includes the painting revision.** Checkpoints
+  rewrite the same `thumb.png` path, so path-only Compose or image-cache keys
+  can retain stale pixels after the shelf refreshes.
+
 - **Step 4's flattens are `CpuFlatten` over `Composite`, not the GL band
   flatten.** Same trade as the thumbnail note above, extended: gallery syncs
   and shares always run after a checkpoint (or from the Studio with no canvas

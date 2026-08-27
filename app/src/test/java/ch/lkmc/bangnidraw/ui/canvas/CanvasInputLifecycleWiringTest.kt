@@ -36,6 +36,28 @@ class CanvasInputLifecycleWiringTest {
     }
 
     @Test
+    fun `finger deadlines use one scheduled callback and detach removes it`() {
+        assertTrue(handler.contains("private val gestureTick = Runnable"))
+        assertTrue(handler.contains("postDelayed(gestureTick"))
+        assertTrue(handler.contains("removeCallbacks(gestureTick)"))
+
+        val detach = handler.substringAfter("internal fun detach()")
+            .substringBefore("// ------------------------------------------------")
+        assertTrue(detach.contains("cancelGestureTick()"))
+    }
+
+    @Test
+    fun `middle mouse navigation publishes activity for its changed span`() {
+        val move = handler.substringAfter("private fun moveMiddleDrag(")
+            .substringBefore("private fun endMiddleDrag()")
+        val end = handler.substringAfter("private fun endMiddleDrag()")
+            .substringBefore("private fun publishMouseView()")
+
+        assertTrue(move.contains("beginNavigationActivity()"))
+        assertTrue(end.contains("endNavigationActivity()"))
+    }
+
+    @Test
     fun `retroactive platform cancellation reaches the cancel path`() {
         val touch = handler.substringAfter("override fun onTouch")
             .substringBefore("override fun onGenericMotion")

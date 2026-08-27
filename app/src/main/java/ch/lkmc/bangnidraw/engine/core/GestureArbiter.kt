@@ -286,6 +286,18 @@ class GestureArbiter(
         val slot = indexOf(pointerId)
         if (slot < 0) return
         val wasIgnored = ignored[slot]
+
+        // A single quick tap has no MOVE or timer callback to open its stroke.
+        // Resolve it while its buffered down sample is still available.
+        if (
+            !wasIgnored &&
+            state == State.FINGER_PENDING &&
+            !stylusOnly &&
+            participatingCount() == 1
+        ) {
+            beginFingerDraw(pointerId, out)
+        }
+
         if (!wasIgnored) noteLift(slot, timeNs)
         remove(slot)
 
@@ -342,6 +354,18 @@ class GestureArbiter(
 
     /** Drops all state without emitting anything — a new surface, a new session. */
     fun reset() = resetGesture()
+
+    /** Absolute input-clock deadline for the pending finger, or [NO_TICK_NS]. */
+    internal fun nextTickDeadlineNs(): Long {
+        if (state != State.FINGER_PENDING) return NO_TICK_NS
+        val slot = firstActive()
+        if (slot < 0) return NO_TICK_NS
+
+        if (!stylusOnly) return downNs[slot] + PENDING_MS * NANOS_PER_MILLISECOND
+        if (longPressFired || movedPast[slot]) return NO_TICK_NS
+
+        return downNs[slot] + LONG_PRESS_MS * NANOS_PER_MILLISECOND
+    }
 
     // ------------------------------------------------------------ internals
 
@@ -464,6 +488,9 @@ class GestureArbiter(
          */
         const val MAX_POINTERS = 4
 
+        internal const val NO_TICK_NS = Long.MIN_VALUE
+
         private const val NO_POINTER = -1
+        private const val NANOS_PER_MILLISECOND = 1_000_000L
     }
 }

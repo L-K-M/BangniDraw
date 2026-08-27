@@ -36,6 +36,33 @@ import kotlin.test.assertTrue
  */
 class CanvasTouchHandlerTest {
 
+    private class TickScheduler : GestureTickScheduler {
+        var callback: Runnable? = null
+        var delayMillis = -1L
+        var removeCount = 0
+
+        override fun bind(view: android.view.View?) = Unit
+
+        override fun postDelayed(callback: Runnable, delayMillis: Long): Boolean {
+            this.callback = callback
+            this.delayMillis = delayMillis
+            return true
+        }
+
+        override fun removeCallbacks(callback: Runnable) {
+            if (this.callback !== callback) return
+
+            this.callback = null
+            removeCount++
+        }
+
+        fun fire() {
+            val next = callback ?: error("no scheduled tick")
+            callback = null
+            next.run()
+        }
+    }
+
     private class Host : CanvasInputHost {
         var view = ViewTransform()
         val events = mutableListOf<String>()
@@ -73,6 +100,11 @@ class CanvasTouchHandlerTest {
 
     private fun ms(v: Long) = v * 1_000_000L
     private fun handler(host: Host) = CanvasTouchHandler(density = 2f, host = host)
+    private fun handler(host: Host, ticks: TickScheduler) = CanvasTouchHandler.TestFactory.create(
+        density = 2f,
+        host = host,
+        tickScheduler = ticks,
+    )
 
     @Test
     fun `viewport changes preserve the source point at center`() {
@@ -171,6 +203,12 @@ class CanvasTouchHandlerTest {
         val h = handler(host)
         h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
         h.handleDown(2, PointerTool.FINGER, 300f, 100f, ms(10))
+
+        assertTrue(
+            host.events.none { it.startsWith("nav") },
+            "a stationary chord is still a possible tap: ${host.events}",
+        )
+
         h.handleMove(1, 150f, 100f, ms(30))
         h.handleMove(2, 350f, 100f, ms(30))
         h.handleMoveEnd(ms(30))
@@ -337,17 +375,89 @@ class CanvasTouchHandlerTest {
         h.handleDown(2, PointerTool.FINGER, 300f, 100f, ms(10))
         h.handleUp(1, ms(80))
         h.handleUp(2, ms(90))
-        // The tap legitimately passes through Navigate (the second finger
-        // enters it, the lifts end it), so the host's navigation readout sees
-        // one full transition before the tap resolves to undo — the interface
-        // promises exactly once per transition, and the UI hides the readout
-        // for blips this short.
         assertEquals(
-            listOf("nav+", "nav-", "undo"),
+            listOf("undo"),
             host.events,
-            "a tap must not tell the host to roll back a stroke that never began",
+            "a tap must not flash navigation chrome or cancel an absent stroke",
         )
         assertTrue(host.view.isIdentity, "a tap must not nudge the view")
+    }
+
+    @Test
+    fun `a quick finger tap emits a complete dot`() {
+        val host = Host()
+        val h = handler(host)
+
+        h.handleDown(1, PointerTool.FINGER, 10f, 20f, ms(0))
+        h.handleUp(1, ms(GestureArbiter.PENDING_MS - 1))
+
+        assertEquals(listOf("begin(FINGER)", "end"), host.events)
+        assertEquals(listOf(10f to 20f), host.samples)
+    }
+
+    @Test
+    fun `a stationary finger draws when the scheduled pending tick fires`() {
+        val host = Host()
+        val ticks = TickScheduler()
+        val h = handler(host, ticks)
+
+        h.handleDown(1, PointerTool.FINGER, 10f, 20f, ms(0))
+        assertEquals(GestureArbiter.PENDING_MS, ticks.delayMillis)
+        ticks.fire()
+
+        assertEquals(listOf("begin(FINGER)"), host.events)
+        assertEquals(listOf(10f to 20f), host.samples)
+    }
+
+    @Test
+    fun `stylus-only schedules a stationary long-press pick`() {
+        val host = Host()
+        val ticks = TickScheduler()
+        val h = handler(host, ticks)
+        h.stylusOnly = true
+
+        h.handleDown(1, PointerTool.FINGER, 10f, 20f, ms(0))
+        assertEquals(GestureArbiter.LONG_PRESS_MS, ticks.delayMillis)
+        ticks.fire()
+
+        assertEquals(listOf("pick"), host.events)
+        assertTrue(host.samples.isEmpty())
+    }
+
+    @Test
+    fun `quick up and a second finger remove the pending tick`() {
+        val quickHost = Host()
+        val quickTicks = TickScheduler()
+        val quick = handler(quickHost, quickTicks)
+        quick.handleDown(1, PointerTool.FINGER, 10f, 20f, ms(0))
+
+        quick.handleUp(1, ms(GestureArbiter.PENDING_MS - 1))
+
+        assertEquals(null, quickTicks.callback)
+        assertEquals(1, quickTicks.removeCount)
+
+        val chordHost = Host()
+        val chordTicks = TickScheduler()
+        val chord = handler(chordHost, chordTicks)
+        chord.handleDown(1, PointerTool.FINGER, 10f, 20f, ms(0))
+
+        chord.handleDown(2, PointerTool.FINGER, 30f, 20f, ms(10))
+
+        assertEquals(null, chordTicks.callback)
+        assertEquals(1, chordTicks.removeCount)
+    }
+
+    @Test
+    fun `detach removes a pending tick`() {
+        val host = Host()
+        val ticks = TickScheduler()
+        val h = handler(host, ticks)
+        h.handleDown(1, PointerTool.FINGER, 10f, 20f, ms(0))
+
+        h.detach()
+
+        assertEquals(null, ticks.callback)
+        assertEquals(1, ticks.removeCount)
     }
 
     @Test

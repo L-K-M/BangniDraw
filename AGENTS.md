@@ -126,6 +126,8 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   hardcode "帮你Draw" in a composable (rename checklist: PLAN.md "Renaming").
 - Colors come from `ui/theme/Color.kt` — no ad-hoc `Color(0x…)` in
   screens. The theme follows the system (light and dark), no dynamic color.
+- Brush rail glyphs come from `BrushPreset.icon`, never its id. User copies
+  have UUID ids but retain a serialized glyph key; unknown keys use Tune.
 - Scripts follow the family house style: header comment doubles as
   `--help` via the awk one-liner; `==>` / `--` / `!!` log prefixes;
   `set -euo pipefail`.
@@ -451,6 +453,17 @@ and the contradiction is noted here.
   immediately as `StrokeSource.MOUSE`, middle pans, and secondary is consumed.
   Mouse hover still drives the cursor but never counts as pen proximity for
   palm rejection.
+- **Pending finger deadlines are real handler callbacks.** One reusable
+  `Runnable` opens a stationary touch stroke at 120 ms or fires the
+  stylus-only pick at 500 ms. Up, cancel, transition, and detach remove it. A
+  lone quick touch resolves `Draw` + end before its buffered down is removed.
+- **Navigation activity starts with a transform delta.** The arbiter enters
+  navigation on the second finger, but chrome stays inactive until the view
+  changes. Middle-button drags report the same paired start/end.
+- **Eyedropper pen-up owns one final read.** It invalidates throttled preview
+  callbacks, samples the last input position, then commits and releases the
+  stroke gate from that callback. Cancel invalidates the final owner, so a
+  delayed result cannot mutate color or release the gate twice.
 - **Undo/redo holds the action gate through post-apply readback.** Restored tile
   membership is folded into the stack sent by the same GL transaction; only
   after composite output reaches the CPU may `FlushKeys` join the IO queue.

@@ -21,6 +21,9 @@ import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StylusButtonPolicy
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.engine.core.ViewportResizeOwner
+import ch.lkmc.bangnidraw.engine.core.ViewportResizePolicy
+import ch.lkmc.bangnidraw.engine.core.ViewportResizeState
 
 /**
  * What the canvas does with pointers — the callbacks a host implements.
@@ -33,6 +36,9 @@ import ch.lkmc.bangnidraw.engine.core.ViewTransform
  */
 interface CanvasInputHost {
     fun onViewChanged(view: ViewTransform)
+
+    /** A resize rebase must reach rendering before its replacement surface frame. */
+    fun onViewportResized(view: ViewTransform) = onViewChanged(view)
 
     /** Fired once on entering the rotation snap, for the haptic tick (§7). */
     fun onRotationSnapped()
@@ -277,8 +283,13 @@ class CanvasTouchHandler(
         }
         val previous = fit
         if (previous != null && next != null && previous != next) {
-            view = view.rebase(previous, next)
-            host.onViewChanged(view)
+            val resized = ViewportResizePolicy.resize(
+                ViewportResizeState(view, previous),
+                next,
+                ViewportResizeOwner.INPUT,
+            )
+            view = resized.view
+            host.onViewportResized(view)
         }
         fit = next
         updateScreen()

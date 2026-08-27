@@ -49,6 +49,10 @@ class CanvasTouchHandlerTest {
         /** Muted during the allocation gate's measured window, so the harness costs nothing. */
         var record = true
         override fun onViewChanged(view: ViewTransform) { this.view = view; if (record) events += "view" }
+        override fun onViewportResized(view: ViewTransform) {
+            this.view = view
+            if (record) events += "resize"
+        }
         override fun onRotationSnapped() { events += "snap" }
         override fun onUndoRequested() { events += "undo" }
         override fun onRedoRequested() { events += "redo" }
@@ -91,7 +95,8 @@ class CanvasTouchHandlerTest {
 
         assertEquals(oldUv.first, newUv.first, 1e-5f)
         assertEquals(oldUv.second, newUv.second, 1e-5f)
-        assertTrue(host.events.contains("view"), "the host must receive the rebased transform")
+        assertTrue(host.events.contains("resize"), "resize must publish the rebased transform")
+        assertTrue("view" !in host.events, "resize must not use the navigation callback")
     }
 
     @Test

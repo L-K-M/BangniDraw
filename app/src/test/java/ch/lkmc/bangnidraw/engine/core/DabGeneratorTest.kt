@@ -128,6 +128,7 @@ class DabGeneratorTest {
         val expected = mapOf(
             "builtin.pencil" to Expected(1.8f, 2.2f, 0.35f, 0.75f, 1f),
             "builtin.ink_pen" to Expected(3f, 3f, 1f, 1f, 1f),
+            "builtin.technical_pen" to Expected(2f, 2f, 1f, 1f, 1f),
             "builtin.paintbrush" to Expected(19f, 21f, 0.6f, 0.45f, 0.7f),
             "builtin.airbrush" to Expected(60f, 60f, 0.06f, 0f, 1f),
             "builtin.marker" to Expected(12f, 12f, 1f, 0.95f, 0.3f),
@@ -179,6 +180,18 @@ class DabGeneratorTest {
         ).single()
         assertEquals(12f, markerLight.radius, pxEps, "marker width ignores pressure")
         assertEquals(0.7f, markerLight.angle, pxEps, "marker tip follows stylus orientation")
+
+        val technicalPen = builtIns.getValue("builtin.technical_pen")
+        val penLight = run(
+            technicalPen,
+            listOf(sample(0f, 0f, pressure = 0.1f)),
+        ).single()
+        val penHard = run(
+            technicalPen,
+            listOf(sample(0f, 0f, pressure = 1f)),
+        ).single()
+        assertEquals(penHard.radius, penLight.radius, pxEps, "technical pen width ignores pressure")
+        assertEquals(1f, penLight.flow, 1e-5f, "technical pen ink is constant")
 
         val softEraser = builtIns.getValue("builtin.soft_eraser")
         val soft = run(softEraser, listOf(sample(0f, 0f, pressure = 0.5f))).single()

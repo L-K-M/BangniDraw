@@ -10,6 +10,7 @@ class BrushToolGlyphPolicyTest {
         val cases = mapOf(
             "pencil" to BrushToolGlyph.PENCIL,
             "ink_pen" to BrushToolGlyph.INK_PEN,
+            "technical_pen" to BrushToolGlyph.TECHNICAL_PEN,
             "paintbrush" to BrushToolGlyph.PAINTBRUSH,
             "airbrush" to BrushToolGlyph.AIRBRUSH,
             "marker" to BrushToolGlyph.MARKER,

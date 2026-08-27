@@ -15,6 +15,7 @@ object BrushPresets {
 
     const val PENCIL_ID = "builtin.pencil"
     const val INK_PEN_ID = "builtin.ink_pen"
+    const val TECHNICAL_PEN_ID = "builtin.technical_pen"
     const val PAINTBRUSH_ID = "builtin.paintbrush"
     const val AIRBRUSH_ID = "builtin.airbrush"
     const val MARKER_ID = "builtin.marker"
@@ -25,6 +26,7 @@ object BrushPresets {
     val RAIL_ORDER: List<String> = listOf(
         PENCIL_ID,
         INK_PEN_ID,
+        TECHNICAL_PEN_ID,
         PAINTBRUSH_ID,
         AIRBRUSH_ID,
         MARKER_ID,

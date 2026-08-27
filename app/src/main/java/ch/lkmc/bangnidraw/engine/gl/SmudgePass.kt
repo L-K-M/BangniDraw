@@ -99,7 +99,7 @@ class SmudgePass(
     }
 
     private fun copyBefore(layer: LayerTextures, rect: IntRect): Boolean {
-        if (!before.ensure(rect.width, rect.height, state)) return false
+        if (!before.ensureCapacity(rect.width, rect.height, state)) return false
         if (!clear(before)) return false
         if (!drawFbo.bindTexture2d(before.texture, GLES30.GL_DRAW_FRAMEBUFFER)) return false
 
@@ -159,8 +159,7 @@ class SmudgePass(
         bindSmudgeProgram(active)
         active.uniform1i("u_before", BEFORE_UNIT)
         active.uniform1i("u_pickup", WORK_UNIT)
-        active.uniform2f("u_scratchOrigin", plan.source.left.toFloat(), plan.source.top.toFloat())
-        active.uniform2f("u_scratchSize", plan.source.width.toFloat(), plan.source.height.toFloat())
+        bindBeforeSampling(active, plan)
         active.uniform1f("u_pickupEdge", spec.pickupEdge.toFloat())
         bindDab(active, batch, index)
         active.uniform1f("u_strength", batch.flow[index])
@@ -190,8 +189,7 @@ class SmudgePass(
         bindSmudgeProgram(active)
         active.uniform1i("u_before", BEFORE_UNIT)
         active.uniform1i("u_pickup", WORK_UNIT)
-        active.uniform2f("u_scratchOrigin", plan.source.left.toFloat(), plan.source.top.toFloat())
-        active.uniform2f("u_scratchSize", plan.source.width.toFloat(), plan.source.height.toFloat())
+        bindBeforeSampling(active, plan)
         active.uniform1f("u_pickupEdge", spec.pickupEdge.toFloat())
         bindDab(active, batch, index)
         active.uniform1f("u_pickupRate", pickupRate)
@@ -217,14 +215,23 @@ class SmudgePass(
         layer: LayerTextures,
         spec: RmwSpec.Blur,
     ) {
-        if (!work.ensure(plan.source.width, plan.source.height, state)) return
+        if (!work.ensureCapacity(plan.source.width, plan.source.height, state)) return
         if (!drawFbo.bindTexture2d(work.texture)) return
         state.useProgram(blurHorizontal)
         state.viewport(0, 0, work.width, work.height)
         state.scissorOff()
         state.blendOff()
         blurHorizontal.uniform1i("u_source", BEFORE_UNIT)
-        blurHorizontal.uniform2f("u_texel", 1f / before.width, 1f / before.height)
+        blurHorizontal.uniform2f(
+            "u_sourceScale",
+            before.width.toFloat() / before.capacityWidth,
+            before.height.toFloat() / before.capacityHeight,
+        )
+        blurHorizontal.uniform2f(
+            "u_texel",
+            1f / before.capacityWidth,
+            1f / before.capacityHeight,
+        )
         blurHorizontal.uniform1i("u_radius", spec.radius)
         bindTexture(BEFORE_UNIT, before.texture)
         quad.draw(work.width.toFloat(), work.height.toFloat())
@@ -232,9 +239,17 @@ class SmudgePass(
         state.useProgram(blurVertical)
         blurVertical.uniform1i("u_before", BEFORE_UNIT)
         blurVertical.uniform1i("u_horizontal", WORK_UNIT)
-        blurVertical.uniform2f("u_scratchOrigin", plan.source.left.toFloat(), plan.source.top.toFloat())
-        blurVertical.uniform2f("u_scratchSize", plan.source.width.toFloat(), plan.source.height.toFloat())
-        blurVertical.uniform2f("u_texel", 1f / before.width, 1f / before.height)
+        bindBeforeSampling(blurVertical, plan)
+        blurVertical.uniform2f(
+            "u_horizontalTexel",
+            1f / work.capacityWidth,
+            1f / work.capacityHeight,
+        )
+        blurVertical.uniform2f(
+            "u_horizontalScale",
+            work.width.toFloat() / work.capacityWidth,
+            work.height.toFloat() / work.capacityHeight,
+        )
         bindDab(blurVertical, batch, index)
         blurVertical.uniform1f("u_strength", batch.flow[index])
         blurVertical.uniform1i("u_radius", spec.radius)
@@ -275,6 +290,24 @@ class SmudgePass(
             bindTile(program, key)
             quad.draw(TILE_SIZE.toFloat(), TILE_SIZE.toFloat())
         }
+    }
+
+    private fun bindBeforeSampling(program: GlProgram, plan: RmwDabPlan) {
+        program.uniform2f(
+            "u_scratchOrigin",
+            plan.source.left.toFloat(),
+            plan.source.top.toFloat(),
+        )
+        program.uniform2f(
+            "u_beforeTexel",
+            1f / before.capacityWidth,
+            1f / before.capacityHeight,
+        )
+        program.uniform2f(
+            "u_beforeScale",
+            before.width.toFloat() / before.capacityWidth,
+            before.height.toFloat() / before.capacityHeight,
+        )
     }
 
     private fun bindSmudgeProgram(program: GlProgram) {

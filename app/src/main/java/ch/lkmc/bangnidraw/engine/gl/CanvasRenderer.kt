@@ -1710,17 +1710,21 @@ class CanvasRenderer(
         var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE
         var maxY = -Float.MAX_VALUE
-        // Corners in order: (0,0), (vw,0), (vw,vh), (0,vh).
-        for (corner in 0 until CORNER_COUNT) {
-            val right = corner == 1 || corner == 2
-            val bottom = corner >= 2
-            val sx = if (right) vw else 0f
-            val sy = if (bottom) vh else 0f
-            val x = screenTransform.invertX(sx, sy)
-            val y = screenTransform.invertY(sx, sy)
-            if (!x.isFinite() || !y.isFinite()) return IntRect(0, 0, canvas.width, canvas.height)
-            minX = minOf(minX, x); maxX = maxOf(maxX, x)
-            minY = minOf(minY, y); maxY = maxOf(maxY, y)
+        // The four corners as a 2×2 walk over the viewport's edges; the
+        // min/max accumulation below is order-independent, so no ordering
+        // comment has to stay in sync with index arithmetic.
+        for (right in 0..1) {
+            for (bottom in 0..1) {
+                val sx = if (right == 1) vw else 0f
+                val sy = if (bottom == 1) vh else 0f
+                val x = screenTransform.invertX(sx, sy)
+                val y = screenTransform.invertY(sx, sy)
+                if (!x.isFinite() || !y.isFinite()) {
+                    return IntRect(0, 0, canvas.width, canvas.height)
+                }
+                minX = minOf(minX, x); maxX = maxOf(maxX, x)
+                minY = minOf(minY, y); maxY = maxOf(maxY, y)
+            }
         }
         val margin = SANDWICH_MARGIN_PX
         return IntRect(
@@ -1877,8 +1881,5 @@ class CanvasRenderer(
         const val CHANNEL_MASK = 0xFF
         const val CHANNEL_MAX = 255f
         const val FULL_OPACITY = 1f
-
-        /** Four viewport corners, in the order [visibleCanvasRect] walks them. */
-        const val CORNER_COUNT = 4
     }
 }

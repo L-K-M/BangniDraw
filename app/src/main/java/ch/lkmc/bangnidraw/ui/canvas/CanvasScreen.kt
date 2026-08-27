@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
+import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -203,6 +204,7 @@ private fun CanvasContent(
     var session by remember { mutableStateOf<EngineSession?>(null) }
     var hoverRevision by remember { mutableIntStateOf(0) }
     var textInputFocus by remember { mutableStateOf(TextInputFocus.CLEAR) }
+    var historyReadout by remember { mutableIntStateOf(0) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
 
     // The stroke in flight. Plain vars, not Compose state: they change several
@@ -921,6 +923,7 @@ private fun CanvasContent(
                 onBack = { viewModel.handleBack(onLeave) },
                 onUndo = viewModel::undo,
                 onRedo = viewModel::redo,
+                onUndoLongPress = { historyReadout++ },
                 onLayers = { viewModel.togglePanel(CanvasPanel.LAYERS) },
                 onColor = { viewModel.togglePanel(CanvasPanel.COLOR) },
                 onShare = {
@@ -936,6 +939,38 @@ private fun CanvasContent(
                 onRename = viewModel::requestRename,
                 onSettings = onSettings,
                 )
+            }
+
+            // §3.1's long-press readout: the undo depth and the cap, shown
+            // under the strip for a moment — the one place the history budget
+            // is visible where undo is actually used. An incrementing token
+            // rather than a boolean, so a repeat long-press restarts the timer.
+            if (historyReadout > 0) {
+                LaunchedEffect(historyReadout) {
+                    delay(HISTORY_READOUT_MS)
+                    historyReadout = 0
+                }
+                Surface(
+                    color = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    shape = MaterialTheme.shapes.large,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = HISTORY_READOUT_TOP.dp)
+                        .zIndex(CHROME_Z),
+                ) {
+                    Text(
+                        text = pluralStringResource(
+                            R.plurals.canvas_history_readout,
+                            state.historySteps,
+                            state.historySteps,
+                            Formatter.formatShortFileSize(context, state.historyBytes),
+                            Formatter.formatShortFileSize(context, state.historyMaxBytes),
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
             }
 
             // A live readout while the fingers steer the view: the reset pill
@@ -1460,6 +1495,8 @@ private const val CHROME_Z = 2f
 private const val HINT_Z = 3f
 private const val RESET_DAMPING_RATIO = 0.8f
 private const val CHROME_ANIMATION_MS = 180
+private const val HISTORY_READOUT_MS = 2_000L
+private const val HISTORY_READOUT_TOP = 56
 private val READOUT_GAP = 8.dp
 private const val READOUT_PERCENT = 100f
 private const val READOUT_APPEAR_DELAY_MS = 150L

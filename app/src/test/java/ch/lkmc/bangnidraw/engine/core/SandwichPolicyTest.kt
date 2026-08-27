@@ -218,6 +218,16 @@ class SandwichPolicyTest {
         )
     }
 
+    @Test
+    fun `below is cacheable for every blend mode once the backdrop pass exists`() {
+        for (mode in BlendMode.entries) {
+            assertTrue(
+                SandwichPolicy.belowIsCacheable(listOf(layer(mode))),
+                "$mode must be composited against the partial below cache",
+            )
+        }
+    }
+
     private var nextId = 0
 
     private fun layer(mode: BlendMode, visible: Boolean = true): Layer = Layer(

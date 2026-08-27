@@ -157,24 +157,34 @@ object Shaders {
      * and the tail. Both return a premultiplied, opacity-free colour, which is
      * the contract this tail depends on.
      */
-    internal val COMPOSITE_TAIL = """
+    /** Shared W3C blend arithmetic for screen and tile-space compositors. */
+    internal val BLEND_GLSL = """
         // Straight-alpha separable blend functions B(Cb, Cs), per channel.
         vec3 blendStraight(int mode, vec3 cb, vec3 cs) {
         ${blendDispatch(indent = 12)}
         }
 
-        void main() {
-            vec4 s = sampleLayer() * u_opacity;
-            if (u_blend == ${BlendMode.NORMAL.shaderId}) { o_color = s; return; }
-            vec4 b = texelFetch(u_backdrop, ivec2(gl_FragCoord.xy), 0);
+        vec4 blendLayer(vec4 b, vec4 s, int mode) {
+            if (mode == ${BlendMode.NORMAL.shaderId}) return s + b * (1.0 - s.a);
             vec3 cb = b.a > 0.0 ? b.rgb / b.a : vec3(0.0);
             vec3 cs = s.a > 0.0 ? s.rgb / s.a : vec3(0.0);
-            vec3 f = blendStraight(u_blend, cb, cs);
+            vec3 f = blendStraight(mode, cb, cs);
             // W3C compositing, premultiplied:
             // co = cs'(1-ab) + cb'(1-as) + as*ab*B(Cb,Cs)
             vec3 co = s.rgb * (1.0 - b.a) + b.rgb * (1.0 - s.a) + s.a * b.a * f;
             float ao = s.a + b.a * (1.0 - s.a);
-            o_color = vec4(co, ao);
+            return vec4(co, ao);
+        }
+    """.trimIndent()
+
+    internal val COMPOSITE_TAIL = """
+        $BLEND_GLSL
+
+        void main() {
+            vec4 s = sampleLayer() * u_opacity;
+            if (u_blend == ${BlendMode.NORMAL.shaderId}) { o_color = s; return; }
+            vec4 b = texelFetch(u_backdrop, ivec2(gl_FragCoord.xy), 0);
+            o_color = blendLayer(b, s, u_blend);
         }
     """.trimIndent()
 
@@ -572,6 +582,43 @@ object Shaders {
         ),
     )
 
+    // --------------------------------------------- tile-space composite (§4)
+
+    /** One sandwich/structural pass: backdrop plus one layer into a new slice. */
+    val TILE_COMPOSITE_FRAG = listOf(
+        VERSION_LINE,
+        "precision highp float;",
+        "precision highp sampler2DArray;",
+        "uniform sampler2DArray u_sourcePage;",
+        "uniform sampler2DArray u_backdropPage;",
+        "uniform float u_sourceSlice;",
+        "uniform float u_backdropSlice;",
+        "uniform int u_blend;",
+        "uniform float u_opacity;",
+        BLEND_GLSL,
+        "in vec2 v_uv;",
+        "out vec4 o_color;",
+        "void main() {",
+        "    vec4 b = texture(u_backdropPage, vec3(v_uv, u_backdropSlice));",
+        "    vec4 s = texture(u_sourcePage, vec3(v_uv, u_sourceSlice)) * u_opacity;",
+        "    o_color = blendLayer(b, s, u_blend);",
+        "}",
+    ).joinToString("\n")
+
+    val TILE_COMPOSITE = Source(
+        name = "tile-composite",
+        vertex = TILE_VERT,
+        fragment = TILE_COMPOSITE_FRAG,
+        uniforms = listOf(
+            Uniform("u_sourcePage", "sampler2DArray"),
+            Uniform("u_backdropPage", "sampler2DArray"),
+            Uniform("u_sourceSlice", "float"),
+            Uniform("u_backdropSlice", "float"),
+            Uniform("u_blend", "int"),
+            Uniform("u_opacity", "float"),
+        ),
+    )
+
     // ------------------------------------------------- the truthful preview
 
     /** The stroke buffer's and the tail's slices for this tile; −1 = absent. */
@@ -703,7 +750,7 @@ object Shaders {
         ),
     )
 
-    val ALL: List<Source> = listOf(COMPOSITE, PRESENT, CHECKER, DAB, MERGE, PREVIEW)
+    val ALL: List<Source> = listOf(COMPOSITE, PRESENT, CHECKER, DAB, MERGE, TILE_COMPOSITE, PREVIEW)
 
     /**
      * The `switch` body of `blendStraight`, built from [BlendMode] so the two

@@ -141,6 +141,7 @@ class CanvasRenderer(
     private var composite: GlProgram? = null
     private var present: GlProgram? = null
     private var checker: GlProgram? = null
+    private var tileComposite: GlProgram? = null
     private var compositePass: CompositePass? = null
     private var dab: GlProgram? = null
     private var merge: GlProgram? = null
@@ -292,10 +293,11 @@ class CanvasRenderer(
         // inserting a program above PREVIEW would silently hand the preview
         // pass someone else's shaders. The `onContextLost` comment records that
         // this family of lists has already been wrong twice.
-        val linked = ArrayList<GlProgram>(6)
+        val linked = ArrayList<GlProgram>(7)
         var compositeProgram: GlProgram? = null
         var presentProgram: GlProgram? = null
         var checkerProgram: GlProgram? = null
+        var tileCompositeProgram: GlProgram? = null
         var dabProgram: GlProgram? = null
         var mergeProgram: GlProgram? = null
         var previewProgram: GlProgram? = null
@@ -303,6 +305,7 @@ class CanvasRenderer(
             compositeProgram = GlProgram.link(Shaders.COMPOSITE).also { linked += it }
             presentProgram = GlProgram.link(Shaders.PRESENT).also { linked += it }
             checkerProgram = GlProgram.link(Shaders.CHECKER).also { linked += it }
+            tileCompositeProgram = GlProgram.link(Shaders.TILE_COMPOSITE).also { linked += it }
             dabProgram = GlProgram.link(Shaders.DAB).also { linked += it }
             mergeProgram = GlProgram.link(Shaders.MERGE).also { linked += it }
             previewProgram = GlProgram.link(Shaders.PREVIEW).also { linked += it }
@@ -312,22 +315,24 @@ class CanvasRenderer(
             isReady = false
             return false
         }
-        // Every one of them is non-null here: the try either assigned all six
+        // Every one of them is non-null here: the try either assigned all seven
         // or returned from the catch.
         checkNotNull(compositeProgram)
         checkNotNull(presentProgram)
         checkNotNull(checkerProgram)
+        checkNotNull(tileCompositeProgram)
         checkNotNull(dabProgram)
         checkNotNull(mergeProgram)
         checkNotNull(previewProgram)
         composite = compositeProgram
         present = presentProgram
         checker = checkerProgram
+        tileComposite = tileCompositeProgram
         preview = previewProgram
         compositePass = CompositePass(compositeProgram, state, previewProgram)
         val tiles = TilePool(probed, budget)
         pool = tiles
-        sandwich = SandwichCache(grid, tiles, compositeProgram, state)
+        sandwich = SandwichCache(grid, tiles, tileCompositeProgram, state)
         dab = dabProgram
         merge = mergeProgram
         dabPass = DabPass(dabProgram, state)
@@ -818,23 +823,21 @@ class CanvasRenderer(
             )
         }
 
-        val cache = sandwich
-        // Both halves: they become unavailable independently — `above` on
-        // associativity, `below` on the missing ping-pong — and using the
-        // sandwich with one of them unusable composites a half that was never
-        // built.
-        val useSandwich = cache != null && cache.aboveAvailable && cache.belowAvailable
+        // Above becomes unavailable when its modes are not associative. Below
+        // owns a real backdrop and remains available for every blend mode.
+        val readyCache = sandwich?.takeIf { it.aboveAvailable && it.belowAvailable }
+        val useSandwich = readyCache != null
 
         drawPaper(bakedIntoBelow = useSandwich)
 
-        if (useSandwich && cache != null) {
+        if (readyCache != null) {
             pass.draw(
-                cache.below, BlendMode.NORMAL, 1f, screenTransform, projection, identity,
+                readyCache.below, BlendMode.NORMAL, 1f, screenTransform, projection, identity,
                 rect, scratch.texture,
             )
             drawLayer(pass, current.activeIndex, current, screenTransform, rect, previewSpec)
             pass.draw(
-                cache.above, BlendMode.NORMAL, 1f, screenTransform, projection, identity,
+                readyCache.above, BlendMode.NORMAL, 1f, screenTransform, projection, identity,
                 rect, scratch.texture,
             )
         } else {
@@ -1145,9 +1148,9 @@ class CanvasRenderer(
         previousTailRect = IntRect.EMPTY
         dabPass = null
         mergePass = null
-        // EVERY program reference — six now that preview.frag exists. The ids
-        // died with the context, and `release()` calls `release()` on each of
-        // them; if a recreated context has reused one of those names, that
+        // EVERY program reference — seven now that the tile compositor exists.
+        // The ids died with the context, and `release()` releases each of them;
+        // if a recreated context has reused one of those names, that
         // glDeleteProgram deletes a live program belonging to the new context.
         // This list has been wrong twice: once when it covered none of the five,
         // and once when 2.5a added a sixth and left it out. Adding a program
@@ -1155,6 +1158,7 @@ class CanvasRenderer(
         composite = null
         present = null
         checker = null
+        tileComposite = null
         dab = null
         merge = null
         preview = null
@@ -1194,6 +1198,7 @@ class CanvasRenderer(
         composite?.release()
         present?.release()
         checker?.release()
+        tileComposite?.release()
         dab?.release()
         merge?.release()
         preview?.release()

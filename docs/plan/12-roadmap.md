@@ -161,16 +161,11 @@ disagreement is a bug here — the rows above are corrected. Only
 split matters: the arbiter is a pure state machine its tests drive by building
 pointer timelines by hand.
 
-**Carried in from PR 2.3b's review.** `SandwichCache.buildTile` blends each
-contributing layer straight into the cache slice, which is correct for
-source-over and has no backdrop to offer any other mode. So a non-Normal layer
-*below* the active one now makes `Below` unavailable — `SandwichPolicy.belowIsCacheable`
-— exactly as a non-Normal layer above makes `Above` unavailable, and the
-compositor takes the always-correct per-layer path of `03-canvas-engine.md` §12
-step 3. Implementing §4's ping-pong between two `allocateNotOn` scratch slices
-would restore the cached path for those stacks. It is a performance win over a
-correct fallback, not a correctness fix, which is why it is carried rather than
-blocking 2.3b.
+**Resolved in step 6 from PR 2.3b's review.** `SandwichCache.buildTile`
+ping-pongs through `allocateNotOn` slices, so every layer below the active one
+receives the partial composite as its backdrop without sampling the target
+page. `Above` still falls back for non-Normal modes because those modes are not
+associative with the active-layer backdrop.
 
 **Carried in from PR 2.2's review.** When smudge and blur land, `DabGenerator`
 owes the RMW spacing floor: `03-canvas-engine.md` §7.6 makes it enforce a

@@ -105,6 +105,21 @@ class GlShaderContractTest {
     }
 
     @Test
+    fun `the tile compositor shares every blend formula`() {
+        assertTrue(Shaders.BLEND_GLSL in Shaders.COMPOSITE_FRAG)
+        assertTrue(Shaders.BLEND_GLSL in Shaders.TILE_COMPOSITE_FRAG)
+        for (mode in BlendMode.entries) {
+            if (mode == BlendMode.NORMAL) continue
+
+            assertTrue(
+                "case ${mode.shaderId}:" in Shaders.TILE_COMPOSITE_FRAG,
+                "tile composite has no ${mode.name} branch",
+            )
+        }
+        assertTrue("uniform sampler2DArray u_backdropPage;" in Shaders.TILE_COMPOSITE_FRAG)
+    }
+
+    @Test
     fun `normal takes the hardware path and is not a case in the dispatch`() {
         // §3.2: a Normal layer is drawn with glBlendFunc(ONE,
         // ONE_MINUS_SRC_ALPHA) and never reads the backdrop. A `case 0:` in

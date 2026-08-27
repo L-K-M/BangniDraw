@@ -1,12 +1,10 @@
 package ch.lkmc.bangnidraw.engine.gl
 
-import android.opengl.GLES30
-import ch.lkmc.bangnidraw.engine.core.BlendMode
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
+import ch.lkmc.bangnidraw.engine.core.PoolExhausted
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
-import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.TileKey
 
@@ -47,19 +45,8 @@ class SandwichCache(
     val above = LayerTextures(grid, pool)
 
     private val fbo = GlFbo()
-
-    /**
-     * One pass for every tile of every rebuild, not one per tile.
-     *
-     * A `CompositePass` owns a ~120 KiB direct vertex buffer plus a VBO and a
-     * VAO. Constructing one per tile would allocate and destroy all of that up
-     * to `TileGrid.MAX_TILES` times per rebuild — on the layer-switch path
-     * that §4 budgets tens of milliseconds for, and with GL object churn the
-     * driver has no reason to make cheap.
-     */
-    private val pass = CompositePass(program, state)
-    private val identity = Mat4.identity()
-    private val tileProjection = Mat4.orthoYDown(TILE_SIZE.toFloat(), TILE_SIZE.toFloat())
+    private val pass = TileCompositePass(program, state, pool)
+    private val excludedPages = IntArray(2)
 
     /** A whole half needs rebuilding; individual tiles are rebuilt as they are drawn. */
     private var belowStale = true
@@ -81,15 +68,7 @@ class SandwichCache(
     var aboveAvailable: Boolean = UNAVAILABLE_UNTIL_OBSERVED
         private set
 
-    /**
-     * False when a non-Normal layer sits **below** the active one.
-     *
-     * Not symmetric with [aboveAvailable] in its reason: `Above` is limited by
-     * associativity, `Below` by the missing ping-pong of §4 — [buildTile]
-     * blends straight into the cache slice, so a mode that needs a backdrop has
-     * none. Both answers are "take the per-layer path", which is always
-     * correct.
-     */
+    /** Below can cache every blend mode because [buildTile] ping-pongs. */
     var belowAvailable: Boolean = UNAVAILABLE_UNTIL_OBSERVED
         private set
 
@@ -167,8 +146,8 @@ class SandwichCache(
         val activeIndex = stack.activeIndex
         val keys = grid.keysFor(rect)
         for (key in keys) {
-            if (belowPending && belowBuilt.add(key.packed)) {
-                buildTile(
+            if (belowPending && key.packed !in belowBuilt) {
+                val built = buildTile(
                     key,
                     target = below,
                     // The paper is the backdrop of the below stack, baked in.
@@ -177,9 +156,10 @@ class SandwichCache(
                     stack = stack,
                     layerTextures = layerTextures,
                 )
+                if (built) belowBuilt.add(key.packed)
             }
-            if (abovePending && aboveBuilt.add(key.packed)) {
-                buildTile(
+            if (abovePending && key.packed !in aboveBuilt) {
+                val built = buildTile(
                     key,
                     target = above,
                     // Above composites over TRANSPARENT: it is drawn on top of
@@ -189,6 +169,7 @@ class SandwichCache(
                     stack = stack,
                     layerTextures = layerTextures,
                 )
+                if (built) aboveBuilt.add(key.packed)
             }
         }
         if (belowBuilt.size >= grid.tileCount) belowStale = false
@@ -198,22 +179,10 @@ class SandwichCache(
     /**
      * Composites one tile of a half, in canvas space.
      *
-     * One pass per contributing layer, each blending **straight into the
-     * cache's own slice** with hardware source-over.
-     *
-     * §4 describes a ping-pong between two scratch slices taken with
-     * `allocateNotOn`, so that a non-Normal layer has the partial composite to
-     * read as a backdrop. That is **not what this does**, and the difference is
-     * why [belowAvailable] and [aboveAvailable] exist: a half containing a
-     * non-Normal layer is reported unavailable and the compositor composites
-     * those layers individually instead. Every pass that reaches here is
-     * therefore source-over, which needs no backdrop and no ping-pong — and
-     * §2.1's "never render into a page you sample" rule is satisfied because
-     * nothing is sampled but the layer pages, which are not the target.
-     *
-     * Implementing the ping-pong would restore the cached path for non-Normal
-     * layers; it is a performance win over a correct fallback, not a
-     * correctness fix, and is carried in `12-roadmap.md`.
+     * Each contributing layer reads the partial composite and its own tile,
+     * then writes a fresh slice excluded from both sampled pages. The cache
+     * adopts the final slice only after every pass succeeds, so a refusal keeps
+     * the previous cached tile intact for a later retry.
      */
     private fun buildTile(
         key: TileKey,
@@ -222,46 +191,47 @@ class SandwichCache(
         indices: IntRange,
         stack: LayerStack,
         layerTextures: (Int) -> LayerTextures,
-    ) {
-        val destination = target.sliceForWrite(key)
-        if (!fbo.bindArrayLayer(target.pageTexture(destination.page), destination.slice)) {
-            // Un-mark it, or the tile keeps stale content forever: the caller
-            // adds the key to the built set BEFORE calling this, and if this
-            // was the last missing tile the tail check would clear the stale
-            // flag and the half would never be retried.
-            if (target === below) belowBuilt.remove(key.packed) else aboveBuilt.remove(key.packed)
-            return
+    ): Boolean {
+        var current = try {
+            pool.allocate()
+        } catch (_: PoolExhausted) {
+            return false
         }
-        GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
-        GLES30.glViewport(0, 0, TILE_SIZE, TILE_SIZE)
+        if (!fbo.bindArrayLayer(pool.textureOf(current.page), current.slice)) {
+            pool.free(current)
+            return false
+        }
+        state.scissorOff()
+        state.viewport(0, 0, TILE_SIZE, TILE_SIZE)
         fbo.clear(
             premultiplied(paper, 16), premultiplied(paper, 8), premultiplied(paper, 0),
             ((paper ushr 24) and 0xFF) / 255f,
         )
-        // One 256x256 quad per contributing layer, identity screen transform:
-        // the cache is in CANVAS space, so there is no view to apply and the
-        // tile maps one-to-one onto the target.
-        val origin = grid.origin(key)
-        val tileScreen = ScreenTransform(1f, 0f, -origin.x.toFloat(), -origin.y.toFloat())
-        val tileRect = grid.tileRect(key)
         for (i in indices) {
             val props = stack.layers[i].props
             if (!props.visible || props.opacity <= 0f) continue
-            // Always NORMAL: a half is only built when every visible layer in
-            // it is Normal (see the KDoc above), so `props.blendMode` here is
-            // Normal by construction — passing it would merely invite the next
-            // reader to assume a backdrop exists.
-            pass.draw(
-                textures = layerTextures(i),
-                mode = BlendMode.NORMAL,
-                opacity = props.opacity,
-                screen = tileScreen,
-                projection = tileProjection,
-                bufferTransform = identity,
-                dirtyRect = tileRect,
-                backdrop = 0,
-            )
+            val source = layerTextures(i).slice(key)
+            if (source.isNone) continue
+
+            excludedPages[0] = current.page
+            excludedPages[1] = source.page
+            val next = try {
+                pool.allocateNotOn(excludedPages)
+            } catch (_: PoolExhausted) {
+                pool.free(current)
+                return false
+            }
+            if (!pass.draw(source, current, next, props.blendMode, props.opacity)) {
+                pool.free(next)
+                pool.free(current)
+                return false
+            }
+
+            pool.free(current)
+            current = next
         }
+        target.swap(key, current)
+        return true
     }
 
     private fun premultiplied(argb: Int, shift: Int): Float {

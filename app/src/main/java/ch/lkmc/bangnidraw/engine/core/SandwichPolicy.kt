@@ -167,24 +167,18 @@ object SandwichPolicy {
     fun aboveIsCacheable(layersAbove: List<Layer>): Boolean =
         layersAbove.none { it.props.visible && it.props.blendMode != BlendMode.NORMAL }
 
-    /**
-     * Whether the layers below the active one can be cached.
-     *
-     * Same condition as [aboveIsCacheable], for a different reason. `Above`'s
-     * limit is associativity; `Below`'s is that a non-Normal layer needs to
-     * read the partial composite beneath it as a backdrop, and a fragment
-     * shader cannot read the attachment it is writing. `03-canvas-engine.md`
-     * §4 answers that with a ping-pong between two scratch slices — which is
-     * **not implemented**: the cache builds each tile by blending straight
-     * into its own slice, which is exactly right for source-over and has no
-     * backdrop to offer a blend mode that needs one.
-     *
-     * So until the ping-pong lands, a non-Normal layer below the active one
-     * makes `Below` unavailable and the compositor takes the per-layer path of
-     * §12 step 3 — slower, and correct. Reporting it here rather than building
-     * a wrong cache is the whole point of having this be a decision the JVM can
-     * test.
-     */
-    fun belowIsCacheable(layersBelow: List<Layer>): Boolean =
-        layersBelow.none { it.props.visible && it.props.blendMode != BlendMode.NORMAL }
+    /** Below owns its backdrop, so its ping-pong accepts every blend mode. */
+    fun belowIsCacheable(layersBelow: List<Layer>): Boolean = layersBelow.all {
+        when (it.props.blendMode) {
+            BlendMode.NORMAL,
+            BlendMode.MULTIPLY,
+            BlendMode.SCREEN,
+            BlendMode.OVERLAY,
+            BlendMode.DARKEN,
+            BlendMode.LIGHTEN,
+            BlendMode.ADD,
+            BlendMode.DIFFERENCE,
+            -> true
+        }
+    }
 }

@@ -89,6 +89,12 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - The CPU reference implementations in `engine/core` (`Composite`, the
   mixing formula, dab falloff) and the GLSL must stay trivially close; when
   one changes, change both, and let the unit tests pin the semantics.
+- Sandwich tile passes must ping-pong into a pool page distinct from both
+  sampled pages. `Below` supports every blend mode; `Above` is unavailable
+  when a visible non-Normal layer breaks source-over associativity. Grouping
+  normal `Above` layers can differ from the direct RGBA8 path because the two
+  paths quantize at different grouping boundaries; the CPU oracle pins the
+  conservative bound of one LSB per grouped layer.
 - `engine/core/ViewTransform` and `FitTransform` are Meltorama's, ported
   verbatim — except the scale limits: `MIN_SCALE = 0.25f`, `MAX_SCALE = 64f`
   (Meltorama: 0.5 / 8), because pixel work on a 4096² canvas needs to zoom

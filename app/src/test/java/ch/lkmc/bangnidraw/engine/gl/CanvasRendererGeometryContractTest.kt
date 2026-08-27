@@ -90,6 +90,21 @@ class CanvasRendererGeometryContractTest {
         )
     }
 
+    @Test
+    fun `window presentation projects directly into top first buffer rows`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+        val present = section(source, PRESENT_START, PRESENT_END)
+
+        assertTrue(
+            Y_UP_BUFFER_PROJECTION in present,
+            "the present pass must not reverse graphics-core's quarter-turn transform",
+        )
+        assertTrue(
+            Y_DOWN_BUFFER_PROJECTION !in present,
+            "only offscreen texture targets use the y-down projection",
+        )
+    }
+
     private fun repositoryRoot(): File {
         val workingDirectory = File(
             requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),
@@ -133,6 +148,8 @@ class CanvasRendererGeometryContractTest {
         const val ACCUM_SCISSOR_FLIP = "accum.height - accumScissor.bottom"
         const val HARDWARE_BUFFER_SCISSOR =
             "BufferScissor.toHardwareBufferScissor(scissor, bufferHeight, scissorScratch)"
+        const val Y_UP_BUFFER_PROJECTION = "Mat4.orthoYUp("
+        const val Y_DOWN_BUFFER_PROJECTION = "Mat4.orthoYDown("
         const val PAPER_CALL = "drawPaper(screenTransform, bakedIntoBelow = useSandwich)"
         val PAPER_SCREEN_UNIFORM = Regex(
             """program\.uniform4f\(\s*"u_screen",\s*screenTransform\.a,\s*""" +

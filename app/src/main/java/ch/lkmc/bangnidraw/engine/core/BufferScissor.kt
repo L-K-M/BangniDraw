@@ -93,10 +93,10 @@ object BufferScissor {
      * The scissor for graphics-core's HardwareBuffer-backed window target.
      *
      * SurfaceControl consumes that target in top-first buffer rows. The full
-     * present quad already accounts for this orientation through its y-down
-     * projection and texture coordinates, so flipping [rect] again would open
-     * the vertically mirrored damage band. Accum is an ordinary texture FBO
-     * and keeps its separate `height - bottom` conversion.
+     * present quad writes those rows through its y-up projection and flips only
+     * the viewport-oriented source uv, so flipping [rect] again would open the
+     * vertically mirrored damage band. Accum is an ordinary texture FBO and
+     * keeps its separate `height - bottom` conversion.
      */
     fun toHardwareBufferScissor(rect: IntRect, bufferHeight: Int, out: IntArray) {
         require(out.size >= 4) { "a scissor needs 4 ints, was ${out.size}" }

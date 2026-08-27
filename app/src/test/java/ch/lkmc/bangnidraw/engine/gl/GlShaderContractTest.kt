@@ -87,7 +87,43 @@ class GlShaderContractTest {
             "layout(location = ${Shaders.ATTR_UV}) in vec3 a_uvw;" in Shaders.COMPOSITE_VERT,
             "a_uvw must be at ATTR_UV (${Shaders.ATTR_UV})",
         )
+        assertTrue(
+            "layout(location = ${Shaders.ATTR_POS}) in vec2 a_canvas;" in Shaders.PRESENT.vertex,
+            "present a_canvas must be at ATTR_POS (${Shaders.ATTR_POS})",
+        )
+        assertTrue(
+            "layout(location = ${Shaders.ATTR_UV}) in vec3 a_uvw;" in Shaders.PRESENT.vertex,
+            "present a_uvw must be at ATTR_UV (${Shaders.ATTR_UV})",
+        )
         assertTrue(Shaders.ATTR_POS != Shaders.ATTR_UV, "two attributes cannot share a location")
+    }
+
+    @Test
+    fun `only the window present shader flips source texture rows`() {
+        val sourceRowFlip = "vec3(a_uvw.x, 1.0 - a_uvw.y, a_uvw.z)"
+        val assignments = Regex("""v_uvw\s*=\s*([^;]+);""")
+            .findAll(Shaders.PRESENT.vertex)
+            .map { it.groupValues[1] }
+            .toList()
+
+        assertEquals(
+            listOf(sourceRowFlip),
+            assignments,
+            "Accum's top row must be sampled while the window target writes buffer row zero",
+        )
+        assertTrue(
+            sourceRowFlip !in Shaders.COMPOSITE_VERT,
+            "offscreen compositing keeps the engine's existing y-down row convention",
+        )
+        assertTrue(
+            Shaders.PRESENT.vertex != Shaders.COMPOSITE_VERT,
+            "the window target needs a present-only vertex convention",
+        )
+        assertTrue(
+            "gl_Position = u_projection * u_bufferTransform * vec4(p, 0.0, 1.0);" in
+                Shaders.PRESENT.vertex,
+            "presented pixels must use the same buffer transform as live damage",
+        )
     }
 
     @Test

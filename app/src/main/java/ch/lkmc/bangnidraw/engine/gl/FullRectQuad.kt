@@ -7,15 +7,16 @@ import android.opengl.GLES30
  * canvas-sized paper/checkerboard of `docs/plan/03-canvas-engine.md` §3.2
  * step 1, and the viewport-sized `Accum` present of step 3.
  *
- * Separate from [CompositePass] because it shares nothing with it but the
- * vertex shader: no page batching, no per-tile uv, no streaming — the geometry
- * is four corners that change only when the target resizes. Folding it in
- * would mean a `drawFullRect` on a class whose whole design is "quads grouped
- * by texture-array page", taking a program that is not the one it was built
+ * Separate from [CompositePass] because it shares only the vertex layout: no
+ * page batching, no per-tile uv, no streaming — the geometry is four corners
+ * that change only when the target resizes. Folding it in would mean a
+ * `drawFullRect` on a class whose whole design is "quads grouped by
+ * texture-array page", taking a program that is not the one it was built
  * with.
  *
- * The vertex layout matches [Shaders.COMPOSITE_VERT]'s attributes, so any
- * program built on that shader can draw it.
+ * The vertex layout matches [Shaders.COMPOSITE_VERT] and
+ * [Shaders.PRESENT_VERT]. The latter changes row interpretation in the shader,
+ * not the cached geometry.
  *
  * Reuse one instance where callers share a stable rect size. The geometry
  * cache remembers only the last size drawn, so alternating sizes re-upload on

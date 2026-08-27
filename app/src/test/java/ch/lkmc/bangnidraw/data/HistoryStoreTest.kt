@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.data
 
 import ch.lkmc.bangnidraw.engine.core.HistoryEntry
+import ch.lkmc.bangnidraw.engine.core.HistoryJournal
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.TileKey
@@ -93,6 +94,51 @@ class HistoryStoreTest {
 
         assertEquals(listOf(1L, 4L), loaded.entries.map { it.seq })
         assertEquals(2, loaded.cursor)
+    }
+
+    @Test
+    fun `a far redo prune followed by a later push survives reopen`() {
+        val first = putStroke(1)
+        val second = put(2)
+        val farRedo = put(3)
+        val redoBytes = store.writeRedo(
+            first,
+            listOf(HistoryStore.Payload(a, TileKey(1, 1), ByteArray(0))),
+        )
+        val initialBytes = first.bytes + second.bytes + farRedo.bytes
+        val journal = HistoryJournal(
+            HistoryJournal.Limits(10, initialBytes + redoBytes - farRedo.bytes),
+            initial = listOf(first, second, farRedo),
+            initialCursor = 1,
+        )
+
+        assertEquals(1L, journal.undo()?.seq)
+        journal.noteRedoBytes(1, redoBytes)
+        val pruned = journal.pruneAfterRedoAccounting()
+        assertEquals(listOf(3L), pruned)
+
+        val saved = HistoryRecord(
+            cursor = journal.cursor,
+            nextSeq = 4,
+            oldestSeq = 1,
+            entries = journal.stats().entries,
+            bytes = journal.stats().bytes,
+            seqs = journal.entries.map(HistoryEntry::seq),
+        )
+        store.delete(pruned)
+
+        val later = put(4)
+        val push = journal.push(later)
+        val loaded = store.load(saved)
+
+        assertEquals(listOf(2L, 1L), push.truncated)
+        assertEquals(listOf(4L), loaded.entries.map(HistoryEntry::seq))
+        assertEquals(1, loaded.cursor)
+        assertEquals(5L, loaded.nextSeq)
+        assertTrue(!store.entryFile(1).exists())
+        assertTrue(!store.entryFile(2).exists())
+        assertTrue(!store.entryFile(3).exists())
+        assertTrue(store.entryFile(4).isFile)
     }
 
     @Test

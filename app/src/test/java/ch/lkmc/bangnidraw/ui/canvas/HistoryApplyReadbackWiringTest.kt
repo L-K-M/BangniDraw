@@ -37,7 +37,7 @@ class HistoryApplyReadbackWiringTest {
     }
 
     @Test
-    fun `a durable redo sidecar is accounted before transition setup can fail`() {
+    fun `redo bytes are durable before transition setup`() {
         val apply = source.substringAfter("private fun applyHistory(")
             .substringBefore("private fun applyPreparedHistory(")
         val captured = apply.indexOf("val capturedRedoBytes = redoBytes?.await()")
@@ -47,5 +47,30 @@ class HistoryApplyReadbackWiringTest {
         assertTrue(captured >= 0)
         assertTrue(accounted > captured)
         assertTrue(accounted < transition)
+    }
+
+    @Test
+    fun `redo pruning waits for the applied transition checkpoint`() {
+        val prepared = source.substringAfter("private fun applyPreparedHistory(")
+            .substringBefore("private suspend fun checkpointHistoryTransition(")
+        val firstCheckpoint = prepared.indexOf("checkpointHistoryTransition(snapshot)")
+        val prune = prepared.indexOf("captureRedoPruneCheckpoint()")
+        val secondCheckpoint = prepared.indexOf(
+            "checkpointHistoryTransition(pruneSnapshot)",
+        )
+        val finish = prepared.indexOf("finishDocumentWork()")
+        val helper = source.substringAfter("private fun captureRedoPruneCheckpoint()")
+            .substringBefore("private fun historyFlushKeys(")
+
+        assertTrue(firstCheckpoint >= 0)
+        assertTrue(prune > firstCheckpoint)
+        assertTrue(secondCheckpoint > prune)
+        assertTrue(finish > secondCheckpoint)
+        assertTrue(helper.contains("j.pruneAfterRedoAccounting()"))
+        assertTrue(helper.contains("pendingDeletes += pruned"))
+        assertTrue(helper.contains("historyCursor = j.cursor"))
+        assertTrue(helper.contains("dirty = true"))
+        assertTrue(helper.contains("documentRevision.incrementAndGet()"))
+        assertTrue(helper.contains("captureCheckpointSnapshot()"))
     }
 }

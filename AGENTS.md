@@ -535,11 +535,10 @@ and the contradiction is noted here.
   User names are literal; never resolve arbitrary stored `@string/` values.
 
 - **Redo-sidecar accounting can prune both sides of the history cursor.** A
-  first undo adds bytes after the original push, so `noteRedoBytes` enforces
-  the cap immediately. It drops the oldest applied entries first, then the
-  far redo tail if needed; keeping the nearest redo entry preserves a valid
-  transition from the current pixels. The returned seqs join `pendingDeletes`
-  and remain on disk until the next checkpoint commits their absence.
+  first undo adds bytes after the original push. Account those bytes before
+  the transition marker, but defer pruning until its target checkpoint lands:
+  pruning can move the cursor the marker records. A second checkpoint commits
+  the exact pruned membership before its seqs leave `pendingDeletes`.
 
 - **What "`engine/core` is pure JVM" actually forbids.**
   `docs/plan/02-architecture.md` §1 writes the rule as "`kotlin.*` and

@@ -2368,15 +2368,18 @@ class CanvasViewModel @Inject constructor(
                 for (layer in deleted) {
                     flusher.enqueue(TileFlusher.FlushJob.DeleteLayerDir(store.layerDir(projectId, layer)))
                 }
-                withContext(Dispatchers.Main) {
-                    if (capturedRedoBytes != null) {
-                        accountRedoBytes(entry.seq, capturedRedoBytes)
-                    }
-                }
                 val snapshot = withContext(Dispatchers.Main) {
                     checkNotNull(captureCheckpointSnapshot())
                 }
                 checkpointHistoryTransition(snapshot)
+
+                val pruneSnapshot = withContext(Dispatchers.Main) {
+                    captureRedoPruneCheckpoint()
+                }
+                if (pruneSnapshot != null) {
+                    checkpointHistoryTransition(pruneSnapshot)
+                }
+
                 withContext(Dispatchers.Main) { finishDocumentWork() }
             }
         }
@@ -2414,27 +2417,20 @@ class CanvasViewModel @Inject constructor(
         }
     }
 
-    /** Restore outcomes in the checkpoint fold's vocabulary. */
-    private fun restoreOutcomes(
-        restores: List<HistoryPixels.Restore>,
-    ): Map<Pair<LayerId, TileKey>, TilePresence> = buildMap {
-        for (restore in restores) {
-            for ((key, bytes) in restore.tiles) {
-                val presence = if (bytes == null || TileCodec.isAllZero(bytes)) {
-                    TilePresence.EMPTY
-                } else {
-                    TilePresence.PAINTED
-                }
-                put(restore.layer to key, presence)
-            }
-        }
-    }
+    /** Commits cap-driven membership changes only after the undo itself lands. */
+    private fun captureRedoPruneCheckpoint(): CheckpointSnapshot? {
+        val current = document ?: return null
+        val j = journal ?: return null
+        val pruned = j.pruneAfterRedoAccounting()
+        if (pruned.isEmpty()) return null
 
-    private fun accountRedoBytes(seq: Long, redoBytes: Long) {
-        val j = journal ?: return
-        // Accounting can now prune and move the main-thread-confined cursor.
-        pendingDeletes += j.noteRedoBytes(seq, redoBytes)
-        document = document?.copy(historyCursor = j.cursor)
+        pendingDeletes += pruned
+        document = current.copy(historyCursor = j.cursor)
+        dirty = true
+        documentRevision.incrementAndGet()
+        updateHistoryUi()
+
+        return captureCheckpointSnapshot()
     }
 
     private fun historyFlushKeys(

@@ -190,7 +190,8 @@ class HistoryJournal(private val limits: Limits) {
     fun push(entry: HistoryEntry): PushResult    // truncates redo, appends, prunes; returns what to delete/prune
     fun undo(): HistoryEntry?                    // cursor-- ; null at 0
     fun redo(): HistoryEntry?                    // cursor++ ; null at end
-    fun noteRedoBytes(seq: Long, redoBytes: Long): List<Long> // accounts the new sidecar, prunes, returns seqs to delete
+    fun noteRedoBytes(seq: Long, redoBytes: Long) // accounts the new sidecar before transition setup
+    fun pruneAfterRedoAccounting(): List<Long>   // prunes after the transition checkpoint
     fun canUndo(): Boolean; fun canRedo(): Boolean
 }
 
@@ -208,9 +209,11 @@ Rules (each one a JUnit test in `11-testing.md`):
   (`CanvasViewModel` → `HistoryStore`) applies the entry.
 - `bytes` counts the on-disk sizes of `.entry` plus `.redo`; the store reports those back after
   writing (`entry.bytes` is filled in by `HistoryStore`, so the pure class never guesses).
-  `noteRedoBytes` enforces the caps immediately. It prunes the oldest applied entries first,
-  then the far end of the redo branch if necessary, preserving the nearest applicable redo
-  transition and at least one entry. Returned seqs use §5.6's checkpoint-safe deletion path.
+  `noteRedoBytes` records the durable sidecar before transition setup, but does not prune: a
+  prune can move the cursor named by the transition marker. After the target checkpoint lands,
+  `pruneAfterRedoAccounting` drops the oldest applied entries first, then the far end of the
+  redo branch if necessary, preserving the nearest applicable redo transition and at least one
+  entry. A second checkpoint commits that exact membership before returned seqs are deleted.
 - The journal is *never* empty on a limit change: shrinking limits in Settings prunes on next
   push, not retroactively.
 
@@ -390,6 +393,9 @@ flush and a target `project.json` checkpoint; only that checkpoint removes the
 marker. On reopen, a source-cursor project idempotently reapplies the target
 model and pixels from `.entry`/`.redo` before tile relisting. A target-cursor
 project means the checkpoint landed and only marker deletion was interrupted.
+If redo-byte accounting exceeds a cap, pruning follows that target checkpoint
+under the same action gate. Its own checkpoint lands before any pruned files
+are deleted.
 
 Truncation/pruning deletes `.entry`/`.redo`/`.after` files *after* the `project.json` that no longer
 references them is written — a crash in between leaves an orphan file, which the loader

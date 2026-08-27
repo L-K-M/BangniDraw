@@ -119,14 +119,13 @@ class HistoryJournal(
      * The store wrote `<seq>.redo`: its size joins the entry's byte count, so
      * the prune-by-bytes cap sees what the journal actually costs on disk
      * (§5.1, §5.4). Unknown seqs are ignored — a newer edit may truncate the
-     * entry while its sidecar write is in flight. Returns entries pruned by
-     * the updated total so their files can follow the checkpoint-safe deletion
-     * path.
+     * entry while its sidecar write is in flight. Pruning is deferred until
+     * the undo transition lands, because pruning can move its cursor.
      */
-    fun noteRedoBytes(seq: Long, redoBytes: Long): List<Long> {
+    fun noteRedoBytes(seq: Long, redoBytes: Long) {
         require(redoBytes >= 0) { "redo bytes must be >= 0, was $redoBytes" }
         val index = list.indexOfFirst { it.seq == seq }
-        if (index < 0) return emptyList()
+        if (index < 0) return
         val entry = list[index]
         // stamp() is single-shot by design; the generated copy is the
         // documented escape hatch for the journal's own bookkeeping.
@@ -144,9 +143,10 @@ class HistoryJournal(
             is HistoryEntry.PaperColor -> entry.copy(bytes = entry.bytes + redoBytes)
         }
         bytes += redoBytes
-
-        return pruneToLimits()
     }
+
+    /** Enforces caps after the current undo transition is durable. */
+    fun pruneAfterRedoAccounting(): List<Long> = pruneToLimits()
 
     /**
      * Drops applied history from the oldest end first. If that is not enough,

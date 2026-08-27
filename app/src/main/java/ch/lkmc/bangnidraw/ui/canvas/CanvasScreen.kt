@@ -90,12 +90,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
@@ -665,10 +665,11 @@ private fun CanvasContent(
     // Keyed on the handler, not Unit: a recreated handler starts from an
     // identity transform, and without re-seeding its first gesture would
     // measure from the wrong baseline and jump.
-    LaunchedEffect(touch, state.touchDrawingMode, state.pressurePreference) {
+    LaunchedEffect(touch, state.touchDrawingMode, state.pressurePreference, state.snapRightAngles) {
         touch.setView(view)
         touch.stylusOnly = state.touchDrawingMode == TouchDrawingMode.STYLUS_ONLY
         touch.pressureCurve = PressureCurve.of(preference = state.pressurePreference)
+        touch.snapRightAngles = state.snapRightAngles
     }
 
     val shortcutContext = if (
@@ -995,6 +996,7 @@ private fun CanvasContent(
                 onFillSettingsRequested = {
                     viewModel.togglePanel(CanvasPanel.FILL_SETTINGS)
                 },
+                onEraserToggle = viewModel::toggleEraserPreset,
                 onSizeChanged = viewModel::updateActiveToolSize,
                 onOpacityChanged = viewModel::updateActiveToolOpacity,
                 onTuningFinished = viewModel::persistBrushTuning,
@@ -1035,7 +1037,7 @@ private fun CanvasContent(
                     }
                 },
                 onShare = {
-                    sharePainting(context, viewModel, ImageEncode.Format.PNG)
+                    sharePainting(context, viewModel, ImageEncode.Format.PNG, paintingName)
                 },
                 onExportPng = {
                     exportPainting(context, viewModel, ImageEncode.Format.PNG)
@@ -1210,6 +1212,7 @@ private fun CanvasContent(
                     shape = MaterialTheme.shapes.medium,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
+                        .semantics { liveRegion = LiveRegionMode.Assertive }
                         .padding(16.dp),
                 ) {
                     Text(
@@ -1220,6 +1223,14 @@ private fun CanvasContent(
                 }
             }
 
+            // The card must clear whatever chrome owns the bottom edge — the
+            // dock mode's rail sits 56 dp tall there, and the card composed
+            // after it would otherwise cover the dock's top half mid-fill.
+            val fillCardBottomPadding = when (layout.railMode) {
+                RailMode.DOCK -> DOCK_CHROME_HEIGHT.dp
+                RailMode.SHORT -> LEDGE_CHROME_HEIGHT.dp
+                RailMode.GROUPED, RailMode.FULL -> RESET_EDGE_PADDING.dp
+            }
             val fillProgress = state.fillProgress
             if (fillProgress != null) {
                 Surface(
@@ -1228,7 +1239,7 @@ private fun CanvasContent(
                     tonalElevation = 3.dp,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = FILL_PROGRESS_BOTTOM.dp)
+                        .padding(bottom = fillCardBottomPadding)
                         .width(FILL_PROGRESS_WIDTH.dp),
                 ) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -1723,6 +1734,7 @@ private fun sharePainting(
     context: android.content.Context,
     viewModel: CanvasViewModel,
     format: ImageEncode.Format,
+    title: String,
 ) {
     viewModel.share(
         format = format,
@@ -1732,7 +1744,8 @@ private fun sharePainting(
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(send, null))
+            // The painting's name heads the chooser, as in the Studio.
+            context.startActivity(Intent.createChooser(send, title))
         },
         onFailure = {
             Toast.makeText(context, R.string.studio_save_failed, Toast.LENGTH_SHORT).show()
@@ -1802,7 +1815,6 @@ private fun toolName(tool: ToolKind): String = when (tool) {
 
 /** 8 dp squares, per `03-canvas-engine.md` §3.2 step 1. */
 private const val CHECKER_DP = 8
-private const val FILL_PROGRESS_BOTTOM = 24
 private const val FILL_PROGRESS_WIDTH = 240
 private const val DOCK_HEIGHT = 56
 private const val DOCK_CHROME_HEIGHT = 120

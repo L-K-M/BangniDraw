@@ -22,8 +22,8 @@ android {
         // SurfaceControl — the drawing stack's floor (ADR 0002).
         minSdk = 29
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.0.6"
+        versionCode = 9
+        versionName = "1.0.7"
         buildConfigField("boolean", "MIXBOX", mixboxEnabled.toString())
         resValue("bool", "mixbox_enabled", mixboxEnabled.toString())
     }

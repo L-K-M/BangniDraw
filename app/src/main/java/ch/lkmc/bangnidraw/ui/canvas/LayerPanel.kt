@@ -582,6 +582,7 @@ private fun LayerRow(
                 LayerMenu(
                     expanded = menuOpen,
                     layer = layer,
+                    reorderActions = reorderActions,
                     onDismiss = { menuOpen = false },
                     onRename = onRename,
                     onDuplicate = onDuplicate,
@@ -591,6 +592,7 @@ private fun LayerRow(
                     onToggleLock = onToggleLock,
                     onBlendMode = onBlendMode,
                     onDelete = onDelete,
+                    onReorder = onReorder,
                 )
             }
         }
@@ -641,6 +643,7 @@ private fun LayerThumbnail(thumbnail: LayerThumbnail?) {
 private fun LayerMenu(
     expanded: Boolean,
     layer: Layer,
+    reorderActions: List<LayerReorderAction>,
     onDismiss: () -> Unit,
     onRename: () -> Unit,
     onDuplicate: () -> Unit,
@@ -650,8 +653,22 @@ private fun LayerMenu(
     onToggleLock: () -> Unit,
     onBlendMode: (BlendMode) -> Unit,
     onDelete: () -> Unit,
+    onReorder: (LayerReorderAction) -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        // The same moves the a11y custom actions offer, visible: drag is the
+        // fast path, but a phone sheet with a long stack makes dragging past
+        // the viewport awkward, and the menu works without a touch screen.
+        Text(
+            text = stringResource(R.string.layer_reorder),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        )
+        ReorderItem(R.string.layer_move_top, LayerReorderAction.TOP, reorderActions, onDismiss, onReorder)
+        ReorderItem(R.string.layer_move_up, LayerReorderAction.UP, reorderActions, onDismiss, onReorder)
+        ReorderItem(R.string.layer_move_down, LayerReorderAction.DOWN, reorderActions, onDismiss, onReorder)
+        ReorderItem(R.string.layer_move_bottom, LayerReorderAction.BOTTOM, reorderActions, onDismiss, onReorder)
         ActionItem(R.string.layer_rename, onDismiss, onRename)
         ActionItem(R.string.layer_duplicate, onDismiss, onDuplicate)
         ActionItem(R.string.layer_merge_down, onDismiss, onMergeDown)
@@ -680,6 +697,24 @@ private fun LayerMenu(
         }
         ActionItem(R.string.layer_delete, onDismiss, onDelete)
     }
+}
+
+@Composable
+private fun ReorderItem(
+    label: Int,
+    action: LayerReorderAction,
+    available: List<LayerReorderAction>,
+    onDismiss: () -> Unit,
+    onReorder: (LayerReorderAction) -> Unit,
+) {
+    DropdownMenuItem(
+        text = { Text(stringResource(label)) },
+        enabled = action in available,
+        onClick = {
+            onDismiss()
+            onReorder(action)
+        },
+    )
 }
 
 @Composable

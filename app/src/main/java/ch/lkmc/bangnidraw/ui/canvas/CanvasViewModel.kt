@@ -52,6 +52,7 @@ import ch.lkmc.bangnidraw.engine.core.ColorUiState
 import ch.lkmc.bangnidraw.engine.core.DishState
 import ch.lkmc.bangnidraw.engine.core.DishWell
 import ch.lkmc.bangnidraw.engine.core.Document
+import ch.lkmc.bangnidraw.engine.core.EraserTogglePolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
 import ch.lkmc.bangnidraw.engine.core.FillParams
@@ -225,6 +226,7 @@ class CanvasViewModel @Inject constructor(
             val touchDrawingMode: TouchDrawingMode,
             val hapticsMode: HapticsMode,
             val pressurePreference: PressurePreference,
+            val snapRightAngles: Boolean = false,
             val debugLatency: Boolean,
             val layerCap: Int,
             val strokeInFlight: Boolean = false,
@@ -261,6 +263,7 @@ class CanvasViewModel @Inject constructor(
     private var touchDrawingMode = TouchDrawingMode.ENABLED
     private var hapticsMode = HapticsMode.ENABLED
     private var pressurePreference = PressurePreference.LINEAR
+    private var snapRightAngles = false
     private var debugLatency = false
     private var chrome = CanvasChromeState()
     private var brushColor = OPAQUE_BLACK
@@ -451,6 +454,12 @@ class CanvasViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            prefs.snapRightAngles.collect { enabled ->
+                snapRightAngles = enabled
+                updateChromeUi()
+            }
+        }
+        viewModelScope.launch {
             prefs.debugLatency.collect { enabled ->
                 debugLatency = enabled
                 updateChromeUi()
@@ -609,6 +618,7 @@ class CanvasViewModel @Inject constructor(
             touchDrawingMode = touchDrawingMode,
             hapticsMode = hapticsMode,
             pressurePreference = pressurePreference,
+            snapRightAngles = snapRightAngles,
             debugLatency = debugLatency,
             layerCap = layerCap,
             strokeInFlight = actionGate.strokeInFlight,
@@ -647,6 +657,7 @@ class CanvasViewModel @Inject constructor(
             touchDrawingMode = touchDrawingMode,
             hapticsMode = hapticsMode,
             pressurePreference = pressurePreference,
+            snapRightAngles = snapRightAngles,
             debugLatency = debugLatency,
         )
     }
@@ -830,6 +841,16 @@ class CanvasViewModel @Inject constructor(
 
     internal fun selectEraser() {
         selectBrush(eraserBrushId)
+    }
+
+    /**
+     * The rail eraser slot's long-press: swap the rail eraser between the
+     * two shipped erasers. Session state like [selectBrush]; a preset set
+     * with fewer than two erasers has nothing to swap to.
+     */
+    internal fun toggleEraserPreset() {
+        val next = EraserTogglePolicy.next(eraserBrushId, brushPresets) ?: return
+        selectBrush(next)
     }
 
     fun selectSmudge() {

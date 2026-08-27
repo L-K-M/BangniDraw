@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -19,6 +21,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.FillParams
@@ -82,7 +87,10 @@ internal fun FillSettingsSheet(
                 text = stringResource(R.string.fill_reference),
                 style = MaterialTheme.typography.titleSmall,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(CHIP_GAP)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(CHIP_GAP),
+                modifier = Modifier.selectableGroup(),
+            ) {
                 FilterChip(
                     selected = active.reference == FillReference.CurrentLayer,
                     onClick = { onChanged(active.copy(reference = FillReference.CurrentLayer)) },
@@ -119,7 +127,9 @@ private fun FillSlider(
         onValueChange = onChanged,
         valueRange = range,
         steps = steps,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { contentDescription = label },
     )
 }
 
@@ -129,10 +139,15 @@ private fun FillToggle(label: String, checked: Boolean, onChanged: (Boolean) -> 
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = CONTROL_MIN_HEIGHT),
+            .heightIn(min = CONTROL_MIN_HEIGHT)
+            .toggleable(
+                value = checked,
+                role = Role.Switch,
+                onValueChange = onChanged,
+            ),
     ) {
         Text(label, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChanged)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 

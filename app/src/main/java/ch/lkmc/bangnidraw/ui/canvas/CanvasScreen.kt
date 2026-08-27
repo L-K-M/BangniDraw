@@ -21,6 +21,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -33,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -115,6 +117,7 @@ import ch.lkmc.bangnidraw.engine.core.WidthClass
 import ch.lkmc.bangnidraw.input.CanvasInputHost
 import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -1081,6 +1084,41 @@ private fun CanvasContent(
                     modifier = Modifier.zIndex(HINT_Z),
                 )
             }
+
+            // 08 §4.8: "Closing…" appears only when the leave checkpoint
+            // outlives the 300 ms grace — a fast leave stays a silent pop.
+            // The scrim is the last child, so it covers the chrome while
+            // the checkpoint runs.
+            var closingScrim by remember { mutableStateOf(false) }
+            LaunchedEffect(state.closing) {
+                if (!state.closing) {
+                    closingScrim = false
+                    return@LaunchedEffect
+                }
+                delay(CLOSING_SCRIM_DELAY_MS)
+                closingScrim = true
+            }
+            if (closingScrim) {
+                Surface(
+                    color = MaterialTheme.colorScheme.scrim.copy(alpha = CLOSING_SCRIM_ALPHA),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(CLOSING_SCRIM_Z),
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        CircularProgressIndicator()
+                        Text(
+                            text = stringResource(R.string.canvas_closing),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -1374,6 +1412,9 @@ private const val RESET_EDGE_PADDING = 16
 private const val EXCLUSION_GAP_DP = 16
 private const val CHROME_Z = 2f
 private const val HINT_Z = 3f
+private const val CLOSING_SCRIM_Z = 5f
+private const val CLOSING_SCRIM_ALPHA = 0.55f
+private const val CLOSING_SCRIM_DELAY_MS = 300L
 private const val RESET_DAMPING_RATIO = 0.8f
 private const val CHROME_ANIMATION_MS = 180
 private const val TOP_STRIP_TRAVERSAL = 0f

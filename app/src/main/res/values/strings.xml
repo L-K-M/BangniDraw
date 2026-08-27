@@ -65,6 +65,7 @@
     <!-- Canvas -->
     <string name="canvas_back">Back to the Studio</string>
     <string name="canvas_reset_view">Reset view</string>
+    <string name="canvas_closing">Closing…</string>
     <string name="canvas_view_readout">%1$d %% · %2$d°</string>
     <string name="panel_layers_opened">Layers panel opened</string>
     <string name="panel_color_opened">Color panel opened</string>

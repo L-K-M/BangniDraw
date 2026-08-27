@@ -225,6 +225,8 @@ class CanvasViewModel @Inject constructor(
             @StringRes val strokeLayerNotice: Int? = null,
             val strokeLayerNoticeRevision: Long = 0L,
             val fillProgress: Float? = null,
+            /** True while the leave checkpoint runs; the closing scrim shows. */
+            val closing: Boolean = false,
         ) : UiState
     }
 
@@ -2104,13 +2106,20 @@ class CanvasViewModel @Inject constructor(
     /**
      * The leave checkpoint (§6.2's Leave row): flush everything, then run
      * [afterWrite] on the main thread — the caller navigates in it, so the
-     * Studio never lists a stale shelf.
+     * Studio never lists a stale shelf. The closing flag drives 08 §4.8's
+     * scrim: shown only if the flush takes longer than 300 ms.
      */
     fun leave(afterWrite: () -> Unit) {
+        setClosing(true)
         appScope.launch {
             withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
             withContext(Dispatchers.Main) { afterWrite() }
         }
+    }
+
+    private fun setClosing(closing: Boolean) {
+        val state = _uiState.value
+        if (state is UiState.Ready) _uiState.value = state.copy(closing = closing)
     }
 
     /**

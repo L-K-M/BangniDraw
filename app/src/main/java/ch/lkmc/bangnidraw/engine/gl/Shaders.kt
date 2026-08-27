@@ -483,7 +483,7 @@ object Shaders {
         uniform sampler2D u_pickup;
         uniform vec2 u_tileOrigin;
         uniform vec2 u_scratchOrigin;
-        uniform vec2 u_scratchSize;
+        uniform vec2 u_beforeTexel;
         uniform float u_pickupEdge;
         uniform vec4 u_dab;
         uniform float u_strength;
@@ -494,7 +494,7 @@ object Shaders {
 
         void main() {
             vec2 canvas = u_tileOrigin + v_uv * float($TILE_SIZE);
-            vec2 scratchUv = (canvas - u_scratchOrigin) / u_scratchSize;
+            vec2 scratchUv = (canvas - u_scratchOrigin) * u_beforeTexel;
             vec2 pickupUv = (canvas - u_dab.xy) / u_pickupEdge + vec2(0.5);
             vec4 D = texture(u_before, scratchUv);
             vec4 P = texture(u_pickup, pickupUv);
@@ -521,7 +521,7 @@ object Shaders {
             Uniform("u_pickup", "sampler2D"),
             Uniform("u_tileOrigin", "vec2"),
             Uniform("u_scratchOrigin", "vec2"),
-            Uniform("u_scratchSize", "vec2"),
+            Uniform("u_beforeTexel", "vec2"),
             Uniform("u_pickupEdge", "float"),
             Uniform("u_dab", "vec4"),
             Uniform("u_strength", "float"),
@@ -536,7 +536,7 @@ object Shaders {
         uniform sampler2D u_before;
         uniform sampler2D u_pickup;
         uniform vec2 u_scratchOrigin;
-        uniform vec2 u_scratchSize;
+        uniform vec2 u_beforeTexel;
         uniform float u_pickupEdge;
         uniform vec4 u_dab;
         uniform float u_pickupRate;
@@ -547,7 +547,7 @@ object Shaders {
 
         void main() {
             vec2 canvas = u_dab.xy + (v_uv - vec2(0.5)) * u_pickupEdge;
-            vec2 scratchUv = (canvas - u_scratchOrigin) / u_scratchSize;
+            vec2 scratchUv = (canvas - u_scratchOrigin) * u_beforeTexel;
             vec4 P = texture(u_pickup, v_uv);
             vec4 L = texture(u_before, scratchUv);
             float w = u_pickupRate * rmwMask(canvas, u_dab);
@@ -572,7 +572,7 @@ object Shaders {
             Uniform("u_before", "sampler2D"),
             Uniform("u_pickup", "sampler2D"),
             Uniform("u_scratchOrigin", "vec2"),
-            Uniform("u_scratchSize", "vec2"),
+            Uniform("u_beforeTexel", "vec2"),
             Uniform("u_pickupEdge", "float"),
             Uniform("u_dab", "vec4"),
             Uniform("u_pickupRate", "float"),
@@ -585,15 +585,17 @@ object Shaders {
         precision highp sampler2D;
         #define MAX_BLUR_RADIUS ${BlurKernel.MAX_RADIUS}
         uniform sampler2D u_source;
+        uniform vec2 u_sourceScale;
         uniform vec2 u_texel;
         uniform int u_radius;
         in vec2 v_uv;
         out vec4 o_color;
         void main() {
+            vec2 sourceUv = v_uv * u_sourceScale;
             vec4 sum = vec4(0.0);
             for (int i = -MAX_BLUR_RADIUS; i <= MAX_BLUR_RADIUS; i++) {
                 if (abs(i) > u_radius) continue;
-                sum += texture(u_source, v_uv + vec2(float(i) * u_texel.x, 0.0));
+                sum += texture(u_source, sourceUv + vec2(float(i) * u_texel.x, 0.0));
             }
             o_color = sum / float(u_radius * 2 + 1);
         }
@@ -605,6 +607,7 @@ object Shaders {
         fragment = BLUR_HORIZONTAL_FRAG,
         uniforms = listOf(
             Uniform("u_source", "sampler2D"),
+            Uniform("u_sourceScale", "vec2"),
             Uniform("u_texel", "vec2"),
             Uniform("u_radius", "int"),
         ),
@@ -619,8 +622,8 @@ object Shaders {
         uniform sampler2D u_horizontal;
         uniform vec2 u_tileOrigin;
         uniform vec2 u_scratchOrigin;
-        uniform vec2 u_scratchSize;
-        uniform vec2 u_texel;
+        uniform vec2 u_beforeTexel;
+        uniform vec2 u_horizontalTexel;
         uniform vec4 u_dab;
         uniform float u_strength;
         uniform int u_radius;
@@ -631,14 +634,19 @@ object Shaders {
 
         void main() {
             vec2 canvas = u_tileOrigin + v_uv * float($TILE_SIZE);
-            vec2 scratchUv = (canvas - u_scratchOrigin) / u_scratchSize;
+            vec2 scratchPixel = canvas - u_scratchOrigin;
+            vec2 beforeUv = scratchPixel * u_beforeTexel;
+            vec2 horizontalUv = scratchPixel * u_horizontalTexel;
             vec4 sum = vec4(0.0);
             for (int i = -MAX_BLUR_RADIUS; i <= MAX_BLUR_RADIUS; i++) {
                 if (abs(i) > u_radius) continue;
-                sum += texture(u_horizontal, scratchUv + vec2(0.0, float(i) * u_texel.y));
+                sum += texture(
+                    u_horizontal,
+                    horizontalUv + vec2(0.0, float(i) * u_horizontalTexel.y)
+                );
             }
             vec4 blurred = sum / float(u_radius * 2 + 1);
-            vec4 original = texture(u_before, scratchUv);
+            vec4 original = texture(u_before, beforeUv);
             float w = u_strength * rmwMask(canvas, u_dab);
             o_color = mix(original, blurred, w);
         }
@@ -653,8 +661,8 @@ object Shaders {
             Uniform("u_horizontal", "sampler2D"),
             Uniform("u_tileOrigin", "vec2"),
             Uniform("u_scratchOrigin", "vec2"),
-            Uniform("u_scratchSize", "vec2"),
-            Uniform("u_texel", "vec2"),
+            Uniform("u_beforeTexel", "vec2"),
+            Uniform("u_horizontalTexel", "vec2"),
             Uniform("u_dab", "vec4"),
             Uniform("u_strength", "float"),
             Uniform("u_radius", "int"),

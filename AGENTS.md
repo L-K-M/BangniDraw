@@ -456,6 +456,12 @@ and the contradiction is noted here.
   use the plan's disk journal literally. Pen-up persists the ordinary history
   entry; context loss restores the captured pre-stroke state before reopening
   the persisted document.
+- **RMW scratch targets separate logical size from retained capacity.**
+  `SmudgePass` keeps its pressure-sized before/work textures at their
+  high-water dimensions. Viewports use `OffscreenTarget.width`/`height`,
+  shader UVs use `capacityWidth`/`capacityHeight`, and `bytes` reports the
+  capacity. Mixing those dimensions stretches samples or under-reports GPU
+  memory without producing a GL error.
 - **Generated palette names use a closed token grammar.** Only the four exact
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.

@@ -832,6 +832,13 @@ journal entry for an RMW stroke is opened at pen-down (§10.3), after the
 §10.1 wait on the previous stroke's readback so its "before" tiles are
 current.
 
+The pressure-sized `Scratch` and blur-work targets retain their per-session
+high-water allocation. A smaller dab changes only their logical width/height,
+viewport and quad; it does not delete immutable storage. Shader coordinates
+remain in logical pixels and multiply by the inverse allocated dimensions,
+so a retained larger texture samples the same texels. Memory reporting uses
+the allocated capacity, not the current logical viewport.
+
 **Cost model.** Per dab: ≈2 × (2r+2)² px of work (copy + draw) × tiles
 touched, plus one FBO bind per tile. At r = 32 and 4 tiles that is ≈36 K
 px; at 200 dabs per frame ≈7 M px — trivial. At r = 256 a single dab is

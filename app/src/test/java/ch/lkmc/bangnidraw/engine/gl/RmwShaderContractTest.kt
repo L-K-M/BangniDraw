@@ -35,8 +35,27 @@ class RmwShaderContractTest {
         assertTrue("#define MAX_BLUR_RADIUS ${BlurKernel.MAX_RADIUS}" in horizontal)
         assertTrue("if (abs(i) > u_radius) continue;" in horizontal)
         assertTrue("vec2(float(i) * u_texel.x, 0.0)" in horizontal)
-        assertTrue("vec2(0.0, float(i) * u_texel.y)" in vertical)
+        assertTrue("vec2(0.0, float(i) * u_horizontalTexel.y)" in vertical)
         assertTrue("mix(original, blurred, w)" in vertical)
         assertTrue("MIXLERP" !in horizontal && "MIXLERP" !in vertical)
+    }
+
+    @Test
+    fun `RMW shaders sample logical pixels within retained capacity`() {
+        val deposit = Shaders.SMUDGE_DEPOSIT.fragment
+        val absorb = Shaders.SMUDGE_ABSORB.fragment
+        val horizontal = Shaders.BLUR_HORIZONTAL.fragment
+        val vertical = Shaders.BLUR_VERTICAL.fragment
+
+        assertTrue("uniform vec2 u_beforeTexel;" in deposit)
+        assertTrue("(canvas - u_scratchOrigin) * u_beforeTexel" in deposit)
+        assertTrue("uniform vec2 u_beforeTexel;" in absorb)
+        assertTrue("(canvas - u_scratchOrigin) * u_beforeTexel" in absorb)
+        assertTrue("uniform vec2 u_sourceScale;" in horizontal)
+        assertTrue("v_uv * u_sourceScale" in horizontal)
+        assertTrue("uniform vec2 u_beforeTexel;" in vertical)
+        assertTrue("uniform vec2 u_horizontalTexel;" in vertical)
+        assertTrue("scratchPixel * u_beforeTexel" in vertical)
+        assertTrue("scratchPixel * u_horizontalTexel" in vertical)
     }
 }

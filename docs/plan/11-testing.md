@@ -341,6 +341,7 @@ They are part of the suite under the §11 rule (every pure class gets a
 | `SandwichInvalidationTest` | `SandwichPolicy`/`SandwichState` (03 §4, `05-layers.md` §8–9) | every row of 05 §8's table; `add` stales Below only |
 | `TilePoolAllocatorTest` | the pure slice allocator behind `TilePool` (ADR 0001, 03 §2.1) | allocate/free reuse, lazy page growth, `allocateNotOn` never returns an excluded page and creates a page when all are excluded, exhaustion is a value not an exception |
 | `StrokeMergeTest` | `StrokeMerge` (03 §7.4, §15) | the four merge modes on hand-computed premultiplied pixels; the opacity cap; MIX bit-exact with PAINT where one side is empty |
+| `OffscreenCapacityTest` | `OffscreenCapacity` (03 §7.6) | pressure-size ramps allocate only at new high-water marks; width/height grow independently; retained RGBA8 byte cost is exact |
 | `DabStampTest` | `DabStamp` (03 §7.2) | hardness falloff at `d = 0`, `h·r`, `r`; ≥ 1 px AA band at hardness 1; sub-pixel dab area weighting; `Max` vs `Accumulate` overlap |
 | `HistoryEntryTest`, `MergeSemanticsTest` | `05-layers.md` §9 | as listed there (apply → undo → equality; merge/flatten equal `Composite.tile`; the readback-drain case; undo on a locked layer succeeds, 05 §1) |
 | `ToolSwitcherTest` | `ToolSwitcher` (`04-tools.md` §9) | push/pop order with eraser end during a button hold; `select` during a temporary replaces the base; pop of a non-top reason is a no-op |
@@ -369,6 +370,7 @@ What is pinned, and from where:
 | `${BlendMode.entries}` shader ids distinct | the enum | two modes collapsing |
 | `u_strokeMode` (PAINT / ERASE / MIX) and `u_alphaLock` branches present in `merge.frag` (`03-canvas-engine.md` §7.4) | constants | silent no-op tools |
 | `#define BANGNI_MIXING` / `mixbox_lerp(` present in the `*_mix` merge and smudge variants; **absent** from the plain ones (`09-color-and-mixing.md` §5.2) | — | paying the LUT cost on every stroke |
+| RMW scratch UVs multiply logical pixels by inverse allocated dimensions; blur's full-rect UV scales by logical/allocation size (03 §7.6) | `OffscreenCapacity` and `SmudgePass` bindings | retained high-water textures stretching or offsetting smudge/blur samples |
 | The stroke-buffer opacity cap `S *= u_strokeOpacity / S.a` (`03-canvas-engine.md` §7.4) | `StrokeBuffer.MERGE_EXPR` | opacity cap drift from `CompositeTest` |
 | The 8-bit rounding helper | `Composite.ROUND_EXPR` | last-bit disagreement with the CPU reference |
 | `layout(location = N)` attribute indices | `Shaders.ATTR_POS`, `ATTR_UV` | VAO binding mismatch |

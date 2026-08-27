@@ -9,12 +9,14 @@ import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import java.io.File
+import java.io.IOException
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** `docs/plan/11-testing.md` §5's `ProjectStoreTest`, on a JVM temp dir. */
@@ -436,6 +438,67 @@ class ProjectStoreTest {
         // The source is untouched.
         assertIs<ProjectStore.LoadResult.Loaded>(store.load("src"))
         assertTrue(srcTiles.read(TileKey(0, 1)) is TileStore.Read.Pixels)
+        assertTrue(
+            root.listFiles().orEmpty().none {
+                it.name.endsWith(ProjectStore.DUPLICATING_SUFFIX)
+            },
+        )
+    }
+
+    @Test
+    fun `failed duplicate leaves no hidden project folder`() {
+        store.checkpoint(document(id = "src"))
+        TileStore(store.layerDir("src", LayerId("layer-b")))
+            .write(TileKey(0, 0), ByteArray(TILE_BYTES) { 7 })
+        val before = root.listFiles().orEmpty().map(File::getName).toSet()
+        val failingStore = ProjectStore(
+            root,
+            DuplicateFileWriter { _, _ -> throw IOException("disk full") },
+        )
+
+        assertNull(failingStore.duplicate("src", { "$it copy" }))
+        assertEquals(before, root.listFiles().orEmpty().map(File::getName).toSet())
+    }
+
+    @Test
+    fun `abandoned duplicate stage is swept on restart`() {
+        val stage = File(
+            root,
+            "00000000-0000-0000-0000-000000000001${ProjectStore.DUPLICATING_SUFFIX}",
+        )
+        assertTrue(stage.mkdirs())
+        File(stage, "orphan").writeText("partial")
+
+        ProjectStore(root).list()
+
+        assertTrue(!stage.exists())
+    }
+
+    @Test
+    fun `active duplicate stage survives listing from another store`() {
+        store.checkpoint(document(id = "src"))
+        TileStore(store.layerDir("src", LayerId("layer-b")))
+            .write(TileKey(0, 0), ByteArray(TILE_BYTES) { 7 })
+        var listed = false
+        val listingStore = ProjectStore(
+            root,
+            DuplicateFileWriter { source, target ->
+                if (!listed) {
+                    listed = true
+                    val stage = root.listFiles().orEmpty().single {
+                        it.name.endsWith(ProjectStore.DUPLICATING_SUFFIX)
+                    }
+                    store.list()
+                    assertTrue(stage.exists(), "another store must spare an active stage")
+                }
+                source.copyTo(target)
+            },
+        )
+
+        val newId = listingStore.duplicate("src", { "$it copy" })
+
+        kotlin.test.assertNotNull(newId)
+        assertIs<ProjectStore.LoadResult.Loaded>(listingStore.load(newId))
     }
 
     @Test

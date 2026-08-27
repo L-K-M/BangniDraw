@@ -11,6 +11,7 @@ class StrokeUiStateTest {
 
         state.setColor(0xFF804020.toInt())
 
+        assertEquals(0xFF804020.toInt(), state.colorArgb)
         assertEquals(128f / 255f, state.colorR)
         assertEquals(64f / 255f, state.colorG)
         assertEquals(32f / 255f, state.colorB)

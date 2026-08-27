@@ -15,6 +15,7 @@ import ch.lkmc.bangnidraw.data.CpuTile
 import ch.lkmc.bangnidraw.data.GalleryExporter
 import ch.lkmc.bangnidraw.data.GalleryNames
 import ch.lkmc.bangnidraw.data.ImageEncode
+import ch.lkmc.bangnidraw.data.PaletteStore
 import ch.lkmc.bangnidraw.data.Prefs
 import ch.lkmc.bangnidraw.data.HistoryCodec
 import ch.lkmc.bangnidraw.data.HistoryPixels
@@ -37,6 +38,11 @@ import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.ColorMixer
 import ch.lkmc.bangnidraw.engine.core.ColorMixerResolver
+import ch.lkmc.bangnidraw.engine.core.ColorPickSession
+import ch.lkmc.bangnidraw.engine.core.ColorPickTarget
+import ch.lkmc.bangnidraw.engine.core.ColorUiState
+import ch.lkmc.bangnidraw.engine.core.DishState
+import ch.lkmc.bangnidraw.engine.core.DishWell
 import ch.lkmc.bangnidraw.engine.core.Document
 import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
 import ch.lkmc.bangnidraw.engine.core.HistoryDirection
@@ -55,9 +61,14 @@ import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnailPolicy
 import ch.lkmc.bangnidraw.engine.core.LayerTileUpdates
+import ch.lkmc.bangnidraw.engine.core.LatestWriteTracker
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.MixingDish
+import ch.lkmc.bangnidraw.engine.core.Palette
+import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
+import ch.lkmc.bangnidraw.engine.core.PalettePolicy
+import ch.lkmc.bangnidraw.engine.core.PaletteSwatchPickSession
 import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.Refusal
 import ch.lkmc.bangnidraw.engine.core.RmwSpec
@@ -114,6 +125,8 @@ private enum class DocumentWork {
     ALREADY_STARTED,
 }
 
+internal enum class StrokeColorUsage { RECORD, IGNORE }
+
 /**
  * The Canvas screen's persistence half (roadmap 3a + 3b): opens or creates
  * the routed project, streams its tiles into the engine, funnels §10.1's
@@ -135,6 +148,7 @@ class CanvasViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val store: ProjectStore,
     private val presetStore: BrushPresetStore,
+    private val paletteStore: PaletteStore,
     private val exporter: GalleryExporter,
     private val prefs: Prefs,
     private val availableColorMixer: ColorMixer,
@@ -163,9 +177,7 @@ class CanvasViewModel @Inject constructor(
             val historyMaxBytes: Long = 0L,
             val brushPresets: List<BrushPreset>,
             val toolSelection: ToolSelection,
-            val brushColor: Int,
-            val mixerIsPigment: Boolean,
-            val pigmentMixerAvailable: Boolean,
+            val color: ColorUiState,
             val penButtonAction: PenButtonAction,
             val eraserEndPreset: String,
             val layerCap: Int,
@@ -193,6 +205,20 @@ class CanvasViewModel @Inject constructor(
     private var penButtonAction = PenButtonAction.Eraser
     private var eraserEndPreset = BrushPresets.HARD_ERASER_ID
     private var brushColor = OPAQUE_BLACK
+    private var previousBrushColor = OPAQUE_BLACK
+    private var userPalettes: List<Palette> = emptyList()
+    private val paletteWrites = LatestWriteTracker<String>()
+    private val paletteWriteMutex = Mutex()
+    private val recentWrites = LatestWriteTracker<Unit>()
+    private val recentWriteMutex = Mutex()
+    private var recentColors: List<Int> = emptyList()
+    private var activePaletteId = PaletteCatalog.PAINTERS_ID
+    private var dish = DishState(
+        PaletteCatalog.ULTRAMARINE_BLUE_ARGB.toInt(),
+        PaletteCatalog.CADMIUM_YELLOW_ARGB.toInt(),
+    )
+    private var colorPickSession: ColorPickSession? = null
+    private var swatchPickSession: PaletteSwatchPickSession? = null
     private var activeColorMixer = ColorMixerResolver.resolve(
         if (availableColorMixer.isPigment) MixerChoice.PIGMENT else MixerChoice.RGB,
         availableColorMixer,
@@ -323,6 +349,24 @@ class CanvasViewModel @Inject constructor(
                 updateToolUi()
             }
         }
+        viewModelScope.launch {
+            prefs.activePaletteId.collect { id ->
+                activePaletteId = id
+                updateToolUi()
+            }
+        }
+        viewModelScope.launch {
+            prefs.dish.collect { stored ->
+                dish = stored
+                updateToolUi()
+            }
+        }
+        viewModelScope.launch {
+            prefs.recentColors.collect { stored ->
+                recentColors = stored
+                updateToolUi()
+            }
+        }
     }
 
     private suspend fun open() {
@@ -338,6 +382,7 @@ class CanvasViewModel @Inject constructor(
                 .withSize(tuning?.size ?: preset.size)
                 .withOpacity(tuning?.opacity ?: preset.opacity)
         }
+        userPalettes = paletteStore.load()
         val default = brushPresets.firstOrNull { it.id == BrushPresets.PENCIL_ID }
             ?: brushPresets.first()
         toolSwitcher.select(ToolKind.Brush(default))
@@ -460,9 +505,7 @@ class CanvasViewModel @Inject constructor(
             historyMaxBytes = journalLimits.maxBytes,
             brushPresets = brushPresets,
             toolSelection = toolSwitcher.selection.value,
-            brushColor = brushColor,
-            mixerIsPigment = activeColorMixer.isPigment,
-            pigmentMixerAvailable = availableColorMixer.isPigment,
+            color = colorUiState(),
             penButtonAction = penButtonAction,
             eraserEndPreset = eraserEndPreset,
             layerCap = layerCap,
@@ -483,10 +526,29 @@ class CanvasViewModel @Inject constructor(
         _uiState.value = state.copy(
             brushPresets = brushPresets,
             toolSelection = toolSwitcher.selection.value,
-            brushColor = brushColor,
-            mixerIsPigment = activeColorMixer.isPigment,
+            color = colorUiState(),
             penButtonAction = penButtonAction,
             eraserEndPreset = eraserEndPreset,
+        )
+    }
+
+    private fun colorUiState(): ColorUiState {
+        val palettes = buildList {
+            add(PaletteCatalog.Painters)
+            add(PaletteCatalog.Basic)
+            add(PaletteCatalog.recent(recentColors))
+            addAll(userPalettes)
+        }
+        val resolvedId = activePaletteId.takeIf { id -> palettes.any { it.id == id } }
+            ?: PaletteCatalog.PAINTERS_ID
+        return ColorUiState(
+            current = brushColor,
+            previous = previousBrushColor,
+            palettes = palettes,
+            activePaletteId = resolvedId,
+            dish = dish,
+            mixerIsPigment = activeColorMixer.isPigment,
+            pigmentMixerAvailable = availableColorMixer.isPigment,
         )
     }
 
@@ -508,21 +570,60 @@ class CanvasViewModel @Inject constructor(
     fun selectBrush(id: String) {
         val preset = brushPresets.firstOrNull { it.id == id } ?: return
 
+        clearColorPick()
         toolSwitcher.select(ToolKind.Brush(preset))
         updateToolUi()
     }
 
     fun selectSmudge() {
+        clearColorPick()
         toolSwitcher.select(ToolKind.Smudge())
         updateToolUi()
     }
 
     fun selectBlur() {
+        clearColorPick()
         toolSwitcher.select(ToolKind.Blur())
         updateToolUi()
     }
 
     fun selectEyedropper() {
+        clearColorPick()
+        colorPickSession = newColorPick(ColorPickTarget.Current)
+        selectEyedropperTool()
+    }
+
+    internal fun selectDishEyedropper(well: DishWell) {
+        clearColorPick()
+        colorPickSession = newColorPick(
+            when (well) {
+                DishWell.A -> ColorPickTarget.WellA
+                DishWell.B -> ColorPickTarget.WellB
+            },
+        )
+        selectEyedropperTool()
+    }
+
+    internal fun selectPaletteSwatchEyedropper(index: Int) {
+        val palette = colorUiState().activePalette
+        if (palette.builtIn || index !in palette.swatches.indices) return
+
+        clearColorPick()
+        swatchPickSession = PaletteSwatchPickSession(
+            paletteId = palette.id,
+            index = index,
+            colorBefore = palette.swatches[index],
+        )
+        selectEyedropperTool()
+    }
+
+    internal fun prepareColorPick() {
+        if (colorPickSession == null && swatchPickSession == null) {
+            colorPickSession = newColorPick(ColorPickTarget.Current)
+        }
+    }
+
+    private fun selectEyedropperTool() {
         // Rail selection can arrive while the eraser end hovers. Remove that
         // top entry before Rail so hover exit cannot release out of order.
         hoverPointer = null
@@ -531,17 +632,173 @@ class CanvasViewModel @Inject constructor(
         updateToolUi()
     }
 
-    fun setBrushColor(argb: Int) {
-        brushColor = argb or OPAQUE_ALPHA
+    private fun clearColorPick() {
+        colorPickSession?.cancel()?.let(::applyColorPick)
+        colorPickSession = null
+        swatchPickSession?.let(::restoreSwatchPick)
+        swatchPickSession = null
+    }
+
+    internal fun selectBrushColor(argb: Int) {
+        val opaque = argb or OPAQUE_ALPHA
+        if (opaque == brushColor) return
+        previousBrushColor = brushColor
+        brushColor = opaque
+        updateToolUi()
+    }
+
+    internal fun previewPickedColor(argb: Int) {
+        val opaque = argb or OPAQUE_ALPHA
+        swatchPickSession?.let { session ->
+            editPickedSwatch { session.preview(it, opaque) }
+            updateToolUi()
+            return
+        }
+        val session = colorPickSession ?: newColorPick(ColorPickTarget.Current).also {
+            colorPickSession = it
+        }
+        applyColorPick(session.preview(opaque, brushColor, dish))
+        updateToolUi()
+    }
+
+    internal fun commitPickedColor() {
+        swatchPickSession?.let { session ->
+            userPalettes.firstOrNull { it.id == session.paletteId }?.let(::persistPalette)
+            swatchPickSession = null
+            return
+        }
+        val session = colorPickSession ?: return
+        if (session.changesDish) {
+            viewModelScope.launch { prefs.setDishWells(dish.a, dish.b) }
+        } else if (brushColor != session.currentBefore) {
+            previousBrushColor = session.currentBefore
+            updateToolUi()
+        }
+        colorPickSession = null
+    }
+
+    internal fun cancelPickedColor() {
+        clearColorPick()
+        updateToolUi()
+    }
+
+    private fun newColorPick(target: ColorPickTarget): ColorPickSession =
+        ColorPickSession(target, currentBefore = brushColor, dishBefore = dish)
+
+    private fun applyColorPick(result: ColorPickSession.Result) {
+        brushColor = result.current
+        dish = result.dish
+    }
+
+    private fun restoreSwatchPick(session: PaletteSwatchPickSession) {
+        editPickedSwatch(session::cancel)
+    }
+
+    private fun editPickedSwatch(edit: (Palette) -> Palette) {
+        val session = swatchPickSession ?: return
+        val palette = userPalettes.firstOrNull { it.id == session.paletteId } ?: return
+        userPalettes = PalettePolicy.upsert(userPalettes, edit(palette))
+    }
+
+    internal fun swapBrushColors() {
+        val swap = brushColor
+        brushColor = previousBrushColor
+        previousBrushColor = swap
         updateToolUi()
     }
 
     fun currentBrushColor(): Int = brushColor
 
-    fun mixingDish(a: Int, b: Int): IntArray = MixingDish.gradient(a, b, activeColorMixer)
+    internal fun mixingDish(a: Int, b: Int): IntArray = MixingDish.gradient(a, b, activeColorMixer)
+
+    internal fun mixingColor(a: Int, b: Int, t: Float): Int = activeColorMixer.mix(a, b, t)
 
     fun setMixerChoice(choice: MixerChoice) {
         viewModelScope.launch { prefs.setMixerChoice(choice) }
+    }
+
+    internal fun selectPalette(id: String) {
+        if (colorUiState().palettes.none { it.id == id }) return
+        activePaletteId = id
+        updateToolUi()
+        viewModelScope.launch { prefs.setActivePalette(id) }
+    }
+
+    internal fun createUserPalette() {
+        val source = colorUiState().activePalette
+        val created = Palette(
+            id = UUID.randomUUID().toString(),
+            name = PaletteCatalog.MY_PALETTE_NAME,
+            swatches = source.swatches,
+        )
+        userPalettes = userPalettes + created
+        activePaletteId = created.id
+        updateToolUi()
+        persistPalette(created)
+        viewModelScope.launch { prefs.setActivePalette(created.id) }
+    }
+
+    internal fun addColorToPalette(color: Int) {
+        val active = colorUiState().activePalette
+        val editable = if (active.builtIn) {
+            Palette(
+                id = UUID.randomUUID().toString(),
+                name = PaletteCatalog.MY_PALETTE_NAME,
+                swatches = active.swatches,
+            )
+        } else {
+            active
+        }
+        val updated = PalettePolicy.append(editable, color or OPAQUE_ALPHA)
+        replaceUserPalette(updated)
+    }
+
+    internal fun replacePaletteSwatch(index: Int) = editActivePalette { palette ->
+        PalettePolicy.replace(palette, index, brushColor)
+    }
+
+    internal fun deletePaletteSwatch(index: Int) = editActivePalette { palette ->
+        PalettePolicy.remove(palette, index)
+    }
+
+    internal fun movePaletteSwatch(from: Int, to: Int) = editActivePalette { palette ->
+        PalettePolicy.move(palette, from, to)
+    }
+
+    internal fun setDishWell(well: DishWell, color: Int) {
+        val opaque = color or OPAQUE_ALPHA
+        dish = when (well) {
+            DishWell.A -> dish.copy(a = opaque)
+            DishWell.B -> dish.copy(b = opaque)
+        }
+        updateToolUi()
+        viewModelScope.launch { prefs.setDishWells(dish.a, dish.b) }
+    }
+
+    private fun editActivePalette(edit: (Palette) -> Palette) {
+        val active = colorUiState().activePalette
+        if (active.builtIn) return
+        replaceUserPalette(edit(active))
+    }
+
+    private fun replaceUserPalette(palette: Palette) {
+        userPalettes = PalettePolicy.upsert(userPalettes, palette)
+        activePaletteId = palette.id
+        updateToolUi()
+        persistPalette(palette)
+        viewModelScope.launch { prefs.setActivePalette(palette.id) }
+    }
+
+    private fun persistPalette(palette: Palette) {
+        val revision = paletteWrites.issue(palette.id)
+        appScope.launch(Dispatchers.IO) {
+            paletteWriteMutex.withLock {
+                if (!paletteWrites.isCurrent(palette.id, revision)) return@withLock
+                runCatching { paletteStore.save(palette) }
+                    .onFailure { android.util.Log.w(TAG, "palette ${palette.id} could not be saved", it) }
+            }
+            paletteWrites.complete(palette.id, revision)
+        }
     }
 
     internal fun strokeMode(preset: BrushPreset): StrokeMode =
@@ -794,11 +1051,27 @@ class CanvasViewModel @Inject constructor(
     }
 
     /** Called at pen-up on the main thread; arms the autosave clocks. */
-    fun onStrokeCommitted() {
+    internal fun onStrokeCommitted(colorUsage: StrokeColorUsage, strokeColor: Int) {
         dirty = true
         contentDirty = true
         document?.stack?.active?.id?.let { markLayerThumbnailsDirty(listOf(it)) }
+        if (colorUsage == StrokeColorUsage.RECORD) {
+            recentColors = PalettePolicy.noteRecent(recentColors, strokeColor)
+            updateToolUi()
+            persistRecentColors(recentColors)
+        }
         noteChange()
+    }
+
+    private fun persistRecentColors(colors: List<Int>) {
+        val revision = recentWrites.issue(Unit)
+        appScope.launch {
+            recentWriteMutex.withLock {
+                if (!recentWrites.isCurrent(Unit, revision)) return@withLock
+                prefs.setRecentColors(colors)
+            }
+            recentWrites.complete(Unit, revision)
+        }
     }
 
     internal fun prepareStrokeCancel(mode: StrokeCancelMode) {

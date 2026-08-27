@@ -212,7 +212,7 @@ private fun CanvasContent(
                 override fun onColorPick(x: Float, y: Float) {
                     val engine = session ?: return
                     engine.sampleColor(x, y, EyedropperParams()) { color ->
-                        color?.let(viewModel::setBrushColor)
+                        color?.let(viewModel::selectBrushColor)
                     }
                 }
 
@@ -225,7 +225,7 @@ private fun CanvasContent(
                     val staleReason = strokeState.temporaryReason
                     strokeState.temporaryReason = null
                     if (strokeState.pickParams != null) {
-                        viewModel.setBrushColor(strokeState.previousColor)
+                        viewModel.cancelPickedColor()
                     }
                     strokeState.pickParams = null
                     val staleDriver = strokeState.driver
@@ -238,6 +238,7 @@ private fun CanvasContent(
                     }
                     strokeState.engine = null
                     strokeState.readModifyWrite = false
+                    strokeState.colorUsage = StrokeColorUsage.IGNORE
                     viewModel.endStrokeTool(staleReason)
                     val pickGeneration = strokeState.nextPickGeneration()
 
@@ -252,9 +253,9 @@ private fun CanvasContent(
                     strokeState.temporaryReason = selection.temporaryReason
                     val kind = selection.kind
                     if (kind is ToolKind.Eyedropper) {
+                        viewModel.prepareColorPick()
                         strokeState.engine = engine
                         strokeState.pickParams = kind.params
-                        strokeState.previousColor = viewModel.currentBrushColor()
                         strokeState.pickGeneration = pickGeneration
                         return
                     }
@@ -297,6 +298,11 @@ private fun CanvasContent(
                     strokeState.driver = driver
                     strokeState.engine = engine
                     strokeState.readModifyWrite = rmw != null
+                    strokeState.colorUsage = if (kind is ToolKind.Brush && !preset.eraseMode) {
+                        StrokeColorUsage.RECORD
+                    } else {
+                        StrokeColorUsage.IGNORE
+                    }
                     // Carried for every later sample. onStrokeBegin inspects
                     // `source` to pick erase mode, so passing a hardcoded
                     // STYLUS to the driver afterwards would report an eraser or
@@ -344,7 +350,7 @@ private fun CanvasContent(
                         val generation = strokeState.pickGeneration
                         engine.sampleColor(x, y, pick) { color ->
                             if (strokeState.pickGeneration == generation) {
-                                color?.let(viewModel::setBrushColor)
+                                color?.let(viewModel::previewPickedColor)
                             }
                         }
                         return
@@ -364,6 +370,7 @@ private fun CanvasContent(
                     val reason = strokeState.temporaryReason
                     strokeState.temporaryReason = null
                     if (strokeState.pickParams != null) {
+                        viewModel.commitPickedColor()
                         strokeState.pickParams = null
                         strokeState.engine = null
                         viewModel.endStrokeTool(reason)
@@ -381,6 +388,9 @@ private fun CanvasContent(
                     // sample to feed.
                     strokeState.driver = null
                     strokeState.readModifyWrite = false
+                    val colorUsage = strokeState.colorUsage
+                    strokeState.colorUsage = StrokeColorUsage.IGNORE
+                    val strokeColor = strokeState.colorArgb
                     val engine = strokeState.engine
                     strokeState.engine = null
                     if (engine == null) {
@@ -398,7 +408,7 @@ private fun CanvasContent(
                     engine.endStroke(driver.opacityCeiling)
                     // The commit's pixels reach disk through the readback; the
                     // ViewModel only needs to know the document changed.
-                    viewModel.onStrokeCommitted()
+                    viewModel.onStrokeCommitted(colorUsage, strokeColor)
                     viewModel.endStrokeTool(reason)
                 }
 
@@ -407,7 +417,7 @@ private fun CanvasContent(
                     strokeState.temporaryReason = null
                     if (strokeState.pickParams != null) {
                         strokeState.nextPickGeneration()
-                        viewModel.setBrushColor(strokeState.previousColor)
+                        viewModel.cancelPickedColor()
                         strokeState.pickParams = null
                         strokeState.engine = null
                         viewModel.endStrokeTool(reason)
@@ -418,6 +428,7 @@ private fun CanvasContent(
                     strokeState.engine?.cancelStroke(viewModel::prepareStrokeCancel)
                     strokeState.engine = null
                     strokeState.readModifyWrite = false
+                    strokeState.colorUsage = StrokeColorUsage.IGNORE
                     viewModel.endStrokeTool(reason)
                 }
 
@@ -496,12 +507,13 @@ private fun CanvasContent(
                 val stale = strokeState.driver
                 if (strokeState.pickParams != null) {
                     strokeState.nextPickGeneration()
-                    viewModel.setBrushColor(strokeState.previousColor)
+                    viewModel.cancelPickedColor()
                 }
                 strokeState.pickParams = null
                 strokeState.driver = null
                 strokeState.engine = null
                 strokeState.readModifyWrite = false
+                strokeState.colorUsage = StrokeColorUsage.IGNORE
                 stale?.cancel()
                 viewModel.endStrokeTool(strokeState.temporaryReason)
                 strokeState.temporaryReason = null
@@ -565,7 +577,7 @@ private fun CanvasContent(
             ToolRail(
                 presets = state.brushPresets,
                 selection = state.toolSelection,
-                brushColor = state.brushColor,
+                brushColor = state.color.current,
                 onBrushSelected = {
                     showBrushSettings = false
                     showLayers = false
@@ -756,7 +768,7 @@ private fun CanvasContent(
         BrushSettingsSheet(
             active = settingsPreset,
             presets = state.brushPresets,
-            brushColor = state.brushColor,
+            brushColor = state.color.current,
             paperColor = state.paperColor,
             onPresetSelected = viewModel::selectBrush,
             onPresetChanged = viewModel::updateActiveBrush,
@@ -767,12 +779,27 @@ private fun CanvasContent(
     }
     if (showColorPanel) {
         ColorPanel(
-            color = state.brushColor,
-            pigmentActive = state.mixerIsPigment,
-            pigmentAvailable = state.pigmentMixerAvailable,
-            mix = viewModel::mixingDish,
-            onColorChanged = viewModel::setBrushColor,
+            state = state.color,
+            mixSteps = viewModel::mixingDish,
+            mixColor = viewModel::mixingColor,
+            onColorSelected = viewModel::selectBrushColor,
+            onSwapColors = viewModel::swapBrushColors,
             onMixerChanged = viewModel::setMixerChoice,
+            onPaletteSelected = viewModel::selectPalette,
+            onCreatePalette = viewModel::createUserPalette,
+            onAddToPalette = viewModel::addColorToPalette,
+            onReplaceSwatch = viewModel::replacePaletteSwatch,
+            onDeleteSwatch = viewModel::deletePaletteSwatch,
+            onMoveSwatch = viewModel::movePaletteSwatch,
+            onPickSwatch = {
+                showColorPanel = false
+                viewModel.selectPaletteSwatchEyedropper(it)
+            },
+            onDishWellChanged = viewModel::setDishWell,
+            onPickDishWell = {
+                showColorPanel = false
+                viewModel.selectDishEyedropper(it)
+            },
             onDismiss = { showColorPanel = false },
         )
     }
@@ -794,17 +821,15 @@ private const val PANEL_COMPACT_FRACTION = 0.85f
  * Plain fields rather than Compose state: these change several hundred times a
  * second on the input path and nothing composes from them, so making them
  * observable would recompose the whole screen once per pen sample. The colour
- * becomes a real palette selection with the tool UI of roadmap step 5; until
- * then a stroke is black, which is enough for the device checks and honest
- * about what exists.
+ * is frozen into its StrokeSpec at pen-down.
  */
 internal class StrokeUiState {
     var driver: StrokeDriver? = null
     var readModifyWrite = false
+    var colorUsage = StrokeColorUsage.IGNORE
 
     var pickParams: EyedropperParams? = null
     var temporaryReason: TemporaryReason? = null
-    var previousColor: Int = 0
     var pickGeneration: Long = 0
 
     /**
@@ -831,11 +856,14 @@ internal class StrokeUiState {
     var source: StrokeSource = StrokeSource.STYLUS
 
     /** Straight sRGB, 0..1 — `dab.vert`'s `u_color`. */
+    var colorArgb: Int = OPAQUE_BLACK
+        private set
     var colorR = 0f
     var colorG = 0f
     var colorB = 0f
 
     fun setColor(argb: Int) {
+        colorArgb = argb
         colorR = ((argb ushr RED_SHIFT) and CHANNEL_MASK) / CHANNEL_MAX
         colorG = ((argb ushr GREEN_SHIFT) and CHANNEL_MASK) / CHANNEL_MAX
         colorB = (argb and CHANNEL_MASK) / CHANNEL_MAX
@@ -862,5 +890,6 @@ internal class StrokeUiState {
         const val GREEN_SHIFT = 8
         const val CHANNEL_MASK = 0xFF
         const val CHANNEL_MAX = 255f
+        const val OPAQUE_BLACK = 0xFF000000.toInt()
     }
 }

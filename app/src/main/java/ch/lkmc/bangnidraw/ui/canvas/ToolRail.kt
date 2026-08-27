@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.HistoryEdu
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -662,6 +663,7 @@ private fun iconFor(glyph: BrushToolGlyph): ImageVector = when (glyph) {
     // rail defeat the glance-recognition the rail exists for.
     BrushToolGlyph.PENCIL -> Icons.Filled.Draw
     BrushToolGlyph.INK_PEN -> Icons.Filled.Create
+    BrushToolGlyph.CALLIGRAPHY -> Icons.Filled.HistoryEdu
     BrushToolGlyph.PAINTBRUSH -> Icons.Filled.Brush
     BrushToolGlyph.AIRBRUSH -> Icons.Filled.Air
     BrushToolGlyph.MARKER -> ToolGlyphs.Marker

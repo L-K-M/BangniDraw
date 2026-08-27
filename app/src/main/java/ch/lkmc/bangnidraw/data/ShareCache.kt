@@ -28,24 +28,12 @@ class ShareCache @Inject constructor(
      */
     @Throws(IOException::class)
     fun stage(fileName: String, bytes: ByteArray): Uri {
-        val dir = File(context.cacheDir, DIR_NAME)
-        if (!dir.isDirectory && !dir.mkdirs()) throw IOException("could not create $dir")
-        rotate(dir)
-        val file = File(dir, fileName)
-        AtomicFiles.write(file, bytes)
+        val file = ShareStaging(File(context.cacheDir, DIR_NAME)).stage(fileName, bytes)
         return FileProvider.getUriForFile(context, context.packageName + AUTHORITY_SUFFIX, file)
-    }
-
-    private fun rotate(dir: File) {
-        val files = dir.listFiles()?.sortedByDescending { it.lastModified() } ?: return
-        for (stale in files.drop(KEEP)) stale.delete()
     }
 
     private companion object {
         const val DIR_NAME = "share"
         const val AUTHORITY_SUFFIX = ".fileprovider"
-
-        /** Staged copies kept besides the one being written. */
-        const val KEEP = 3
     }
 }

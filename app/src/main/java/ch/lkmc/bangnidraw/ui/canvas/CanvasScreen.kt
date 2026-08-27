@@ -981,7 +981,17 @@ private fun CanvasContent(
                     } == true
                     if (!recentScroll.isScrollInProgress && !screenReaderActive) {
                         delay(RECENT_POPOVER_MS)
-                        showRecentSwatches = false
+                        // Re-check: a service may have been enabled while
+                        // the wait ran (TalkBack's volume-key shortcut), and
+                        // yanking the popover mid-traversal is the exact
+                        // failure the guard exists to prevent.
+                        val screenReaderEnabledNow = accessibilityManager?.let { am ->
+                            am.isTouchExplorationEnabled ||
+                                am.getEnabledAccessibilityServiceList(
+                                    android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK,
+                                ).isNotEmpty()
+                        } == true
+                        if (!screenReaderEnabledNow) showRecentSwatches = false
                     }
                 }
                 val interaction = remember { MutableInteractionSource() }

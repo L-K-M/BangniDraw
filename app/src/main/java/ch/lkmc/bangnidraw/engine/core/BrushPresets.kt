@@ -14,6 +14,7 @@ package ch.lkmc.bangnidraw.engine.core
 object BrushPresets {
 
     const val PENCIL_ID = "builtin.pencil"
+    const val SOFT_PASTEL_ID = "builtin.soft_pastel"
     const val INK_PEN_ID = "builtin.ink_pen"
     const val PAINTBRUSH_ID = "builtin.paintbrush"
     const val AIRBRUSH_ID = "builtin.airbrush"
@@ -24,6 +25,7 @@ object BrushPresets {
 
     val RAIL_ORDER: List<String> = listOf(
         PENCIL_ID,
+        SOFT_PASTEL_ID,
         INK_PEN_ID,
         PAINTBRUSH_ID,
         AIRBRUSH_ID,
@@ -77,4 +79,24 @@ object BrushPresets {
         val rank = RAIL_ORDER.withIndex().associate { (index, id) -> id to index }
         return presets.sortedWith(compareBy({ rank[it.id] ?: Int.MAX_VALUE }, { it.id }))
     }
+
+    /** Keeps the full rail at five paint slots as the preset library grows. */
+    fun railPaints(presets: List<BrushPreset>, selectedId: String): List<BrushPreset> {
+        val paints = railOrder(presets).filterNot(BrushPreset::eraseMode)
+        val visible = paints.filterTo(mutableListOf()) { it.id in CORE_RAIL_IDS }
+        val selected = paints.firstOrNull { it.id == selectedId } ?: return visible
+        if (visible.any { it.id == selected.id }) return visible
+
+        if (visible.size == CORE_RAIL_IDS.size) visible.removeAt(visible.lastIndex)
+        visible += selected
+        return visible
+    }
+
+    private val CORE_RAIL_IDS = setOf(
+        PENCIL_ID,
+        INK_PEN_ID,
+        PAINTBRUSH_ID,
+        AIRBRUSH_ID,
+        MARKER_ID,
+    )
 }

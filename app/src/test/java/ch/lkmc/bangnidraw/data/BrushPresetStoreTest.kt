@@ -40,6 +40,7 @@ class BrushPresetStoreTest {
         assertEquals(
             setOf(
                 "builtin.pencil",
+                "builtin.soft_pastel",
                 "builtin.ink_pen",
                 "builtin.paintbrush",
                 "builtin.airbrush",

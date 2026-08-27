@@ -10,6 +10,7 @@ import ch.lkmc.bangnidraw.engine.core.BrushPresets
 @Composable
 internal fun brushPresetName(preset: BrushPreset): String = when (preset.id) {
     BrushPresets.PENCIL_ID -> stringResource(R.string.preset_pencil)
+    BrushPresets.SOFT_PASTEL_ID -> stringResource(R.string.preset_soft_pastel)
     BrushPresets.INK_PEN_ID -> stringResource(R.string.preset_ink_pen)
     BrushPresets.PAINTBRUSH_ID -> stringResource(R.string.preset_paintbrush)
     BrushPresets.AIRBRUSH_ID -> stringResource(R.string.preset_airbrush)

@@ -3,7 +3,7 @@
 **What this covers.** The implementable catalog behind PLAN.md §6 and
 decision 9 ("tools are presets over one engine"): the `Tool`/`ToolKind`
 model, the `BrushPreset` data class with every parameter and its meaning,
-the seven built-in presets with their actual values, the `DabGenerator`
+the built-in presets with their actual values, the `DabGenerator`
 and `Stabilizer` math, and the three non-brush tools (smudge/blur, fill,
 eyedropper) plus the eraser's S Pen bindings. It expands PLAN.md; where the
 engine plumbing (stroke buffer, `DabPass`, ping-pong RMW, tiles, readback)
@@ -63,7 +63,7 @@ one `HistoryEntry` per stroke.
 
 | Tool (rail slot) | `ToolKind` | Engine path | Writes to |
 | --- | --- | --- | --- |
-| Pencil, Ink pen, Paintbrush, Airbrush, Marker | `Brush(preset)` | `DabPass` → stroke buffer → merge on pen-up | active layer |
+| Pencil, Soft pastel, Ink pen, Paintbrush, Airbrush, Marker | `Brush(preset)` | `DabPass` → stroke buffer → merge on pen-up | active layer |
 | Hard eraser, Soft eraser | `Brush(preset.eraseMode=true)` | same | active layer (alpha only) |
 | Smudge | `Smudge` | `SmudgePass` ping-pong RMW per dab | active layer, live |
 | Blur | `Blur` | `SmudgePass` variant (separable kernel) | active layer, live |
@@ -371,6 +371,7 @@ device"). All sizes in canvas px; spacing is a fraction of the radius (§2);
 | Preset | size (min–max) | opacity | flow | hardness | spacing | tip / orientation | stabilizer | mixing (dilution) | erase |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Pencil | 4 (1–40) | 0.9 | 0.35 | 0.75 | 0.16 | Round / Fixed | 0.2 | off | – |
+| Soft pastel | 40 (6–200) | 0.8 | 0.24 | 0.62 | 0.14 | Flat(0.65) / Stylus | 0.18 | off | – |
 | Ink pen | 6 (1–60) | 1.0 | 1.0 | 1.0 | 0.10 | Round / Fixed | 0.7 | off | – |
 | Paintbrush | 40 (4–400) | 1.0 | 0.6 | 0.45 | 0.20 | Flat(0.7) / StrokeDirection | 0.35 | **on** (0.15) | – |
 | Airbrush | 120 (10–400) | 1.0 | 0.06 | 0.0 | 0.08 | Round / Fixed | 0.1 | off | – |
@@ -381,6 +382,7 @@ device"). All sizes in canvas px; spacing is a fraction of the radius (§2);
 | Preset | pressureSize | pressureOpacity | pressureFlow | tilt | velocity | jitter | bufferMode |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Pencil | floor(0.7) | gamma(0.8) | gamma(1.3) | size 2.2 at flat, opacity 0.5, elongate | none | size 0.1, pos 0.15 | Accumulate |
+| Soft pastel | `Curve(0.65, 0.75, 0.87, 1)` | `Curve(0.15, 0.4, 0.72, 1)` | `Curve(0.08, 0.3, 0.65, 1)` | size 1.8 at flat, opacity 0.75, elongate | none | size 0.18, pos 0.15 | Accumulate |
 | Ink pen | gamma(1.4), floor 0.15 blended: `Curve(0.15, 0.3, 0.6, 1)` | One | One | none | size 0.85 at fast (2 px/ms) | none | Max |
 | Paintbrush | `Curve(0.35, 0.6, 0.85, 1)` | One | gamma(0.7) | size 1.4 at flat | none | size 0.05 | Accumulate |
 | Airbrush | `Curve(0.6, 0.75, 0.9, 1)` | One | Linear | none | none | none | Accumulate |
@@ -399,6 +401,9 @@ Why the values feel the way they do:
   shading. Position jitter 0.15 breaks the dab edge into a slightly
   grainy line even before the v2 grain texture; hardness 0.75 keeps it
   from looking like a soft brush.
+- **Soft pastel.** A broad chisel, paper-anchored grain and irregular edge
+  create a crumbly mark. Pressure builds colour while tilt exposes more of
+  the stick's side for loose blocking and shading.
 - **Ink pen.** Hardness 1 with the 1 px AA skirt is a crisp line; flow 1,
   `Max` buffer and opacity 1 mean overlaps are invisible (ink does not
   build up). Pressure → size on a curve that starts at 15 % (a thin hair

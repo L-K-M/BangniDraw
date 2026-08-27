@@ -172,6 +172,7 @@ internal data class LayoutSpec(
         val laneRight = width - right
         val lowerChromeTop = chrome.asSequence()
             .filter { it.bottom > top }
+            // Full-height rails are already reserved by the side inset.
             .filter { it.top > top || it.bottom < height }
             .filter { it.left < laneRight && it.right > laneLeft }
             .minOfOrNull(LayoutRect::top)

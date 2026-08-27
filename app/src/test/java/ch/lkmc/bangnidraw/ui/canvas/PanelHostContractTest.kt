@@ -10,7 +10,13 @@ class PanelHostContractTest {
 
     @Test
     fun `handed panel alignment never mirrors with locale direction`() {
-        val source = File(repositoryRoot(), PANEL_HOST_PATH).readText()
+        val source = File(repositoryRoot(), PANEL_HOST_PATH)
+            .readLines()
+            .filterNot { line ->
+                val trimmed = line.trimStart()
+                trimmed.startsWith(LINE_COMMENT) || trimmed.startsWith(KDOC_LINE)
+            }
+            .joinToString("\n")
 
         assertTrue("AbsoluteAlignment.CenterRight" in source)
         assertTrue("AbsoluteAlignment.CenterLeft" in source)
@@ -32,6 +38,8 @@ class PanelHostContractTest {
         const val USER_DIRECTORY_PROPERTY = "user.dir"
         const val ROOT_MARKER = "settings.gradle.kts"
         const val APP_DIRECTORY = "app/src/main"
+        const val LINE_COMMENT = "//"
+        const val KDOC_LINE = "*"
         const val PANEL_HOST_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/PanelHost.kt"
     }

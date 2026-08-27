@@ -180,6 +180,7 @@ class LayoutSpecTest {
         assertEquals(DOCK_AND_LEDGE_DP, dock.bottomDp)
         assertEquals(SHORT_LEDGE_DP, short.bottomDp)
         assertEquals(shortSpec.railWidthDp, short.rightDp)
+        assertEquals(SHORT_RAIL_WIDTH_DP, shortSpec.railWidthDp)
     }
 
     private fun panelRect(
@@ -221,5 +222,6 @@ class LayoutSpecTest {
         const val PANEL_TEST_WIDTH_DP = 300
         const val DOCK_AND_LEDGE_DP = 112
         const val SHORT_LEDGE_DP = 48
+        const val SHORT_RAIL_WIDTH_DP = 56
     }
 }

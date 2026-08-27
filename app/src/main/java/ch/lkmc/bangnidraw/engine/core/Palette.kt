@@ -213,6 +213,22 @@ object PalettePolicy {
     fun createdName(input: String): String =
         input.trim().take(NAME_MAX_LENGTH).ifEmpty { PaletteCatalog.MY_PALETTE_NAME }
 
+    /** Compares the name the chip will show, including the localized default. */
+    fun isCreatedNameTaken(
+        input: String,
+        defaultDisplayName: String,
+        existingDisplayNames: Set<String>,
+    ): Boolean {
+        val storedName = createdName(input)
+        val displayName = if (storedName == PaletteCatalog.MY_PALETTE_NAME) {
+            defaultDisplayName
+        } else {
+            storedName
+        }
+
+        return displayName in existingDisplayNames
+    }
+
     /** Long enough for a real name, short enough for one chip. */
     const val NAME_MAX_LENGTH = 48
 

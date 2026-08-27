@@ -3,7 +3,9 @@ package ch.lkmc.bangnidraw.engine.core
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class PaletteTest {
 
@@ -100,5 +102,14 @@ class PaletteTest {
             PalettePolicy.NAME_MAX_LENGTH,
             PalettePolicy.createdName("x".repeat(500)).length,
         )
+    }
+
+    @Test
+    fun `created palette names collide by displayed label`() {
+        val existing = setOf("My palette", "Cadmiums")
+
+        assertTrue(PalettePolicy.isCreatedNameTaken("", "My palette", existing))
+        assertTrue(PalettePolicy.isCreatedNameTaken(" Cadmiums ", "My palette", existing))
+        assertFalse(PalettePolicy.isCreatedNameTaken("Earths", "My palette", existing))
     }
 }

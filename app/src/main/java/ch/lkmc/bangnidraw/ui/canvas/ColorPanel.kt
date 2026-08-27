@@ -646,10 +646,8 @@ private fun PaletteNameDialog(
     onDismiss: () -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
-    // Resolved, because blank means "the default": the collision check must
-    // see the name the chip would actually show.
-    val resolved = PalettePolicy.createdName(draft)
-    val taken = resolved in existingNames
+    val defaultDisplayName = stringResource(R.string.palette_my)
+    val taken = PalettePolicy.isCreatedNameTaken(draft, defaultDisplayName, existingNames)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.palette_create)) },
@@ -657,9 +655,10 @@ private fun PaletteNameDialog(
             Column {
                 OutlinedTextField(
                     value = draft,
-                    onValueChange = { draft = it },
+                    onValueChange = { draft = it.take(PalettePolicy.NAME_MAX_LENGTH) },
                     singleLine = true,
-                    placeholder = { Text(stringResource(R.string.palette_my)) },
+                    isError = taken,
+                    placeholder = { Text(defaultDisplayName) },
                 )
                 if (taken) {
                     Text(

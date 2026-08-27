@@ -432,6 +432,10 @@ and the contradiction is noted here.
   `HistoryStore.load` only proves the post-checkpoint journal prefix; it does
   not update `project.json`'s stale stack. Replay that prefix through
   `HistoryRecovery`, then relist every recovered layer directory.
+- **Project duplication commits by directory rename.** Build the copy under
+  `<uuid>.duplicating`, write its `project.json` last, then rename it to the
+  final UUID. The next Studio listing sweeps abandoned duplicate stages while
+  leaving the singleton store's active stages alone.
 - **Entry payload keys and changed tile keys differ.** Duplicate and flatten
   write tiles under new owners that have no before-payload. `WriteEntry` must
   flush `LayerEditPolicy.changedTiles`, and layer directories may be deleted

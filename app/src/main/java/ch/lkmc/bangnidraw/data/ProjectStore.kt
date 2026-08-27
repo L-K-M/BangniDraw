@@ -9,8 +9,18 @@ import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.isSafePathSegment
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+
+internal fun interface DuplicateFileWriter {
+    @Throws(IOException::class)
+    fun copy(source: File, target: File)
+}
+
+private val DEFAULT_DUPLICATE_FILE_WRITER = DuplicateFileWriter { source, target ->
+    source.copyTo(target)
+}
 
 /**
  * The project-folder lifecycle: `<root>/<uuid>/` with `project.json` as the
@@ -20,7 +30,14 @@ import kotlinx.serialization.json.Json
  * `File(context.filesDir, "projects")` — so the whole class runs on the JVM
  * suite against a temp dir (`docs/plan/11-testing.md` §5). IO thread only.
  */
-class ProjectStore(private val root: File) {
+class ProjectStore internal constructor(
+    private val root: File,
+    private val duplicateFileWriter: DuplicateFileWriter,
+) {
+
+    constructor(root: File) : this(root, DEFAULT_DUPLICATE_FILE_WRITER)
+
+    private val activeDuplicateStages = ConcurrentHashMap.newKeySet<String>()
 
     internal sealed interface LoadResult {
         /**
@@ -171,10 +188,9 @@ class ProjectStore(private val root: File) {
      * this class never holds display text. Runs only from the Studio, so no
      * Canvas holds the source open.
      *
-     * `project.json` is written **last**, so a kill mid-copy leaves a folder
-     * [list] skips — never a half-painting on the shelf. Returns the new id,
-     * or null when the source could not be read or the copy could not be
-     * written.
+     * The copy is assembled under `<uuid>.duplicating`, then renamed after
+     * `project.json` commits. A failed copy is removed immediately; a killed
+     * process leaves a stage the next store instance sweeps.
      */
     fun duplicate(
         sourceId: String,
@@ -184,6 +200,8 @@ class ProjectStore(private val root: File) {
         if (!isValidId(sourceId)) return null
         val sourceJson = File(projectDir(sourceId), ProjectFile.FILE_NAME)
         if (!sourceJson.isFile) return null
+        var stageDir: File? = null
+
         return try {
             val source = json.decodeFromString(
                 ProjectFile.serializer(),
@@ -201,23 +219,27 @@ class ProjectStore(private val root: File) {
             }
             val idMap = safeLayers.associate { it.id to java.util.UUID.randomUUID().toString() }
             val targetDir = projectDir(newId)
-            if (!targetDir.mkdirs()) throw IOException("could not create $targetDir")
+            if (targetDir.exists()) throw IOException("duplicate target already exists: $targetDir")
+            val stage = File(root, newId + DUPLICATING_SUFFIX)
+            stageDir = stage
+            activeDuplicateStages += stage.name
+            if (!stage.mkdirs()) throw IOException("could not create $stage")
 
             for (record in safeLayers) {
                 val newLayerId = idMap.getValue(record.id)
                 val sourceDir = File(layersDir(sourceId), record.id)
                 val children = sourceDir.listFiles() ?: continue
-                val destDir = File(layersDir(newId), newLayerId)
+                val destDir = File(File(stage, LAYERS_DIR), newLayerId)
                 if (!destDir.mkdirs()) throw IOException("could not create $destDir")
                 for (child in children) {
                     // Tiles only: an in-flight .tmp is a crashed writer's
                     // leftover, not content.
-                    if (TileStore.parseName(child.name) == null) continue
-                    child.copyTo(File(destDir, child.name))
+                    if (!child.isFile || TileStore.parseName(child.name) == null) continue
+                    duplicateFileWriter.copy(child, File(destDir, child.name))
                 }
             }
             File(projectDir(sourceId), THUMB_NAME).takeIf { it.isFile }
-                ?.copyTo(File(targetDir, THUMB_NAME))
+                ?.let { duplicateFileWriter.copy(it, File(stage, THUMB_NAME)) }
 
             val copy = source.copy(
                 id = newId,
@@ -233,9 +255,12 @@ class ProjectStore(private val root: File) {
                 galleryBytes = 0L,
             )
             AtomicFiles.write(
-                File(targetDir, ProjectFile.FILE_NAME),
+                File(stage, ProjectFile.FILE_NAME),
                 json.encodeToString(ProjectFile.serializer(), copy).toByteArray(Charsets.UTF_8),
             )
+            if (!stage.renameTo(targetDir)) {
+                throw IOException("could not commit duplicate $stage to $targetDir")
+            }
             newId
         } catch (e: SerializationException) {
             Log.w(TAG, "project $sourceId: duplicate skipped, unreadable project.json", e)
@@ -246,6 +271,11 @@ class ProjectStore(private val root: File) {
         } catch (e: IllegalArgumentException) {
             Log.w(TAG, "project $sourceId: duplicate skipped, invalid project.json", e)
             null
+        } finally {
+            stageDir?.let { stage ->
+                activeDuplicateStages -= stage.name
+                stage.deleteRecursively()
+            }
         }
     }
 
@@ -467,6 +497,10 @@ class ProjectStore(private val root: File) {
         val children = root.listFiles() ?: return emptyList()
         val out = ArrayList<Summary>(children.size)
         for (dir in children) {
+            if (isDuplicateStage(dir)) {
+                if (dir.name !in activeDuplicateStages) dir.deleteRecursively()
+                continue
+            }
             if (dir.name.endsWith(DELETING_SUFFIX)) {
                 dir.deleteRecursively()
                 continue
@@ -540,11 +574,24 @@ class ProjectStore(private val root: File) {
     private fun folderBytes(dir: File): Long =
         dir.walkTopDown().sumOf { if (it.isFile) it.length() else 0L }
 
+    private fun isDuplicateStage(file: File): Boolean {
+        if (!file.isDirectory || !file.name.endsWith(DUPLICATING_SUFFIX)) return false
+
+        val id = file.name.removeSuffix(DUPLICATING_SUFFIX)
+        return try {
+            java.util.UUID.fromString(id)
+            true
+        } catch (_: IllegalArgumentException) {
+            false
+        }
+    }
+
     internal companion object {
         const val TAG = "ProjectStore"
         const val LAYERS_DIR = "layers"
         const val THUMB_NAME = "thumb.png"
         const val DELETING_SUFFIX = ".deleting"
+        const val DUPLICATING_SUFFIX = ".duplicating"
 
         /**
          * §3's reader/writer settings. `ignoreUnknownKeys` is what lets an

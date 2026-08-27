@@ -23,11 +23,9 @@ import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Create
-import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.FormatColorFill
-import androidx.compose.material.icons.filled.Highlight
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -65,6 +63,8 @@ import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.BrushSizeScale
+import ch.lkmc.bangnidraw.engine.core.BrushToolGlyph
+import ch.lkmc.bangnidraw.engine.core.BrushToolGlyphPolicy
 import ch.lkmc.bangnidraw.engine.core.EraserTogglePolicy
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
@@ -436,10 +436,8 @@ private fun brushSlot(
         null
     }
     return ToolSlot(
-        icon = if (preset.eraseMode) Icons.Filled.DeleteSweep else iconFor(preset.id),
-        description = {
-            if (preset.eraseMode) stringResource(R.string.tool_eraser) else brushPresetName(preset)
-        },
+        icon = iconFor(BrushToolGlyphPolicy.forPreset(preset)),
+        description = { brushPresetName(preset) },
         state = buttonState(
             if (active) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
             selection,
@@ -658,16 +656,17 @@ private object SilentHapticFeedback : HapticFeedback {
     override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
 }
 
-private fun iconFor(id: String): ImageVector = when (id) {
+private fun iconFor(glyph: BrushToolGlyph): ImageVector = when (glyph) {
     // One distinct glyph per tool: the pencil must not share Gesture with the
     // smudge tool, nor the airbrush BlurOn with blur — identical glyphs in one
     // rail defeat the glance-recognition the rail exists for.
-    BrushPresets.PENCIL_ID -> Icons.Filled.Draw
-    BrushPresets.INK_PEN_ID -> Icons.Filled.Create
-    BrushPresets.PAINTBRUSH_ID -> Icons.Filled.Brush
-    BrushPresets.AIRBRUSH_ID -> Icons.Filled.Air
-    BrushPresets.MARKER_ID -> Icons.Filled.Highlight
-    else -> Icons.Filled.Tune
+    BrushToolGlyph.PENCIL -> Icons.Filled.Draw
+    BrushToolGlyph.INK_PEN -> Icons.Filled.Create
+    BrushToolGlyph.PAINTBRUSH -> Icons.Filled.Brush
+    BrushToolGlyph.AIRBRUSH -> Icons.Filled.Air
+    BrushToolGlyph.MARKER -> ToolGlyphs.Marker
+    BrushToolGlyph.ERASER -> ToolGlyphs.Eraser
+    BrushToolGlyph.CUSTOM -> Icons.Filled.Tune
 }
 
 private data class ToolSlot(

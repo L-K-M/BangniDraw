@@ -335,18 +335,30 @@ private fun ColorFields(
         onSelected(argb)
     }
 
+    /** Syncs the fields the user is NOT typing in; the typed field keeps its literal text. */
+    fun syncSiblings(argb: Int) {
+        red = Composite.red(argb).toString()
+        green = Composite.green(argb).toString()
+        blue = Composite.blue(argb).toString()
+    }
+
     fun selectRgb() {
         val r = ColorText.parseChannel(red) ?: return
         val g = ColorText.parseChannel(green) ?: return
         val b = ColorText.parseChannel(blue) ?: return
-        emit(Composite.argb(CHANNEL_MAX, r, g, b))
+        val argb = Composite.argb(CHANNEL_MAX, r, g, b)
+        hex = ColorText.hex(argb)
+        emit(argb)
     }
 
     OutlinedTextField(
         value = hex,
         onValueChange = {
             hex = it
-            ColorText.parseHex(it)?.let(::emit)
+            ColorText.parseHex(it)?.let { argb ->
+                syncSiblings(argb)
+                emit(argb)
+            }
         },
         label = { Text(stringResource(R.string.color_hex)) },
         singleLine = true,

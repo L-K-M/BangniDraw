@@ -63,6 +63,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -1101,6 +1104,10 @@ private fun CanvasContent(
             // The scrim is the last child, so it covers the chrome while
             // the checkpoint runs.
             var closingScrim by remember { mutableStateOf(false) }
+            val scrimFocus = remember { FocusRequester() }
+            LaunchedEffect(closingScrim) {
+                if (closingScrim) runCatching { scrimFocus.requestFocus() }
+            }
             LaunchedEffect(state.closing) {
                 if (!state.closing) {
                     closingScrim = false
@@ -1117,7 +1124,10 @@ private fun CanvasContent(
                         // The scrim is the front-most hit node while visible:
                         // consume every change of every gesture, so no tap,
                         // drag or stroke can reach the chrome or the canvas
-                        // mid-flush.
+                        // mid-flush. It also takes keyboard focus, so DeX and
+                        // TalkBack cannot activate the chrome beneath it.
+                        .focusRequester(scrimFocus)
+                        .focusable()
                         .pointerInput(Unit) {
                             awaitEachGesture {
                                 while (true) {

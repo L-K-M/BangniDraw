@@ -437,16 +437,9 @@ private fun brushSlot(
             }
         },
         hapticsEnabled = hapticsMode == HapticsMode.ENABLED,
-        onLongClick = if (preset.eraseMode) {
-            {
-                if (hapticsMode == HapticsMode.ENABLED) {
-                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                }
-                onEraserToggle?.invoke()
-            }
-        } else {
-            null
-        },
+        // The LONG_PRESS haptic is the built-in one, gated by the provider
+        // above; an explicit performHapticFeedback here would double it.
+        onLongClick = if (preset.eraseMode) onEraserToggle else null,
         longClickLabel = if (preset.eraseMode) toggleLabel else null,
     )
 }

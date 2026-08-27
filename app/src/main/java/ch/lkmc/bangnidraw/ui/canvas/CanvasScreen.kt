@@ -21,20 +21,36 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -59,8 +75,16 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusProperties
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -68,8 +92,11 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -91,6 +118,7 @@ import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasDialog
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
+import ch.lkmc.bangnidraw.engine.core.ColorText
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
@@ -101,6 +129,7 @@ import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.HintVisibility
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
+import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import ch.lkmc.bangnidraw.engine.core.PressureCurve
 import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
@@ -208,6 +237,12 @@ private fun CanvasContent(
     var session by remember { mutableStateOf<EngineSession?>(null) }
     var hoverRevision by remember { mutableIntStateOf(0) }
     var textInputFocus by remember { mutableStateOf(TextInputFocus.CLEAR) }
+    var showRecentSwatches by remember { mutableStateOf(false) }
+    val recentColors = state.color.palettes
+        .firstOrNull { it.id == PaletteCatalog.RECENT_ID }
+        ?.swatches
+        .orEmpty()
+    val recentScroll = rememberScrollState()
     var historyReadout by remember { mutableIntStateOf(0) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
 
@@ -221,6 +256,7 @@ private fun CanvasContent(
     val context = LocalContext.current
     CanvasImmersiveEffect()
     var seenStrokeNotice by remember { mutableLongStateOf(state.strokeLayerNoticeRevision) }
+    var seenLeaveNotice by remember { mutableLongStateOf(state.leaveNoticeRevision) }
 
     fun updateView(next: ViewTransform) {
         view = next
@@ -229,6 +265,12 @@ private fun CanvasContent(
     // 06 §4's one honest toast per open, when something could not be read.
     LaunchedEffect(state.warning) {
         state.warning?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+    }
+    // A failed leave keeps the canvas open; say so once per failure.
+    LaunchedEffect(state.leaveNoticeRevision) {
+        if (state.leaveNoticeRevision == seenLeaveNotice) return@LaunchedEffect
+        seenLeaveNotice = state.leaveNoticeRevision
+        Toast.makeText(context, R.string.err_leave_failed, Toast.LENGTH_LONG).show()
     }
     LaunchedEffect(state.strokeLayerNoticeRevision) {
         if (state.strokeLayerNoticeRevision == seenStrokeNotice) return@LaunchedEffect
@@ -297,6 +339,7 @@ private fun CanvasContent(
                 override fun onNavigateActive(active: Boolean) { navigating = active }
 
                 override fun onStrokeBegin(pointerId: Int, source: StrokeSource) {
+                    val staleFillStarted = strokeState.fillStarted
                     viewModel.cancelFill()
                     // A begin while one is already open means the previous
                     // stroke's end was lost — a gesture transition, a torn-down
@@ -311,6 +354,7 @@ private fun CanvasContent(
                     strokeState.pickParams = null
                     strokeState.fillParams = null
                     strokeState.fillTouch = false
+                    strokeState.fillStarted = false
                     val staleDriver = strokeState.driver
                     staleDriver?.cancel()
                     strokeState.driver = null
@@ -322,7 +366,12 @@ private fun CanvasContent(
                     strokeState.engine = null
                     strokeState.readModifyWrite = false
                     strokeState.colorUsage = StrokeColorUsage.IGNORE
-                    viewModel.endStrokeTool(staleReason)
+                    val staleDisposition = if (staleFillStarted) {
+                        StrokeEndDisposition.AWAIT_COMMIT
+                    } else {
+                        StrokeEndDisposition.COMPLETE
+                    }
+                    viewModel.endStrokeTool(staleReason, staleDisposition)
                     val pickGeneration = strokeState.nextPickGeneration()
 
                     val engine = session ?: return
@@ -352,7 +401,10 @@ private fun CanvasContent(
                         )
                         viewModel.noteStrokeLayerDecision(layerDecision)
                         if (layerDecision == StrokeLayerDecision.REFUSE_LOCKED) {
-                            viewModel.endStrokeTool(strokeState.temporaryReason)
+                            viewModel.endStrokeTool(
+                                strokeState.temporaryReason,
+                                StrokeEndDisposition.COMPLETE,
+                            )
                             strokeState.temporaryReason = null
                             return
                         }
@@ -370,7 +422,10 @@ private fun CanvasContent(
                         is ToolKind.Fill, is ToolKind.Eyedropper -> null
                     }
                     if (preset == null) {
-                        viewModel.endStrokeTool(strokeState.temporaryReason)
+                        viewModel.endStrokeTool(
+                            strokeState.temporaryReason,
+                            StrokeEndDisposition.COMPLETE,
+                        )
                         strokeState.temporaryReason = null
                         return
                     }
@@ -381,7 +436,10 @@ private fun CanvasContent(
                     )
                     viewModel.noteStrokeLayerDecision(layerDecision)
                     if (layerDecision == StrokeLayerDecision.REFUSE_LOCKED) {
-                        viewModel.endStrokeTool(strokeState.temporaryReason)
+                        viewModel.endStrokeTool(
+                            strokeState.temporaryReason,
+                            StrokeEndDisposition.COMPLETE,
+                        )
                         strokeState.temporaryReason = null
                         return
                     }
@@ -470,7 +528,13 @@ private fun CanvasContent(
                     val fill = strokeState.fillParams
                     if (fill != null) {
                         strokeState.fillParams = null
-                        viewModel.startFill(engine, x, y, fill, strokeState.colorArgb)
+                        strokeState.fillStarted = viewModel.startFill(
+                            engine,
+                            x,
+                            y,
+                            fill,
+                            strokeState.colorArgb,
+                        ) == FillStartResult.STARTED
                         return
                     }
 
@@ -492,20 +556,27 @@ private fun CanvasContent(
                         viewModel.commitPickedColor()
                         strokeState.pickParams = null
                         strokeState.engine = null
-                        viewModel.endStrokeTool(reason)
+                        viewModel.endStrokeTool(reason, StrokeEndDisposition.COMPLETE)
                         if (state.hapticsMode == HapticsMode.ENABLED) {
                             view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                         }
                         return
                     }
 
+                    val fillStarted = strokeState.fillStarted
                     strokeState.fillParams = null
                     strokeState.fillTouch = false
+                    strokeState.fillStarted = false
 
                     val driver = strokeState.driver
                     if (driver == null) {
                         strokeState.engine = null
-                        viewModel.endStrokeTool(reason)
+                        val disposition = if (fillStarted) {
+                            StrokeEndDisposition.AWAIT_COMMIT
+                        } else {
+                            StrokeEndDisposition.COMPLETE
+                        }
+                        viewModel.endStrokeTool(reason, disposition)
                         return
                     }
                     // Cleared before the session check, so no early return can
@@ -520,7 +591,7 @@ private fun CanvasContent(
                     strokeState.engine = null
                     if (engine == null) {
                         driver.cancel()
-                        viewModel.endStrokeTool(reason)
+                        viewModel.endStrokeTool(reason, StrokeEndDisposition.COMPLETE)
                         return
                     }
                     val batch = engine.acquireDabBatch()
@@ -534,7 +605,7 @@ private fun CanvasContent(
                     // The commit's pixels reach disk through the readback; the
                     // ViewModel only needs to know the document changed.
                     viewModel.onStrokeCommitted(colorUsage, strokeColor)
-                    viewModel.endStrokeTool(reason)
+                    viewModel.endStrokeTool(reason, StrokeEndDisposition.AWAIT_COMMIT)
                 }
 
                 override fun onStrokeCancel() {
@@ -545,12 +616,14 @@ private fun CanvasContent(
                         viewModel.cancelPickedColor()
                         strokeState.pickParams = null
                         strokeState.engine = null
-                        viewModel.endStrokeTool(reason)
+                        viewModel.endStrokeTool(reason, StrokeEndDisposition.COMPLETE)
                         return
                     }
                     val wasFill = strokeState.fillTouch
+                    val fillStarted = strokeState.fillStarted
                     strokeState.fillParams = null
                     strokeState.fillTouch = false
+                    strokeState.fillStarted = false
                     viewModel.cancelFill()
                     strokeState.driver?.cancel()
                     strokeState.driver = null
@@ -558,7 +631,12 @@ private fun CanvasContent(
                     strokeState.engine = null
                     strokeState.readModifyWrite = false
                     strokeState.colorUsage = StrokeColorUsage.IGNORE
-                    viewModel.endStrokeTool(reason)
+                    val disposition = if (wasFill && fillStarted) {
+                        StrokeEndDisposition.AWAIT_COMMIT
+                    } else {
+                        StrokeEndDisposition.COMPLETE
+                    }
+                    viewModel.endStrokeTool(reason, disposition)
                 }
 
                 // Roadmap 2.5b: §9's predicted tail. The same ring and the same
@@ -679,8 +757,9 @@ private fun CanvasContent(
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val widthClass = WidthClass.forWidth(maxWidth.value.toInt())
+        val widthClass = WidthClass.forWidth(maxWidth.value.roundToInt())
         val windowWidth = maxWidth
+        val windowHeight = maxHeight
         val safeInsets = WindowInsets.safeDrawing
         val verticalInsetDp = (
             safeInsets.getTop(density) + safeInsets.getBottom(density)
@@ -763,6 +842,7 @@ private fun CanvasContent(
                 // fact about another class: whatever runs below, the pin is
                 // already gone.
                 val stale = strokeState.driver
+                val fillStarted = strokeState.fillStarted
                 if (strokeState.pickParams != null) {
                     strokeState.nextPickGeneration()
                     viewModel.cancelPickedColor()
@@ -770,13 +850,19 @@ private fun CanvasContent(
                 strokeState.pickParams = null
                 strokeState.fillParams = null
                 strokeState.fillTouch = false
+                strokeState.fillStarted = false
                 viewModel.cancelFill()
                 strokeState.driver = null
                 strokeState.engine = null
                 strokeState.readModifyWrite = false
                 strokeState.colorUsage = StrokeColorUsage.IGNORE
                 stale?.cancel()
-                viewModel.endStrokeTool(strokeState.temporaryReason)
+                val disposition = if (fillStarted) {
+                    StrokeEndDisposition.AWAIT_COMMIT
+                } else {
+                    StrokeEndDisposition.COMPLETE
+                }
+                viewModel.endStrokeTool(strokeState.temporaryReason, disposition)
                 strokeState.temporaryReason = null
                 session = attached
                 // The ViewModel streams the painting's tiles into an arriving
@@ -817,7 +903,14 @@ private fun CanvasContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .safeDrawingPadding(),
+                .safeDrawingPadding()
+                // While a leave is flushing, the chrome is off-limits to
+                // every input modality: pointer events hit the closing
+                // scrim, and this drops the chrome from focus traversal and
+                // the accessibility tree so keyboard/TalkBack cannot reach
+                // it either.
+                .focusProperties { canFocus = !state.closing }
+                .semantics { if (state.closing) invisibleToUser() },
         ) {
             val chromeVisible = state.chrome.focusMode == FocusMode.CHROME
             val chromeAnimationMs = if (ValueAnimator.areAnimatorsEnabled()) {
@@ -933,6 +1026,14 @@ private fun CanvasContent(
                 onUndoLongPress = { historyReadout++ },
                 onLayers = { viewModel.togglePanel(CanvasPanel.LAYERS) },
                 onColor = { viewModel.togglePanel(CanvasPanel.COLOR) },
+                onColorLongPress = {
+                    // No colours painted yet: the panel is the honest answer.
+                    if (recentColors.isEmpty()) {
+                        viewModel.togglePanel(CanvasPanel.COLOR)
+                    } else {
+                        showRecentSwatches = true
+                    }
+                },
                 onShare = {
                     sharePainting(context, viewModel, ImageEncode.Format.PNG)
                 },
@@ -945,6 +1046,70 @@ private fun CanvasContent(
                 onFocus = viewModel::toggleFocus,
                 onRename = viewModel::requestRename,
                 onSettings = onSettings,
+                )
+            }
+
+            // The quick palette: the last colours painted with, one tap away
+            // from the strip's swatch. The scrim below it consumes the
+            // dismissing tap so it never draws (the panel rule, §4.1).
+            if (showRecentSwatches) {
+                BackHandler { showRecentSwatches = false }
+                // The hoisted scroll state outlives the popover; each open
+                // starts at the newest swatches.
+                LaunchedEffect(Unit) { recentScroll.scrollTo(0) }
+                // The auto-dismiss pauses while the user is scrolling the
+                // swatch list, and never runs while a screen reader is
+                // active — TalkBack traversal of a row of hex-named swatches
+                // cannot fit a fixed window (WCAG 2.2.1). Read fresh on
+                // every restart and again after the delay, so enabling
+                // TalkBack mid-session is honored.
+                val accessibilityManager = context.getSystemService(
+                    android.view.accessibility.AccessibilityManager::class.java,
+                )
+                LaunchedEffect(showRecentSwatches, recentScroll.isScrollInProgress) {
+                    if (
+                        !recentScroll.isScrollInProgress &&
+                        !accessibilityManager.hasActiveScreenReader()
+                    ) {
+                        // Switch Access (FEEDBACK_GENERIC) is missed by
+                        // hasActiveScreenReader but is far slower than a
+                        // fixed window; the platform's per-user "time to take
+                        // action" scales the wait for exactly that audience.
+                        delay(
+                            accessibilityManager?.getRecommendedTimeoutMillis(
+                                RECENT_POPOVER_MS.toInt(),
+                                android.view.accessibility.AccessibilityManager.FLAG_CONTENT_CONTROLS,
+                            )?.toLong() ?: RECENT_POPOVER_MS,
+                        )
+                        // Re-check: TalkBack may have been enabled while the
+                        // wait ran (its volume-key shortcut), and yanking the
+                        // popover mid-traversal is the exact failure the
+                        // guard exists to prevent.
+                        if (!accessibilityManager.hasActiveScreenReader()) {
+                            showRecentSwatches = false
+                        }
+                    }
+                }
+                val interaction = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(RECENT_SCRIM_Z)
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = null,
+                            onClick = { showRecentSwatches = false },
+                        )
+                        .clearAndSetSemantics {},
+                )
+                RecentPopover(
+                    colors = recentColors,
+                    current = state.color.current,
+                    scrollState = recentScroll,
+                    onSelected = { color ->
+                        viewModel.selectBrushColor(color)
+                        showRecentSwatches = false
+                    },
                 )
             }
 
@@ -1104,6 +1269,7 @@ private fun CanvasContent(
             PanelHost(
                 layout = layout,
                 windowWidth = windowWidth,
+                windowHeight = windowHeight,
                 announcement = panelAnnouncement(panel, state.toolSelection.kind),
                 visibility = if (panel == null) {
                     PanelVisibility.HIDDEN
@@ -1181,6 +1347,64 @@ private fun CanvasContent(
                     onDismiss = viewModel::dismissCanvasOverlay,
                     modifier = Modifier.zIndex(HINT_Z),
                 )
+            }
+        }
+
+        // 08 §4.8: "Closing…" appears only when the leave checkpoint
+        // outlives the 300 ms grace — a fast leave stays a silent pop.
+        // Composed OUTSIDE the gated chrome box on purpose: the chrome box
+        // drops focus and a11y while closing, and the scrim itself must keep
+        // both (it takes keyboard focus and announces the state).
+        var closingScrim by remember { mutableStateOf(false) }
+        val scrimFocus = remember { FocusRequester() }
+        LaunchedEffect(closingScrim) {
+            if (closingScrim) runCatching { scrimFocus.requestFocus() }
+        }
+        LaunchedEffect(state.closing) {
+            if (!state.closing) {
+                closingScrim = false
+                return@LaunchedEffect
+            }
+            delay(CLOSING_SCRIM_DELAY_MS)
+            closingScrim = true
+        }
+        if (closingScrim) {
+            Surface(
+                color = MaterialTheme.colorScheme.scrim.copy(alpha = CLOSING_SCRIM_ALPHA),
+                modifier = Modifier
+                    .fillMaxSize()
+                    // The scrim is the front-most hit node while visible:
+                    // consume every change of every gesture, so no tap,
+                    // drag or stroke can reach the chrome or the canvas
+                    // mid-flush. Focus and a11y gating for the chrome
+                    // lives on the chrome box itself.
+                    .focusRequester(scrimFocus)
+                    .focusable()
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { it.consume() }
+                                if (event.changes.none { it.pressed }) break
+                            }
+                        }
+                    }
+                    .zIndex(CLOSING_SCRIM_Z),
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    CircularProgressIndicator()
+                    Text(
+                        text = stringResource(R.string.canvas_closing),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .padding(top = 12.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                }
             }
         }
     }
@@ -1288,6 +1512,93 @@ private fun CanvasPanelContent(
         CanvasPanel.OVERFLOW, null -> Unit
     }
 }
+
+/**
+ * The strip swatch's long-press palette: the last colours painted with, as
+ * 48 dp targets in a wrapping row. Dismissed by its scrim, a selection, or
+ * the timeout.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BoxScope.RecentPopover(
+    colors: List<Int>,
+    current: Int,
+    scrollState: ScrollState,
+    onSelected: (Int) -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = MaterialTheme.shapes.large,
+        tonalElevation = 4.dp,
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .padding(top = RECENT_POPOVER_TOP.dp)
+            .zIndex(CHROME_Z)
+            .widthIn(max = RECENT_POPOVER_MAX.dp),
+    ) {
+        Column(Modifier.padding(8.dp)) {
+            Text(
+                text = stringResource(R.string.palette_recent),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier
+                    .heightIn(max = RECENT_POPOVER_MAX_HEIGHT.dp)
+                    .verticalScroll(scrollState),
+            ) {
+                for (color in colors) {
+                    val selected = color == current
+                    val border = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outline
+                    }
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(RECENT_TARGET.dp)
+                            .semantics {
+                                contentDescription = ColorText.hex(color)
+                                this.selected = selected
+                            }
+                            .clickable { onSelected(color) },
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(RECENT_VISUAL.dp)
+                                .clip(CircleShape)
+                                .border(
+                                    if (selected) 2.dp else 1.dp,
+                                    border,
+                                    CircleShape,
+                                ),
+                        ) {
+                            Canvas(Modifier.fillMaxSize()) { drawCircle(Color(color)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Whether a screen reader is driving this session: touch exploration
+ * (TalkBack's classic mode) or any enabled service that speaks. Deliberately
+ * NOT every accessibility service — a password manager or screen dimmer
+ * (FEEDBACK_GENERIC) must not freeze the popover's auto-dismiss. Slower
+ * non-spoken navigation (Switch Access) is not exempted.
+ */
+private fun android.view.accessibility.AccessibilityManager?.hasActiveScreenReader(): Boolean =
+    this?.let { am ->
+        am.isTouchExplorationEnabled ||
+            am.getEnabledAccessibilityServiceList(
+                android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_SPOKEN,
+            ).isNotEmpty()
+    } == true
 
 @Composable
 private fun panelAnnouncement(panel: CanvasPanel?, kind: ToolKind? = null): String = when (panel) {
@@ -1501,8 +1812,22 @@ private const val RESET_EDGE_PADDING = 16
 private const val EXCLUSION_GAP_DP = 16
 private const val CHROME_Z = 2f
 private const val HINT_Z = 3f
+private const val CLOSING_SCRIM_Z = 5f
+private const val CLOSING_SCRIM_ALPHA = 0.55f
+// 08 §4.8 fixes the scrim threshold at 300 ms; the leave() grace period in
+// CanvasViewModel (LEAVE_HANDOFF_GRACE_MS) is the stranded-scrim reset, not
+// a scrim threshold — a cancelled back gesture may therefore flash the scrim
+// briefly before the canvas pops back, which is honest feedback, not a bug.
+private const val CLOSING_SCRIM_DELAY_MS = 300L
 private const val RESET_DAMPING_RATIO = 0.8f
 private const val CHROME_ANIMATION_MS = 180
+private const val RECENT_POPOVER_MS = 4_000L
+private const val RECENT_SCRIM_Z = CHROME_Z
+private const val RECENT_POPOVER_TOP = 56
+private const val RECENT_POPOVER_MAX = 336
+private const val RECENT_POPOVER_MAX_HEIGHT = 240
+private const val RECENT_TARGET = 48
+private const val RECENT_VISUAL = 34
 private const val HISTORY_READOUT_MS = 2_000L
 private const val HISTORY_READOUT_TOP = 56
 private val READOUT_GAP = 8.dp
@@ -1542,6 +1867,7 @@ internal class StrokeUiState {
     var pickParams: EyedropperParams? = null
     var fillParams: FillParams? = null
     var fillTouch = false
+    var fillStarted = false
     var temporaryReason: TemporaryReason? = null
     var pickGeneration: Long = 0
 

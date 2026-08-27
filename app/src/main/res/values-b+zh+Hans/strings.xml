@@ -61,6 +61,7 @@
 
     <string name="canvas_back">返回画室</string>
     <string name="canvas_reset_view">复位视图</string>
+    <string name="canvas_closing">正在关闭…</string>
     <string name="canvas_view_readout">%1$d %% · %2$d°</string>
     <string name="panel_layers_opened">图层面板已打开</string>
     <string name="panel_color_opened">颜色面板已打开</string>
@@ -81,6 +82,7 @@
     <string name="canvas_focus">专注模式</string>
     <string name="canvas_settings">设置</string>
     <string name="cd_color">颜色，%1$s</string>
+    <string name="cd_quick_palette">显示最近颜色</string>
     <string name="canvas_show_controls">显示控件</string>
     <string name="canvas_hint_draw">用手指或笔绘画</string>
     <string name="canvas_hint_navigate">双指移动、缩放和旋转</string>
@@ -248,6 +250,7 @@
     <string name="err_tiles_unreadable">这张画的一部分无法读取。</string>
     <string name="err_layers_unreadable">这张画的一些图层无法读取。</string>
     <string name="err_storage_full">存储空间已满——请清理空间以保留更改。</string>
+    <string name="err_leave_failed">无法完成保存——画作保持打开。</string>
 
     <string name="settings_title">设置</string>
     <string name="settings_drawing">绘画</string>

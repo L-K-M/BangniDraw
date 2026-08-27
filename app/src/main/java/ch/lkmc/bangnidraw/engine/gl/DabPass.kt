@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.engine.gl
 import android.opengl.GLES30
 import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.DabBatch
+import ch.lkmc.bangnidraw.engine.core.DabBounds
 import ch.lkmc.bangnidraw.engine.core.GrainMode
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
@@ -28,12 +29,8 @@ import java.nio.FloatBuffer
  * `DabStamp.blendIntoBuffer` performs on the CPU — the property §7.2 states
  * and `DabStampTest` pins on the JVM side.
  *
- * **One allocation per dab, and no more** (`10-performance.md` §2.4). Every
- * scratch array and the instance buffer are fields that grow and are reused.
- * The exception is `IntRect.forDab`, whose own KDoc calls it out as the
- * allocation the dab path makes; it runs once per dab here, with the bounds
- * cached for the per-key pass so the cost does not multiply by the number of
- * tiles a batch touches.
+ * **No steady-state per-dab allocation** (`10-performance.md` §2.4). Every
+ * scratch array, primitive bound, and the instance buffer grow and are reused.
  *
  * GL-thread-only.
  */
@@ -73,11 +70,8 @@ class DabPass(
      * Each dab's canvas rect, four ints per dab, computed once per batch by
      * [collectKeys] and read by [gatherDabsFor].
      *
-     * `IntRect.forDab` allocates — its own KDoc calls that out as the one
-     * allocation the dab path makes — and `gatherDabsFor` runs once per
-     * *touched key*, so recomputing there cost `dabs x keys` short-lived
-     * objects per batch: four thousand of them for a full batch across four
-     * tiles, on the path `10-performance.md` §2.4 is about.
+     * Primitive edges avoid one short-lived rectangle per dab, while caching
+     * still avoids recomputing them once per touched key.
      */
     private var dabBounds = IntArray(0)
 
@@ -189,13 +183,20 @@ class DabPass(
         if (dabBounds.size < batch.count * 4) dabBounds = IntArray(batch.count * 4)
         var distinct = 0
         for (i in from until until) {
-            val rect = IntRect.forDab(batch.x[i], batch.y[i], batch.radius[i])
+            val x = batch.x[i]
+            val y = batch.y[i]
+            val radius = batch.radius[i]
+            DabBounds.requireValid(x, y, radius)
             val o = i * 4
-            dabBounds[o] = rect.left
-            dabBounds[o + 1] = rect.top
-            dabBounds[o + 2] = rect.right
-            dabBounds[o + 3] = rect.bottom
-            val n = grid.keysFor(rect, dabKeys)
+            val left = DabBounds.left(x, radius)
+            val top = DabBounds.top(y, radius)
+            val right = DabBounds.right(x, radius)
+            val bottom = DabBounds.bottom(y, radius)
+            dabBounds[o] = left
+            dabBounds[o + 1] = top
+            dabBounds[o + 2] = right
+            dabBounds[o + 3] = bottom
+            val n = grid.keysForBounds(left, top, right, bottom, dabKeys)
             for (j in 0 until n) {
                 val key = TileKey(dabKeys[j])
                 val index = key.ty * grid.tilesX + key.tx

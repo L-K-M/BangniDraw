@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,11 +36,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
@@ -65,6 +72,7 @@ internal fun TopStrip(
     onUndoLongPress: () -> Unit,
     onLayers: () -> Unit,
     onColor: () -> Unit,
+    onColorLongPress: () -> Unit,
     onShare: () -> Unit,
     onExportPng: () -> Unit,
     onExportJpeg: () -> Unit,
@@ -89,8 +97,10 @@ internal fun TopStrip(
             activeLayer,
             brushColor,
             openPanel,
+            hapticsMode,
             onLayers,
             onColor,
+            onColorLongPress,
             onShare,
             onExportPng,
             onExportJpeg,
@@ -204,8 +214,10 @@ private fun ToolCluster(
     activeLayer: Int,
     brushColor: Int,
     openPanel: CanvasPanel?,
+    hapticsMode: HapticsMode,
     onLayers: () -> Unit,
     onColor: () -> Unit,
+    onColorLongPress: () -> Unit,
     onShare: () -> Unit,
     onExportPng: () -> Unit,
     onExportJpeg: () -> Unit,
@@ -213,6 +225,7 @@ private fun ToolCluster(
     onRename: () -> Unit,
     onSettings: (() -> Unit)?,
 ) {
+    val view = LocalView.current
     Row(horizontalArrangement = Arrangement.End) {
         Box(contentAlignment = Alignment.BottomEnd) {
             IconButton(onClick = onLayers) {
@@ -241,20 +254,51 @@ private fun ToolCluster(
             R.string.cd_color,
             String.format("#%06X", brushColor and RGB_MASK),
         )
-        IconButton(
-            onClick = onColor,
-            modifier = Modifier.semantics { contentDescription = colorDescription },
+        val quickPaletteLabel = stringResource(R.string.cd_quick_palette)
+        // Long-press = the quick palette: the last colours painted with,
+        // without opening the colour panel. combinedClickable keeps tap and
+        // long-press mutually exclusive — releasing after a long press must
+        // not also open the panel over the popover. Its built-in LongPress
+        // haptic knows nothing of the app's HapticsMode, so the provider
+        // silences it for haptics-off users.
+        CompositionLocalProvider(
+            LocalHapticFeedback provides if (hapticsMode == HapticsMode.ENABLED) {
+                LocalHapticFeedback.current
+            } else {
+                NoOpHapticFeedback
+            },
         ) {
             Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(COLOR_SWATCH)
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outline,
-                        shape = RoundedCornerShape(COLOR_RADIUS),
-                    ),
+                    .size(ICON_BUTTON)
+                    .combinedClickable(
+                        onClick = onColor,
+                        onLongClickLabel = quickPaletteLabel,
+                        onLongClick = { onColorLongPress() },
+                    )
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = colorDescription
+                        customActions = listOf(
+                            CustomAccessibilityAction(quickPaletteLabel) {
+                                onColorLongPress()
+                                true
+                            },
+                        )
+                    },
             ) {
-                Canvas(Modifier.size(COLOR_SWATCH)) { drawRect(Color(brushColor)) }
+                Box(
+                    modifier = Modifier
+                        .size(COLOR_SWATCH)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline,
+                            shape = RoundedCornerShape(COLOR_RADIUS),
+                        ),
+                ) {
+                    Canvas(Modifier.size(COLOR_SWATCH)) { drawRect(Color(brushColor)) }
+                }
             }
         }
         OverflowMenu(
@@ -310,11 +354,16 @@ private fun OverflowItem(label: Int, action: () -> Unit, dismiss: () -> Unit) {
 }
 
 private val STRIP_HEIGHT = 48.dp
+private val COLOR_SWATCH = 24.dp
 private val ICON_BUTTON = 48.dp
 private const val DISABLED_ALPHA = 0.38f
-private val COLOR_SWATCH = 24.dp
 private val COLOR_RADIUS = 6.dp
 private val BADGE_RADIUS = 8.dp
 private const val RGB_MASK = 0xFFFFFF
+
+/** Silences combinedClickable's built-in long-press haptic (HapticsMode.DISABLED). */
+private object NoOpHapticFeedback : HapticFeedback {
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
+}
 
 internal enum class ActionAvailability { ENABLED, DISABLED }

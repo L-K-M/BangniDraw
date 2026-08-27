@@ -91,6 +91,8 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - The CPU reference implementations in `engine/core` (`Composite`, the
   mixing formula, dab falloff) and the GLSL must stay trivially close; when
   one changes, change both, and let the unit tests pin the semantics.
+- `DabBounds` owns dab-edge arithmetic. Live `DabBatch` and `DabPass` paths
+  retain primitive edges; do not rebuild `IntRect` per dab.
 - Sandwich tile passes must ping-pong into a pool page distinct from both
   sampled pages. `Below` supports every blend mode; `Above` is unavailable
   when a visible non-Normal layer breaks source-over associativity. Grouping
@@ -125,6 +127,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - Android caps each edge's system-gesture exclusion to 200 dp vertically.
   Canvas centres that segment beside the side rail; dock mode excludes
   nothing so the bottom system gesture remains available.
+- Canvas panels use `LayoutSpec.panelInsets`, derived from `persistentChrome`.
+  Do not duplicate rail, dock, ledge, or strip padding in Compose. Panel side
+  is the user's physical hand side and must not mirror under RTL layout.
 - An `AlertDialog` owns a smaller, separate window. Capture activity-window
   dimensions in its caller before applying screen-fit defaults; do not read
   `LocalWindowInfo` from inside the dialog.
@@ -515,6 +520,10 @@ and the contradiction is noted here.
   immutable stack refuses structural pixel edits, but strokes bypass those
   operations. `StrokeLayerPolicy` is the matching input-boundary guard; a
   hidden active layer remains drawable and previews until pen-up.
+- **Pen-up ends input, not the stroke transaction.** `CanvasActionGate` stays
+  closed until the entry is pushed or the unjournaled fallback finishes.
+  Every engine end path must report merged or not-merged exactly once; the
+  not-merged callback returns on Main.
 - **RMW tile coordinates are canvas-top-first.** Unlike window-space and
   accumulation scissors, an RMW tile target maps canvas row zero directly to
   GL row zero; do not Y-flip `RmwTileScissor`.

@@ -135,6 +135,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -151,9 +152,15 @@ private enum class DocumentWork {
 
 private enum class FillPhase { IDLE, SNAPSHOT, COMPUTE, APPLY }
 
+private enum class FillCompletion { ENTRY_PENDING, NO_ENTRY }
+
 private data class EncodedPainting(val name: String, val bytes: ByteArray)
 
 internal enum class StrokeColorUsage { RECORD, IGNORE }
+
+internal enum class StrokeEndDisposition { COMPLETE, AWAIT_COMMIT }
+
+internal enum class FillStartResult { STARTED, REFUSED }
 
 /**
  * The Canvas screen's persistence half (roadmap 3a + 3b): opens the routed
@@ -228,6 +235,10 @@ class CanvasViewModel @Inject constructor(
             @StringRes val strokeLayerNotice: Int? = null,
             val strokeLayerNoticeRevision: Long = 0L,
             val fillProgress: Float? = null,
+            /** True while the leave checkpoint runs; the closing scrim shows. */
+            val closing: Boolean = false,
+            /** Bumped when a leave fails; the screen toasts once per bump. */
+            val leaveNoticeRevision: Long = 0L,
         ) : UiState
     }
 
@@ -365,6 +376,18 @@ class CanvasViewModel @Inject constructor(
     private var lastSyncedRevision = 0
 
     private var gallerySyncJob: Job? = null
+
+    /**
+     * One leave at a time: the guard lets a failed leave retry. Read on the
+     * app scope's dispatcher by the grace-delay ownership check, hence
+     * volatile like its siblings.
+     */
+    @Volatile
+    private var leaveJob: Job? = null
+
+    /** True once the running leaveJob has handed off to navigation. */
+    @Volatile
+    private var leaveHandedOff = false
 
     /** When the document first differed from disk — the ceiling clock's anchor. */
     @Volatile
@@ -1013,9 +1036,9 @@ class CanvasViewModel @Inject constructor(
         y: Float,
         params: FillParams,
         color: Int,
-    ) {
-        if (fillPhase != FillPhase.IDLE || session !== engine) return
-        val doc = document ?: return
+    ): FillStartResult {
+        if (fillPhase != FillPhase.IDLE || session !== engine) return FillStartResult.REFUSED
+        val doc = document ?: return FillStartResult.REFUSED
         val active = doc.stack.active
         val canvas = CanvasSize(doc.width, doc.height)
         val generation = ++fillGeneration
@@ -1029,7 +1052,7 @@ class CanvasViewModel @Inject constructor(
         engine.requestFillReference(params.reference) { reference ->
             if (generation != fillGeneration || fillPhase != FillPhase.SNAPSHOT) return@requestFillReference
             if (reference == null) {
-                finishFill(generation)
+                finishFill(generation, FillCompletion.NO_ENTRY)
                 return@requestFillReference
             }
 
@@ -1045,7 +1068,7 @@ class CanvasViewModel @Inject constructor(
                 withContext(Dispatchers.Main) {
                     if (generation != fillGeneration || fillPhase != FillPhase.COMPUTE) return@withContext
                     if (coverage == null || coverage.bounds.isEmpty) {
-                        finishFill(generation)
+                        finishFill(generation, FillCompletion.NO_ENTRY)
                         return@withContext
                     }
 
@@ -1061,11 +1084,17 @@ class CanvasViewModel @Inject constructor(
                     engine.applyFill(spec, coverage, color) { applied ->
                         if (generation != fillGeneration || fillPhase != FillPhase.APPLY) return@applyFill
                         if (applied) onStrokeCommitted(StrokeColorUsage.RECORD, color)
-                        finishFill(generation)
+                        val completion = if (applied) {
+                            FillCompletion.ENTRY_PENDING
+                        } else {
+                            FillCompletion.NO_ENTRY
+                        }
+                        finishFill(generation, completion)
                     }
                 }
             }
         }
+        return FillStartResult.STARTED
     }
 
     /** Cancels only pre-commit fill work; an APPLY is already atomic. */
@@ -1079,6 +1108,7 @@ class CanvasViewModel @Inject constructor(
         fillIndicatorJob = null
         fillPhase = FillPhase.IDLE
         updateFillProgress(null)
+        finishStrokeTransaction()
         finishDocumentWork()
     }
 
@@ -1093,7 +1123,7 @@ class CanvasViewModel @Inject constructor(
         }
     }
 
-    private fun finishFill(generation: Long) {
+    private fun finishFill(generation: Long, completion: FillCompletion) {
         if (generation != fillGeneration || fillPhase == FillPhase.IDLE) return
 
         fillJob?.cancel()
@@ -1102,6 +1132,7 @@ class CanvasViewModel @Inject constructor(
         fillIndicatorJob = null
         fillPhase = FillPhase.IDLE
         updateFillProgress(null)
+        if (completion == FillCompletion.NO_ENTRY) finishStrokeTransaction()
         finishDocumentWork()
     }
 
@@ -1384,13 +1415,30 @@ class CanvasViewModel @Inject constructor(
         return toolSwitcher.selection.value
     }
 
-    fun endStrokeTool(reason: TemporaryReason?) {
+    internal fun endStrokeTool(reason: TemporaryReason?, disposition: StrokeEndDisposition) {
         if (reason != null) {
             toolSwitcher.popTemporary(reason)
             updateToolUi()
         }
-        val nextAction = actionGate.endStroke()
+        val inputWasOpen = actionGate.strokeInputInFlight
+        val inputAction = actionGate.endStrokeInput()
+        val completionAction = if (
+            inputWasOpen && disposition == StrokeEndDisposition.COMPLETE
+        ) {
+            actionGate.completeStroke()
+        } else {
+            null
+        }
+        val nextAction = inputAction ?: completionAction
         chrome = CanvasUiPolicy.onStrokeEnd(chrome)
+        updateInteractionUi()
+        if (nextAction != null) executeAction(nextAction)
+    }
+
+    /** Main thread: releases one stroke only after its history outcome is final. */
+    private fun finishStrokeTransaction() {
+        val nextAction = actionGate.completeStroke()
+        updateHistoryUi()
         updateInteractionUi()
         if (nextAction != null) executeAction(nextAction)
     }
@@ -1472,11 +1520,18 @@ class CanvasViewModel @Inject constructor(
      */
     private fun onStrokeMerged(spec: StrokeSpec, keys: List<TileKey>, @Suppress("UNUSED_PARAMETER") revision: Int) {
         val rmwSnapshot = if (spec.rmw != null) rmwHistoryCapture.finish(spec.layerId) else null
-        if (keys.isEmpty()) return
+        if (keys.isEmpty()) {
+            appScope.launch(Dispatchers.Main) { finishStrokeTransaction() }
+            return
+        }
         val payloadKeys = keys.map { spec.layerId to it }
         val mirrorBefore = flusher.captureMirror(payloadKeys).toMutableMap()
         rmwSnapshot?.mirrorBefore?.let(mirrorBefore::putAll)
-        val doc = document ?: return
+        val doc = document
+        if (doc == null) {
+            appScope.launch(Dispatchers.Main) { finishStrokeTransaction() }
+            return
+        }
         val activeId = doc.stack.active.id
         val entry = PixelHistoryEntry.create(
             kind = spec.commitKind,
@@ -1493,18 +1548,30 @@ class CanvasViewModel @Inject constructor(
         )
         if (!flusher.enqueueNow(job)) {
             appScope.launch(Dispatchers.Main) {
-                truncateRedoAfterUnjournaledEdit()
-                updateHistoryUi()
+                try {
+                    truncateRedoAfterUnjournaledEdit()
+                } finally {
+                    finishStrokeTransaction()
+                }
             }
             return
         }
         appScope.launch {
             val stamped = job.result.await()
             withContext(Dispatchers.Main) {
-                if (stamped == null) truncateRedoAfterUnjournaledEdit()
-                else pushHistory(stamped)
-                updateHistoryUi()
+                try {
+                    if (stamped == null) truncateRedoAfterUnjournaledEdit()
+                    else pushHistory(stamped)
+                } finally {
+                    finishStrokeTransaction()
+                }
             }
+        }
+    }
+
+    private fun onStrokeNotMerged() {
+        appScope.launch(Dispatchers.Main) {
+            finishStrokeTransaction()
         }
     }
 
@@ -2171,6 +2238,7 @@ class CanvasViewModel @Inject constructor(
      */
     fun attachSession(next: EngineSession?) {
         session?.onStrokeMerged = null
+        session?.onStrokeNotMerged = null
         session?.onRmwStarted = null
         session?.onRmwTilesTouched = null
         session?.onRmwCancelled = null
@@ -2185,6 +2253,7 @@ class CanvasViewModel @Inject constructor(
         val doc = document ?: return
         if (next != null) {
             next.onStrokeMerged = { spec, keys, revision -> onStrokeMerged(spec, keys, revision) }
+            next.onStrokeNotMerged = ::onStrokeNotMerged
             next.onRmwStarted = ::onRmwStarted
             next.onRmwTilesTouched = ::onRmwTilesTouched
             next.onRmwCancelled = { spec, keys -> onRmwCancelled(next, spec, keys) }
@@ -2200,12 +2269,91 @@ class CanvasViewModel @Inject constructor(
     /**
      * The leave checkpoint (§6.2's Leave row): flush everything, then run
      * [afterWrite] on the main thread — the caller navigates in it, so the
-     * Studio never lists a stale shelf.
+     * Studio never lists a stale shelf. The closing flag drives 08 §4.8's
+     * scrim: shown only if the flush takes longer than 300 ms.
+     *
+     * [afterWrite] may run again if a fresh leave supersedes a handed-off
+     * job whose navigation was cancelled (predictive back) — keep it
+     * idempotent.
      */
     fun leave(afterWrite: () -> Unit) {
-        appScope.launch {
-            withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
-            withContext(Dispatchers.Main) { afterWrite() }
+        // After a handoff the job is only running its grace delay; a second
+        // back press there starts a fresh leave rather than being dropped
+        // (a cancelled predictive-back gesture is exactly the case).
+        if (leaveJob?.isActive == true && !leaveHandedOff) return
+        leaveHandedOff = false
+        setClosing(true)
+        leaveJob = appScope.launch {
+            // The app scope has no exception handler: an uncaught failure
+            // here would crash the process on its way out the door. A failed
+            // flush keeps the canvas open — logged and toasted, not fatal —
+            // and only a successful handoff to navigation keeps the scrim up
+            // (it covers the exit transition); a swallowed navigation gets a
+            // grace-period reset instead of a stranded scrim.
+            var handedOff = false
+            var flushed = false
+            try {
+                withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
+                flushed = true
+                withContext(Dispatchers.Main) { afterWrite() }
+                handedOff = true
+                leaveHandedOff = true
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "leave failed; canvas stays open", e)
+                // Only a failed flush is a failed save; a navigation-only
+                // failure owes no alarming toast. `handedOff` cannot tell the
+                // two apart here — it is only set after afterWrite() — so the
+                // flush carries its own flag.
+                if (!flushed) withContext(Dispatchers.Main) { noteLeaveFailure() }
+            } finally {
+                val self = coroutineContext[Job]
+                if (!handedOff) {
+                    // Ownership-guarded like the success branch: on a
+                    // rethrown cancellation this coroutine is already
+                    // inactive while its finally runs, so a newer leave()
+                    // may have started and only that job may clear. Runs on
+                    // the main thread so the check and the clear cannot
+                    // interleave with leave() reassigning leaveJob.
+                    withContext(NonCancellable + Dispatchers.Main) {
+                        if (leaveJob === self) setClosing(false)
+                    }
+                } else {
+                    // If navigation was swallowed (a cancelled predictive-back
+                    // gesture, an uncollected event), lift the scrim rather
+                    // than stranding it. Harmless when navigation succeeded:
+                    // the cleared ViewModel has no observers left. The delay
+                    // runs NonCancellable because the rethrown cancellation
+                    // above makes this a cancelling coroutine — a bare delay
+                    // would throw and skip the reset.
+                    withContext(NonCancellable) { delay(LEAVE_HANDOFF_GRACE_MS) }
+                    // A newer leave may have started during the grace window;
+                    // only the latest job owns clearing the scrim. Main-thread
+                    // for the same atomicity reason as the failure branch.
+                    withContext(NonCancellable + Dispatchers.Main) {
+                        if (leaveJob === self) setClosing(false)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun noteLeaveFailure() {
+        _uiState.update { state ->
+            if (state is UiState.Ready) {
+                state.copy(leaveNoticeRevision = state.leaveNoticeRevision + 1)
+            } else {
+                state
+            }
+        }
+    }
+
+    private fun setClosing(closing: Boolean) {
+        // Atomic update, not read-copy-write: the finally above can run off
+        // the main thread while the flusher's tickers emit state.
+        _uiState.update { state ->
+            if (state is UiState.Ready) state.copy(closing = closing) else state
         }
     }
 
@@ -2226,6 +2374,7 @@ class CanvasViewModel @Inject constructor(
         // so there is no readback left to wait on — release() already
         // delivered or dropped it.
         session?.onStrokeMerged = null
+        session?.onStrokeNotMerged = null
         session?.onRmwStarted = null
         session?.onRmwTilesTouched = null
         session?.onRmwCancelled = null
@@ -2438,6 +2587,9 @@ class CanvasViewModel @Inject constructor(
 
         /** ≥ [ch.lkmc.bangnidraw.engine.gl.Readback]'s 1 s fence timeout. */
         const val READBACK_WAIT_MS = 2_000L
+
+        /** Well past the ~300 ms exit transition; lifts a stranded scrim. */
+        const val LEAVE_HANDOFF_GRACE_MS = 3_000L
 
         const val READY_WAIT_MS = 5_000L
 

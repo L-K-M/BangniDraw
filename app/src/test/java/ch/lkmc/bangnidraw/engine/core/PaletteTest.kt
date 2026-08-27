@@ -3,7 +3,9 @@ package ch.lkmc.bangnidraw.engine.core
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class PaletteTest {
 
@@ -87,5 +89,27 @@ class PaletteTest {
 
         assertEquals(listOf(1, 9, 3), preview.swatches)
         assertEquals(palette, pick.cancel(preview))
+    }
+
+    @Test
+    fun `a created palette's name is the typed one, blank falls back to the token`() {
+        assertEquals("Cadmiums", PalettePolicy.createdName(" Cadmiums "))
+        assertEquals("Cad miums", PalettePolicy.createdName("Cad miums"))
+        // Blank input keeps the display token, so the chip still localizes.
+        assertEquals(PaletteCatalog.MY_PALETTE_NAME, PalettePolicy.createdName("   "))
+        // A pasted wall of text cannot stretch a chip.
+        assertEquals(
+            PalettePolicy.NAME_MAX_LENGTH,
+            PalettePolicy.createdName("x".repeat(500)).length,
+        )
+    }
+
+    @Test
+    fun `created palette names collide by displayed label`() {
+        val existing = setOf("My palette", "Cadmiums")
+
+        assertTrue(PalettePolicy.isCreatedNameTaken("", "My palette", existing))
+        assertTrue(PalettePolicy.isCreatedNameTaken(" Cadmiums ", "My palette", existing))
+        assertFalse(PalettePolicy.isCreatedNameTaken("Earths", "My palette", existing))
     }
 }

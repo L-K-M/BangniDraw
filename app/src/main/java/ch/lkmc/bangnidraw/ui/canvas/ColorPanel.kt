@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -31,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +41,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +73,7 @@ import ch.lkmc.bangnidraw.engine.core.HueMilestone
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.MixingDish
 import ch.lkmc.bangnidraw.engine.core.Palette
+import ch.lkmc.bangnidraw.engine.core.PalettePolicy
 import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import ch.lkmc.bangnidraw.engine.core.RgbFieldArrangement
 import ch.lkmc.bangnidraw.engine.core.RgbFieldLayoutPolicy
@@ -89,7 +93,7 @@ internal fun ColorPanel(
     onSwapColors: () -> Unit,
     onMixerChanged: (MixerChoice) -> Unit,
     onPaletteSelected: (String) -> Unit,
-    onCreatePalette: () -> Unit,
+    onCreatePalette: (String) -> Unit,
     onAddToPalette: (Int) -> Unit,
     onReplaceSwatch: (Int) -> Unit,
     onDeleteSwatch: (Int) -> Unit,
@@ -103,6 +107,22 @@ internal fun ColorPanel(
     var hsv by remember(state.current) { mutableStateOf(HsvColor.fromArgb(state.current)) }
     var draft by remember(state.current) { mutableIntStateOf(state.current) }
     val scroll = rememberScrollState()
+    // Naming on create: two palettes must not share one "My palette" chip
+    // (the stored name is what distinguishes them — there is no rename yet).
+    // Saveable so a rotation mid-dialog keeps both the dialog and the draft.
+    var namingPalette by rememberSaveable { mutableStateOf(false) }
+    if (namingPalette) {
+        // Compared against display names, so a typed literal also collides
+        // with a default-named palette that renders the same way.
+        PaletteNameDialog(
+            existingNames = state.palettes.map { paletteLabel(it.name) }.toSet(),
+            onConfirm = { name ->
+                namingPalette = false
+                onCreatePalette(name)
+            },
+            onDismiss = { namingPalette = false },
+        )
+    }
 
     fun preview(next: HsvColor) {
         hsv = next
@@ -153,7 +173,7 @@ internal fun ColorPanel(
                 palettes = state.palettes,
                 activeId = state.activePaletteId,
                 onSelected = onPaletteSelected,
-                onCreate = onCreatePalette,
+                onCreate = { namingPalette = true },
             )
             PaletteSwatches(
                 palette = state.activePalette,
@@ -741,6 +761,58 @@ private fun ColorCircle(argb: Int, modifier: Modifier, selected: Boolean = false
         drawCircle(Color(argb))
         drawCircle(outline, style = Stroke(if (selected) SELECTED_BORDER.toPx() else SWATCH_BORDER.toPx()))
     }
+}
+
+/**
+ * Names a palette about to be created. The field starts empty with the
+ * localized default as its placeholder: confirming blank stores the display
+ * token (which keeps localizing), typing stores a literal.
+ */
+@Composable
+private fun PaletteNameDialog(
+    existingNames: Set<String>,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var draft by rememberSaveable { mutableStateOf("") }
+    val defaultDisplayName = stringResource(R.string.palette_my)
+    val taken = PalettePolicy.isCreatedNameTaken(draft, defaultDisplayName, existingNames)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.palette_create)) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it.take(PalettePolicy.NAME_MAX_LENGTH) },
+                    singleLine = true,
+                    isError = taken,
+                    placeholder = { Text(defaultDisplayName) },
+                )
+                if (taken) {
+                    Text(
+                        text = stringResource(R.string.palette_name_taken),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !taken,
+                onClick = { onConfirm(draft) },
+            ) {
+                Text(stringResource(R.string.new_canvas_create))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.new_canvas_cancel))
+            }
+        },
+    )
 }
 
 @Composable

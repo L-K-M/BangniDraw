@@ -98,6 +98,7 @@ internal fun TopStrip(
             activeLayer,
             brushColor,
             openPanel,
+            stripBackground,
             hapticsMode,
             onLayers,
             onColor,
@@ -111,8 +112,11 @@ internal fun TopStrip(
         )
     }
 
+    // One token for the strip and its badge ring: the ring "cuts out" the
+    // badge against the strip, so the two must always agree.
+    val stripBackground = MaterialTheme.colorScheme.surfaceContainer
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = stripBackground,
         tonalElevation = 1.dp,
         modifier = modifier
             .fillMaxWidth()
@@ -215,6 +219,7 @@ private fun ToolCluster(
     activeLayer: Int,
     brushColor: Int,
     openPanel: CanvasPanel?,
+    stripBackground: Color,
     hapticsMode: HapticsMode,
     onLayers: () -> Unit,
     onColor: () -> Unit,
@@ -250,7 +255,7 @@ private fun ToolCluster(
                     .padding(BADGE_INSET)
                     .border(
                         width = BADGE_RING,
-                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        color = stripBackground,
                         shape = RoundedCornerShape(BADGE_RADIUS),
                     ),
             ) {

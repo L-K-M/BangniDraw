@@ -153,8 +153,8 @@ private data class EncodedPainting(val name: String, val bytes: ByteArray)
 internal enum class StrokeColorUsage { RECORD, IGNORE }
 
 /**
- * The Canvas screen's persistence half (roadmap 3a + 3b): opens or creates
- * the routed project, streams its tiles into the engine, funnels §10.1's
+ * The Canvas screen's persistence half (roadmap 3a + 3b): opens the routed
+ * project, streams its tiles into the engine, funnels §10.1's
  * readback into the [TileFlusher], journals every stroke, applies undo/redo,
  * and checkpoints `project.json` on leave, `ON_STOP`, and
  * `AutosavePolicy`'s quiet/ceiling clocks
@@ -477,39 +477,9 @@ class CanvasViewModel @Inject constructor(
             ?: BrushPresets.HARD_ERASER_ID
         toolSwitcher.select(ToolKind.Brush(default))
 
-        when (val result = store.load(projectId)) {
-            is ProjectStore.LoadResult.Loaded -> openLoaded(result)
-            is ProjectStore.LoadResult.Failed -> when (result.reason) {
-                ProjectStore.FailureReason.NOT_FOUND -> {
-                    if (!store.isValidId(projectId)) {
-                        _uiState.value = UiState.Failed(R.string.canvas_open_failed)
-                        return
-                    }
-                    val now = System.currentTimeMillis()
-                    val fresh = Document(
-                        id = projectId,
-                        title = "",
-                        width = DEFAULT_EDGE,
-                        height = DEFAULT_EDGE,
-                        paperColor = PAPER_WHITE,
-                        stack = LayerStack.initial { LayerId(UUID.randomUUID().toString()) },
-                        createdAt = now,
-                        updatedAt = now,
-                    )
-                    document = fresh
-                    wireHistory(fresh, HistoryStore.Loaded(emptyList(), 0), HistoryRecord())
-                    // A fresh painting has everything unwritten: the leave
-                    // checkpoint creates the folder, which is when it first
-                    // appears on the shelf.
-                    dirty = true
-                    _uiState.value = readyState(fresh, warning = null)
-                }
-                ProjectStore.FailureReason.NEWER_VERSION ->
-                    _uiState.value = UiState.Failed(R.string.canvas_newer_version)
-                ProjectStore.FailureReason.BAD_ID,
-                ProjectStore.FailureReason.UNREADABLE,
-                -> _uiState.value = UiState.Failed(R.string.canvas_open_failed)
-            }
+        when (val decision = CanvasOpenPolicy.decide(store.load(projectId))) {
+            is CanvasOpenDecision.Open -> openLoaded(decision.project)
+            is CanvasOpenDecision.Reject -> _uiState.value = UiState.Failed(decision.message)
         }
     }
 
@@ -2366,12 +2336,6 @@ class CanvasViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "CanvasViewModel"
-
-        /** A square canvas until the New Canvas dialog lands (roadmap 3c). */
-        const val DEFAULT_EDGE = 2048
-
-        /** Opaque white, the paper of a new sketch until that same dialog. */
-        const val PAPER_WHITE = 0xFFFFFFFF.toInt()
 
         const val OPAQUE_ALPHA = 0xFF000000.toInt()
         const val OPAQUE_BLACK = OPAQUE_ALPHA

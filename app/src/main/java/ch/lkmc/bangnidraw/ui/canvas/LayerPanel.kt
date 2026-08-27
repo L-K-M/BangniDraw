@@ -143,6 +143,14 @@ internal fun LayerPanel(
     LaunchedEffect(stack.layers.map(Layer::id)) {
         displayOrder = stack.layers.asReversed().map(Layer::id)
     }
+    LaunchedEffect(documentBusy) {
+        if (!documentBusy) return@LaunchedEffect
+
+        // Restarting pointer input cancels its detector without callbacks.
+        draggedId = null
+        dragOffset = 0f
+        displayOrder = stack.layers.asReversed().map(Layer::id)
+    }
     LaunchedEffect(stack.active.id) {
         val displayIndex = LayerPanelOrder.displayIndex(stack.activeIndex, stack.size)
         if (ValueAnimator.areAnimatorsEnabled()) {

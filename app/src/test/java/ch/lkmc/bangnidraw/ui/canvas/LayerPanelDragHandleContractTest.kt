@@ -38,7 +38,15 @@ class LayerPanelDragHandleContractTest {
         assertTrue(
             "pointerInput(layer.id, documentBusy)" in handle &&
                 "if (documentBusy) return@pointerInput" in handle,
-            "the drag remains active while document actions are busy",
+            "the drag must be ignored while document actions are busy",
+        )
+
+        val panel = source().replace(WHITESPACE, " ")
+        assertTrue(
+            "LaunchedEffect(documentBusy)" in panel &&
+                "draggedId = null" in panel &&
+                "dragOffset = 0f" in panel,
+            "a busy transition must clear an active drag",
         )
     }
 

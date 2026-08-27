@@ -83,9 +83,12 @@ class StudioViewModel @Inject constructor(
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             thumbnailCache.get(key) ?: key.path?.let { path ->
                 BitmapFactory.decodeFile(path)?.also { bitmap ->
-                    // A decode racing a delete must not resurrect the entry:
-                    // the painting is gone, its pixels have no shelf to serve.
-                    if (File(path).exists()) thumbnailCache.put(key, bitmap)
+                    // Put-then-verify: a decode racing a delete must not leave
+                    // the entry behind. Deleting runs evictThumbnails after the
+                    // folder is gone, and the re-check below removes whatever
+                    // lands after that pass — every interleaving ends clean.
+                    thumbnailCache.put(key, bitmap)
+                    if (!File(path).exists()) thumbnailCache.remove(key)
                 }
             }
         }

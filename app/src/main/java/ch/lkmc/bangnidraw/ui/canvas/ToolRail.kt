@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -32,8 +33,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -42,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedback
@@ -61,6 +65,7 @@ import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.BrushSizeScale
+import ch.lkmc.bangnidraw.engine.core.EraserTogglePolicy
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
@@ -100,6 +105,13 @@ internal fun ToolRail(
     val currentPaint = paints.firstOrNull { it.id == paintBrushId } ?: paints.firstOrNull()
     val eraser = presets.firstOrNull { it.id == eraserBrushId && it.eraseMode }
         ?: presets.firstOrNull { it.eraseMode }
+    val eraserToggle = if (
+        eraser != null && EraserTogglePolicy.next(eraser.id, presets) != null
+    ) {
+        onEraserToggle
+    } else {
+        null
+    }
 
     val slots = if (layout.railMode == RailMode.FULL) {
         fullSlots(
@@ -115,7 +127,7 @@ internal fun ToolRail(
             onEyedropperSelected = onEyedropperSelected,
             onSettingsRequested = onSettingsRequested,
             onFillSettingsRequested = onFillSettingsRequested,
-            onEraserToggle = onEraserToggle,
+            onEraserToggle = eraserToggle,
         )
     } else {
         groupedSlots(
@@ -131,7 +143,7 @@ internal fun ToolRail(
             onEyedropperSelected = onEyedropperSelected,
             onSettingsRequested = onSettingsRequested,
             onFillSettingsRequested = onFillSettingsRequested,
-            onEraserToggle = onEraserToggle,
+            onEraserToggle = eraserToggle,
         )
     }
 
@@ -221,7 +233,7 @@ private fun ToolColumn(
             slot,
             item.onLongClick,
             item.longClickLabel,
-            item.hapticsEnabled,
+            item.hapticsMode,
         )
         if (index == slots.lastIndex) continue
 
@@ -253,7 +265,7 @@ private fun Dock(slots: List<ToolSlot>, slot: Dp, modifier: Modifier) {
                     slot,
                     item.onLongClick,
                     item.longClickLabel,
-                    item.hapticsEnabled,
+                    item.hapticsMode,
                 )
             }
         }
@@ -315,7 +327,7 @@ private fun fullSlots(
     onEyedropperSelected: () -> Unit,
     onSettingsRequested: () -> Unit,
     onFillSettingsRequested: () -> Unit,
-    onEraserToggle: () -> Unit,
+    onEraserToggle: (() -> Unit)?,
 ): List<ToolSlot> {
     val result = ArrayList<ToolSlot>()
     for (preset in paints) {
@@ -368,7 +380,7 @@ private fun groupedSlots(
     onEyedropperSelected: () -> Unit,
     onSettingsRequested: () -> Unit,
     onFillSettingsRequested: () -> Unit,
-    onEraserToggle: () -> Unit,
+    onEraserToggle: (() -> Unit)?,
 ): List<ToolSlot> {
     val result = ArrayList<ToolSlot>()
     if (paint != null) {
@@ -418,7 +430,11 @@ private fun brushSlot(
     onEraserToggle: (() -> Unit)? = null,
 ): ToolSlot {
     val active = (selection.kind as? ToolKind.Brush)?.preset?.id == preset.id
-    val toggleLabel = stringResource(R.string.cd_toggle_eraser)
+    val toggleLabel = if (onEraserToggle != null) {
+        stringResource(R.string.cd_toggle_eraser)
+    } else {
+        null
+    }
     return ToolSlot(
         icon = if (preset.eraseMode) Icons.Filled.DeleteSweep else iconFor(preset.id),
         description = {
@@ -436,11 +452,11 @@ private fun brushSlot(
                 onBrushSelected(preset.id)
             }
         },
-        hapticsEnabled = hapticsMode == HapticsMode.ENABLED,
+        hapticsMode = hapticsMode,
         // The LONG_PRESS haptic is the built-in one, gated by the provider
         // above; an explicit performHapticFeedback here would double it.
-        onLongClick = if (preset.eraseMode) onEraserToggle else null,
-        longClickLabel = if (preset.eraseMode) toggleLabel else null,
+        onLongClick = onEraserToggle,
+        longClickLabel = toggleLabel,
     )
 }
 
@@ -535,7 +551,7 @@ private fun ToolButton(
     slot: Dp,
     onLongClick: (() -> Unit)? = null,
     longClickLabel: String? = null,
-    hapticsEnabled: Boolean = false,
+    hapticsMode: HapticsMode = HapticsMode.DISABLED,
 ) {
     val active = state != ToolButtonState.Inactive
     val selectedText = stringResource(R.string.cd_selected)
@@ -549,7 +565,12 @@ private fun ToolButton(
     } else {
         Modifier
     }
-    Box(modifier = Modifier.size(slot), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .minimumInteractiveComponentSize()
+            .size(slot),
+        contentAlignment = Alignment.Center,
+    ) {
         Surface(
             color = buttonColors.container,
             shape = shape,
@@ -575,15 +596,17 @@ private fun ToolButton(
             }
         } else {
             CompositionLocalProvider(
-                LocalHapticFeedback provides if (hapticsEnabled) {
+                LocalHapticFeedback provides if (hapticsMode == HapticsMode.ENABLED) {
                     LocalHapticFeedback.current
                 } else {
                     SilentHapticFeedback
                 },
+                LocalContentColor provides buttonColors.icon,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(slot)
+                        .fillMaxSize()
+                        .clip(shape)
                         .combinedClickable(
                             role = Role.Button,
                             onClick = onClick,
@@ -654,7 +677,7 @@ private data class ToolSlot(
     val onClick: () -> Unit,
     val onLongClick: (() -> Unit)? = null,
     val longClickLabel: String? = null,
-    val hapticsEnabled: Boolean = false,
+    val hapticsMode: HapticsMode = HapticsMode.DISABLED,
 )
 
 private enum class ToolButtonState {

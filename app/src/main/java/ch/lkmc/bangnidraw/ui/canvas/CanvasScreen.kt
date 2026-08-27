@@ -1724,6 +1724,10 @@ private fun sharePainting(
     viewModel: CanvasViewModel,
     format: ImageEncode.Format,
 ) {
+    val state = viewModel.uiState.value as? CanvasViewModel.UiState.Ready ?: return
+    val paintingName = state.title.ifBlank {
+        context.getString(R.string.studio_untitled)
+    }
     viewModel.share(
         format = format,
         onReady = { uri, mime ->
@@ -1732,7 +1736,7 @@ private fun sharePainting(
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(send, null))
+            context.startActivity(Intent.createChooser(send, paintingName))
         },
         onFailure = {
             Toast.makeText(context, R.string.studio_save_failed, Toast.LENGTH_SHORT).show()

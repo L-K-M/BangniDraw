@@ -739,8 +739,9 @@ private fun CanvasContent(
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val widthClass = WidthClass.forWidth(maxWidth.value.toInt())
+        val widthClass = WidthClass.forWidth(maxWidth.value.roundToInt())
         val windowWidth = maxWidth
+        val windowHeight = maxHeight
         val safeInsets = WindowInsets.safeDrawing
         val verticalInsetDp = (
             safeInsets.getTop(density) + safeInsets.getBottom(density)
@@ -1242,6 +1243,7 @@ private fun CanvasContent(
             PanelHost(
                 layout = layout,
                 windowWidth = windowWidth,
+                windowHeight = windowHeight,
                 announcement = panelAnnouncement(panel, state.toolSelection.kind),
                 visibility = if (panel == null) {
                     PanelVisibility.HIDDEN

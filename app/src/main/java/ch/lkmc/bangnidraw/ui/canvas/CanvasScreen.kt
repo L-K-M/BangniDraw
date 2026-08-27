@@ -675,16 +675,10 @@ private fun CanvasContent(
             maxHeight.value - verticalInsetDp - LayoutSpec.TOP_STRIP_DP
             ).toInt().coerceAtLeast(0)
         val layout = LayoutSpec.forWindow(widthClass, railHeight, state.handedness)
-        val undoAvailability = if (state.canUndo) {
-            ActionAvailability.ENABLED
-        } else {
-            ActionAvailability.DISABLED
-        }
-        val redoAvailability = if (state.canRedo) {
-            ActionAvailability.ENABLED
-        } else {
-            ActionAvailability.DISABLED
-        }
+        val undoAvailability =
+            if (state.canUndo) ActionAvailability.ENABLED else ActionAvailability.DISABLED
+        val redoAvailability =
+            if (state.canRedo) ActionAvailability.ENABLED else ActionAvailability.DISABLED
         LaunchedEffect(state.chrome.openPanel) {
             if (state.chrome.openPanel != CanvasPanel.COLOR) {
                 textInputFocus = TextInputFocus.CLEAR

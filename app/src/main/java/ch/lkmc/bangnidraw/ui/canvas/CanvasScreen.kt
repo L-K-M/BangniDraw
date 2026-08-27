@@ -207,6 +207,7 @@ private fun CanvasContent(
     val view0 = LocalView.current
     val context = LocalContext.current
     CanvasImmersiveEffect()
+    CanvasAwakeEffect()
     var seenStrokeNotice by remember { mutableLongStateOf(state.strokeLayerNoticeRevision) }
 
     fun updateView(next: ViewTransform) {
@@ -1318,6 +1319,24 @@ private fun exportPainting(
             },
             Toast.LENGTH_SHORT,
         ).show()
+    }
+}
+
+/**
+ * A painting is thought at pen-speed, not screen-timeout speed: while the
+ * Canvas is open the window keeps the display awake. The flag is added and
+ * cleared here, so the Studio (and every other screen) keeps the system
+ * default.
+ */
+@Composable
+private fun CanvasAwakeEffect() {
+    val activity = LocalContext.current.findActivity()
+    DisposableEffect(activity) {
+        val window = activity?.window
+        if (window == null) return@DisposableEffect onDispose {}
+
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 }
 

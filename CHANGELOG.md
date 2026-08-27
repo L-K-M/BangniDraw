@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.3 - 2026-08-27
 
 - Give every tool a distinct rail icon (the pencil and smudge, and the
   airbrush and blur, shared glyphs).
@@ -8,6 +8,12 @@
 - Throttle eyedropper reads to one per frame (a drag stalled the GL pipeline
   once per input sample).
 - Allocate nothing in the sandwich's per-frame viewport query.
+- Add settings sheets for smudge, blur and eyedropper.
+- Hide pigment controls when the pigment mixer is unavailable, and canvas
+  actions that cannot run.
+- Show the Studio empty state on every width; stack RGB fields under font
+  scaling; use plural resources for counts.
+- Verify release builds without Mixbox.
 
 ## 1.0.2 - 2026-08-27
 

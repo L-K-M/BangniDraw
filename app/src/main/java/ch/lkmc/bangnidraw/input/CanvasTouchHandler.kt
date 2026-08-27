@@ -130,6 +130,10 @@ class CanvasTouchHandler(
     val canvasToScreenScale: Float
         get() = screen?.effectiveScale ?: view.scale
 
+    /** The current canvas→window mapping, for chrome overlays drawn in window px. */
+    internal val screenTransform: ScreenTransform?
+        get() = screen
+
     var stylusOnly: Boolean
         get() = arbiter.stylusOnly
         set(value) { arbiter.stylusOnly = value }

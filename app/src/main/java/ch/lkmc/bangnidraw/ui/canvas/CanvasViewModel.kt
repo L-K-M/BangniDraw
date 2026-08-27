@@ -41,6 +41,7 @@ import ch.lkmc.bangnidraw.engine.core.CanvasBackEffect
 import ch.lkmc.bangnidraw.engine.core.CanvasChromeState
 import ch.lkmc.bangnidraw.engine.core.CanvasDialog
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
+import ch.lkmc.bangnidraw.engine.core.CompositionGuideVisibility
 import ch.lkmc.bangnidraw.engine.core.CanvasTapEffect
 import ch.lkmc.bangnidraw.engine.core.CanvasUiPolicy
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
@@ -227,6 +228,8 @@ class CanvasViewModel @Inject constructor(
             val hapticsMode: HapticsMode,
             val pressurePreference: PressurePreference,
             val snapRightAngles: Boolean = false,
+            val compositionGuideVisibility: CompositionGuideVisibility =
+                CompositionGuideVisibility.HIDDEN,
             val debugLatency: Boolean,
             val layerCap: Int,
             val strokeInFlight: Boolean = false,
@@ -264,6 +267,7 @@ class CanvasViewModel @Inject constructor(
     private var hapticsMode = HapticsMode.ENABLED
     private var pressurePreference = PressurePreference.LINEAR
     private var snapRightAngles = false
+    private var compositionGuideVisibility = CompositionGuideVisibility.HIDDEN
     private var debugLatency = false
     private var chrome = CanvasChromeState()
     private var brushColor = OPAQUE_BLACK
@@ -457,6 +461,12 @@ class CanvasViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            prefs.compositionGuideVisibility.collect { visibility ->
+                compositionGuideVisibility = visibility
+                updateChromeUi()
+            }
+        }
+        viewModelScope.launch {
             prefs.debugLatency.collect { enabled ->
                 debugLatency = enabled
                 updateChromeUi()
@@ -616,6 +626,7 @@ class CanvasViewModel @Inject constructor(
             hapticsMode = hapticsMode,
             pressurePreference = pressurePreference,
             snapRightAngles = snapRightAngles,
+            compositionGuideVisibility = compositionGuideVisibility,
             debugLatency = debugLatency,
             layerCap = layerCap,
             strokeInFlight = actionGate.strokeInFlight,
@@ -655,6 +666,7 @@ class CanvasViewModel @Inject constructor(
             hapticsMode = hapticsMode,
             pressurePreference = pressurePreference,
             snapRightAngles = snapRightAngles,
+            compositionGuideVisibility = compositionGuideVisibility,
             debugLatency = debugLatency,
         )
     }
@@ -1177,6 +1189,11 @@ class CanvasViewModel @Inject constructor(
 
     fun setMixerChoice(choice: MixerChoice) {
         viewModelScope.launch { prefs.setMixerChoice(choice) }
+    }
+
+    /** Persists the overflow menu's composition-guide choice. */
+    internal fun setCompositionGuideVisibility(visibility: CompositionGuideVisibility) {
+        viewModelScope.launch { prefs.setCompositionGuideVisibility(visibility) }
     }
 
     internal fun selectPalette(id: String) {

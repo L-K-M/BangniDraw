@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
@@ -48,11 +49,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
+import ch.lkmc.bangnidraw.engine.core.CompositionGuideVisibility
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
@@ -80,6 +83,8 @@ internal fun TopStrip(
     onExportJpeg: () -> Unit,
     onFocus: () -> Unit,
     onRename: () -> Unit,
+    guideVisibility: CompositionGuideVisibility,
+    onToggleGuides: () -> Unit,
     onSettings: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
@@ -109,6 +114,8 @@ internal fun TopStrip(
             onExportJpeg,
             onFocus,
             onRename,
+            guideVisibility,
+            onToggleGuides,
             onSettings,
         )
     }
@@ -227,6 +234,8 @@ private fun ToolCluster(
     onExportJpeg: () -> Unit,
     onFocus: () -> Unit,
     onRename: () -> Unit,
+    guideVisibility: CompositionGuideVisibility,
+    onToggleGuides: () -> Unit,
     onSettings: (() -> Unit)?,
 ) {
     val view = LocalView.current
@@ -316,6 +325,8 @@ private fun ToolCluster(
             onExportJpeg,
             onFocus,
             onRename,
+            guideVisibility,
+            onToggleGuides,
             onSettings,
         )
     }
@@ -328,6 +339,8 @@ private fun OverflowMenu(
     onExportJpeg: () -> Unit,
     onFocus: () -> Unit,
     onRename: () -> Unit,
+    guideVisibility: CompositionGuideVisibility,
+    onToggleGuides: () -> Unit,
     onSettings: (() -> Unit)?,
 ) {
     var open by remember { mutableStateOf(false) }
@@ -344,6 +357,21 @@ private fun OverflowMenu(
             OverflowItem(R.string.canvas_export_jpeg, onExportJpeg) { open = false }
             OverflowItem(R.string.canvas_focus, onFocus) { open = false }
             OverflowItem(R.string.studio_rename, onRename) { open = false }
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.canvas_guides)) },
+                modifier = Modifier.semantics {
+                    selected = guideVisibility == CompositionGuideVisibility.VISIBLE
+                },
+                leadingIcon = if (guideVisibility == CompositionGuideVisibility.VISIBLE) {
+                    { Icon(Icons.Filled.Check, contentDescription = null) }
+                } else {
+                    null
+                },
+                onClick = {
+                    open = false
+                    onToggleGuides()
+                },
+            )
             if (onSettings != null) {
                 OverflowItem(R.string.canvas_settings, onSettings) { open = false }
             }

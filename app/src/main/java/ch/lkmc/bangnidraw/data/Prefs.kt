@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.core.CompositionGuideVisibility
 import ch.lkmc.bangnidraw.engine.core.DishState
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
@@ -102,6 +103,22 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
 
     internal suspend fun setSnapRightAngles(enabled: Boolean) {
         dataStore.edit { it[KEY_SNAP_RIGHT_ANGLES] = enabled }
+    }
+
+    /** The canvas-only composition overlay, hidden by default. */
+    internal val compositionGuideVisibility: Flow<CompositionGuideVisibility> =
+        dataStore.data.map {
+            if (it[KEY_COMPOSITION_GUIDES] == true) {
+                CompositionGuideVisibility.VISIBLE
+            } else {
+                CompositionGuideVisibility.HIDDEN
+            }
+        }
+
+    internal suspend fun setCompositionGuideVisibility(visibility: CompositionGuideVisibility) {
+        dataStore.edit {
+            it[KEY_COMPOSITION_GUIDES] = visibility == CompositionGuideVisibility.VISIBLE
+        }
     }
 
     val hintShown: Flow<Boolean> =
@@ -231,6 +248,7 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         val KEY_HAPTICS = stringPreferencesKey("haptics")
         val KEY_PRESSURE_PREFERENCE = stringPreferencesKey("pressurePreference")
         val KEY_SNAP_RIGHT_ANGLES = booleanPreferencesKey("snapRightAngles")
+        val KEY_COMPOSITION_GUIDES = booleanPreferencesKey("compositionGuides")
         val KEY_HINT_SHOWN = booleanPreferencesKey("hintShown")
         val KEY_DEBUG_LATENCY = booleanPreferencesKey("debugLatency")
         val KEY_PEN_BUTTON_ACTION = stringPreferencesKey("penButtonAction")

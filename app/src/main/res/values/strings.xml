@@ -98,6 +98,7 @@
     <string name="canvas_export_png">Export PNG</string>
     <string name="canvas_export_jpeg">Export JPEG</string>
     <string name="canvas_focus">Focus mode</string>
+    <string name="canvas_guides">Composition guides</string>
     <string name="canvas_settings">Settings</string>
     <string name="cd_color">Color, %1$s</string>
     <string name="cd_quick_palette">Show recent colors</string>

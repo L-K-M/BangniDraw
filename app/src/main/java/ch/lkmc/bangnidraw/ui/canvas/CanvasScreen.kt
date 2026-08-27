@@ -908,6 +908,15 @@ private fun CanvasContent(
             )
         }
 
+        // Canvas-only guides share the paper transform and stay outside the
+        // document and journal.
+        CompositionGuides(
+            visibility = state.compositionGuideVisibility,
+            canvas = state.canvas,
+            screenTransform = touch.screenTransform,
+            modifier = Modifier.fillMaxSize(),
+        )
+
         val eraserPreset = state.brushPresets.firstOrNull {
             it.id == state.eraserEndPreset && it.eraseMode
         } ?: state.brushPresets.firstOrNull { it.eraseMode } ?: BrushPresets.DEFAULT
@@ -1068,6 +1077,12 @@ private fun CanvasContent(
                 },
                 onFocus = viewModel::toggleFocus,
                 onRename = viewModel::requestRename,
+                guideVisibility = state.compositionGuideVisibility,
+                onToggleGuides = {
+                    viewModel.setCompositionGuideVisibility(
+                        state.compositionGuideVisibility.toggled(),
+                    )
+                },
                 onSettings = onSettings,
                 )
             }

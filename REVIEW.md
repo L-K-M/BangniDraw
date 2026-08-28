@@ -1771,3 +1771,21 @@ touchscreen hover too, not only a pen.
   action outcomes"), which adds `studio_share_failed` to both locales and
   repoints both share paths at it. Keeping the string change out of this
   PR's scope.
+
+## PR #107 — Watercolor cancel restore failure (2026-08-28)
+
+- **R-108 ⏸️ Round 3, info: split the else-branch so a live backup's
+  pre-gesture water survives a transient GL failure.** Declined: the
+  trade is the PR's stated intent. Cancel's core promise is that no
+  gesture-added water survives; on an unrestorable page, keeping it
+  means keeping exactly that water. Pre-gesture wetness is a 12 s
+  transient medium, and a GL allocation failure mid-cancel already
+  means degraded output elsewhere. The reviewer's own close condition
+  ("if false is only returned when the backup is absent") does not
+  hold, but the choice between the two failures is deliberate and
+  documented in the PR body.
+
+- **R-109 ⏸️ Round 3, info: split the extraction guard into one
+  assertion per anchor.** Declined: diagnostic polish; the prompt
+  itself permits skipping, and the combined message already names both
+  suspects.

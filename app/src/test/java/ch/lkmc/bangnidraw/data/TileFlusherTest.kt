@@ -21,13 +21,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 /**
  * `docs/plan/11-testing.md` §5's `TileFlusherTest`, on the §6.3 job queue.
  *
- * No worker coroutine: the tests enqueue jobs and drain with [TileFlusher
- * .runQueued], so every assertion is deterministic — the production worker is
- * one `receive → run` loop over the same code.
+ * Most tests enqueue jobs and drain with [TileFlusher.runQueued], so their
+ * assertions are deterministic. The close-drain test starts the production
+ * worker to cover its lifecycle.
  */
 class TileFlusherTest {
 
@@ -81,10 +82,14 @@ class TileFlusherTest {
         try {
             val worker = flusher.start(scope, Dispatchers.Default)
 
-            flusher.closeAndJoin()
+            withTimeout(WORKER_TIMEOUT_MS) {
+                flusher.closeAndJoin()
+            }
 
             assertTrue(worker.isCompleted)
-            queued.forEach { job -> assertTrue(job.done.await()) }
+            queued.forEach { job ->
+                assertTrue(withTimeout(WORKER_TIMEOUT_MS) { job.done.await() })
+            }
             assertFalse(flusher.enqueueNow(TileFlusher.FlushJob.Checkpoint()))
         } finally {
             scope.cancel()
@@ -429,5 +434,6 @@ class TileFlusherTest {
 
     private companion object {
         const val EXPECTED_QUEUE_CAPACITY = 64
+        const val WORKER_TIMEOUT_MS = 10_000L
     }
 }

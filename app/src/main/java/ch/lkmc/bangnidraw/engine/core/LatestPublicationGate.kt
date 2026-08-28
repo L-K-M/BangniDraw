@@ -10,6 +10,10 @@ internal class LatestPublicationGate {
         currentGeneration
     }
 
+    /**
+     * Runs [publish] under the gate lock when [generation] is newest.
+     * The callback must stay quick, non-blocking, and must not call this gate.
+     */
     internal fun publishIfCurrent(generation: Long, publish: () -> Unit): Boolean =
         synchronized(lock) {
             if (generation != currentGeneration) return@synchronized false

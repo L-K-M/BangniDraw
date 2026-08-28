@@ -38,6 +38,7 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -112,7 +113,9 @@ class StudioViewModel @Inject constructor(
     }
 
     private var staleSyncJob: Job? = null
+    private val refreshLock = Any()
     private val refreshPublications = LatestPublicationGate()
+    private var refreshJob: Job? = null
 
     internal data class Painting(
         val id: String,
@@ -215,36 +218,41 @@ class StudioViewModel @Inject constructor(
 
     /** Re-lists the shelf — on first show and every return from the Canvas. */
     fun refresh() {
-        val generation = refreshPublications.nextGeneration()
-
-        viewModelScope.launch(Dispatchers.IO) {
-            val listed = store.list()
-            val paintings = listed.map {
-                Painting(
-                    id = it.id,
-                    title = it.title,
-                    updatedAtMillis = it.updatedAt,
-                    thumbnail = it.thumbnail,
-                    bytes = it.bytes,
-                    galleryUri = it.galleryUri,
-                )
-            }
-            val totalBytes = listed.sumOf { it.bytes }
-            val freeBytes = store.freeBytes()
-
-            val published = refreshPublications.publishIfCurrent(generation) {
-                _uiState.update { current ->
-                    current.copy(
-                        paintings = paintings,
-                        totalBytes = totalBytes,
-                        freeBytes = freeBytes,
-                        loaded = true,
+        // Mutation callbacks invoke refresh from IO too; keep generation
+        // issuance and job replacement in one order.
+        synchronized(refreshLock) {
+            val generation = refreshPublications.nextGeneration()
+            refreshJob?.cancel()
+            refreshJob = viewModelScope.launch(Dispatchers.IO) {
+                val listed = store.list()
+                coroutineContext.ensureActive()
+                val paintings = listed.map {
+                    Painting(
+                        id = it.id,
+                        title = it.title,
+                        updatedAtMillis = it.updatedAt,
+                        thumbnail = it.thumbnail,
+                        bytes = it.bytes,
+                        galleryUri = it.galleryUri,
                     )
                 }
-            }
-            if (!published) return@launch
+                val totalBytes = listed.sumOf { it.bytes }
+                val freeBytes = store.freeBytes()
+                coroutineContext.ensureActive()
 
-            syncStale(listed)
+                refreshPublications.publishIfCurrent(generation) {
+                    _uiState.update { current ->
+                        current.copy(
+                            paintings = paintings,
+                            totalBytes = totalBytes,
+                            freeBytes = freeBytes,
+                            loaded = true,
+                        )
+                    }
+
+                    syncStale(listed)
+                }
+            }
         }
     }
 

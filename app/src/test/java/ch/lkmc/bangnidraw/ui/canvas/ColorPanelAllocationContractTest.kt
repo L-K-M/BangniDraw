@@ -42,10 +42,10 @@ class ColorPanelAllocationContractTest {
             "ring geometry does not share the picker's measured basis",
         )
         assertTrue(
-            "minOf(PICKER_SIZE, maxWidth, maxHeight)" in picker &&
+            "minOf(maxWidth, maxHeight).coerceAtMost(PICKER_MAX)" in picker &&
                 ".size(pickerSize)" in picker &&
                 "pickerSize.toPx()" in picker,
-            "the picker does not shrink with its panel",
+            "the picker does not size to its panel (capped at PICKER_MAX)",
         )
         assertEquals(
             2,

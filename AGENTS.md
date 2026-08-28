@@ -94,7 +94,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - `TileFlusher.checkpointFlush()` is the pixel-to-metadata commit barrier.
   A `false` result must not write `project.json`, clear dirty state, or let a
   leave navigate; the pending mirror still holds newer pixels that disk does
-  not.
+  not. The checkpoint's no-op path must also admit outstanding thumbnail and
+  history-delete maintenance, and a retry flag clears only after its work
+  succeeds.
 - `DabBounds` and `WatercolorDabBounds` own dab-edge arithmetic. Live
   `DabBatch`, `DabPass`, and `WatercolorPass` paths retain primitive edges;
   do not rebuild `IntRect` or tile-scissor objects per dab.

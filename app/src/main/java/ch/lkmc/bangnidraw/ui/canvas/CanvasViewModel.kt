@@ -2781,7 +2781,12 @@ class CanvasViewModel @Inject constructor(
     ): CheckpointResult {
         val doc = document ?: return CheckpointResult.COMMITTED
         return checkpointMutex.withLock {
-            if (!dirty && store.exists(doc.id)) return@withLock CheckpointResult.COMMITTED
+            val deletesOutstanding = withContext(Dispatchers.Main) {
+                pendingDeletes.isNotEmpty()
+            }
+            if (!dirty && !thumbDirty && !deletesOutstanding && store.exists(doc.id)) {
+                return@withLock CheckpointResult.COMMITTED
+            }
 
             // §5.6's order: (readbacks land) → queued jobs and tiles flushed
             // → project.json last, the commit point → only then the files a
@@ -2826,12 +2831,12 @@ class CanvasViewModel @Inject constructor(
                     // it reads are on disk by the flush above, and only when
                     // pixels actually changed — never per stroke.
                     if (thumbDirty) {
-                        thumbDirty = false
                         Thumbnails.write(
                             folded,
                             layerDirFor = { store.layerDir(folded.id, it) },
                             target = File(store.projectDir(folded.id), "thumb.png"),
                         )
+                        thumbDirty = false
                     }
                     maybeSyncGallery(folded, trigger, now)
                 }

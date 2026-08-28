@@ -41,10 +41,12 @@ class CanvasNavigationContractTest {
 
         val leave = viewModel.substring(start, end)
         val deferred = leave.indexOf(DEFERRED_CHECKPOINT)
+        if (deferred < 0) fail("missing $DEFERRED_CHECKPOINT in beginLeave")
         val earlyReturn = leave.indexOf(LEAVE_EARLY_RETURN, deferred)
         val navigation = leave.indexOf(NAVIGATE_AFTER_WRITE, deferred)
+        if (earlyReturn < 0) fail("missing $LEAVE_EARLY_RETURN after deferred checkpoint")
+        if (navigation < 0) fail("missing $NAVIGATE_AFTER_WRITE after deferred checkpoint")
 
-        assertTrue(deferred >= 0, "missing deferred checkpoint guard")
         assertTrue(earlyReturn in deferred + 1 until navigation)
     }
 

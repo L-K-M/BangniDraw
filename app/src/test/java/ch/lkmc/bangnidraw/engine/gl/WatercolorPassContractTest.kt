@@ -24,11 +24,13 @@ class WatercolorPassContractTest {
     }
 
     @Test
-    fun `expired wet pages are reclaimed before a gesture`() {
+    fun `expired wet pages are reclaimed by the refresh clock`() {
         val source = source()
+        val refresh = source.substringAfter("internal fun refreshOverlay(")
+            .substringBefore("internal fun hasWetOverlay()")
 
         assertTrue("resetDryEpoch(nowNanos)" in source)
-        assertTrue("pruneExpired(nowNanos)" in source)
+        assertTrue("pruneAndRebase(nowNanos)" in refresh)
         assertTrue("WatercolorKernel.isExpired(nowNanos, layer.updatedAtNanos[keyIndex])" in source)
         assertTrue("layer.textures.remove(key)" in source)
     }
@@ -46,6 +48,38 @@ class WatercolorPassContractTest {
         assertTrue("if (affectsColor) {" in source)
         assertFalse("hasColorSource(" in source)
         assertTrue("content.mayContainColor(TileKey(out[index]), rect)" in layerTextures)
+    }
+
+    @Test
+    fun `blank clear water dirties presentation after a wet write`() {
+        val stamp = source().substringAfter("fun stamp(").substringBefore("fun cancel()")
+        val colorTracking = stamp.substringAfter("if (affectsColor) {")
+            .substringBefore("val wroteWet")
+
+        assertTrue("tracker.add(" in colorTracking)
+        assertTrue("onFirstTouch(" in colorTracking)
+        assertTrue("val wroteWet = writeWet(wetLayer, nowNanos)" in stamp)
+        assertTrue("if (wroteWet) {" in stamp)
+        assertTrue("wetOutputLeft * WatercolorKernel.CELL_SIZE" in stamp)
+    }
+
+    @Test
+    fun `partial composition cannot consume overlay expiry`() {
+        val renderer = File(repositoryRoot(), RENDERER_PATH).readText()
+        val composite = renderer.substringAfter("private fun compositeIntoAccum(")
+            .substringBefore("private fun drawLayer(")
+        val pass = source()
+        val begin = pass.substringAfter("fun begin(").substringBefore("fun stamp(")
+        val refresh = pass.substringAfter("internal fun refreshOverlay(")
+            .substringBefore("internal fun hasWetOverlay()")
+        val epoch = pass.substringAfter("private fun resetDryEpoch(")
+            .substringBefore("private fun resetActiveEpoch(")
+
+        assertFalse("watercolorPass?.prepareOverlay(" in composite)
+        assertFalse("pruneAndRebase(" in composite)
+        assertFalse("pruneExpired(nowNanos)" in begin)
+        assertFalse("pruneExpired(nowNanos)" in epoch)
+        assertTrue("pruneAndRebase(nowNanos)" in refresh)
     }
 
     @Test

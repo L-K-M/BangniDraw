@@ -690,9 +690,16 @@ comment updated:
 </full-backup-content>
 ```
 
-`files/projects/` holds the user's paintings and their entire undo history; the app's promise
-is that nothing leaves the device except the gallery copy they can see. **Honest consequence,
-stated in About and README:** uninstalling the app removes every project folder. The gallery
+The allowlists include the entire DataStore file and legacy shared
+preferences, so every setting — including `AppTheme` — survives backup
+restore and device transfer. Painting folders also survive plain restarts,
+but they are excluded from the allowlists, so they do not transfer to a new
+device.
+
+`files/projects/` holds the user's paintings and their entire undo history;
+the app's painting-data promise is that no painting leaves the device except
+the gallery copy they can see. **Honest consequence, stated in About and
+README:** uninstalling the app removes every project folder. The gallery
 copies survive (MediaStore items outlive their owner package; they merely stop being ours to
 rewrite — §9.2 handles that with a fresh insert). A future "export project" (OpenRaster,
 post-v1) is the intended way to move paintings between devices.
@@ -710,7 +717,7 @@ post-v1) is the intended way to move paintings between devices.
 | `TileFlusher` | data | IO (single) | the writer coroutine; coalescing; ordering |
 | `GalleryExporter` | data | IO | MediaStore mirror, share/export encodes |
 | `ShareCache` | data | IO | `cacheDir/share` rotation |
-| `Prefs` | data | — | DataStore: `gallerySync`, `nextSketchNumber`, journal limits |
+| `Prefs` | data | — | DataStore: app theme, paint-slot assignments, brush tuning, gallery sync, journal limits, and other application settings |
 | `CanvasViewModel` | ui/canvas | main | owns the clocks, calls `flush()`, applies entries, pushes `UiState` |
 
 Test hooks (`11-testing.md`): `HistoryJournal` round-trips through `HistoryStore`'s encoder on

@@ -28,7 +28,12 @@ fun BangniNavHost() {
     NavHost(navController = navController, startDestination = StudioRoute) {
         composable<StudioRoute> {
             StudioScreen(
-                onOpenPainting = { id -> navController.navigate(CanvasRoute(projectId = id)) },
+                onOpenPainting = { id ->
+                    navController.navigate(CanvasRoute(projectId = id)) {
+                        // A second shelf tap during transition must not stack the same Canvas.
+                        launchSingleTop = true
+                    }
+                },
                 openSettings = openSettings,
                 onSettingsOpened = { openSettings = false },
             )

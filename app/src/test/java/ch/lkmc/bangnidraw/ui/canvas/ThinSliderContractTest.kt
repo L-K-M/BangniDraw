@@ -69,7 +69,7 @@ class ThinSliderContractTest {
         val THUMB_DIAMETER = Regex("""THUMB_DIAMETER\s*=\s*20\.dp""")
         val RAIL_WIDTH = Regex("""modifier\.width\(\s*layout\.railWidthDp\.dp\s*\)""")
         val COLOR_POLICY = Regex(
-            """railButtonColors\(\s*LocalThemeTone\.current\s*,\s*emphasis\s*\)""",
+            """railButtonColors\(\s*LocalAppTheme\.current\s*,\s*emphasis\s*\)""",
         )
         val CONTAINER_COLOR = Regex("""color\s*=\s*buttonColors\.container""")
         val CONTENT_COLOR = Regex(

@@ -38,6 +38,7 @@ internal fun TracingReferencePanel(
 ) {
     val enabled = importState == ReferenceImportState.IDLE
 
+    // PanelHost bounds the height; pin the title and Done around scrolling controls.
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
@@ -109,15 +110,15 @@ internal fun TracingReferencePanel(
                     Text(stringResource(R.string.reference_remove))
                 }
             }
-            Row(
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                if (!enabled) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
-                TextButton(onClick = onDone) {
-                    Text(stringResource(R.string.reference_done))
-                }
+        }
+        Row(
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (!enabled) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
+            TextButton(onClick = onDone) {
+                Text(stringResource(R.string.reference_done))
             }
         }
     }

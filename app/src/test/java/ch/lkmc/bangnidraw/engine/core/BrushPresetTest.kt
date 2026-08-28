@@ -40,6 +40,11 @@ class BrushPresetTest {
             ),
             BrushPresets.railOrder(shuffled).map { it.id },
         )
+
+        assertEquals(
+            listOf(BrushPresets.PENCIL_ID, BrushPresets.MARKER_ID, user.id),
+            BrushPresets.paintRailOrder(shuffled).map(BrushPreset::id),
+        )
     }
 
     @Test

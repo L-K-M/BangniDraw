@@ -566,7 +566,7 @@ class CanvasViewModel @Inject constructor(
         when (val decision = CanvasOpenPolicy.decide(store.load(projectId))) {
             is CanvasOpenDecision.Open -> {
                 openLoaded(decision.project)
-                observePaintSlots(paintPresetIds)
+                observePaintSlots()
             }
             is CanvasOpenDecision.Reject -> _uiState.value = UiState.Failed(decision.message)
         }
@@ -1148,19 +1148,23 @@ class CanvasViewModel @Inject constructor(
     }
 
     private fun paintCatalogueIds(): List<String> =
-        brushPresets.filterNot(BrushPreset::eraseMode).map(BrushPreset::id)
+        BrushPresets.paintRailOrder(brushPresets).map(BrushPreset::id)
 
     /** Mirrors global assignments while preserving this canvas's active index. */
-    private fun observePaintSlots(cataloguePresetIds: List<String>) {
+    private fun observePaintSlots() {
         viewModelScope.launch {
             prefs.paintSlotIds.collect { storedPresetIds ->
-                val updated = PaintSlotAssignments
-                    .restore(cataloguePresetIds, storedPresetIds)
-                    .activate(paintSlots.activeIndex)
+                val restored = PaintSlotAssignments.restore(
+                    paintCatalogueIds(),
+                    storedPresetIds,
+                )
+                val activeIndex = minOf(paintSlots.activeIndex, restored.presetIds.lastIndex)
+                val updated = restored.activate(activeIndex)
                 if (updated.presetIds == paintSlots.presetIds) return@collect
 
+                val preset = brushPresets.firstOrNull { it.id == updated.activePresetId }
+                    ?: return@collect
                 paintSlots = updated
-                val preset = brushPresets.first { it.id == updated.activePresetId }
                 toolSwitcher.replaceBasePaintPreset(preset)
                 updateToolUi()
             }

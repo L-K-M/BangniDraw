@@ -118,7 +118,7 @@ internal fun ToolRail(
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
-    val paints = BrushPresets.railOrder(presets).filterNot(BrushPreset::eraseMode)
+    val paints = BrushPresets.paintRailOrder(presets)
     val paintsById = paints.associateBy(BrushPreset::id)
     val sliderPreset = ToolSliderPreset.forKind(selection.kind)
     val sliderSecondaryValue = ToolSliderPreset.secondaryValue(selection.kind)

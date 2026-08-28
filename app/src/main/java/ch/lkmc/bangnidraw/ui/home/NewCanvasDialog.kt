@@ -303,7 +303,7 @@ private fun PaperColorPickerDialog(
     var value by rememberSaveable { mutableFloatStateOf(HsvColor.fromArgb(current).v) }
     val hsv = HsvColor(hue, saturation, value)
     val preview = hsv.toArgb()
-    val previewLabel = stringResource(R.string.paper_custom)
+    val previewLabel = stringResource(R.string.paper_custom_preview)
 
     AlertDialog(
         onDismissRequest = onCancel,

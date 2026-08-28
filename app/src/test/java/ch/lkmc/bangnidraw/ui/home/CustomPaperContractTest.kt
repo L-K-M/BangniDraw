@@ -18,7 +18,7 @@ class CustomPaperContractTest {
 
         assertTrue("paperIsCustom" in dialog, "selection must distinguish the custom swatch")
         assertTrue(
-            "onCreate(it.preset.size, if (paperIsCustom) customPaper else paper)" in dialog,
+            CREATE_SEAM.containsMatchIn(dialog),
             "Create must pass the custom colour through the same seam as the presets",
         )
         assertTrue("R.string.paper_custom" in dialog, "the custom swatch is labelled")
@@ -30,7 +30,7 @@ class CustomPaperContractTest {
 
         assertTrue("HsvChannel.entries" in dialog, "sliders must derive from HsvChannel")
         assertTrue("HsvColor.fromArgb" in dialog, "the picker opens on the current colour")
-        assertTrue(".toArgb()" in dialog, "the choice commits as ARGB, like every preset")
+        assertTrue("hsv.toArgb()" in dialog, "the choice commits as ARGB, like every preset")
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
@@ -51,5 +51,10 @@ class CustomPaperContractTest {
         const val APP_DIRECTORY = "app/src/main"
         const val NEW_CANVAS_DIALOG_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/home/NewCanvasDialog.kt"
+
+        /** Whitespace-tolerant: line wrapping cannot break the contract. */
+        val CREATE_SEAM = Regex(
+            """onCreate\(\s*it\.preset\.size,\s*if\s*\(\s*paperIsCustom\s*\)\s*customPaper\s*else\s*paper\s*\)""",
+        )
     }
 }

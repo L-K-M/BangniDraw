@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.1.1 - 2026-08-28
 
 - Keep the canvas visible after fold, rotation, and aspect-ratio changes.
+- Remember each paint-slot assignment across tools, paintings, and restarts.
 
 ## 1.1.0 - 2026-08-28
 

@@ -1771,3 +1771,20 @@ touchscreen hover too, not only a pen.
   action outcomes"), which adds `studio_share_failed` to both locales and
   repoints both share paths at it. Keeping the string change out of this
   PR's scope.
+
+## PR #136 — durable paint slots (2026-08-28)
+
+- **R-105 ⏸️ Round 1, minor: catch `assignPaintSlot` invariant failures in
+  `selectBrushPreset`.** Declined. The callback exists only in `UiState.Ready`,
+  after `loadPaintSlots` initializes shared state; failed DataStore reads
+  initialize it from an empty list, and the catalogue always has the fallback
+  paint. A throw therefore signals a programming error. Catching it would
+  activate the brush without assigning its slot, recreating the inconsistency
+  this PR removes.
+
+- **R-106 ⏸️ Round 1, outside diff: `synchronized(paintSlotLock)` may block
+  the UI or reorder persistence.** Refuted on the implementation. The monitor
+  only updates a `MutableStateFlow` and calls non-blocking `Channel.trySend`;
+  it performs no DataStore or suspending work. One app-scoped coroutine drains
+  that conflated channel and awaits each `dataStore.edit` sequentially.
+  Superseded full snapshots may be skipped, but the latest cannot be overtaken.

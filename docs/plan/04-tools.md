@@ -542,6 +542,9 @@ pencil gets `"grain": "paper-fine"` and the position jitter drops to 0.05.
   Watercolor flow) into the session copy and remember them per preset in
   `Prefs`. Water's quick Size and Water values remain session-only. Neither
   path edits JSON; slider fiddling is not "editing a brush".
+- FULL-rail paint assignments are an ordered list of preset ids in `Prefs`.
+  Choosing a preset swaps it into the active slot; the active slot index stays
+  session-only. Assignments are app chrome, never painting or preset data.
 
 ### 5.2 Watercolor and Water
 

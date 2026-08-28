@@ -2013,3 +2013,13 @@ touchscreen hover too, not only a pen.
   Refuted. The class lives in `engine/core` and tests the stored enums there
   (`Hand`, `TouchDrawingMode`, `AppTheme`, …); `data/Prefs` only persists
   them. The tree entry mirrors the real package.
+
+## PR #151 — probed bitmap byte order (2026-08-28)
+
+- **R-136 ⏸️ Round 3, info: add an instrumented round-trip test for
+  `BitmapLayoutProbe.probe()`.** Declined. The suite is JVM-only by design
+  (AGENTS.md): no androidTest directory exists, and adding one means adding
+  the emulator CI job too. The device-dependent half is three framework
+  calls around `classify`, which the JVM tests pin for both layouts plus
+  the loud no-match failure; the probe cannot drift without a framework
+  change no test here could anticipate anyway.

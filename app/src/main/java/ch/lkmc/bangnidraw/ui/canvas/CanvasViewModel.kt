@@ -472,6 +472,7 @@ class CanvasViewModel @Inject constructor(
     private var session: EngineSession? = null
 
     private val checkpointMutex = Mutex()
+    private var checkpointsClosed = false
 
     init {
         viewModelScope.launch(Dispatchers.IO) { open() }
@@ -2074,7 +2075,18 @@ class CanvasViewModel @Inject constructor(
         snapshot?.mirrorBefore?.let(mirrorBefore::putAll)
 
         appScope.launch(Dispatchers.IO) {
-            val current = flusher.resolveCurrent(payloadKeys)
+            val current = try {
+                flusher.resolveCurrent(payloadKeys)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "cancelled RMW pixels could not be resolved", e)
+                withContext(Dispatchers.Main) {
+                    if (session === engine) engine.completeCancelledRmwRestore()
+                    finishRmwRestore()
+                }
+                return@launch
+            }
             val restored = LinkedHashMap<TileKey, ByteArray?>(keys.size)
             for (key in keys) {
                 val mapKey = spec.layerId to key
@@ -2875,7 +2887,13 @@ class CanvasViewModel @Inject constructor(
         session?.onRmwCancelled = null
         session = null
         appScope.launch {
-            withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
+            try {
+                withContext(NonCancellable) { checkpointAndCloseFlusher() }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "final checkpoint or flusher close failed", e)
+            }
         }
     }
 
@@ -2920,63 +2938,86 @@ class CanvasViewModel @Inject constructor(
 
     private suspend fun checkpoint(
         trigger: GallerySyncDecision.Trigger,
+    ): CheckpointResult = checkpointMutex.withLock {
+        // Teardown already drained the flusher; nothing later can commit.
+        if (checkpointsClosed) return@withLock CheckpointResult.COMMITTED
+
+        checkpointLocked(trigger)
+    }
+
+    /** Makes the final checkpoint and worker close atomic to other callers. */
+    private suspend fun checkpointAndCloseFlusher() {
+        checkpointMutex.withLock {
+            if (checkpointsClosed) return
+
+            try {
+                checkpointLocked(GallerySyncDecision.Trigger.LEAVE)
+            } finally {
+                checkpointsClosed = true
+                flusher.closeAndJoin()
+            }
+        }
+    }
+
+    /** Runs only while [checkpointMutex] excludes other checkpoint callers. */
+    private suspend fun checkpointLocked(
+        trigger: GallerySyncDecision.Trigger,
     ): CheckpointResult {
         val doc = document ?: return CheckpointResult.COMMITTED
-        return checkpointMutex.withLock {
-            if (!dirty && !thumbDirty) {
-                val deletesOutstanding = withContext(Dispatchers.Main) {
-                    pendingDeletes.isNotEmpty()
-                }
-                if (!deletesOutstanding && store.exists(doc.id)) {
-                    return@withLock CheckpointResult.COMMITTED
-                }
-            }
 
-            // §5.6's order: (readbacks land) → queued jobs and tiles flushed
-            // → project.json last, the commit point → only then the files a
-            // truncation or pruning dropped.
-            // Any tile-changing transaction bumps the generation under the
-            // same lock, so a capture taken here goes stale exactly when an
-            // edit races this checkpoint — the flush below must never sweep
-            // in bytes the capture has not folded yet.
-            val generation = synchronized(checkpointStateLock) {
-                checkpointGeneration.capture()
+        if (!dirty && !thumbDirty) {
+            val deletesOutstanding = withContext(Dispatchers.Main) {
+                pendingDeletes.isNotEmpty()
             }
-            var projectCommitted = false
-            try {
-                CheckpointBarrier.commitWhenFlushed(
-                    awaitReadbacks = ::awaitReadbacks,
-                    flushTiles = flusher::checkpointFlush,
-                ) {
-                    val now = System.currentTimeMillis()
-                    val snapshot = captureCheckpoint(generation, now)
-                        ?: return@commitWhenFlushed
-                    store.checkpoint(snapshot.document, snapshot.history)
-                    projectCommitted = true
-                    // Now — and only now — the dropped entries' files (§5.6).
-                    if (snapshot.deletes.isNotEmpty()) {
-                        historyStore?.delete(snapshot.deletes)
-                    }
-                    // The thumbnail follows the checkpoint (06 §6.4): the tiles
-                    // it reads are on disk by the flush above, and only when
-                    // pixels actually changed — never per stroke.
-                    if (snapshot.thumbnailWork == ThumbnailWork.WRITE) {
-                        Thumbnails.write(
-                            snapshot.document,
-                            layerDirFor = { store.layerDir(snapshot.document.id, it) },
-                            target = File(store.projectDir(snapshot.document.id), "thumb.png"),
-                        )
-                    }
-                    withContext(Dispatchers.Main) { finishCheckpoint(snapshot) }
-                    maybeSyncGallery(snapshot.document, trigger, snapshot.timestampMs)
+            if (!deletesOutstanding && store.exists(doc.id)) {
+                return CheckpointResult.COMMITTED
+            }
+        }
+
+        // §5.6's order: (readbacks land) → queued jobs and tiles flushed
+        // → project.json last, the commit point → only then the files a
+        // truncation or pruning dropped.
+        // Any tile-changing transaction bumps the generation under the
+        // same lock, so a capture taken here goes stale exactly when an
+        // edit races this checkpoint — the flush below must never sweep
+        // in bytes the capture has not folded yet.
+        val generation = synchronized(checkpointStateLock) {
+            checkpointGeneration.capture()
+        }
+        var projectCommitted = false
+        try {
+            CheckpointBarrier.commitWhenFlushed(
+                awaitReadbacks = ::awaitReadbacks,
+                flushTiles = flusher::checkpointFlush,
+            ) {
+                val now = System.currentTimeMillis()
+                val snapshot = captureCheckpoint(generation, now)
+                    ?: return@commitWhenFlushed
+                store.checkpoint(snapshot.document, snapshot.history)
+                projectCommitted = true
+                // Now — and only now — the dropped entries' files (§5.6).
+                if (snapshot.deletes.isNotEmpty()) {
+                    historyStore?.delete(snapshot.deletes)
                 }
-                if (projectCommitted) CheckpointResult.COMMITTED else CheckpointResult.DEFERRED
-            } catch (_: java.io.IOException) {
-                // The project commit is the save boundary. A failure before
-                // it keeps dirty state for the next checkpoint; thumbnail or
-                // gallery work after it may fail without trapping the user.
-                if (projectCommitted) CheckpointResult.COMMITTED else CheckpointResult.DEFERRED
+                // The thumbnail follows the checkpoint (06 §6.4): the tiles
+                // it reads are on disk by the flush above, and only when
+                // pixels actually changed — never per stroke.
+                if (snapshot.thumbnailWork == ThumbnailWork.WRITE) {
+                    Thumbnails.write(
+                        snapshot.document,
+                        layerDirFor = { store.layerDir(snapshot.document.id, it) },
+                        target = File(store.projectDir(snapshot.document.id), "thumb.png"),
+                    )
+                }
+                withContext(Dispatchers.Main) { finishCheckpoint(snapshot) }
+                maybeSyncGallery(snapshot.document, trigger, snapshot.timestampMs)
             }
+            if (projectCommitted) CheckpointResult.COMMITTED else CheckpointResult.DEFERRED
+        } catch (_: java.io.IOException) {
+            // The project commit is the save boundary. A failure before
+            // it keeps dirty state for the next checkpoint; thumbnail or
+            // gallery work after it may fail without trapping the user.
+            if (projectCommitted) CheckpointResult.COMMITTED else CheckpointResult.DEFERRED
         }
     }
 

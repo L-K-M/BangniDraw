@@ -613,6 +613,21 @@ and the contradiction is noted here.
   A direct disk read can race a pending sparse-tile removal or replacement.
   `ResolveCurrent` is the ordering barrier before the captured before-image is
   restored.
+- **`TileFlusher` shutdown is a FIFO drain, not cancellation.** Canvas
+  teardown takes the checkpoint mutex, runs one final leave checkpoint, closes
+  the flusher's channel, and joins its application-scope worker. Closing the
+  channel lets the receive loop finish every accepted job before it exits;
+  cancelling the worker can strand tile buffers. Expected storage failures are
+  contained by each job, complete its result, and retain pending pixels for a
+  retry. A non-cancellation bug is captured without escaping the handler-less
+  application scope; `closeAndJoin` preserves its cause, and teardown logs it
+  rather than claiming the FIFO drained or crashing as the Canvas disappears.
+  Lifecycle cancellation remains cancellation and propagates.
+  The per-Canvas worker starts synchronously in the ViewModel's property
+  initializer and is single-use. `onCleared` detaches the engine session
+  before the final checkpoint, so its readback drain cannot remain pending.
+  Failed-save leave gating owns retry while the screen exists; after teardown
+  no checkpoint producer remains, so retaining the worker cannot recover data.
 - **RMW before-images are captured in memory on first tile touch.** Before
   commit, those pixels may exist only on the GPU, so the open stroke cannot
   use the plan's disk journal literally. Pen-up persists the ordinary history

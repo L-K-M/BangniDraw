@@ -26,7 +26,10 @@ class ActualSizeContractTest {
         assertTrue("touch.actualSizeView()" in screen)
     }
 
-    private fun source(path: String): String = File(repositoryRoot(), path).readText()
+    // Whitespace-collapsed so reformatting the source cannot break the
+    // contract; the assertions pin identifiers, not layout.
+    private fun source(path: String): String =
+        File(repositoryRoot(), path).readText().replace(WHITESPACE, " ")
 
     private fun repositoryRoot(): File {
         val userDirectory = System.getProperty(USER_DIRECTORY_PROPERTY)
@@ -42,6 +45,7 @@ class ActualSizeContractTest {
         const val USER_DIRECTORY_PROPERTY = "user.dir"
         const val ROOT_MARKER = "settings.gradle.kts"
         const val APP_DIRECTORY = "app/src/main"
+        val WHITESPACE = Regex("\\s+")
         const val RESET_PILL_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/ResetViewPill.kt"
         const val CANVAS_SCREEN_PATH =

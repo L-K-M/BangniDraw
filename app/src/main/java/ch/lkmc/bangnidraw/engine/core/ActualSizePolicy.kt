@@ -8,6 +8,9 @@ package ch.lkmc.bangnidraw.engine.core
  *
  * The view transform composes over the fit (`screen = view ∘ fit`, see
  * [ScreenTransform]), so actual size is `view.scale = 1 / fit.scale`, not 1.
+ * If the canvas is small enough that 1/fit.scale would undershoot
+ * [ViewTransform.MIN_SCALE], the result sits at the floor rather than true
+ * 100 % — the same limit the next pinch gesture would re-impose.
  * The canvas point under the view's centre stays under the centre — the user
  * zoomed into something, and the anchor is what they were looking at.
  * Rotation zeroes: 100 % is for inspecting pixels, and pixels are

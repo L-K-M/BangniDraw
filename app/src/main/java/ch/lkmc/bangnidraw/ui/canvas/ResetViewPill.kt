@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -66,7 +67,9 @@ internal fun ResetViewPill(
             color = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             shape = ButtonDefaults.shape,
-            modifier = Modifier.combinedClickable(
+            modifier = Modifier
+                .clip(ButtonDefaults.shape)
+                .combinedClickable(
                 role = Role.Button,
                 onClick = onReset,
                 onLongClickLabel = stringResource(R.string.canvas_actual_size),

@@ -46,8 +46,8 @@ class ActualSizePolicyTest {
 
     @Test
     fun `a canvas smaller than the viewport clamps at the scale floor`() {
-        // fit.scale = 4 (a 400² canvas letterboxed up), so 1/fit is 0.25 =
-        // MIN_SCALE exactly; a still smaller canvas would ask for less.
+        // fit.scale = 20 (a 200² canvas letterboxed up to a 4000² view), so
+        // 1/fit is 0.05 — below MIN_SCALE, clamped up to the floor.
         val huge = FitTransform(
             viewWidth = 4000f,
             viewHeight = 4000f,
@@ -59,5 +59,21 @@ class ActualSizePolicyTest {
 
         assertEquals(ViewTransform.MIN_SCALE, result.scale)
         assertTrue(abs(result.rotation) == 0f)
+    }
+
+    @Test
+    fun `the clamp boundary itself is reachable`() {
+        // fit.scale = 4, so 1/fit = 0.25 = MIN_SCALE exactly: the floor is
+        // met, not clamped to.
+        val edge = FitTransform(
+            viewWidth = 4000f,
+            viewHeight = 4000f,
+            imageWidth = 1000f,
+            imageHeight = 1000f,
+        )
+
+        val result = ActualSizePolicy.transform(edge, ViewTransform())
+
+        assertEquals(ViewTransform.MIN_SCALE, result.scale)
     }
 }

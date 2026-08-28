@@ -834,7 +834,10 @@ private fun CanvasContent(
     val actualSizeView = {
         val target = touch.actualSizeView()
         if (target != null) {
-            if (state.hapticsMode == HapticsMode.ENABLED) {
+            // The LONG_PRESS is the trigger's feedback; with animations off
+            // animateViewTo's CLOCK_TICK answers in the same frame, so the
+            // press haptic would stack on it.
+            if (state.hapticsMode == HapticsMode.ENABLED && ValueAnimator.areAnimatorsEnabled()) {
                 view0.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             }
             animateViewTo(target)

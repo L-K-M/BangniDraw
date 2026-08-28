@@ -90,9 +90,9 @@ object ReferenceComposite {
         return out
     }
 
-    /** The one visibility/opacity gate the renderer's draw also applies. */
+    /** The one visibility/opacity gate — owned by the policy, not copied. */
     private fun includes(reference: TracingReference): Boolean =
-        reference.visibility == ReferenceVisibility.VISIBLE && reference.opacity > 0f
+        ReferenceGalleryPolicy.includes(reference)
 
     /**
      * `GL_NEAREST` with clamp-to-edge: texel index `floor(coord + 0.5)` on

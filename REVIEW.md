@@ -2071,3 +2071,10 @@ touchscreen hover too, not only a pen.
   30 s / leave; the ViewModel split follows the repo's stated rule
   (decisions pure and tested, MediaStore/VM orchestration untested —
   AGENTS.md's gallery-debounce precedent).
+
+- **R-144 🟢 Round 2, minor: contract test pinned delimiter existence, not
+  order; `ReferenceComposite.includes` duplicated the policy gate; a missing
+  asset logged as dimension drift.** All three applied — the probe window is
+  now bounded by construction, the composite delegates to
+  `ReferenceGalleryPolicy.includes`, and the gone-asset case gets its own
+  log line.

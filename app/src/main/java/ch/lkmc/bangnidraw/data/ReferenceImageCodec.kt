@@ -99,6 +99,13 @@ class ReferenceImageCodec @Inject constructor(
     ): CpuFlatten.FlatReference? {
         val file = store.referenceFile(projectId, reference.assetName)
 
+        // Its own line: a missing asset is the externally-deleted case, and
+        // the bounds probe below would only log it as "-1x-1" drift.
+        if (!file.isFile) {
+            Log.w(TAG, "reference variant asset is gone: ${file.absolutePath}")
+            return null
+        }
+
         // Bounds before pixels: the asset is capped at import
         // (`TracingReferencePolicy.normalizedSize`), but the file is
         // app-storage, and a replaced or hand-mangled one must be refused

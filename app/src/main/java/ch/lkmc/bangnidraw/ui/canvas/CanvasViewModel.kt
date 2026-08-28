@@ -3049,8 +3049,8 @@ class CanvasViewModel @Inject constructor(
         withContext(Dispatchers.Main) {
             if (document?.tracingReference?.assetName != reference.assetName) return@withContext
 
-            applyTracingReference(null)
-            dismissPanel()
+            // Keep the private asset recoverable across transient decode failures.
+            // Replace and Remove remain the only destructive reference actions.
             showReferenceNotice(R.string.err_reference_unreadable)
         }
     }

@@ -202,6 +202,72 @@ class BrushPresetStoreTest {
     }
 
     @Test
+    fun `a legacy paintbrush override keeps every tuned field through migration`() {
+        val store = BrushPresetStore(
+            root,
+            MapAssets(
+                "paintbrush.json" to
+                    """{"v":1,"id":"builtin.paintbrush","name":"@string/preset_paintbrush","icon":"watercolor","size":40,"sizeMin":4,"sizeMax":400,"flow":0.45,"hardness":0.25,"spacing":0.2,"mixing":true,"dilution":0.4,"bufferMode":"Accumulate","watercolor":{"waterLoad":0.72,"spread":0.6,"granulation":0.32,"edgeDarkening":0.4}}""",
+            ),
+        )
+        File(root, "builtin.paintbrush.json").writeText(
+            """{"v":1,"id":"builtin.paintbrush","name":"My wash","size":31,"sizeMin":6,"sizeMax":300,"flow":0.26,"hardness":0.83,"spacing":0.11,"tip":{"type":"flat","aspect":0.5},"orientation":"Stylus","pressureSize":{"p0":0.2,"p1":0.4,"p2":0.8,"p3":1},"pressureFlow":{"p0":0.1,"p1":0.3,"p2":0.7,"p3":1},"tilt":{"sizeAtFlat":1.7,"opacityAtFlat":0.6,"elongate":true},"velocity":{"sizeAtFast":0.9,"opacityAtFast":0.5,"fastPxPerMs":2.5},"jitter":{"size":0.15,"position":0.25},"stabilizer":0.62,"mixing":true,"dilution":0.21}""",
+        )
+
+        val migrated = store.load().single()
+
+        // The user's tuning survives; only the watercolor graft is new.
+        assertEquals("My wash", migrated.name)
+        assertEquals(31f, migrated.size)
+        assertEquals(6f, migrated.sizeMin)
+        assertEquals(300f, migrated.sizeMax)
+        assertEquals(0.26f, migrated.flow)
+        assertEquals(0.83f, migrated.hardness)
+        assertEquals(0.11f, migrated.spacing)
+        assertEquals(TipShape.Flat(0.5f), migrated.tip)
+        assertEquals(TipOrientation.Stylus, migrated.orientation)
+        assertEquals(Curve(0.2f, 0.4f, 0.8f, 1f), migrated.pressureSize)
+        assertEquals(Curve(0.1f, 0.3f, 0.7f, 1f), migrated.pressureFlow)
+        assertEquals(TiltEffect(1.7f, 0.6f, elongate = true), migrated.tilt)
+        assertEquals(VelocityEffect(0.9f, 0.5f, 2.5f), migrated.velocity)
+        assertEquals(Jitter(0.15f, 0.25f), migrated.jitter)
+        assertEquals(0.62f, migrated.stabilizer)
+        assertEquals(0.21f, migrated.dilution)
+        assertEquals(
+            WatercolorBehavior(
+                waterLoad = 0.72f,
+                spread = 0.6f,
+                granulation = 0.32f,
+                edgeDarkening = 0.4f,
+            ),
+            migrated.watercolor,
+        )
+    }
+
+    @Test
+    fun `an unmigratable size window adopts the replacement instead`() {
+        val store = BrushPresetStore(
+            root,
+            MapAssets(
+                "paintbrush.json" to
+                    """{"v":1,"id":"builtin.paintbrush","name":"@string/preset_paintbrush","icon":"watercolor","size":40,"sizeMin":4,"sizeMax":400,"flow":0.45,"hardness":0.25,"mixing":true,"bufferMode":"Accumulate","watercolor":{"waterLoad":0.72,"spread":0.6,"granulation":0.32,"edgeDarkening":0.4}}""",
+            ),
+        )
+        // 1960 < sizeMax <= 2048 is a valid dry preset the wet pass cannot serve.
+        File(root, "builtin.paintbrush.json").writeText(
+            """{"v":1,"id":"builtin.paintbrush","name":"Huge","size":1500,"sizeMin":8,"sizeMax":2000,"flow":0.26,"hardness":0.83}""",
+        )
+
+        val migrated = store.load().single()
+
+        assertEquals("@string/preset_paintbrush", migrated.name)
+        assertEquals(400f, migrated.size, "the replacement's range coerces the size")
+        assertEquals(0.26f, migrated.flow)
+        assertEquals(0.25f, migrated.hardness, "the replacement's tuning applies")
+        assertTrue(migrated.watercolor != null)
+    }
+
+    @Test
     fun `a legacy calligraphy override gains the Chinese ink model without losing edits`() {
         val store = BrushPresetStore(
             root,

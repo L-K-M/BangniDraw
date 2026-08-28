@@ -1966,7 +1966,18 @@ class CanvasViewModel @Inject constructor(
         snapshot?.mirrorBefore?.let(mirrorBefore::putAll)
 
         appScope.launch(Dispatchers.IO) {
-            val current = flusher.resolveCurrent(payloadKeys)
+            val current = try {
+                flusher.resolveCurrent(payloadKeys)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "cancelled RMW pixels could not be resolved", e)
+                withContext(Dispatchers.Main) {
+                    if (session === engine) engine.completeCancelledRmwRestore()
+                    finishRmwRestore()
+                }
+                return@launch
+            }
             val restored = LinkedHashMap<TileKey, ByteArray?>(keys.size)
             for (key in keys) {
                 val mapKey = spec.layerId to key

@@ -17,6 +17,8 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
@@ -107,7 +109,10 @@ class TileFlusherTest {
         failing.markDirty(tile(TileKey(0, 0)))
         assertTrue(failing.enqueueNow(TileFlusher.FlushJob.Checkpoint()))
 
-        val exceptionHandler = CoroutineExceptionHandler { _, _ -> }
+        val unhandled = CompletableDeferred<Throwable>()
+        val exceptionHandler = CoroutineExceptionHandler { _, failure ->
+            unhandled.complete(failure)
+        }
         val scope = CoroutineScope(SupervisorJob() + exceptionHandler)
         try {
             val worker = failing.start(scope, Dispatchers.Default)
@@ -117,11 +122,85 @@ class TileFlusherTest {
                     failing.closeAndJoin()
                 }
             }
-            assertTrue(worker.isCancelled)
+            assertTrue(worker.isCompleted)
+            assertFalse(worker.isCancelled)
             // Coroutine stack recovery may insert a copy; pin the full chain.
             assertTrue(generateSequence<Throwable>(reported) { it.cause }.any {
                 it === failure
             })
+            assertFalse(unhandled.isCompleted)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `close propagates worker cancellation`() = runBlocking {
+        val standalone = TileFlusher(
+            write = TileFlusher.TileWriter { _, _, _ -> },
+        )
+        val scope = CoroutineScope(SupervisorJob())
+        try {
+            val worker = standalone.start(scope, Dispatchers.Default)
+            worker.cancel()
+            worker.join()
+
+            assertFailsWith<CancellationException> {
+                withTimeout(WORKER_TIMEOUT_MS) {
+                    standalone.closeAndJoin()
+                }
+            }
+            assertTrue(worker.isCancelled)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `worker failure completes deferred jobs and later checkpoint`() = runBlocking {
+        val failure = IllegalStateException("unexpected disk read failure")
+        val broken = TileFlusher(
+            write = TileFlusher.TileWriter { _, _, _ -> },
+        ).also {
+            it.diskReader = TileFlusher.DiskReader { _, _ -> throw failure }
+        }
+        val key = TileKey(0, 0)
+        val entry = strokeEntry(listOf(key))
+        val resolve = TileFlusher.FlushJob.ResolveCurrent(listOf(layer to key))
+        val writeEntry = TileFlusher.FlushJob.WriteEntry(
+            entry = entry,
+            seq = 1,
+            ts = 1,
+            mirrorBefore = emptyMap(),
+            awaitReadback = { TileFlusher.ReadbackResult.COMPLETE },
+        )
+        val writeRedo = TileFlusher.FlushJob.WriteRedo(entry, emptyMap())
+        assertTrue(broken.enqueueNow(resolve))
+        assertTrue(broken.enqueueNow(writeEntry))
+        assertTrue(broken.enqueueNow(writeRedo))
+
+        val unhandled = CompletableDeferred<Throwable>()
+        val exceptionHandler = CoroutineExceptionHandler { _, thrown ->
+            unhandled.complete(thrown)
+        }
+        val scope = CoroutineScope(SupervisorJob() + exceptionHandler)
+        try {
+            broken.start(scope, Dispatchers.Default)
+
+            assertFailsWith<IllegalStateException> {
+                withTimeout(WORKER_TIMEOUT_MS) { resolve.result.await() }
+            }
+            assertNull(withTimeout(WORKER_TIMEOUT_MS) { writeEntry.result.await() })
+            assertEquals(
+                TileFlusher.StepResult.DEFERRED,
+                withTimeout(WORKER_TIMEOUT_MS) { writeEntry.completion.await() },
+            )
+            assertNull(withTimeout(WORKER_TIMEOUT_MS) { writeRedo.result.await() })
+            assertFalse(withTimeout(WORKER_TIMEOUT_MS) { broken.checkpointFlush() })
+            assertFailsWith<IllegalStateException> {
+                withTimeout(WORKER_TIMEOUT_MS) { broken.closeAndJoin() }
+            }
+            assertFalse(unhandled.isCompleted)
         } finally {
             scope.cancel()
         }

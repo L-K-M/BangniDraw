@@ -588,9 +588,10 @@ and the contradiction is noted here.
   channel lets the receive loop finish every accepted job before it exits;
   cancelling the worker can strand tile buffers. Expected storage failures are
   contained by each job, complete its result, and retain pending pixels for a
-  retry. An unexpected exception instead cancels the worker, and
-  `closeAndJoin` preserves its cause; teardown logs it rather than claiming
-  the FIFO drained or crashing the process as the Canvas disappears.
+  retry. A non-cancellation bug is captured without escaping the handler-less
+  application scope; `closeAndJoin` preserves its cause, and teardown logs it
+  rather than claiming the FIFO drained or crashing as the Canvas disappears.
+  Lifecycle cancellation remains cancellation and propagates.
   The per-Canvas worker starts synchronously in the ViewModel's property
   initializer and is single-use. `onCleared` detaches the engine session
   before the final checkpoint, so its readback drain cannot remain pending.

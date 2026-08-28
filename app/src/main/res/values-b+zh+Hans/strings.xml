@@ -76,6 +76,7 @@
     <string name="panel_blur_opened">模糊设置已打开</string>
     <string name="panel_water_opened">清水设置已打开</string>
     <string name="panel_eyedropper_opened">吸管设置已打开</string>
+    <string name="panel_close">关闭面板</string>
     <string name="canvas_undo">撤销</string>
     <string name="canvas_redo">重做</string>
     <string name="canvas_more">更多操作</string>

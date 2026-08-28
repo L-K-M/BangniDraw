@@ -1605,6 +1605,7 @@ private fun CanvasPanelContent(
                 viewModel.selectDishEyedropper(it)
             },
             onTextInputFocus = onTextInputFocus,
+            onDismiss = viewModel::dismissPanel,
             hapticsMode = state.hapticsMode,
         )
         CanvasPanel.BRUSH_SETTINGS -> when (val kind = state.toolSelection.kind) {
@@ -1619,31 +1620,38 @@ private fun CanvasPanelContent(
                 onPresetChanged = viewModel::updateActiveBrush,
                 onPresetPersisted = viewModel::persistActiveBrush,
                 onReset = viewModel::resetActiveBrush,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Smudge -> SmudgeSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateSmudgeParams,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Water -> WaterSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateWaterParams,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Blur -> BlurSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateBlurParams,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Eyedropper -> EyedropperSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateEyedropperParams,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Fill -> FillSettingsSheet(
                 active = state.fillParams,
                 onChanged = viewModel::updateFillParams,
+                onDismiss = viewModel::dismissPanel,
             )
         }
         CanvasPanel.FILL_SETTINGS -> FillSettingsSheet(
             active = state.fillParams,
             onChanged = viewModel::updateFillParams,
+            onDismiss = viewModel::dismissPanel,
         )
         CanvasPanel.REFERENCE -> state.tracingReference?.let { reference ->
             TracingReferencePanel(

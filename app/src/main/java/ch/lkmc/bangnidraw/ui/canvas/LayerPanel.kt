@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Visibility
@@ -211,6 +212,7 @@ internal fun LayerPanel(
                     onAdd = onAdd,
                     onMenuChange = { headerMenu = it },
                     onFlatten = { onRequestDialog(CanvasDialog.FlattenLayers) },
+                    onClose = onDismiss,
                 )
 
                 LazyColumn(
@@ -369,6 +371,7 @@ private fun LayerPanelHeader(
     onAdd: () -> Unit,
     onMenuChange: (Boolean) -> Unit,
     onFlatten: () -> Unit,
+    onClose: () -> Unit,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -407,6 +410,14 @@ private fun LayerPanelHeader(
                     },
                 )
             }
+        }
+        // A visible way out: the scrim tap that also dismisses is invisible
+        // to a first-time user (08 §4.1 keeps both).
+        IconButton(onClick = onClose) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = stringResource(R.string.panel_close),
+            )
         }
     }
 }

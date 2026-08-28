@@ -64,7 +64,7 @@ class ToolSliderPresetTest {
     }
 
     @Test
-    fun `water slider displays load while dabs preserve pressure headroom`() {
+    fun `water sliders show size and a secondary water load`() {
         val params = WaterParams(size = 80f, waterLoad = 0.65f)
 
         val preset = ToolSliderPreset.forKind(ToolKind.Water(params))!!
@@ -72,8 +72,14 @@ class ToolSliderPresetTest {
         assertEquals(params.size, preset.size)
         assertEquals(params.sizeMin, preset.sizeMin)
         assertEquals(params.sizeMax, preset.sizeMax)
-        assertEquals(params.waterLoad, preset.opacity)
+        // Water load belongs to the secondary slider alone; stuffing it
+        // into opacity would let a future reader misread one as the other.
+        assertEquals(1f, preset.opacity)
         assertEquals(1f, preset.flow)
+        assertEquals(
+            params.waterLoad,
+            ToolSliderPreset.secondaryValue(ToolKind.Water(params)),
+        )
         assertEquals(
             ToolSliderSecondary.WATER,
             ToolSliderPreset.secondaryFor(ToolKind.Water(params)),
@@ -82,6 +88,18 @@ class ToolSliderPresetTest {
             ToolSliderSecondary.OPACITY,
             ToolSliderPreset.secondaryFor(ToolKind.Brush(preset)),
         )
+    }
+
+    @Test
+    fun `changing water load never leaks into the primary water preset`() {
+        val low = ToolSliderPreset.forKind(ToolKind.Water(WaterParams(size = 80f, waterLoad = 0.2f)))!!
+        val high = ToolSliderPreset.forKind(ToolKind.Water(WaterParams(size = 80f, waterLoad = 0.9f)))!!
+
+        assertEquals(low.size, high.size)
+        assertEquals(low.sizeMin, high.sizeMin)
+        assertEquals(low.sizeMax, high.sizeMax)
+        assertEquals(low.opacity, high.opacity)
+        assertEquals(low.flow, high.flow)
     }
 
     @Test

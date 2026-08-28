@@ -299,6 +299,9 @@ class ScreenTransformTest {
             voidBandsAround(IntRect(-10, -10, 30, 30), IntRect(0, 0, 20, 20)),
         )
         assertEquals(emptyList(), voidBandsAround(IntRect(0, 0, 20, 20), IntRect.EMPTY))
+        // Exact equality walks every band condition on its `<` boundary — the
+        // only guard against degenerate bands reaching glScissor.
+        assertEquals(emptyList(), voidBandsAround(IntRect(0, 0, 20, 20), IntRect(0, 0, 20, 20)))
     }
 
     @Test

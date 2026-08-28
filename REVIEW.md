@@ -2048,3 +2048,9 @@ touchscreen hover too, not only a pen.
   rotation's tangent and is invariant under zoom. The degenerate
   all-zero basis skips the pass, which is correct — nothing renders at
   scale zero.
+
+- **R-141 🟢 Round 2, minor: the canvas-equals-clip boundary case is
+  untested.** Applied. Exact equality walks all four band conditions on
+  their strict `<` boundaries, which is the only guard — the draw loop no
+  longer filters empty bands — keeping degenerate rects away from
+  `glScissor`.

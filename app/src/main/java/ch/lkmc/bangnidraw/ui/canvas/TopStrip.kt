@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -36,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -164,6 +166,7 @@ private fun NavigationCluster(
     val redoEnabled = redoAvailability == ActionAvailability.ENABLED
     val iconColor = LocalContentColor.current
     val unavailableText = stringResource(R.string.cd_unavailable)
+    val readoutLabel = stringResource(R.string.cd_history_readout)
     Row(horizontalArrangement = Arrangement.Start) {
         IconButton(onClick = onBack) {
             Icon(
@@ -180,8 +183,10 @@ private fun NavigationCluster(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(ICON_BUTTON)
+                .clip(CircleShape)
                 .combinedClickable(
                     role = Role.Button,
+                    onLongClickLabel = readoutLabel,
                     onClick = {
                         if (!undoEnabled) return@combinedClickable
                         if (hapticsMode == HapticsMode.ENABLED) {
@@ -212,8 +217,10 @@ private fun NavigationCluster(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(ICON_BUTTON)
+                .clip(CircleShape)
                 .combinedClickable(
                     role = Role.Button,
+                    onLongClickLabel = readoutLabel,
                     onClick = {
                         if (!redoEnabled) return@combinedClickable
                         if (hapticsMode == HapticsMode.ENABLED) {

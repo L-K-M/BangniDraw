@@ -90,6 +90,7 @@
     <string name="panel_eyedropper_opened">Eyedropper settings opened</string>
     <string name="canvas_undo">Undo</string>
     <string name="canvas_redo">Redo</string>
+    <string name="cd_history_readout">Show history details</string>
     <string name="canvas_more">More actions</string>
     <plurals name="canvas_history_readout">
         <item quantity="one">Undo history: %1$d step · %2$s of %3$s</item>

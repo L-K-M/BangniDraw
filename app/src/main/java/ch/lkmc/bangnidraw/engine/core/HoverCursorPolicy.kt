@@ -29,7 +29,12 @@ internal object HoverCursorPolicy {
         }
 
         if (pointer != PointerTool.ERASER && active is ToolKind.Water) {
-            val diameter = (active.params.size * canvasToScreenScale).coerceAtLeast(0f)
+            // The ring previews the wet bloom, not just the tip: the flow mask
+            // reaches radius + spread, exactly what WatercolorDabBounds paints.
+            val params = active.params
+            val radius = params.size * 0.5f
+            val spreadPx = WatercolorDabPlan.spreadPx(radius, params.spread)
+            val diameter = ((params.size + 2f * spreadPx) * canvasToScreenScale).coerceAtLeast(0f)
             return HoverCursorSpec(
                 diameterPx = diameter,
                 ring = HoverRing.Solid,

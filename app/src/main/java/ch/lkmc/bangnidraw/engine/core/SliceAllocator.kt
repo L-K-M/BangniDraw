@@ -176,15 +176,29 @@ class SliceAllocator(
      * read-modify-write pass takes its target from a page it does not sample,
      * and this is the query that finds one.
      *
-     * [excluded] is an `IntArray` and not a `Set`: it holds one or two page
+     * [excluded] is an `IntArray` and not a `Set`: it holds one or more page
      * indices, is built once per pass, and a `Set` would allocate on the frame
-     * path for a linear scan of two elements.
+     * path for a linear scan. [excludedCount] marks its live prefix so a caller
+     * can reuse a maximum-sized array without clearing its stale tail.
      */
-    fun tryAllocateNotOn(excluded: IntArray): SliceHandle {
+    fun tryAllocateNotOn(excluded: IntArray, excludedCount: Int = excluded.size): SliceHandle {
+        require(excludedCount in 0..excluded.size) {
+            "excludedCount must be 0..${excluded.size}, was $excludedCount"
+        }
         for (page in freeStacks.indices) {
-            if (freeCounts[page] > 0 && !excluded.contains(page)) return take(page)
+            if (freeCounts[page] == 0 || isExcluded(page, excluded, excludedCount)) continue
+
+            return take(page)
         }
         return SliceHandle.NONE
+    }
+
+    private fun isExcluded(page: Int, excluded: IntArray, excludedCount: Int): Boolean {
+        for (index in 0 until excludedCount) {
+            if (excluded[index] == page) return true
+        }
+
+        return false
     }
 
     private fun take(page: Int): SliceHandle {

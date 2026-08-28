@@ -118,19 +118,21 @@ class TilePool(
      * (`MergePass`, the sandwich rebuild, `SmudgePass`) takes its target
      * through here, and a second page is created if only one exists: 64 MiB,
      * once, on the first stroke, paid from the same budget as every page.
+     * Only the first [excludedCount] entries are live, so callers can retain a
+     * maximum-sized scratch array without clearing its tail.
      */
-    fun allocateNotOn(excluded: IntArray): SliceHandle {
-        val existing = allocator.tryAllocateNotOn(excluded)
+    fun allocateNotOn(excluded: IntArray, excludedCount: Int = excluded.size): SliceHandle {
+        val existing = allocator.tryAllocateNotOn(excluded, excludedCount)
         if (!existing.isNone) return existing
         createPage()
         // The page just created cannot be in `excluded` — it did not exist
         // when the caller built that list — so a plain retry is enough. Unless
         // a caller passes an over-wide or stale list, which is the case this
         // check names rather than letting a NONE reach the render path.
-        val handle = allocator.tryAllocateNotOn(excluded)
+        val handle = allocator.tryAllocateNotOn(excluded, excludedCount)
         check(!handle.isNone) {
             "no slice after creating page ${allocator.pageCount - 1}; " +
-                "stale exclusion list ${excluded.contentToString()}?"
+                "stale exclusion list ${excluded.copyOf(excludedCount).contentToString()}?"
         }
         return handle
     }

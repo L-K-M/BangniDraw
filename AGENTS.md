@@ -91,6 +91,15 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - The CPU reference implementations in `engine/core` (`Composite`, the
   mixing formula, dab falloff) and the GLSL must stay trivially close; when
   one changes, change both, and let the unit tests pin the semantics.
+- `TileFlusher.checkpointFlush()` is the pixel-to-metadata commit barrier.
+  A `false` result must not write `project.json`, clear dirty state, or let a
+  leave navigate; the pending mirror still holds newer pixels that disk does
+  not. The checkpoint's no-op path must also admit outstanding thumbnail and
+  history-delete maintenance, and a retry flag clears only after its work
+  succeeds.
+- GL and tile storage use RGBA bytes; Android `ARGB_8888` bitmap buffers use
+  native-order packed ARGB. Route bitmap copies through `PixelChannelOrder`;
+  a byte-for-byte RGBA copy swaps red and blue on little-endian devices.
 - `DabBounds` and `WatercolorDabBounds` own dab-edge arithmetic. Live
   `DabBatch`, `DabPass`, and `WatercolorPass` paths retain primitive edges;
   do not rebuild `IntRect` or tile-scissor objects per dab.
@@ -147,9 +156,11 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - Third-party assets (brush grains, sample art, fonts) must be public
   domain / CC0 with provenance recorded in this file when added. Currently
   none besides Mixbox.
-- Marker, eraser, spray-can, and Watercolor rail glyphs are repo-owned
-  `ImageVector` silhouettes. Material's alternatives depict attention, deletion, or a
-  chart, not these local drawing tools. Preset glyph roles resolve from the
+- Marker, eraser, spray-can, Watercolor, and pigment-wash rail glyphs are
+  repo-owned `ImageVector` silhouettes. Material's alternatives depict
+  attention, deletion, or a chart, not these local drawing tools — and its
+  droplet belongs to the Water tool alone, so a brush reusing it collides in
+  the FULL rail. Preset glyph roles resolve from the
   stored `BrushPreset.icon` key in `engine/core`; eraser mode always wins, and
   unknown keys use the settings glyph.
 - Proposals for post-v1 features live in `docs/proposals/` as numbered
@@ -159,10 +170,25 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - Tracing references are private project assets, not paint. They reserve one
   layer of tile budget, render in `SandwichCache.Below` above paper, and never
   enter thumbnails, flatten, gallery sync, sharing, export, or painting undo.
+  The cached reference base draws into tile-array FBOs, where logical y = 0
+  must land in GL row zero; its tile projection is therefore `orthoYUp`.
+  `orthoYDown` flips each 256 px strip even though the direct viewport path
+  looks correct.
+  Before allocating that cache target, the base must report every reference
+  page it may sample and use `allocateNotOn` with the returned live prefix.
+  Sampling and drawing one texture-array page is undefined even when the
+  slices differ.
   Photo Picker is the import boundary; do not add storage permission or retain
   the picked URI. Checkpoints delete only the superseded committed asset;
   reopen preserves the metadata-named asset even when unreadable and sweeps
   other orphans, so a transient read failure cannot destroy recoverable bytes.
+- Checkpoints install their immutable document/history snapshot on Main before
+  IO and tag it with `CheckpointGeneration`. GL readback dirties share the
+  checkpoint-state lock; completion may clear dirty, content, and thumbnail
+  state only while its generation is still current. A newer edit already owns
+  those flags and the live document. Finish that generation before gallery
+  sync can dirty its new metadata; the metadata belongs to the next
+  checkpoint, not the content checkpoint that produced it.
 
 ## Deviations discovered while building
 
@@ -617,15 +643,14 @@ and the contradiction is noted here.
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.
   User names are literal; never resolve arbitrary stored `@string/` values.
-- **The FULL rail does not list every paint preset.** Its paint slots are
-  capped by `LayoutSpec.paintSlotBudget`, solved from the window height so
-  the rail never grows past it; the active preset always keeps a slot
-  (`RailSlotPolicy`), and the overflow presets are reachable through the
-  settings sheet's chip row — the same path GROUPED/SHORT/DOCK already use.
-  The first five paint IDs in `BrushPresets.RAIL_ORDER` are the v1 core set;
-  additional brushes follow so they cannot displace a core slot until selected.
-  The `*_FULL_MIN_DP` thresholds stay sized for the v1 catalogue; they select
-  a mode, not a capacity.
+- **FULL-rail paint slots are durable assignments.** The ordered preset ids
+  live in `Prefs`; settings-sheet choices swap into the active slot, while
+  rail taps only activate a slot. `LayoutSpec.paintSlotBudget` caps how many
+  assignments fit the window. If resize hides the active slot,
+  `RailSlotPolicy` projects it into the last visible position without
+  mutating assignments. Unknown/deleted ids are dropped and new catalogue ids
+  append in `BrushPresets.RAIL_ORDER`. GROUPED/SHORT/DOCK show the active
+  assignment. The active index remains session-only.
 - **The seven specialty brush presets have no device feel pass.** Their JSON
   parsing, dynamics, grain modes, rail priority, glyph roles, and localization
   are pinned on the JVM; their physical feel still needs stylus testing.
@@ -701,15 +726,23 @@ and the contradiction is noted here.
   update; there is no background or pen-up settling pass. One wet texel covers
   4×4 canvas pixels, so one physical 256² RGBA8 pool slice covers 1024² canvas
   pixels and a full 4096² wet layer costs 4 MiB. G/B store a 100 ms monotonic
-  tick; sampling ages water lazily to dry over 12 seconds, per-page
-  `updatedAtNanos` drives reclamation at the next wet gesture, and tick-epoch
-  rollover prunes expired pages and age-only re-encodes live pages plus the
+  tick; sampling removes a fixed water volume lazily. Half a water unit lasts
+  about 12 seconds, one unit about 24 seconds, and both full reservoirs at
+  most 48 seconds. The 100 ms presentation refresh reclaims expired pages.
+  Wet texels stay GPU-authoritative, so every page uses the 48-second bound;
+  lighter loads may fade before its refresh stops.
+  Tick-epoch rollover age-only re-encodes pages plus the
   active backup before the epoch advances, so modulo age cannot resurrect
   stale water. Wet state is not persisted or journaled: cancel restores
   touched wet pages, undo/redo/reopen/context loss start dry, and destructive
-  pixel edits clear affected wet layers. Blank Water over
-  transparency changes wet state but creates no colour tile or history
-  entry. `TileContentIndex` tracks alpha occupancy in 4×4 blocks; `UNKNOWN`
+  pixel edits clear affected wet layers. Blank Water over an absent tile
+  or blocks `TileContentIndex` has classified empty changes wet state but
+  creates no colour tile or history entry; over a resident tile that the
+  index has not classified, `UNKNOWN` conservatively
+  forces the colour path, so the gesture allocates a slice and journals a
+  no-op entry whose all-zero after-image folds away at the next checkpoint —
+  transient bookkeeping, never a persisted tile. `TileContentIndex` tracks
+  alpha occupancy in 4×4 blocks; `UNKNOWN`
   is conservatively occupied, so Water never skips pigment it has not
   classified. Water transports committed premultiplied pixels from every
   brush model, including Chinese Ink. A preset cannot combine

@@ -2089,3 +2089,6 @@ touchscreen hover too, not only a pen.
   was the R-140 cost with no payoff. This narrows R-140's decline: the
   settle applies to the undecodable asset, while retry still governs
   row-write and withdrawal failures.
+
+- **R-146 🟢 Round 4, minor: the withdrawal test pinned two of three
+  fields.** Applied — the withdrawn byte count is asserted too.

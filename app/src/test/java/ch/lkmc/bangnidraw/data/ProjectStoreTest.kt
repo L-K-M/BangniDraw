@@ -618,6 +618,7 @@ class ProjectStoreTest {
         val withdrawn = assertIs<ProjectStore.LoadResult.Loaded>(store.load("g-2")).document
         assertNull(withdrawn.referenceGalleryUri)
         assertEquals(0L, withdrawn.referenceGalleryModifiedAt)
+        assertEquals(0L, withdrawn.referenceGalleryBytes, "withdrawal clears the byte count too")
         assertEquals("content://media/9", withdrawn.galleryUri, "the painting's row survives")
 
         val summary = store.list().single { it.id == "g-2" }

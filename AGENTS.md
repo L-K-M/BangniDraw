@@ -415,6 +415,12 @@ and the contradiction is noted here.
   completion after a GL FIFO marker. Each live callback snapshots its queue
   depth before returning ring slots, so a producer cannot keep that frame
   draining indefinitely. Pen-up and cancel still drain exhaustively.
+- **Prediction never borrows `DabRing`'s final free slot.** A tail is
+  replaceable next frame; physical input is not. `onStrokePredicted` must use
+  `EngineSession.acquirePredictionDabBatch`, which preserves one slot for real
+  input. Real samples and pen-up keep using `acquireDabBatch` and may exhaust
+  the ring. Routing prediction through that ordinary path silently restores
+  sample starvation under a GL stall.
 - **`execute` blocks and render requests ARE FIFO on the GL thread.**
   `03-canvas-engine.md` §8.3 flags this as an assumption "to verify against
   graphics-core", with a prepared fallback (do the merge at the top of the

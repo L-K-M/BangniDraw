@@ -23,6 +23,7 @@ import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
+import ch.lkmc.bangnidraw.engine.core.LatestPublicationGate
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
@@ -111,6 +112,7 @@ class StudioViewModel @Inject constructor(
     }
 
     private var staleSyncJob: Job? = null
+    private val refreshPublications = LatestPublicationGate()
 
     internal data class Painting(
         val id: String,
@@ -213,25 +215,35 @@ class StudioViewModel @Inject constructor(
 
     /** Re-lists the shelf — on first show and every return from the Canvas. */
     fun refresh() {
+        val generation = refreshPublications.nextGeneration()
+
         viewModelScope.launch(Dispatchers.IO) {
             val listed = store.list()
-            _uiState.update { current ->
-                current.copy(
-                    paintings = listed.map {
-                        Painting(
-                            id = it.id,
-                            title = it.title,
-                            updatedAtMillis = it.updatedAt,
-                            thumbnail = it.thumbnail,
-                            bytes = it.bytes,
-                            galleryUri = it.galleryUri,
-                        )
-                    },
-                    totalBytes = listed.sumOf { it.bytes },
-                    freeBytes = store.freeBytes(),
-                    loaded = true,
+            val paintings = listed.map {
+                Painting(
+                    id = it.id,
+                    title = it.title,
+                    updatedAtMillis = it.updatedAt,
+                    thumbnail = it.thumbnail,
+                    bytes = it.bytes,
+                    galleryUri = it.galleryUri,
                 )
             }
+            val totalBytes = listed.sumOf { it.bytes }
+            val freeBytes = store.freeBytes()
+
+            val published = refreshPublications.publishIfCurrent(generation) {
+                _uiState.update { current ->
+                    current.copy(
+                        paintings = paintings,
+                        totalBytes = totalBytes,
+                        freeBytes = freeBytes,
+                        loaded = true,
+                    )
+                }
+            }
+            if (!published) return@launch
+
             syncStale(listed)
         }
     }

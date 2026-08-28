@@ -39,8 +39,16 @@ class ThemeContractTest {
             "dark themes need light icons on the system bars",
         )
         assertTrue(
-            "appTheme.tone" in activity,
+            "val tone = appTheme.tone" in activity,
             "the resolved theme's tone must drive the system-bar appearance",
+        )
+        assertTrue(
+            "systemBarStyle(tone)" in activity,
+            "the tone must reach the style selection",
+        )
+        assertTrue(
+            "appThemeViewModel.uiState.value" in activity,
+            "recreation must seed the bars from the retained theme",
         )
         assertTrue(
             "statusBarStyle =" in activity,

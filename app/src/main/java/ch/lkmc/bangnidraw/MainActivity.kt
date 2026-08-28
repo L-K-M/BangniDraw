@@ -30,11 +30,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // The launch window cannot read DataStore: start light, then re-apply
-        // the resolved theme's tone as soon as storage emits it.
+        // The launch window cannot read DataStore: cold starts begin light,
+        // while recreation seeds from the retained ViewModel's tone so the
+        // bars match the first frame instead of flashing light icons.
+        val initialTone = appThemeViewModel.uiState.value.appTheme?.tone ?: ThemeTone.LIGHT
         enableEdgeToEdge(
-            statusBarStyle = systemBarStyle(ThemeTone.LIGHT),
-            navigationBarStyle = systemBarStyle(ThemeTone.LIGHT),
+            statusBarStyle = systemBarStyle(initialTone),
+            navigationBarStyle = systemBarStyle(initialTone),
         )
         setContent {
             val state by appThemeViewModel.uiState.collectAsStateWithLifecycle()

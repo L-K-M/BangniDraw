@@ -167,6 +167,21 @@ class ThemeColorPolicyTest {
     }
 
     @Test
+    fun `error roles pin the tone baselines`() {
+        val light = ThemeColorPolicy.errorColors(ThemeTone.LIGHT)
+        val dark = ThemeColorPolicy.errorColors(ThemeTone.DARK)
+
+        assertEquals(0xFFB3261E.toInt(), light.errorArgb)
+        assertEquals(0xFFFFFFFF.toInt(), light.onErrorArgb)
+        assertEquals(0xFFF9DEDC.toInt(), light.errorContainerArgb)
+        assertEquals(0xFF410E0B.toInt(), light.onErrorContainerArgb)
+        assertEquals(0xFFF2B8B5.toInt(), dark.errorArgb)
+        assertEquals(0xFF601410.toInt(), dark.onErrorArgb)
+        assertEquals(0xFF8C1D18.toInt(), dark.errorContainerArgb)
+        assertEquals(0xFFF9DEDC.toInt(), dark.onErrorContainerArgb)
+    }
+
+    @Test
     fun `system bar surfaces support the tone's icons`() {
         for (theme in AppTheme.entries) {
             val colors = ThemeColorPolicy.colors(theme)

@@ -21,7 +21,8 @@ needs a palette, a tone, a localized name, and contrast evidence.
 The tone drives the two things that must flip with it:
 
 - **System bars**: light themes keep dark icons; dark themes get light icons
-  via `SystemBarStyle.dark`, re-applied once storage emits the theme. The
+  via `SystemBarStyle.dark`, re-applied once storage emits the theme
+  (recreation seeds it from the retained ViewModel). The
   launch window stays the fixed light Saffron background — it still cannot
   read DataStore — so dark-theme users see it briefly at cold start, the same
   accepted tradeoff proposal 0003 made for non-default palettes.

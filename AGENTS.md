@@ -175,8 +175,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   reset a corrupted preference file with `ReplaceFileCorruptionHandler`
   before flows retry; otherwise observation and writes can remain blocked
   forever.
-- The launch window cannot read DataStore. Keep its background and initial
-  system-bar appearance fixed light, set `android:forceDarkAllowed` to
+- The launch window cannot read DataStore. Cold starts keep the background
+  and system-bar appearance fixed light; recreation seeds the bars from the
+  retained ViewModel's tone. Set `android:forceDarkAllowed` to
   `false`, and add no
   `values-night` override. The fixed launch window remains while the root theme
   owner withholds navigation until the first preference emission; the resolved

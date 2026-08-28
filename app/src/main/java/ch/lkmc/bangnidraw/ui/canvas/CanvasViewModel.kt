@@ -49,6 +49,8 @@ import ch.lkmc.bangnidraw.engine.core.CompositionGuideVisibility
 import ch.lkmc.bangnidraw.engine.core.CanvasTapEffect
 import ch.lkmc.bangnidraw.engine.core.CanvasUiPolicy
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.core.CheckpointFreshness
+import ch.lkmc.bangnidraw.engine.core.CheckpointGeneration
 import ch.lkmc.bangnidraw.engine.core.ColorMixer
 import ch.lkmc.bangnidraw.engine.core.ColorMixerResolver
 import ch.lkmc.bangnidraw.engine.core.ColorPickSession
@@ -170,6 +172,19 @@ internal enum class ReferenceImportState { IDLE, IMPORTING }
 private enum class ReferenceRecovery { CLEAN, UNREADABLE }
 
 private enum class FillCompletion { ENTRY_PENDING, NO_ENTRY }
+
+private enum class DirtyKind { METADATA, CONTENT, PIXELS }
+
+private enum class ThumbnailWork { SKIP, WRITE }
+
+private data class CheckpointSnapshot(
+    val document: Document,
+    val history: HistoryRecord,
+    val deletes: List<Long>,
+    val generation: CheckpointGeneration.Snapshot,
+    val timestampMs: Long,
+    val thumbnailWork: ThumbnailWork,
+)
 
 private data class EncodedPainting(val name: String, val bytes: ByteArray)
 
@@ -381,6 +396,12 @@ class CanvasViewModel @Inject constructor(
 
     /** Sparse tile outcomes delivered since the last checkpoint fold. */
     private val tileUpdates = ConcurrentHashMap<Pair<LayerId, TileKey>, TilePresence>()
+
+    /** Serialises GL readback dirties with a main-thread checkpoint snapshot. */
+    private val checkpointStateLock = Any()
+
+    /** Prevents an older IO write from clearing state owned by a newer edit. */
+    private val checkpointGeneration = CheckpointGeneration()
 
     /** True when pixels or metadata changed since the last successful checkpoint. */
     @Volatile
@@ -829,8 +850,7 @@ class CanvasViewModel @Inject constructor(
 
         val next = doc.copy(title = clean)
         document = next
-        dirty = true
-        contentDirty = true
+        markDirty(DirtyKind.CONTENT)
         val state = _uiState.value
         if (state is UiState.Ready) _uiState.value = state.copy(title = clean)
         dismissDialog()
@@ -1018,7 +1038,7 @@ class CanvasViewModel @Inject constructor(
                 layerCap = layerCap,
             )
         }
-        dirty = true
+        markDirty(DirtyKind.METADATA)
         noteChange()
     }
 
@@ -1826,11 +1846,14 @@ class CanvasViewModel @Inject constructor(
         if (pixels.remaining() != TILE_BYTES) return
         val copy = pool.acquire()
         pixels.get(copy)
-        tileUpdates[layer to key] = presenceOf(copy)
-        dirty = true
-        contentDirty = true
-        thumbDirty = true
-        flusher.markDirty(CpuTile(layer, key, revision, copy))
+        val presence = presenceOf(copy)
+        if (!flusher.markDirty(CpuTile(layer, key, revision, copy))) return
+
+        // Publish the model update only after the mirror owns these bytes.
+        synchronized(checkpointStateLock) {
+            tileUpdates[layer to key] = presence
+            markDirtyLocked(DirtyKind.PIXELS)
+        }
     }
 
     private fun onRmwStarted(spec: StrokeSpec) {
@@ -1913,8 +1936,7 @@ class CanvasViewModel @Inject constructor(
 
     /** Called at pen-up on the main thread; arms the autosave clocks. */
     internal fun onStrokeCommitted(colorUsage: StrokeColorUsage, strokeColor: Int) {
-        dirty = true
-        contentDirty = true
+        markDirty(DirtyKind.CONTENT)
         document?.stack?.active?.id?.let { markLayerThumbnailsDirty(listOf(it)) }
         if (colorUsage == StrokeColorUsage.RECORD) {
             recentColors = PalettePolicy.noteRecent(recentColors, strokeColor)
@@ -2233,7 +2255,7 @@ class CanvasViewModel @Inject constructor(
         document = doc.copy(stack = next)
         val state = _uiState.value
         if (state is UiState.Ready) _uiState.value = state.copy(stack = next)
-        dirty = true
+        markDirty(DirtyKind.METADATA)
         noteChange()
     }
 
@@ -2334,9 +2356,7 @@ class CanvasViewModel @Inject constructor(
             )
             emitLayerFeedback(refusal = null)
             if (paperColor != doc.paperColor) engine.setPaperColor(paperColor)
-            dirty = true
-            contentDirty = true
-            thumbDirty = true
+            markDirty(DirtyKind.PIXELS)
             noteChange()
 
             val job = jobRef.get()
@@ -2519,9 +2539,7 @@ class CanvasViewModel @Inject constructor(
                 pixelLayers = foldedStack.layers.map(Layer::id),
             )
             if (paperColor != doc.paperColor) engine.setPaperColor(paperColor)
-            dirty = true
-            contentDirty = true
-            thumbDirty = true
+            markDirty(DirtyKind.PIXELS)
             noteChange()
 
             appScope.launch {
@@ -2746,6 +2764,24 @@ class CanvasViewModel @Inject constructor(
         }
     }
 
+    private fun markDirty(kind: DirtyKind) {
+        synchronized(checkpointStateLock) { markDirtyLocked(kind) }
+    }
+
+    /** Caller owns [checkpointStateLock]. */
+    private fun markDirtyLocked(kind: DirtyKind) {
+        dirty = true
+        when (kind) {
+            DirtyKind.METADATA -> Unit
+            DirtyKind.CONTENT -> contentDirty = true
+            DirtyKind.PIXELS -> {
+                contentDirty = true
+                thumbDirty = true
+            }
+        }
+        checkpointGeneration.noteChange()
+    }
+
     /**
      * §6.2's quiet and ceiling clocks (roadmap 3b): every content change
      * re-arms one delayed checkpoint, one quiet window out but never past
@@ -2775,52 +2811,88 @@ class CanvasViewModel @Inject constructor(
             // → project.json last, the commit point → only then the files a
             // truncation or pruning dropped.
             if (awaitReadbacks() == TileFlusher.ReadbackResult.PENDING) return
+            val generation = synchronized(checkpointStateLock) {
+                checkpointGeneration.capture()
+            }
             flusher.checkpointFlush()
             val now = System.currentTimeMillis()
-            val folded = fold(document ?: return, now)
-            document = folded
-            val (record, deletes) = withContext(Dispatchers.Main) {
-                val j = journal
-                val snapshot = if (j == null) {
-                    HistoryRecord(cursor = folded.historyCursor)
-                } else {
-                    HistoryRecord(
-                        cursor = j.cursor,
-                        nextSeq = nextSeq.get(),
-                        oldestSeq = j.entries.firstOrNull()?.seq ?: nextSeq.get(),
-                        entries = j.stats().entries,
-                        bytes = j.stats().bytes,
-                    )
-                }
-                snapshot to ArrayList(pendingDeletes)
-            }
+            val snapshot = captureCheckpoint(generation, now) ?: return
             try {
-                store.checkpoint(folded, record)
-                dirty = false
-                contentDirty = false
-                dirtySinceMs = null
+                store.checkpoint(snapshot.document, snapshot.history)
                 // Now — and only now — the dropped entries' files (§5.6).
-                if (deletes.isNotEmpty()) {
-                    historyStore?.delete(deletes)
-                    withContext(Dispatchers.Main) { pendingDeletes.removeAll(deletes.toSet()) }
+                if (snapshot.deletes.isNotEmpty()) {
+                    historyStore?.delete(snapshot.deletes)
                 }
                 // The thumbnail follows the checkpoint (06 §6.4): the tiles
                 // it reads are on disk by the flush above, and only when
                 // pixels actually changed — never per stroke.
-                if (thumbDirty) {
-                    thumbDirty = false
+                if (snapshot.thumbnailWork == ThumbnailWork.WRITE) {
                     Thumbnails.write(
-                        folded,
-                        layerDirFor = { store.layerDir(folded.id, it) },
-                        target = File(store.projectDir(folded.id), "thumb.png"),
+                        snapshot.document,
+                        layerDirFor = { store.layerDir(snapshot.document.id, it) },
+                        target = File(store.projectDir(snapshot.document.id), "thumb.png"),
                     )
                 }
-                maybeSyncGallery(folded, trigger, now)
+                maybeSyncGallery(snapshot.document, trigger, snapshot.timestampMs)
+                withContext(Dispatchers.Main) { finishCheckpoint(snapshot) }
             } catch (_: java.io.IOException) {
                 // Same family as a failed tile write: the storage-full state
                 // and its retry-on-next-checkpoint own this. `dirty` stays
                 // true, so the next trigger tries again.
             }
+        }
+    }
+
+    /** Captures and installs one immutable model revision on the main thread. */
+    private suspend fun captureCheckpoint(
+        generation: CheckpointGeneration.Snapshot,
+        now: Long,
+    ): CheckpointSnapshot? = withContext(Dispatchers.Main) {
+        synchronized(checkpointStateLock) {
+            if (checkpointGeneration.freshness(generation) == CheckpointFreshness.STALE) {
+                return@synchronized null
+            }
+            val current = document ?: return@synchronized null
+            val folded = fold(current, now)
+            document = folded
+            CheckpointSnapshot(
+                document = folded,
+                history = historyRecordForCheckpoint(folded),
+                deletes = ArrayList(pendingDeletes),
+                generation = generation,
+                timestampMs = now,
+                thumbnailWork = if (thumbDirty) ThumbnailWork.WRITE else ThumbnailWork.SKIP,
+            )
+        }
+    }
+
+    /** Main thread: journal metadata from the same model revision as the document. */
+    private fun historyRecordForCheckpoint(doc: Document): HistoryRecord {
+        val j = journal ?: return HistoryRecord(cursor = doc.historyCursor)
+        val next = nextSeq.get()
+        val stats = j.stats()
+        return HistoryRecord(
+            cursor = j.cursor,
+            nextSeq = next,
+            oldestSeq = j.entries.firstOrNull()?.seq ?: next,
+            entries = stats.entries,
+            bytes = stats.bytes,
+        )
+    }
+
+    /** Clears only work still owned by this checkpoint's model revision. */
+    private fun finishCheckpoint(snapshot: CheckpointSnapshot) {
+        if (snapshot.deletes.isNotEmpty()) {
+            pendingDeletes.removeAll(snapshot.deletes.toSet())
+        }
+        synchronized(checkpointStateLock) {
+            if (checkpointGeneration.freshness(snapshot.generation) == CheckpointFreshness.STALE) {
+                return@synchronized
+            }
+            dirty = false
+            contentDirty = false
+            thumbDirty = false
+            dirtySinceMs = null
         }
     }
 
@@ -2872,12 +2944,15 @@ class CanvasViewModel @Inject constructor(
                 )
                 // Metadata only: the next checkpoint persists it, and
                 // updatedAt stays put — a sync is looking, not painting.
-                dirty = true
+                markDirty(DirtyKind.METADATA)
             }
         }
     }
 
-    /** The model's tile sets catch up with what the readback delivered. */
+    /**
+     * The model's tile sets catch up with what readback delivered. Caller
+     * owns [checkpointStateLock], pairing updates with the captured generation.
+     */
     private fun fold(doc: Document, now: Long): Document {
         if (tileUpdates.isEmpty()) {
             return doc.copy(updatedAt = if (contentDirty) now else doc.updatedAt)

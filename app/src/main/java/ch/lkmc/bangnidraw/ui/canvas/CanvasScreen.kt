@@ -799,13 +799,12 @@ private fun CanvasContent(
 
     val animationScope = rememberCoroutineScope()
     val resetJob = remember { arrayOfNulls<Job>(1) }
-    val resetView = {
+    fun animateViewTo(target: ViewTransform) {
         resetJob[0]?.cancel()
         val start = view
-        val reset = ViewTransform()
         if (!ValueAnimator.areAnimatorsEnabled()) {
-            updateView(reset)
-            touch.setView(reset)
+            updateView(target)
+            touch.setView(target)
             if (state.hapticsMode == HapticsMode.ENABLED) {
                 view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             }
@@ -818,16 +817,27 @@ private fun CanvasContent(
                         stiffness = Spring.StiffnessHigh,
                     ),
                 ) {
-                    val next = start.lerp(reset, value)
+                    val next = start.lerp(target, value)
                     updateView(next)
                     touch.setView(next)
                 }
-                updateView(reset)
-                touch.setView(reset)
+                updateView(target)
+                touch.setView(target)
                 if (state.hapticsMode == HapticsMode.ENABLED) {
                     view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
             }
+        }
+    }
+    val resetView = { animateViewTo(ViewTransform()) }
+    // The pill's long-press: 100 % at the view centre, the pixel-work anchor.
+    val actualSizeView = {
+        val target = touch.actualSizeView()
+        if (target != null) {
+            if (state.hapticsMode == HapticsMode.ENABLED) {
+                view0.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            }
+            animateViewTo(target)
         }
     }
 
@@ -1312,6 +1322,7 @@ private fun CanvasContent(
                 density = density.density,
                 strokeActivity = state.chrome.strokeActivity,
                 onReset = resetView,
+                onActualSize = actualSizeView,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = resetBottomPadding),

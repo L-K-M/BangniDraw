@@ -32,11 +32,14 @@ object WatercolorOverlayKernel {
 
         val updatedTick = WatercolorWetKernel.decodeTick(cell.tickHigh, cell.tickLow)
         val ageTicks = WatercolorKernel.ageTicks(nowTick, updatedTick)
-        val retention = (
-            1f - ageTicks.toFloat() / WatercolorKernel.DRY_TICKS
-        ).coerceIn(0f, 1f)
-        val water = cell.surfaceWater + cell.saturation * (1f - cell.surfaceWater)
-        val alpha = water * retention * MAX_ALPHA
+        val aged = WatercolorKernel.evaporate(
+            surfaceWater = cell.surfaceWater,
+            saturation = cell.saturation,
+            elapsedTicks = ageTicks,
+        )
+        val visibleWater =
+            aged.surfaceWater + aged.saturation * (1f - aged.surfaceWater)
+        val alpha = visibleWater * MAX_ALPHA
 
         return Rgba(
             r = CUE_RED * alpha,

@@ -18,7 +18,9 @@ class WatercolorShaderContractTest {
         assertFalse("texture(u_tiles" in body)
         assertTrue("floor(state.gb * float(TICK_CHANNEL_MAX) + 0.5)" in body)
         assertTrue("(u_nowTick - updatedTick + TICK_MODULUS) % TICK_MODULUS" in body)
-        assertTrue("#define DRY_TICKS ${WatercolorKernel.DRY_TICKS}" in body)
+        assertTrue(
+            "#define FULL_LOAD_DRY_TICKS ${WatercolorKernel.FULL_LOAD_DRY_TICKS}" in body,
+        )
         assertTrue("#define OVERLAY_MAX_ALPHA ${WatercolorOverlayKernel.MAX_ALPHA}" in body)
         assertTrue("vec4(CUE_COLOR * alpha, alpha)" in body)
         assertTrue("if (outsideCanvas()) discard;" in body)
@@ -48,13 +50,33 @@ class WatercolorShaderContractTest {
         assertTrue("uniform bool u_epochRollover;" in body)
         assertTrue("if (u_ageOnly) {" in body)
         assertTrue("u_epochRollover && updatedTick <= u_nowTick" in body)
-        assertTrue("previous.r * age" in body)
-        assertTrue("previous.a * age" in body)
+        assertTrue("vec2 agedPrevious = ageWater(previous);" in body)
         assertTrue("decodeTick" in body)
         assertTrue("encodeTick" in body)
-        assertTrue("ageFactor" in body)
+        assertTrue("ageWater" in body)
         assertTrue("${WatercolorKernel.TICK_MODULUS}" in body)
-        assertTrue("${WatercolorKernel.DRY_TICKS}" in body)
+        assertTrue("${WatercolorKernel.FULL_LOAD_DRY_TICKS}" in body)
+        assertTrue("${WatercolorKernel.MAX_DRY_TICKS}" in body)
+    }
+
+    @Test
+    fun `wet shaders evaporate a fixed total amount`() {
+        val wet = Shaders.WATERCOLOR_WET.fragment
+        val overlay = Shaders.WATERCOLOR_OVERLAY.fragment
+
+        assertTrue("vec2 ageWater(vec4 state)" in wet)
+        assertTrue("water * (remaining / total)" in wet)
+        assertFalse("previous.r * age" in wet)
+        assertTrue("vec2 ageWater(vec4 state)" in overlay)
+        assertTrue("water * (remaining / total)" in overlay)
+        assertTrue("float total = water.x + water.y;" in wet)
+        assertTrue("float total = water.x + water.y;" in overlay)
+        assertTrue("if (total <= 0.0) return vec2(0.0);" in wet)
+        assertTrue("if (total <= 0.0) return vec2(0.0);" in overlay)
+        assertTrue("vec2 water = state.ra;" in wet)
+        assertTrue("vec2 water = state.ra;" in overlay)
+        assertTrue("total - age / float(FULL_LOAD_DRY_TICKS)" in wet)
+        assertTrue("total - float(ageTicks) / float(FULL_LOAD_DRY_TICKS)" in overlay)
     }
 
     @Test

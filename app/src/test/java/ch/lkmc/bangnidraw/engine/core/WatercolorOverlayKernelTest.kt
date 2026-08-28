@@ -20,19 +20,42 @@ class WatercolorOverlayKernelTest {
         val fresh = WatercolorOverlayKernel.cue(cell, FRESH_TICK)
         val halfway = WatercolorOverlayKernel.cue(
             cell,
-            FRESH_TICK + WatercolorKernel.DRY_TICKS / 2,
+            FRESH_TICK + WatercolorKernel.FULL_LOAD_DRY_TICKS / 2,
         )
         val dry = WatercolorOverlayKernel.cue(
             cell,
-            FRESH_TICK + WatercolorKernel.DRY_TICKS,
+            FRESH_TICK + WatercolorKernel.FULL_LOAD_DRY_TICKS,
         )
 
         assertEquals(EXPECTED_FRESH_ALPHA, fresh.a, EPSILON)
-        assertEquals(fresh.a / 2f, halfway.a, EPSILON)
+        assertEquals(EXPECTED_HALFWAY_ALPHA, halfway.a, EPSILON)
         assertEquals(0f, dry.a, EPSILON)
         assertTrue(fresh.r in 0f..fresh.a)
         assertTrue(fresh.g in 0f..fresh.a)
         assertTrue(fresh.b in 0f..fresh.a)
+    }
+
+    @Test
+    fun `more water remains visible longer`() {
+        val stamp = WatercolorWetKernel.encodeTick(FRESH_TICK)
+        val halfLoad = WatercolorWetKernel.StoredCell(
+            surfaceWater = 0.5f,
+            tickHigh = stamp.high,
+            tickLow = stamp.low,
+            saturation = 0f,
+        )
+        val fullLoad = halfLoad.copy(surfaceWater = 1f)
+        val nowTick = FRESH_TICK + WatercolorKernel.FULL_LOAD_DRY_TICKS / 2
+
+        val halfLoadCue = WatercolorOverlayKernel.cue(halfLoad, nowTick)
+        val fullLoadCue = WatercolorOverlayKernel.cue(fullLoad, nowTick)
+
+        assertEquals(0f, halfLoadCue.a, EPSILON)
+        assertEquals(
+            WatercolorOverlayKernel.MAX_ALPHA * 0.5f,
+            fullLoadCue.a,
+            EPSILON,
+        )
     }
 
     @Test
@@ -64,7 +87,7 @@ class WatercolorOverlayKernelTest {
 
         val cue = WatercolorOverlayKernel.cue(cell, nowTick)
         val expectedRetention =
-            1f - WRAP_AGE_TICKS.toFloat() / WatercolorKernel.DRY_TICKS
+            1f - WRAP_AGE_TICKS.toFloat() / WatercolorKernel.FULL_LOAD_DRY_TICKS
 
         assertEquals(
             WatercolorOverlayKernel.MAX_ALPHA * expectedRetention,
@@ -83,6 +106,7 @@ class WatercolorOverlayKernelTest {
     private companion object {
         const val FRESH_TICK = 10
         const val EXPECTED_FRESH_ALPHA = 0.1512f
+        const val EXPECTED_HALFWAY_ALPHA = 0.0828f
         const val EPSILON = 1e-6f
         const val WRAP_AGE_TICKS = 10
     }

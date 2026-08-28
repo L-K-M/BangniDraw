@@ -37,14 +37,17 @@ object WatercolorKernel {
     /** Wet tiles store update ticks in two bytes, so age wraps at this value. */
     const val TICK_MODULUS = TICK_RADIX * TICK_RADIX
 
-    /** A ten-hertz wet clock keeps paint active for twelve seconds. */
-    const val DRY_TICKS = 120
-
     const val TICK_NANOS = 100_000_000L
-    const val DRY_NANOS = DRY_TICKS * TICK_NANOS
 
-    /** Wetness reaches zero this long after its last update. */
-    const val DRY_TIME_MILLIS = DRY_NANOS / 1_000_000L
+    /** Constant evaporation removes one water unit in twenty-four seconds. */
+    const val FULL_LOAD_DRY_TICKS = 240
+    const val FULL_LOAD_DRY_TIME_MILLIS =
+        FULL_LOAD_DRY_TICKS * TICK_NANOS / 1_000_000L
+
+    /** Surface and absorbed reservoirs can jointly hold two water units. */
+    const val MAX_WATER_UNITS = 2
+    const val MAX_DRY_TICKS = FULL_LOAD_DRY_TICKS * MAX_WATER_UNITS
+    const val MAX_DRY_NANOS = MAX_DRY_TICKS * TICK_NANOS
 
     /** Quarter-resolution storage, padded to TileGrid's minimum side. */
     fun wetPixels(canvasPixels: Int): Int {
@@ -106,7 +109,7 @@ object WatercolorKernel {
     )
 
     fun isExpired(nowNanos: Long, updatedAtNanos: Long): Boolean =
-        nowNanos - updatedAtNanos >= DRY_NANOS
+        nowNanos - updatedAtNanos >= MAX_DRY_NANOS
 
     fun ageTicks(nowTick: Int, updatedTick: Int): Int {
         require(nowTick in 0 until TICK_MODULUS) { "nowTick must fit two bytes, was $nowTick" }
@@ -119,7 +122,7 @@ object WatercolorKernel {
 
     fun retention(
         elapsedMillis: Long,
-        dryTimeMillis: Long = DRY_TIME_MILLIS,
+        dryTimeMillis: Long = FULL_LOAD_DRY_TIME_MILLIS,
     ): Float {
         require(elapsedMillis >= 0L) { "elapsedMillis must not be negative, was $elapsedMillis" }
         require(dryTimeMillis > 0L) { "dryTimeMillis must be positive, was $dryTimeMillis" }
@@ -131,11 +134,34 @@ object WatercolorKernel {
     fun dry(
         wetness: Float,
         elapsedMillis: Long,
-        dryTimeMillis: Long = DRY_TIME_MILLIS,
+        dryTimeMillis: Long = FULL_LOAD_DRY_TIME_MILLIS,
     ): Float {
         requireUnit("wetness", wetness)
 
-        return wetness * retention(elapsedMillis, dryTimeMillis)
+        val evaporated = 1f - retention(elapsedMillis, dryTimeMillis)
+        return (wetness - evaporated).coerceAtLeast(0f)
+    }
+
+    internal fun evaporate(
+        surfaceWater: Float,
+        saturation: Float,
+        elapsedTicks: Int,
+    ): WaterAmounts {
+        requireUnit("surfaceWater", surfaceWater)
+        requireUnit("saturation", saturation)
+        require(elapsedTicks >= 0) { "elapsedTicks must not be negative, was $elapsedTicks" }
+
+        val total = surfaceWater + saturation
+        if (total == 0f) return WaterAmounts(surfaceWater = 0f, saturation = 0f)
+
+        // Remove a fixed volume while preserving the surface/absorbed split.
+        val evaporated = elapsedTicks.toFloat() / FULL_LOAD_DRY_TICKS
+        val remaining = (total - evaporated).coerceAtLeast(0f)
+        val scale = remaining / total
+        return WaterAmounts(
+            surfaceWater = surfaceWater * scale,
+            saturation = saturation * scale,
+        )
     }
 
     private fun requireUnit(name: String, value: Float) {
@@ -144,6 +170,11 @@ object WatercolorKernel {
         }
     }
 }
+
+internal data class WaterAmounts(
+    val surfaceWater: Float,
+    val saturation: Float,
+)
 
 /** Full-resolution color and quarter-resolution wet footprints for one dab. */
 data class WatercolorDabPlan(

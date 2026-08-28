@@ -55,7 +55,8 @@ internal object WatercolorShaders {
         #define TICK_CHANNEL_MAX ${WatercolorKernel.CHANNEL_MAX}
         #define TICK_RADIX ${WatercolorKernel.TICK_RADIX}
         #define TICK_MODULUS ${WatercolorKernel.TICK_MODULUS}
-        #define DRY_TICKS ${WatercolorKernel.DRY_TICKS}
+        #define FULL_LOAD_DRY_TICKS ${WatercolorKernel.FULL_LOAD_DRY_TICKS}
+        #define MAX_DRY_TICKS ${WatercolorKernel.MAX_DRY_TICKS}
         uniform sampler2D u_before;
         uniform vec2 u_wetOrigin;
         uniform vec2 u_wetTexel;
@@ -93,15 +94,23 @@ internal object WatercolorShaders {
             return vec2(high, low) / float(TICK_CHANNEL_MAX);
         }
 
-        float ageFactor(vec4 state) {
+        vec2 ageWater(vec4 state) {
             float updatedTick = decodeTick(state);
             float age = u_epochRollover && updatedTick <= u_nowTick
-                ? float(DRY_TICKS)
+                ? float(MAX_DRY_TICKS)
                 : mod(
                     u_nowTick - updatedTick + float(TICK_MODULUS),
                     float(TICK_MODULUS)
                 );
-            return clamp(1.0 - age / float(DRY_TICKS), 0.0, 1.0);
+            vec2 water = state.ra;
+            float total = water.x + water.y;
+            if (total <= 0.0) return vec2(0.0);
+
+            float remaining = max(
+                total - age / float(FULL_LOAD_DRY_TICKS),
+                0.0
+            );
+            return water * (remaining / total);
         }
 
         vec4 sampleState(vec2 uv) {
@@ -110,7 +119,7 @@ internal object WatercolorShaders {
 
         float sampleWet(vec2 uv) {
             vec4 state = sampleState(uv);
-            return state.r * ageFactor(state);
+            return ageWater(state).x;
         }
 
         float wetCoverageMask(vec2 canvas, vec4 dab, vec2 tip) {
@@ -136,10 +145,10 @@ internal object WatercolorShaders {
             vec2 wetUv = v_uv * u_wetScale;
             vec4 previous = sampleState(wetUv);
             vec2 stamp = encodeTick(u_nowTick);
+            vec2 agedPrevious = ageWater(previous);
             if (u_ageOnly) {
-                float age = ageFactor(previous);
                 o_color = vec4(
-                    previous.r * age, stamp.x, stamp.y, previous.a * age
+                    agedPrevious.x, stamp.x, stamp.y, agedPrevious.y
                 );
                 return;
             }
@@ -168,7 +177,7 @@ internal object WatercolorShaders {
             float diffusion = 4.0 * MAX_WATER_DIFFUSION * u_spread * flowMask;
             float wet = clamp(center + diffusion * (average - center), 0.0, 1.0);
 
-            float saturation = previous.a * ageFactor(previous);
+            float saturation = agedPrevious.y;
             float paperPocket = 1.0 - proceduralPaper(canvas);
             float paperCapacity = PAPER_CAPACITY_MIN + PAPER_CAPACITY_RANGE * paperPocket;
             float paperAbsorption = PAPER_ABSORPTION_MIN + PAPER_ABSORPTION_RANGE * paperPocket;

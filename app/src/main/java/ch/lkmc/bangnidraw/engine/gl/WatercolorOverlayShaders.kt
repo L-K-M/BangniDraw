@@ -37,7 +37,7 @@ internal object WatercolorOverlayShaders {
         #define TICK_CHANNEL_MAX ${WatercolorKernel.CHANNEL_MAX}
         #define TICK_RADIX ${WatercolorKernel.TICK_RADIX}
         #define TICK_MODULUS ${WatercolorKernel.TICK_MODULUS}
-        #define DRY_TICKS ${WatercolorKernel.DRY_TICKS}
+        #define FULL_LOAD_DRY_TICKS ${WatercolorKernel.FULL_LOAD_DRY_TICKS}
         #define OVERLAY_MAX_ALPHA ${WatercolorOverlayKernel.MAX_ALPHA}
         const vec3 CUE_COLOR = vec3(${WatercolorOverlayKernel.CUE_RED},
             ${WatercolorOverlayKernel.CUE_GREEN},
@@ -59,6 +59,24 @@ internal object WatercolorOverlayShaders {
                 any(greaterThanEqual(v_canvas, u_canvasSize));
         }
 
+        vec2 ageWater(vec4 state) {
+            ivec2 bytes = ivec2(
+                floor(state.gb * float(TICK_CHANNEL_MAX) + 0.5)
+            );
+            int updatedTick = bytes.x * TICK_RADIX + bytes.y;
+            int ageTicks =
+                (u_nowTick - updatedTick + TICK_MODULUS) % TICK_MODULUS;
+            vec2 water = state.ra;
+            float total = water.x + water.y;
+            if (total <= 0.0) return vec2(0.0);
+
+            float remaining = max(
+                total - float(ageTicks) / float(FULL_LOAD_DRY_TICKS),
+                0.0
+            );
+            return water * (remaining / total);
+        }
+
         vec4 cueAt(vec3 uvw) {
             // Decode stored tick bytes before averaging cues. Interpolating
             // the bytes themselves invents timestamps and false wetness.
@@ -70,19 +88,9 @@ internal object WatercolorOverlayShaders {
             );
             int slice = int(floor(uvw.z + 0.5));
             vec4 state = texelFetch(u_tiles, ivec3(texel, slice), 0);
-            ivec2 bytes = ivec2(
-                floor(state.gb * float(TICK_CHANNEL_MAX) + 0.5)
-            );
-            int updatedTick = bytes.x * TICK_RADIX + bytes.y;
-            int ageTicks =
-                (u_nowTick - updatedTick + TICK_MODULUS) % TICK_MODULUS;
-            float retention = clamp(
-                1.0 - float(ageTicks) / float(DRY_TICKS),
-                0.0,
-                1.0
-            );
-            float water = state.r + state.a * (1.0 - state.r);
-            float alpha = water * retention * OVERLAY_MAX_ALPHA;
+            vec2 aged = ageWater(state);
+            float visibleWater = aged.x + aged.y * (1.0 - aged.x);
+            float alpha = visibleWater * OVERLAY_MAX_ALPHA;
             return vec4(CUE_COLOR * alpha, alpha);
         }
 

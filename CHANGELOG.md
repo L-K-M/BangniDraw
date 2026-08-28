@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.1.2 - 2026-08-28
 
-- Show wet paper and make fresh Watercolor react to stored water.
+- Show wet paper, retain heavier water longer, and make fresh Watercolor
+  react to stored water.
 
 ## 1.1.1 - 2026-08-28
 

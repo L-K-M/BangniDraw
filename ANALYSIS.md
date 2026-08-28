@@ -349,12 +349,6 @@ scratchpad** higher — they make the tools feel owned and legible to a child.
   transform math must keep Meltorama parity rules in mind (AGENTS.md). Also
   listed in the hy3 delight section below as "Mirror-check toggle" — same
   idea, one entry. (glm.md §B.4.11.)
-- **Wet-shimmer overlay (M, proposal first).** Water dries over 12 s with
-  zero visual indication — a kid who paints, waits, and paints again gets
-  silently different behaviour. A very subtle glint on still-wet texels
-  (read the wet pages, render a low-alpha overlay quad) would make the
-  physics legible. Aesthetic risk (must not look like a bug), so proposal-
-  doc it. (glm.md §B.4.12.)
 - **Hue-milestone haptic on eyedropper drag.** The `HueMilestone` helper
   exists for the picker ring; tick when a dragged pick crosses a hue band.
 - **Brush-size by pen drag (two-finger hold).** Hold two fingers, drag the

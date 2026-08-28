@@ -685,9 +685,12 @@ and the contradiction is noted here.
   update; there is no background or pen-up settling pass. One wet texel covers
   4×4 canvas pixels, so one physical 256² RGBA8 pool slice covers 1024² canvas
   pixels and a full 4096² wet layer costs 4 MiB. G/B store a 100 ms monotonic
-  tick; sampling ages water lazily to dry over 12 seconds. The 100 ms
-  presentation refresh reclaims expired pages. Tick-epoch rollover age-only
-  re-encodes pages plus the
+  tick; sampling removes a fixed water volume lazily. Half a water unit lasts
+  about 12 seconds, one unit about 24 seconds, and both full reservoirs at
+  most 48 seconds. The 100 ms presentation refresh reclaims expired pages.
+  Wet texels stay GPU-authoritative, so every page uses the 48-second bound;
+  lighter loads may fade before its refresh stops.
+  Tick-epoch rollover age-only re-encodes pages plus the
   active backup before the epoch advances, so modulo age cannot resurrect
   stale water. Wet state is not persisted or journaled: cancel restores
   touched wet pages, undo/redo/reopen/context loss start dry, and destructive

@@ -25,10 +25,11 @@ class ToolIconContractTest {
         assertFalse("BrushToolGlyph.PIGMENT_WASH -> Icons.Filled.WaterDrop" in rail)
         // Guard against any duplicate icon across brush mappings, not just
         // the historical droplet collision with the Water tool.
-        val brushIcons = Regex("BrushToolGlyph\\.\\w+ -> (.+)")
-            .findAll(rail).map { it.groupValues[1].trim() }.toList()
+        val brushIcons = Regex("BrushToolGlyph\\.\\w+ -> (\\S+)")
+            .findAll(rail).map { it.groupValues[1] }.toList()
         assertFalse(brushIcons.isEmpty(), "expected BrushToolGlyph icon mappings in rail")
-        assertEquals(brushIcons.size, brushIcons.distinct().size)
+        val duplicateIcons = brushIcons.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+        assertTrue(duplicateIcons.isEmpty(), "BrushToolGlyph mappings share an icon $duplicateIcons")
         // Brush-vs-tool collisions were the original bug; no brush glyph may
         // reuse the Water tool's droplet, not just PIGMENT_WASH.
         assertFalse("Icons.Filled.WaterDrop" in brushIcons, "brush glyph reuses the Water tool's droplet")

@@ -24,11 +24,13 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -43,6 +45,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
@@ -55,12 +58,15 @@ import ch.lkmc.bangnidraw.engine.core.CanvasPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.CustomSizeResult
 import ch.lkmc.bangnidraw.engine.core.CustomSizeFieldArrangement
+import ch.lkmc.bangnidraw.engine.core.HsvChannel
+import ch.lkmc.bangnidraw.engine.core.HsvColor
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.NewCanvasDefaultsPolicy
 import ch.lkmc.bangnidraw.engine.core.NewCanvasLayoutPolicy
 import ch.lkmc.bangnidraw.engine.core.SizeRefusal
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
+import ch.lkmc.bangnidraw.ui.theme.PaperSwatchCustomDefault
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchGray
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWarm
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWhite
@@ -68,12 +74,11 @@ import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWhite
 /**
  * The New Canvas dialog (`docs/plan/08-ui-and-layout.md` §2.1): the fixed
  * presets annotated with what this device holds, a Custom row validated on
- * every keystroke, orientation for non-square sizes, and the paper swatches.
+ * every keystroke, orientation for non-square sizes, and the paper swatches
+ * — the fixed five plus a sixth that opens an HSV picker for any colour
+ * (the picker commits through the same `onCreate(size, paperColor)` seam).
  * Every decision it renders comes from the pure canvas and layout policies,
  * so this composable only lays the answers out.
- *
- * The "+" custom-paper swatch waits for the color panel (roadmap step 7);
- * the swatch row here is 08 §2.1's fixed five.
  */
 @Composable
 fun NewCanvasDialog(
@@ -115,6 +120,11 @@ fun NewCanvasDialog(
         mutableStateOf<CanvasOrientation?>(null)
     }
     var paper by rememberSaveable { mutableIntStateOf(PaperSwatchWhite.toArgb()) }
+    // The sixth swatch's colour: remembered so reopening the dialog keeps the
+    // last custom paper, exactly like the Custom row keeps its size.
+    var customPaper by rememberSaveable { mutableIntStateOf(PaperSwatchCustomDefault.toArgb()) }
+    var paperIsCustom by rememberSaveable { mutableStateOf(false) }
+    var showPaperPicker by rememberSaveable { mutableStateOf(false) }
     val orientation = orientationOverride ?: defaults.orientation
 
     val isCustom = selected == presets.size
@@ -137,29 +147,41 @@ fun NewCanvasDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                presets.forEachIndexed { index, preset ->
-                    PresetRow(
-                        preset = preset,
-                        selected = selected == index,
-                        orientation = orientation,
-                        onSelect = { if (preset.enabled) selected = index },
-                    )
-                }
-
-                // Keep the choice and its inputs on separate lines so compact
-                // dialogs do not compress two editable values into scraps.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .selectable(selected = isCustom, onClick = { selected = presets.size }),
+                Column(
+                    modifier = Modifier.selectableGroup(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    RadioButton(selected = isCustom, onClick = { selected = presets.size })
-                    Text(
-                        stringResource(R.string.canvas_preset_custom),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f),
-                    )
+                    presets.forEachIndexed { index, preset ->
+                        PresetRow(
+                            preset = preset,
+                            selected = selected == index,
+                            orientation = orientation,
+                            onSelect = { if (preset.enabled) selected = index },
+                        )
+                    }
+
+                    // Keep the choice and its inputs on separate lines so compact
+                    // dialogs do not compress two editable values into scraps.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = isCustom,
+                                role = Role.RadioButton,
+                                onClick = { selected = presets.size },
+                            ),
+                    ) {
+                        RadioButton(
+                            selected = isCustom,
+                            onClick = null,
+                        )
+                        Text(
+                            stringResource(R.string.canvas_preset_custom),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
                 CustomSizeFields(
                     width = customW,
@@ -231,10 +253,27 @@ fun NewCanvasDialog(
                         PaperSwatch(
                             color = color,
                             label = label,
-                            selected = paper == color.toArgb(),
-                            onSelect = { paper = color.toArgb() },
+                            selected = !paperIsCustom && paper == color.toArgb(),
+                            onSelect = {
+                                paper = color.toArgb()
+                                paperIsCustom = false
+                            },
                         )
                     }
+                    PaperSwatch(
+                        color = Color(customPaper),
+                        label = stringResource(R.string.paper_custom),
+                        selected = paperIsCustom,
+                        onSelect = { showPaperPicker = true },
+                    )
+                }
+                if (paper == Color.Transparent.toArgb()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        stringResource(R.string.paper_transparent_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         },
@@ -243,7 +282,7 @@ fun NewCanvasDialog(
                 onClick = {
                     ok?.let {
                         if (isCustom) onCustomSizeCreated(it.preset.size)
-                        onCreate(it.preset.size, paper)
+                        onCreate(it.preset.size, if (paperIsCustom) customPaper else paper)
                     }
                 },
                 enabled = ok != null,
@@ -251,6 +290,103 @@ fun NewCanvasDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.new_canvas_cancel)) }
+        },
+    )
+
+    if (showPaperPicker) {
+        PaperColorPickerDialog(
+            current = customPaper,
+            onCancel = { showPaperPicker = false },
+            onDone = { argb ->
+                customPaper = argb
+                paper = argb
+                paperIsCustom = true
+                showPaperPicker = false
+            },
+        )
+    }
+}
+
+/**
+ * Any paper colour, as three channel sliders over the shared `HsvChannel`
+ * math. A nested `AlertDialog` (its own small window — nothing here needs
+ * the parent window's dimensions), committing one ARGB like every preset.
+ */
+@Composable
+private fun PaperColorPickerDialog(
+    current: Int,
+    onCancel: () -> Unit,
+    onDone: (Int) -> Unit,
+) {
+    var hue by rememberSaveable { mutableFloatStateOf(HsvColor.fromArgb(current).h) }
+    var saturation by rememberSaveable { mutableFloatStateOf(HsvColor.fromArgb(current).s) }
+    var value by rememberSaveable { mutableFloatStateOf(HsvColor.fromArgb(current).v) }
+    val hsv = HsvColor(hue, saturation, value)
+    val preview = hsv.toArgb()
+    val previewLabel = stringResource(R.string.paper_custom_preview)
+
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text(stringResource(R.string.paper_custom)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(NewCanvasLayoutPolicy.PAPER_TARGET_DP.dp)
+                        .align(Alignment.CenterHorizontally)
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant,
+                            CircleShape,
+                        )
+                        .background(Color(preview), CircleShape)
+                        .semantics { contentDescription = previewLabel },
+                )
+                HsvChannel.entries.forEach { channel ->
+                    val label = stringResource(
+                        when (channel) {
+                            HsvChannel.HUE -> R.string.color_hue
+                            HsvChannel.SATURATION -> R.string.color_saturation
+                            HsvChannel.VALUE -> R.string.color_value
+                        },
+                    )
+                    val channelValue = channel.read(hsv)
+                    val valueText = when (channel) {
+                        HsvChannel.HUE -> stringResource(R.string.color_hue_value, channelValue)
+                        HsvChannel.SATURATION,
+                        HsvChannel.VALUE,
+                        -> stringResource(R.string.color_percent_value, channelValue)
+                    }
+                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                    Slider(
+                        value = channelValue,
+                        onValueChange = { next ->
+                            val updated = channel.replace(hsv, next)
+                            hue = updated.h
+                            saturation = updated.s
+                            value = updated.v
+                        },
+                        valueRange = channel.range,
+                        steps = channel.steps,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics {
+                                contentDescription = label
+                                stateDescription = valueText
+                            },
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onDone(preview) }) {
+                Text(stringResource(R.string.reference_done))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel) {
+                Text(stringResource(R.string.new_canvas_cancel))
+            }
         },
     )
 }
@@ -350,9 +486,18 @@ private fun PresetRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .selectable(selected = selected, enabled = preset.enabled, onClick = onSelect),
+            .selectable(
+                selected = selected,
+                enabled = preset.enabled,
+                role = Role.RadioButton,
+                onClick = onSelect,
+            ),
     ) {
-        RadioButton(selected = selected, onClick = onSelect, enabled = preset.enabled)
+        RadioButton(
+            selected = selected,
+            onClick = null,
+            enabled = preset.enabled,
+        )
         Column(Modifier.weight(1f)) {
             Text(
                 presetName(preset.id),

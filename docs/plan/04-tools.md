@@ -567,8 +567,10 @@ sets the colour pass to transport-only.
 
 Both tools execute one wet and optional colour update per accepted non-zero
 dab. They never run a frame timer or a pen-up settle pass. Wet state lasts
-12 seconds by lazy monotonic age and is transient; proposal 0002 owns the
-engine and lifecycle details.
+in proportion to its stored amount: half a water unit lasts about 12 seconds,
+one unit about 24 seconds, and the two full reservoirs at most 48 seconds.
+State is aged lazily and remains transient; proposal 0002 owns the engine and
+lifecycle details.
 
 ## 6. Smudge and Blur
 

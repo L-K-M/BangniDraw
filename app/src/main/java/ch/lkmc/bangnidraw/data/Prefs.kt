@@ -214,6 +214,7 @@ class Prefs @Inject constructor(
         DishState(
             a = it[KEY_DISH_A] ?: PaletteCatalog.ULTRAMARINE_BLUE_ARGB.toInt(),
             b = it[KEY_DISH_B] ?: PaletteCatalog.CADMIUM_YELLOW_ARGB.toInt(),
+            t = it[KEY_DISH_T] ?: DishState.DEFAULT_T,
         )
     }
 
@@ -222,6 +223,12 @@ class Prefs @Inject constructor(
             it[KEY_DISH_A] = a
             it[KEY_DISH_B] = b
         }
+    }
+
+    suspend fun setDishT(t: Float) {
+        if (t.isNaN()) return
+        val clamped = t.coerceIn(0f, 1f)
+        dataStore.edit { it[KEY_DISH_T] = clamped }
     }
 
     val recentColors: Flow<List<Int>> =
@@ -360,6 +367,7 @@ class Prefs @Inject constructor(
         val KEY_ACTIVE_PALETTE = stringPreferencesKey("activePalette")
         val KEY_DISH_A = intPreferencesKey("dishA")
         val KEY_DISH_B = intPreferencesKey("dishB")
+        val KEY_DISH_T = floatPreferencesKey("dishT")
         val KEY_RECENT_COLORS = stringPreferencesKey("recent_colors")
         val KEY_PAINT_SLOTS = stringPreferencesKey("paintSlots")
         val KEY_LAST_CUSTOM_WIDTH = intPreferencesKey("lastCustomWidth")

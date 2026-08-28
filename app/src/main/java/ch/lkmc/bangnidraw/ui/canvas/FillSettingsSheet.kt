@@ -35,6 +35,7 @@ import kotlin.math.roundToInt
 internal fun FillSettingsSheet(
     active: FillParams,
     onChanged: (FillParams) -> Unit,
+    onDismiss: () -> Unit,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -47,9 +48,9 @@ internal fun FillSettingsSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = SHEET_PADDING),
         ) {
-            Text(
-                text = stringResource(R.string.fill_settings),
-                style = MaterialTheme.typography.headlineSmall,
+            PanelHeader(
+                title = stringResource(R.string.fill_settings),
+                onClose = onDismiss,
             )
             FillSlider(
                 label = stringResource(R.string.fill_tolerance),

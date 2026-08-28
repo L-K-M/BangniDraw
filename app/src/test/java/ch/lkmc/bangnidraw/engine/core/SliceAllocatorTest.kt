@@ -123,6 +123,17 @@ class SliceAllocatorTest {
     }
 
     @Test
+    fun `tryAllocateNotOn ignores entries beyond the live prefix`() {
+        val a = SliceAllocator(slicesPerPage = 1, maxPages = 2)
+        a.addPage()
+        a.addPage()
+        val excluded = intArrayOf(0, 1)
+        val handle = a.tryAllocateNotOn(excluded, excludedCount = 1)
+
+        assertEquals(1, handle.page)
+    }
+
+    @Test
     fun `tryAllocateNotOn falls through a full page to a later allowed one`() {
         // A page can be excluded AND another full; the scan must not stop at
         // the first page it cannot use.

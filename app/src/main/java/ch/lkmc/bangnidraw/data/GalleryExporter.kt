@@ -55,34 +55,42 @@ class GalleryExporter @Inject constructor(
         var uriPresent = false
         var isOwner = false
         var modifiedByOther = false
+        var probeThrew = false
         if (uri != null) {
-            resolver.query(
-                uri,
-                arrayOf(
-                    MediaStore.Images.Media.OWNER_PACKAGE_NAME,
-                    MediaStore.Images.Media.DATE_MODIFIED,
-                    MediaStore.Images.Media.SIZE,
-                ),
-                null,
-                null,
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    uriPresent = true
-                    isOwner = cursor.getString(0) == context.packageName
-                    val rowModified = cursor.getLong(1)
-                    val rowBytes = cursor.getLong(2)
-                    // 0/0 recorded = unknown (pre-rule folders): treated as
-                    // ours (§9.2).
-                    modifiedByOther = recordedModifiedAt != 0L && recordedBytes != 0L &&
-                        (rowModified != recordedModifiedAt || rowBytes != recordedBytes)
+            try {
+                resolver.query(
+                    uri,
+                    arrayOf(
+                        MediaStore.Images.Media.OWNER_PACKAGE_NAME,
+                        MediaStore.Images.Media.DATE_MODIFIED,
+                        MediaStore.Images.Media.SIZE,
+                    ),
+                    null,
+                    null,
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        uriPresent = true
+                        isOwner = cursor.getString(0) == context.packageName
+                        val rowModified = cursor.getLong(1)
+                        val rowBytes = cursor.getLong(2)
+                        // 0/0 recorded = unknown (pre-rule folders): treated as
+                        // ours (§9.2).
+                        modifiedByOther = recordedModifiedAt != 0L && recordedBytes != 0L &&
+                            (rowModified != recordedModifiedAt || rowBytes != recordedBytes)
+                    }
                 }
+            } catch (e: SecurityException) {
+                // A recorded row that became inaccessible is no longer safe to rewrite.
+                Log.w(TAG, "gallery probe refused; inserting a fresh item", e)
+                uriPresent = true
+                probeThrew = true
             }
         }
 
         var action = GallerySyncDecision.decide(
             uriPresent = uriPresent,
             isOwner = isOwner,
-            threw = false,
+            threw = probeThrew,
             modifiedByOther = modifiedByOther,
         )
 

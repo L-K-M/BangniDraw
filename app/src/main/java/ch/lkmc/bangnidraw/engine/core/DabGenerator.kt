@@ -63,6 +63,16 @@ class DabGenerator(
     /** Total stabilized path length, so [end] can tell a tap from a stroke. */
     private var pathLength = 0f
 
+    /** Retained until every dab in one stabilized segment reaches a batch. */
+    private val segmentEnd = StrokeInput()
+    private var segmentDx = 0f
+    private var segmentDy = 0f
+    private var segmentLength = 0f
+    private var segmentStep = 0f
+    private var segmentPathAngle = 0f
+    private var segmentT = 0f
+    private var segmentStationary = false
+
     private var dabIndex = 0
 
     /** Where the stroke's first dab went, so a tap can be rewritten by [end]. */
@@ -93,6 +103,10 @@ class DabGenerator(
     var dabCount: Int = 0
         private set
 
+    /** True while [resume] still owes dabs from the current segment. */
+    var hasPendingSegment: Boolean = false
+        private set
+
     /**
      * The spacing step for the pressure at the last sample — what
      * `Stabilizer.finish` walks the catch-up tail in.
@@ -105,6 +119,8 @@ class DabGenerator(
         started = true
         carry = 0f
         pathLength = 0f
+        hasPendingSegment = false
+        segmentStationary = false
         dabIndex = 0
         dabCount = 0
         velocity = 0f
@@ -125,6 +141,9 @@ class DabGenerator(
      */
     fun advance(next: StrokeInput, out: DabBatch): Int {
         if (!started) return begin(next, out)
+        check(!hasPendingSegment) {
+            "resume the pending segment before advancing to another sample"
+        }
 
         // Before anything else, and deliberately not only inside `emit`: the
         // peak of a stroke can fall *between* two dabs, and on a tap it
@@ -142,22 +161,24 @@ class DabGenerator(
             // also records meaningful pressure steps, so pressing in place
             // forms the broad head seen in a real brush landing.
             val stampPress = inkDynamics?.shouldStampStationary(next.pressure) == true
-            last.set(next)
-            if (!stampPress) return 0
+            if (!stampPress) {
+                last.set(next)
+                return 0
+            }
 
-            return if (emitCurrent(next.x, next.y, next, out)) 1 else 0
+            segmentEnd.set(next)
+            segmentStationary = true
+            hasPendingSegment = true
+            return resume(out)
         }
         pathLength += len
 
-        var emitted = 0
         // Mean pressure over the segment, so the step keeps the same overlap
-        // ratio at light pressure as at full: a hard pencil that thins under a
-        // light touch would otherwise space its dabs as if it were still fat.
+        // ratio at light pressure as at full.
         val meanPressure = (last.pressure + next.pressure) * 0.5f
         val meanTilt = (last.tilt + next.tilt) * 0.5f
         val step = stepFor(meanPressure, meanTilt)
         val pathAngle = atan2(dy, dx)
-        val speedFraction = velocityFraction()
         inkDynamics?.prepareSegment(
             pathAngle = pathAngle,
             distance = len,
@@ -165,52 +186,71 @@ class DabGenerator(
             tiltFraction = tiltFraction(meanTilt),
             stylusAngle = next.orientation,
             contactRadius = radiusFor(meanPressure, meanTilt, jitterIndex = -1),
-            speedFraction = speedFraction,
+            speedFraction = velocityFraction(),
         )
 
-        // Clamped at zero. `carry` is bounded by the *previous* segment's
-        // step, and `step` is recomputed here from this segment's mean
-        // pressure and tilt — so a pressure drop mid-stroke can leave
-        // `step < carry` and a negative `t`, which emits dabs *behind* `last`,
-        // extrapolated along a direction the pen never travelled. Zero is the
-        // right floor rather than a skip: a dab that is overdue is due at the
-        // segment start.
-        var t = ((step - carry) / len).coerceAtLeast(0f)
-        while (t <= 1f) {
-            val x = last.x + dx * t
-            val y = last.y + dy * t
-            lerpInto(last, next, t, interpolated)
-            // The direction of travel, for a tip that follows the stroke. Taken
-            // from the segment rather than from consecutive dabs so it is
-            // defined for the very first dab of a segment too.
+        segmentEnd.set(next)
+        segmentDx = dx
+        segmentDy = dy
+        segmentLength = len
+        segmentStep = step
+        segmentPathAngle = pathAngle
+        segmentStationary = false
+        // An overdue dab belongs at the segment start, never behind it.
+        segmentT = ((step - carry) / len).coerceAtLeast(0f)
+        hasPendingSegment = true
+        return resume(out)
+    }
+
+    /**
+     * Continues the current segment after its previous [DabBatch] filled.
+     *
+     * The target, interpolation fraction, and Chinese Ink segment state stay
+     * live until completion. Retrying therefore neither skips dabs nor consumes
+     * jitter, bristle, or wetness state twice.
+     */
+    fun resume(out: DabBatch): Int {
+        if (!hasPendingSegment) return 0
+        if (segmentStationary) {
+            if (!emitCurrent(segmentEnd.x, segmentEnd.y, segmentEnd, out)) return 0
+
+            last.set(segmentEnd)
+            segmentStationary = false
+            hasPendingSegment = false
+            return 1
+        }
+
+        var emitted = 0
+        val stepFraction = segmentStep / segmentLength
+        while (segmentT <= 1f) {
+            val x = last.x + segmentDx * segmentT
+            val y = last.y + segmentDy * segmentT
+            lerpInto(last, segmentEnd, segmentT, interpolated)
+
             val ink = inkDynamics
             if (ink == null) {
-                interpolated.strokeAngle = pathAngle
+                interpolated.strokeAngle = segmentPathAngle
                 interpolated.wetness = 1f
                 interpolated.bristleAlong = 0f
                 interpolated.bristleAcross = 0f
             } else {
-                ink.writeSampleAt(t, inkSample)
+                ink.writeSampleAt(segmentT, inkSample)
                 interpolated.strokeAngle = inkSample.angle
                 interpolated.wetness = inkSample.wetness
                 interpolated.bristleAlong = inkSample.bristleAlong
                 interpolated.bristleAcross = inkSample.bristleAcross
             }
-            // Stop rather than keep walking: past a full batch every further
-            // iteration burns a lerp, an atan2 and a noise draw, consumes the
-            // seed stream, and leaves `carry` computed as though the dabs had
-            // landed — so the gap the overflow already caused would be
-            // compounded by a spacing error after it.
-            if (!emit(x, y, interpolated, out)) break
+            if (!emit(x, y, interpolated, out)) return emitted
+
             emitted++
-            t += step / len
+            segmentT += stepFraction
         }
-        // What is left of the segment beyond the last dab, kept so the next
-        // segment does not restart the spacing and cluster dabs at every
-        // sample — this is the whole of "spacing is measured along the path".
-        carry = len - (t - step / len) * len
-        inkDynamics?.finishSegment(next.pressure)
-        last.set(next)
+
+        // Preserve the distance beyond the last dab for the next segment.
+        carry = segmentLength - (segmentT - stepFraction) * segmentLength
+        inkDynamics?.finishSegment(segmentEnd.pressure)
+        last.set(segmentEnd)
+        hasPendingSegment = false
         return emitted
     }
 
@@ -319,6 +359,15 @@ class DabGenerator(
         other.dabCount = dabCount
         other.maxPressure = maxPressure
         other.dabIndexOfFirst = dabIndexOfFirst
+        other.segmentEnd.set(segmentEnd)
+        other.segmentDx = segmentDx
+        other.segmentDy = segmentDy
+        other.segmentLength = segmentLength
+        other.segmentStep = segmentStep
+        other.segmentPathAngle = segmentPathAngle
+        other.segmentT = segmentT
+        other.segmentStationary = segmentStationary
+        other.hasPendingSegment = hasPendingSegment
         inkDynamics?.copyInto(requireNotNull(other.inkDynamics))
         // `maxPressure` and `pressureOpacityMax` are carried for completeness,
         // not because a test can see them, and dropping either kills no test —
@@ -385,7 +434,7 @@ class DabGenerator(
         val p = sample.pressure
         notePressure(p)
 
-        val index = dabIndex++
+        val index = dabIndex
         val radius = radiusFor(p, sample.tilt, index)
         val flow = flowFor(p, sample.tilt)
         val ink = inkDynamics
@@ -418,6 +467,7 @@ class DabGenerator(
             bristleAlong, bristleAcross,
         )
         if (!ok) return false
+        dabIndex++
         if (firstBatch == null) {
             firstBatch = out
             firstBatchGeneration = out.reuseGeneration

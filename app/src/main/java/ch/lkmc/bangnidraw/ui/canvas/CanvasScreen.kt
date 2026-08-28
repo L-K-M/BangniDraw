@@ -122,6 +122,7 @@ import ch.lkmc.bangnidraw.data.GalleryExportOutcome
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasDialog
+import ch.lkmc.bangnidraw.engine.core.CanvasOverlayClearance
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
 import ch.lkmc.bangnidraw.engine.core.ColorText
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
@@ -253,6 +254,7 @@ private fun CanvasContent(
     val recentScroll = rememberScrollState()
     val recentPaletteFocusRequester = remember { FocusRequester() }
     var historyReadout by remember { mutableIntStateOf(0) }
+    var historyReadoutRedo by remember { mutableStateOf(false) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
 
     // The stroke in flight. Plain vars, not Compose state: they change several
@@ -599,13 +601,28 @@ private fun CanvasContent(
                     }
 
                     val driver = strokeState.driver ?: return
-                    val batch = engine.acquireDabBatch() ?: return
-                    val emitted = if (driver.isActive) {
-                        driver.sample(x, y, pressure, tilt, orientation, timeNs, strokeState.source, batch)
+                    var batch = engine.acquireDabBatch() ?: return
+                    var emitted = if (driver.isActive) {
+                        driver.sample(
+                            x, y, pressure, tilt, orientation, timeNs, strokeState.source, batch,
+                        )
                     } else {
-                        driver.begin(x, y, pressure, tilt, orientation, timeNs, strokeState.source, batch)
+                        driver.begin(
+                            x, y, pressure, tilt, orientation, timeNs, strokeState.source, batch,
+                        )
                     }
-                    if (emitted == 0) engine.releaseDabBatch(batch) else engine.stampDabs(batch)
+
+                    while (true) {
+                        if (emitted == 0) {
+                            engine.releaseDabBatch(batch)
+                        } else {
+                            engine.stampDabs(batch)
+                        }
+                        if (!driver.hasPendingDabs) return
+
+                        batch = engine.acquireDabBatch() ?: return
+                        emitted = driver.resumeDabs(batch)
+                    }
                 }
 
                 override fun onStrokeEnd(pointerId: Int) {
@@ -654,12 +671,19 @@ private fun CanvasContent(
                         viewModel.endStrokeTool(reason, StrokeEndDisposition.COMPLETE)
                         return
                     }
-                    val batch = engine.acquireDabBatch()
-                    if (batch != null) {
-                        if (driver.end(batch) == 0) engine.releaseDabBatch(batch)
-                        else engine.stampDabs(batch)
-                    } else {
-                        driver.cancel()
+                    while (driver.isActive) {
+                        val batch = engine.acquireDabBatch()
+                        if (batch == null) {
+                            driver.cancel()
+                            break
+                        }
+
+                        val emitted = driver.end(batch)
+                        if (emitted == 0) {
+                            engine.releaseDabBatch(batch)
+                        } else {
+                            engine.stampDabs(batch)
+                        }
                     }
                     engine.endStroke(driver.opacityCeiling) {
                         viewModel.onStrokeCommitted(colorUsage, strokeColor)
@@ -799,13 +823,12 @@ private fun CanvasContent(
 
     val animationScope = rememberCoroutineScope()
     val resetJob = remember { arrayOfNulls<Job>(1) }
-    val resetView = {
+    fun animateViewTo(target: ViewTransform) {
         resetJob[0]?.cancel()
         val start = view
-        val reset = ViewTransform()
         if (!ValueAnimator.areAnimatorsEnabled()) {
-            updateView(reset)
-            touch.setView(reset)
+            updateView(target)
+            touch.setView(target)
             if (state.hapticsMode == HapticsMode.ENABLED) {
                 view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             }
@@ -818,16 +841,30 @@ private fun CanvasContent(
                         stiffness = Spring.StiffnessHigh,
                     ),
                 ) {
-                    val next = start.lerp(reset, value)
+                    val next = start.lerp(target, value)
                     updateView(next)
                     touch.setView(next)
                 }
-                updateView(reset)
-                touch.setView(reset)
+                updateView(target)
+                touch.setView(target)
                 if (state.hapticsMode == HapticsMode.ENABLED) {
                     view0.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
             }
+        }
+    }
+    val resetView = { animateViewTo(ViewTransform()) }
+    // The pill's long-press: 100 % at the view centre, the pixel-work anchor.
+    val actualSizeView = {
+        val target = touch.actualSizeView()
+        if (target != null) {
+            // The LONG_PRESS is the trigger's feedback; with animations off
+            // animateViewTo's CLOCK_TICK answers in the same frame, so the
+            // press haptic would stack on it.
+            if (state.hapticsMode == HapticsMode.ENABLED && ValueAnimator.areAnimatorsEnabled()) {
+                view0.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            }
+            animateViewTo(target)
         }
     }
 
@@ -1125,7 +1162,14 @@ private fun CanvasContent(
                 onBack = { viewModel.handleBack(onBack) },
                 onUndo = viewModel::undo,
                 onRedo = viewModel::redo,
-                onUndoLongPress = { historyReadout++ },
+                onUndoLongPress = {
+                    historyReadoutRedo = false
+                    historyReadout++
+                },
+                onRedoLongPress = {
+                    historyReadoutRedo = true
+                    historyReadout++
+                },
                 onLayers = { viewModel.togglePanel(CanvasPanel.LAYERS) },
                 onColor = { viewModel.togglePanel(CanvasPanel.COLOR) },
                 onColorLongPress = {
@@ -1238,6 +1282,8 @@ private fun CanvasContent(
             // under the strip for a moment — the one place the history budget
             // is visible where undo is actually used. An incrementing token
             // rather than a boolean, so a repeat long-press restarts the timer.
+            // The redo button's long-press reuses the surface: it reports the
+            // redo depth instead (how many redo steps a tap would walk back).
             if (historyReadout > 0) {
                 LaunchedEffect(historyReadout) {
                     delay(HISTORY_READOUT_MS)
@@ -1253,13 +1299,21 @@ private fun CanvasContent(
                         .zIndex(CHROME_Z),
                 ) {
                     Text(
-                        text = pluralStringResource(
-                            R.plurals.canvas_history_readout,
-                            state.historySteps,
-                            state.historySteps,
-                            Formatter.formatShortFileSize(context, state.historyBytes),
-                            Formatter.formatShortFileSize(context, state.historyMaxBytes),
-                        ),
+                        text = if (historyReadoutRedo) {
+                            pluralStringResource(
+                                R.plurals.canvas_redo_readout,
+                                state.redoSteps,
+                                state.redoSteps,
+                            )
+                        } else {
+                            pluralStringResource(
+                                R.plurals.canvas_history_readout,
+                                state.historySteps,
+                                state.historySteps,
+                                Formatter.formatShortFileSize(context, state.historyBytes),
+                                Formatter.formatShortFileSize(context, state.historyMaxBytes),
+                            )
+                        },
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     )
@@ -1306,75 +1360,70 @@ private fun CanvasContent(
                 }
             }
 
-            val resetBottomPadding = when (layout.railMode) {
-                RailMode.DOCK -> DOCK_CHROME_HEIGHT.dp
-                RailMode.SHORT -> LEDGE_CHROME_HEIGHT.dp
-                RailMode.GROUPED, RailMode.FULL -> RESET_EDGE_PADDING.dp
-            }
-            ResetViewPill(
-                view = view,
-                density = density.density,
-                strokeActivity = state.chrome.strokeActivity,
-                onReset = resetView,
+            val overlayBottomPadding =
+                CanvasOverlayClearance.bottomPaddingDp(layout.railMode).dp
+
+            // §6.3's storage-full banner persists until the next successful write.
+            val storageFull by viewModel.storageFull.collectAsStateWithLifecycle()
+            val fillProgress = state.fillProgress
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(BOTTOM_OVERLAY_GAP),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = resetBottomPadding),
-            )
-
-            // §6.3's storage-full banner: persistent while the state holds,
-            // gone with the first successful write.
-            val storageFull by viewModel.storageFull.collectAsStateWithLifecycle()
-            if (storageFull) {
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .semantics { liveRegion = LiveRegionMode.Assertive }
-                        .padding(16.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.err_storage_full),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                }
-            }
-
-            // The card must clear whatever chrome owns the bottom edge — the
-            // dock mode's rail sits 56 dp tall there, and the card composed
-            // after it would otherwise cover the dock's top half mid-fill.
-            val fillCardBottomPadding = when (layout.railMode) {
-                RailMode.DOCK -> DOCK_CHROME_HEIGHT.dp
-                RailMode.SHORT -> LEDGE_CHROME_HEIGHT.dp
-                RailMode.GROUPED, RailMode.FULL -> RESET_EDGE_PADDING.dp
-            }
-            val fillProgress = state.fillProgress
-            if (fillProgress != null) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = MaterialTheme.shapes.medium,
-                    tonalElevation = 3.dp,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = fillCardBottomPadding)
-                        .width(FILL_PROGRESS_WIDTH.dp),
-                ) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = overlayBottomPadding),
+            ) {
+                if (storageFull) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.semantics {
+                            liveRegion = LiveRegionMode.Assertive
+                        },
+                    ) {
                         Text(
-                            stringResource(R.string.fill_progress, (fillProgress * 100).toInt()),
-                            style = MaterialTheme.typography.labelMedium,
+                            text = stringResource(R.string.err_storage_full),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         )
-                        LinearProgressIndicator(
-                            progress = { fillProgress },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        TextButton(
-                            onClick = viewModel::cancelFill,
-                            modifier = Modifier.align(Alignment.End),
-                        ) {
-                            Text(stringResource(R.string.fill_cancel))
+                    }
+                }
+
+                ResetViewPill(
+                    view = view,
+                    density = density.density,
+                    strokeActivity = state.chrome.strokeActivity,
+                    onReset = resetView,
+                    onActualSize = actualSizeView,
+                )
+
+                if (fillProgress != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shape = MaterialTheme.shapes.medium,
+                        tonalElevation = 3.dp,
+                        modifier = Modifier.width(FILL_PROGRESS_WIDTH.dp),
+                    ) {
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(
+                                stringResource(
+                                    R.string.fill_progress,
+                                    (fillProgress * 100).toInt(),
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                            LinearProgressIndicator(
+                                progress = { fillProgress },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            TextButton(
+                                onClick = viewModel::cancelFill,
+                                modifier = Modifier.align(Alignment.End),
+                            ) {
+                                Text(stringResource(R.string.fill_cancel))
+                            }
                         }
                     }
                 }
@@ -1424,7 +1473,7 @@ private fun CanvasContent(
                 val ledgeModifier = when (layout.railMode) {
                     RailMode.DOCK -> Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = DOCK_HEIGHT.dp)
+                        .padding(bottom = CanvasOverlayClearance.DOCK_HEIGHT_DP.dp)
                         .fillMaxWidth()
                     RailMode.SHORT -> Modifier
                         .align(
@@ -1576,7 +1625,6 @@ private fun CanvasPanelContent(
             onDuplicate = viewModel::duplicateLayer,
             onMove = viewModel::moveLayer,
             onMergeDown = viewModel::mergeLayerDown,
-            onClear = viewModel::clearLayer,
             onRequestDialog = viewModel::requestDialog,
             onOpacityPreview = viewModel::previewLayerOpacity,
             onOpacityFinished = viewModel::finishLayerOpacity,
@@ -1608,7 +1656,9 @@ private fun CanvasPanelContent(
                 viewModel.dismissPanel()
                 viewModel.selectDishEyedropper(it)
             },
+            onDishTChanged = viewModel::setDishT,
             onTextInputFocus = onTextInputFocus,
+            onDismiss = viewModel::dismissPanel,
             hapticsMode = state.hapticsMode,
         )
         CanvasPanel.BRUSH_SETTINGS -> when (val kind = state.toolSelection.kind) {
@@ -1623,31 +1673,38 @@ private fun CanvasPanelContent(
                 onPresetChanged = viewModel::updateActiveBrush,
                 onPresetPersisted = viewModel::persistActiveBrush,
                 onReset = viewModel::resetActiveBrush,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Smudge -> SmudgeSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateSmudgeParams,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Water -> WaterSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateWaterParams,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Blur -> BlurSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateBlurParams,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Eyedropper -> EyedropperSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateEyedropperParams,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Fill -> FillSettingsSheet(
                 active = state.fillParams,
                 onChanged = viewModel::updateFillParams,
+                onDismiss = viewModel::dismissPanel,
             )
         }
         CanvasPanel.FILL_SETTINGS -> FillSettingsSheet(
             active = state.fillParams,
             onChanged = viewModel::updateFillParams,
+            onDismiss = viewModel::dismissPanel,
         )
         CanvasPanel.REFERENCE -> state.tracingReference?.let { reference ->
             TracingReferencePanel(
@@ -1798,6 +1855,15 @@ private fun CanvasDialogHost(
             onConfirm = {
                 viewModel.dismissDialog()
                 viewModel.mergeLayerDown(dialog.index)
+            },
+            onDismiss = viewModel::dismissDialog,
+        )
+        is CanvasDialog.ClearLayer -> ConfirmationDialog(
+            title = stringResource(R.string.layer_clear_title),
+            body = stringResource(R.string.layer_clear_body),
+            onConfirm = {
+                viewModel.dismissDialog()
+                viewModel.clearLayer(dialog.index)
             },
             onDismiss = viewModel::dismissDialog,
         )
@@ -1966,13 +2032,11 @@ private fun toolName(tool: ToolKind): String = when (tool) {
     is ToolKind.Eyedropper -> stringResource(R.string.tool_eyedropper)
 }
 
+private val BOTTOM_OVERLAY_GAP = 8.dp
+
 /** 8 dp squares, per `03-canvas-engine.md` §3.2 step 1. */
 private const val CHECKER_DP = 8
 private const val FILL_PROGRESS_WIDTH = 240
-private const val DOCK_HEIGHT = 56
-private const val DOCK_CHROME_HEIGHT = 120
-private const val LEDGE_CHROME_HEIGHT = 64
-private const val RESET_EDGE_PADDING = 16
 private const val EXCLUSION_GAP_DP = 16
 private const val CHROME_Z = 2f
 private const val HINT_Z = 3f

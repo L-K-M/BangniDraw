@@ -128,6 +128,28 @@ class GestureArbiterTest {
     }
 
     @Test
+    fun `a quick finger tap draws and ends a dot`() {
+        val r = Recorder()
+        val a = arbiter()
+
+        a.down(1, PointerTool.FINGER, 10f, 10f, ms(0), r)
+        a.up(1, ms(GestureArbiter.PENDING_MS - 1), r)
+
+        assertEquals(listOf("draw(1,FINGER)", "end(1)"), r.events)
+    }
+
+    @Test
+    fun `a quick finger tap stays mark-free in stylus-only mode`() {
+        val r = Recorder()
+        val a = arbiter(stylusOnly = true)
+
+        a.down(1, PointerTool.FINGER, 10f, 10f, ms(0), r)
+        a.up(1, ms(GestureArbiter.PENDING_MS - 1), r)
+
+        assertEquals(emptyList(), r.events)
+    }
+
+    @Test
     fun `a finger past the slop draws early — a deliberate line is not a chord`() {
         val r = Recorder()
         val a = arbiter()

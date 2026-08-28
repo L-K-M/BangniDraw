@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Pre-Compose window chrome only; everything visible is Compose-drawn.
-         DayNight so the launch frame matches the theme Compose will pick. -->
-    <style name="Theme.BangniDraw" parent="android:Theme.DeviceDefault.DayNight">
-        <item name="android:windowBackground">@color/paper_light</item>
+         DataStore is unavailable here, so launch with the default palette. -->
+    <style name="Theme.BangniDraw" parent="android:Theme.DeviceDefault.Light">
+        <item name="android:windowBackground">@color/launch_background</item>
+        <item name="android:forceDarkAllowed">false</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>

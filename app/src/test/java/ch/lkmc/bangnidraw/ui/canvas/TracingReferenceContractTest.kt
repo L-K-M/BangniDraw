@@ -44,6 +44,37 @@ class TracingReferenceContractTest {
         assertTrue("dismissPanel()" in removeReference)
     }
 
+    @Test
+    fun `tracing controls scroll below a stable header`() {
+        val panel = File(repositoryRoot(), REFERENCE_PANEL_PATH).readText()
+        val headerIndex = requiredIndex(panel, HEADER_PATTERN)
+        val scrollIndex = requiredIndex(panel, SCROLL_PATTERN)
+        val doneIndex = requiredIndex(panel, DONE_PATTERN)
+
+        assertTrue(headerIndex < scrollIndex, "header must stay outside the scroll container")
+        assertTrue(scrollIndex < doneIndex, "Done must follow the scroll container")
+        assertTrue(PINNED_DONE_ROW_PATTERN.containsMatchIn(panel))
+        assertTrue(SCROLL_WEIGHT_PATTERN.containsMatchIn(panel))
+        assertTrue(FILL_HEIGHT_PATTERN.containsMatchIn(panel))
+    }
+
+    private fun requiredIndex(source: String, pattern: Regex): Int {
+        val match = pattern.find(source) ?: fail("missing source pattern: $pattern")
+        return match.range.first
+    }
+
+    @Test
+    fun `failed reference decode preserves the committed asset`() {
+        val viewModel = File(repositoryRoot(), VIEW_MODEL_PATH).readText()
+        val streamReference = viewModel
+            .substringAfter("private suspend fun streamTracingReference(")
+            .substringBefore("private companion object")
+
+        assertFalse("applyTracingReference(null)" in streamReference)
+        assertFalse("dismissPanel()" in streamReference)
+        assertTrue("showReferenceNotice(R.string.err_reference_unreadable)" in streamReference)
+    }
+
     private fun repositoryRoot(): File {
         val workingDirectory = File(
             requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),
@@ -66,5 +97,17 @@ class TracingReferenceContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/TracingReferencePanel.kt"
         const val MANIFEST_PATH = "app/src/main/AndroidManifest.xml"
         const val REFERENCE_ACTION_COUNT = 3
+        val HEADER_PATTERN = Regex("""R\.string\.reference_image""")
+        val SCROLL_PATTERN = Regex(
+            """\.verticalScroll\s*\(\s*rememberScrollState\s*\(\s*\)\s*\)""",
+        )
+        val DONE_PATTERN = Regex("""R\.string\.reference_done""")
+        val PINNED_DONE_ROW_PATTERN = Regex(
+            """(?m)^ {8}Row\(\s*\n {12}horizontalArrangement\s*=\s*Arrangement\.End""",
+        )
+        val SCROLL_WEIGHT_PATTERN = Regex(
+            """\.weight\s*\(\s*1f\s*\)\s*\.verticalScroll""",
+        )
+        val FILL_HEIGHT_PATTERN = Regex("""\.fillMaxHeight\s*\(\s*\)\s*\.padding""")
     }
 }

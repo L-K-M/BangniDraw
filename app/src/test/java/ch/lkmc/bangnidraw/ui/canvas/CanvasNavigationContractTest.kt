@@ -1,6 +1,5 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -32,6 +31,25 @@ class CanvasNavigationContractTest {
     }
 
     @Test
+    fun `a deferred checkpoint returns before navigation`() {
+        val viewModel = source(CANVAS_VIEW_MODEL_PATH)
+        val start = viewModel.indexOf(BEGIN_LEAVE)
+        if (start < 0) fail("missing $BEGIN_LEAVE")
+        val end = viewModel.indexOf(FINISH_LEAVE_ATTEMPT, start)
+        if (end <= start) fail("missing $FINISH_LEAVE_ATTEMPT after beginLeave")
+
+        val leave = viewModel.substring(start, end)
+        val deferred = leave.indexOf(DEFERRED_CHECKPOINT)
+        if (deferred < 0) fail("missing $DEFERRED_CHECKPOINT in beginLeave")
+        val earlyReturn = leave.indexOf(LEAVE_EARLY_RETURN, deferred)
+        val navigation = leave.indexOf(NAVIGATE_AFTER_WRITE, deferred)
+        if (earlyReturn < 0) fail("missing $LEAVE_EARLY_RETURN after deferred checkpoint")
+        if (navigation < 0) fail("missing $NAVIGATE_AFTER_WRITE after deferred checkpoint")
+
+        assertTrue(earlyReturn in deferred + 1 until navigation)
+    }
+
+    @Test
     fun `closing clears keyboard focus before the delayed scrim`() {
         val screen = source(CANVAS_SCREEN_PATH)
         val start = screen.indexOf(CLOSING_EFFECT)
@@ -50,28 +68,18 @@ class CanvasNavigationContractTest {
         )
     }
 
-    private fun source(path: String): String = File(repositoryRoot(), path).readText()
-
-    private fun repositoryRoot(): File {
-        val workingDirectory = File(
-            requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),
-        ).canonicalFile
-
-        return generateSequence(workingDirectory) { it.parentFile }
-            .firstOrNull { File(it, ROOT_MARKER).isFile && File(it, APP_DIRECTORY).isDirectory }
-            ?: fail("cannot locate repository root from $workingDirectory")
-    }
-
     private companion object {
-        const val USER_DIRECTORY_PROPERTY = "user.dir"
-        const val ROOT_MARKER = "settings.gradle.kts"
-        const val APP_DIRECTORY = "app/src/main"
         const val CANVAS_SCREEN_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasScreen.kt"
         const val CANVAS_VIEW_MODEL_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasViewModel.kt"
         const val BACK_ENTRY_POINTS = 2
         const val DIRECT_LEAVE_ENTRY_POINTS = 2
+        const val BEGIN_LEAVE = "private fun beginLeave()"
+        const val FINISH_LEAVE_ATTEMPT = "private fun finishLeaveAttempt()"
+        const val DEFERRED_CHECKPOINT = "CheckpointResult.DEFERRED"
+        const val LEAVE_EARLY_RETURN = "return@launch"
+        const val NAVIGATE_AFTER_WRITE = "afterWrite()"
         const val RELEASE_LEAVE_GATE = "private fun releaseLeaveGate()"
         const val NOTE_LEAVE_FAILURE = "private fun noteLeaveFailure()"
         const val CLOSING_EFFECT = "LaunchedEffect(state.closing)"
@@ -82,4 +90,6 @@ class CanvasNavigationContractTest {
         val HANDLE_BACK = Regex("""viewModel\.handleBack\(onBack\)""")
         val REQUEST_LEAVE = Regex("""viewModel\.requestLeave\(""")
     }
+
+    private fun source(path: String): String = ContractTestSources.read(path)
 }

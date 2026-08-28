@@ -2,11 +2,29 @@ package ch.lkmc.bangnidraw.engine.gl
 
 import ch.lkmc.bangnidraw.engine.core.DabStamp
 import ch.lkmc.bangnidraw.engine.core.WatercolorKernel
+import ch.lkmc.bangnidraw.engine.core.WatercolorOverlayKernel
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class WatercolorShaderContractTest {
+
+    @Test
+    fun `wet overlay decodes timestamps before sampling its cue`() {
+        val source = Shaders.WATERCOLOR_OVERLAY
+        val body = source.fragment
+
+        assertTrue("texelFetch(u_tiles" in body)
+        assertFalse("texture(u_tiles" in body)
+        assertTrue("floor(state.gb * float(TICK_CHANNEL_MAX) + 0.5)" in body)
+        assertTrue("(u_nowTick - updatedTick + TICK_MODULUS) % TICK_MODULUS" in body)
+        assertTrue(
+            "#define FULL_LOAD_DRY_TICKS ${WatercolorKernel.FULL_LOAD_DRY_TICKS}" in body,
+        )
+        assertTrue("#define OVERLAY_MAX_ALPHA ${WatercolorOverlayKernel.MAX_ALPHA}" in body)
+        assertTrue("vec4(CUE_COLOR * alpha, alpha)" in body)
+        assertTrue("if (outsideCanvas()) discard;" in body)
+    }
 
     @Test
     fun `wet state uses bounded four-neighbor diffusion`() {
@@ -32,13 +50,33 @@ class WatercolorShaderContractTest {
         assertTrue("uniform bool u_epochRollover;" in body)
         assertTrue("if (u_ageOnly) {" in body)
         assertTrue("u_epochRollover && updatedTick <= u_nowTick" in body)
-        assertTrue("previous.r * age" in body)
-        assertTrue("previous.a * age" in body)
+        assertTrue("vec2 agedPrevious = ageWater(previous);" in body)
         assertTrue("decodeTick" in body)
         assertTrue("encodeTick" in body)
-        assertTrue("ageFactor" in body)
+        assertTrue("ageWater" in body)
         assertTrue("${WatercolorKernel.TICK_MODULUS}" in body)
-        assertTrue("${WatercolorKernel.DRY_TICKS}" in body)
+        assertTrue("${WatercolorKernel.FULL_LOAD_DRY_TICKS}" in body)
+        assertTrue("${WatercolorKernel.MAX_DRY_TICKS}" in body)
+    }
+
+    @Test
+    fun `wet shaders evaporate a fixed total amount`() {
+        val wet = Shaders.WATERCOLOR_WET.fragment
+        val overlay = Shaders.WATERCOLOR_OVERLAY.fragment
+
+        assertTrue("vec2 ageWater(vec4 state)" in wet)
+        assertTrue("water * (remaining / total)" in wet)
+        assertFalse("previous.r * age" in wet)
+        assertTrue("vec2 ageWater(vec4 state)" in overlay)
+        assertTrue("water * (remaining / total)" in overlay)
+        assertTrue("float total = water.x + water.y;" in wet)
+        assertTrue("float total = water.x + water.y;" in overlay)
+        assertTrue("if (total <= 0.0) return vec2(0.0);" in wet)
+        assertTrue("if (total <= 0.0) return vec2(0.0);" in overlay)
+        assertTrue("vec2 water = state.ra;" in wet)
+        assertTrue("vec2 water = state.ra;" in overlay)
+        assertTrue("total - age / float(FULL_LOAD_DRY_TICKS)" in wet)
+        assertTrue("total - float(ageTicks) / float(FULL_LOAD_DRY_TICKS)" in overlay)
     }
 
     @Test
@@ -71,6 +109,19 @@ class WatercolorShaderContractTest {
         assertTrue("uniform bool u_alphaLock;" in body)
         assertTrue("proceduralPaper" in body)
     }
+
+    @Test
+    fun `fresh pigment follows the same wet flow as existing pigment`() {
+        val body = Shaders.WATERCOLOR_COLOR.fragment
+
+        assertTrue("float pigmentDeposit(vec2 canvas)" in body)
+        assertTrue("pigmentDeposit(canvas + vec2(1.0, 0.0))" in body)
+        assertTrue("pigmentDeposit(canvas - vec2(1.0, 0.0))" in body)
+        assertTrue("pigmentDeposit(canvas + vec2(0.0, 1.0))" in body)
+        assertTrue("pigmentDeposit(canvas - vec2(0.0, 1.0))" in body)
+        assertTrue("mix(pigmentDeposit(canvas), neighborDeposit, t)" in body)
+    }
+
 
     @Test
     fun `clear water transports finished brush pixels without model state`() {

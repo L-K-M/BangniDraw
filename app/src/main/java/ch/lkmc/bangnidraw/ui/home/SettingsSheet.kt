@@ -2,11 +2,16 @@ package ch.lkmc.bangnidraw.ui.home
 
 import android.content.Intent
 import android.net.Uri
+import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +20,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
@@ -25,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,6 +52,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.AutosavePolicy
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.Hand
@@ -51,14 +60,19 @@ import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
 import ch.lkmc.bangnidraw.engine.core.PressurePreference
+import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
+import ch.lkmc.bangnidraw.engine.core.CanvasShortcutCatalog
 import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
+import ch.lkmc.bangnidraw.ui.theme.themePreviewColor
 
 /** One-level preference sheet; About/licenses is its only child. */
 @Composable
 internal fun SettingsSheet(
     state: StudioViewModel.UiState,
+    appTheme: AppTheme,
     historyMaxSteps: Int,
     historyMaxBytes: Long,
+    onAppTheme: (AppTheme) -> Unit,
     onHandedness: (Hand) -> Unit,
     onTouchDrawingMode: (TouchDrawingMode) -> Unit,
     onPenButtonAction: (PenButtonAction) -> Unit,
@@ -101,6 +115,26 @@ internal fun SettingsSheet(
                 .heightIn(max = SETTINGS_MAX_HEIGHT),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp),
         ) {
+            item { SectionTitle(R.string.settings_appearance) }
+            item {
+                Column(Modifier.selectableGroup()) {
+                    SettingLabel(R.string.settings_theme_color)
+                    AppTheme.entries.forEach { theme ->
+                        ThemeChoiceRow(
+                            theme,
+                            when (theme) {
+                                AppTheme.SAFFRON -> R.string.settings_theme_saffron
+                                AppTheme.CORAL -> R.string.settings_theme_coral
+                                AppTheme.VIOLET -> R.string.settings_theme_violet
+                                AppTheme.TEAL -> R.string.settings_theme_teal
+                            },
+                            appTheme,
+                            onAppTheme,
+                        )
+                    }
+                }
+            }
+
             item { SectionTitle(R.string.settings_drawing) }
             item {
                 Column(Modifier.selectableGroup()) {
@@ -250,6 +284,19 @@ internal fun SettingsSheet(
                 }
             }
 
+            item { SectionTitle(R.string.settings_shortcuts) }
+            item {
+                Text(
+                    text = stringResource(R.string.settings_shortcuts_help),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+                )
+            }
+            items(CanvasShortcutCatalog.rows) { row ->
+                ShortcutRow(chord = row.chord, action = shortcutActionLabel(row.action))
+            }
+
             item {
                 Text(
                     text = stringResource(R.string.settings_accessibility_help),
@@ -294,6 +341,42 @@ private fun SettingLabel(title: Int) {
         style = MaterialTheme.typography.bodyMedium,
         modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
     )
+}
+
+@Composable
+private fun ThemeChoiceRow(
+    theme: AppTheme,
+    @StringRes title: Int,
+    selectedTheme: AppTheme,
+    onTheme: (AppTheme) -> Unit,
+) {
+    val selected = theme == selectedTheme
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = MIN_TARGET)
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = { onTheme(theme) },
+            )
+            .padding(horizontal = 24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(12.dp))
+        Box(
+            modifier = Modifier
+                .size(THEME_SWATCH_SIZE)
+                .background(themePreviewColor(theme), CircleShape)
+                .border(THEME_SWATCH_BORDER, MaterialTheme.colorScheme.outline, CircleShape),
+        )
+        Text(
+            text = stringResource(title),
+            modifier = Modifier.padding(start = 12.dp),
+        )
+    }
 }
 
 @Composable
@@ -360,6 +443,52 @@ private fun ReadoutRow(title: Int, value: String) {
 }
 
 @Composable
+private fun ShortcutRow(chord: String, @StringRes action: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = SHORTCUT_ROW_HEIGHT)
+            .padding(horizontal = 24.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(stringResource(action), style = MaterialTheme.typography.bodyMedium)
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = MaterialTheme.shapes.small,
+            modifier = Modifier.padding(start = 16.dp),
+        ) {
+            Text(
+                text = chord,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
+    }
+}
+
+/** Reused where a shipped string already names the action. */
+@StringRes
+private fun shortcutActionLabel(action: CanvasShortcut): Int = when (action) {
+    CanvasShortcut.UNDO -> R.string.canvas_undo
+    CanvasShortcut.REDO -> R.string.canvas_redo
+    CanvasShortcut.SIZE_DOWN -> R.string.shortcut_action_size_down
+    CanvasShortcut.SIZE_UP -> R.string.shortcut_action_size_up
+    CanvasShortcut.BRUSH -> R.string.shortcut_action_brush
+    CanvasShortcut.ERASER -> R.string.tool_eraser
+    CanvasShortcut.SMUDGE -> R.string.tool_smudge
+    CanvasShortcut.WATER -> R.string.tool_water
+    CanvasShortcut.FILL -> R.string.tool_fill
+    CanvasShortcut.EYEDROPPER -> R.string.tool_eyedropper
+    CanvasShortcut.BEGIN_EYEDROPPER, CanvasShortcut.END_EYEDROPPER ->
+        R.string.shortcut_action_eyedropper_hold
+    CanvasShortcut.RESET_VIEW -> R.string.canvas_reset_view
+    CanvasShortcut.TOGGLE_FOCUS -> R.string.shortcut_action_toggle_controls
+    CanvasShortcut.TOGGLE_LAYERS -> R.string.shortcut_action_toggle_layers
+    CanvasShortcut.TOGGLE_COLOR -> R.string.shortcut_action_toggle_color
+}
+
+@Composable
 private fun AboutDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
 
@@ -412,8 +541,11 @@ private fun AboutDialog(onDismiss: () -> Unit) {
     )
 }
 
+private val THEME_SWATCH_SIZE = 32.dp
+private val THEME_SWATCH_BORDER = 1.dp
 private val SETTINGS_MAX_HEIGHT = 640.dp
 private val MIN_TARGET = 48.dp
+private val SHORTCUT_ROW_HEIGHT = 40.dp
 private val ABOUT_ICON_SIZE = 96.dp
 private const val BYTES_PER_MIB = 1024L * 1024L
 private const val MILLIS_PER_SECOND = 1_000L

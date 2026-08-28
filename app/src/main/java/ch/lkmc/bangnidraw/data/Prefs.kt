@@ -1,16 +1,20 @@
 package ch.lkmc.bangnidraw.data
 
 import android.content.Context
+import android.util.Log
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import ch.lkmc.bangnidraw.BuildConfig
+import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.CompositionGuideVisibility
@@ -19,17 +23,25 @@ import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
+import ch.lkmc.bangnidraw.engine.core.PaintSlotAssignments
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
 import ch.lkmc.bangnidraw.engine.core.PigmentAvailability
 import ch.lkmc.bangnidraw.engine.core.PressurePreference
 import ch.lkmc.bangnidraw.engine.core.StoredColors
+import ch.lkmc.bangnidraw.engine.core.StoredPaintSlots
 import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /**
  * The app's few durable settings (`docs/plan/06-document-and-persistence.md`
@@ -41,11 +53,47 @@ import kotlinx.coroutines.flow.map
  * deliberately — do not.
  */
 @Singleton
-class Prefs @Inject constructor(@ApplicationContext context: Context) {
+class Prefs @Inject constructor(
+    @ApplicationContext context: Context,
+    @ApplicationScope applicationScope: CoroutineScope,
+) {
 
     private val dataStore = PreferenceDataStoreFactory.create(
+        corruptionHandler = ReplaceFileCorruptionHandler { error ->
+            Log.w(TAG, PREFERENCE_CORRUPTION_MESSAGE, error)
+            emptyPreferences()
+        },
         produceFile = { context.preferencesDataStoreFile(STORE_NAME) },
     )
+
+    // One app-scoped writer makes the last assignment win across canvases.
+    private val paintSlotUpdates = Channel<List<String>>(Channel.CONFLATED)
+    private val paintSlotState = MutableStateFlow<List<String>?>(null)
+    private val paintSlotLock = Any()
+
+    init {
+        applicationScope.launch {
+            val stored = runCatching {
+                StoredPaintSlots.decode(dataStore.data.first()[KEY_PAINT_SLOTS])
+            }.onFailure {
+                Log.w(TAG, "paint slots could not be loaded", it)
+            }.getOrDefault(emptyList())
+
+            synchronized(paintSlotLock) {
+                if (paintSlotState.value == null) paintSlotState.value = stored
+            }
+
+            for (presetIds in paintSlotUpdates) {
+                runCatching {
+                    dataStore.edit {
+                        it[KEY_PAINT_SLOTS] = StoredPaintSlots.encode(presetIds)
+                    }
+                }.onFailure {
+                    Log.w(TAG, "paint slots could not be saved", it)
+                }
+            }
+        }
+    }
 
     /**
      * Mints the number for a new painting's title — "Sketch N" (06 §10).
@@ -67,6 +115,27 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
 
     suspend fun setGallerySync(enabled: Boolean) {
         dataStore.edit { it[KEY_GALLERY_SYNC] = enabled }
+    }
+
+    internal val appTheme: Flow<AppTheme> =
+        dataStore.data
+            .map { AppTheme.fromStored(it[KEY_APP_THEME]) }
+            .retryIoWithInitialFallback(
+                fallback = AppTheme.DEFAULT,
+                onFirstIoFailure = { error ->
+                    Log.w(TAG, THEME_READ_FAILURE_MESSAGE, error)
+                },
+                onRetriesExhausted = { error ->
+                    Log.w(TAG, THEME_READ_EXHAUSTED_MESSAGE, error)
+                },
+                pauseBeforeRetry = { attempt ->
+                    val multiplier = minOf(1L shl attempt.toInt(), MAX_BACKOFF_MULTIPLIER)
+                    delay(PREFERENCE_READ_RETRY_DELAY_MS * multiplier)
+                },
+            )
+
+    internal suspend fun setAppTheme(theme: AppTheme) {
+        dataStore.edit { it[KEY_APP_THEME] = theme.name }
     }
 
     internal val handedness: Flow<Hand> =
@@ -174,6 +243,7 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         DishState(
             a = it[KEY_DISH_A] ?: PaletteCatalog.ULTRAMARINE_BLUE_ARGB.toInt(),
             b = it[KEY_DISH_B] ?: PaletteCatalog.CADMIUM_YELLOW_ARGB.toInt(),
+            t = it[KEY_DISH_T] ?: DishState.DEFAULT_T,
         )
     }
 
@@ -184,12 +254,63 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         }
     }
 
+    suspend fun setDishT(t: Float) {
+        if (t.isNaN()) return
+        val clamped = t.coerceIn(0f, 1f)
+        dataStore.edit { it[KEY_DISH_T] = clamped }
+    }
+
     val recentColors: Flow<List<Int>> =
         dataStore.data.map { StoredColors.decode(it[KEY_RECENT_COLORS]) }
 
     suspend fun setRecentColors(colors: List<Int>) {
         dataStore.edit { it[KEY_RECENT_COLORS] = StoredColors.encode(colors) }
     }
+
+    internal val paintSlotIds: Flow<List<String>> = paintSlotState.filterNotNull()
+
+    /** Resolves and canonicalizes stored slots as one atomic operation. */
+    internal suspend fun loadPaintSlots(
+        cataloguePresetIds: List<String>,
+    ): PaintSlotAssignments {
+        paintSlotIds.first()
+
+        return synchronized(paintSlotLock) {
+            val assignments = PaintSlotAssignments.restore(
+                cataloguePresetIds,
+                requireLoadedPaintSlotIds(),
+            )
+            publishPaintSlotIdsLocked(assignments.presetIds)
+            assignments
+        }
+    }
+
+    /** Swaps against the latest shared assignment, never a canvas snapshot. */
+    internal fun assignPaintSlot(
+        cataloguePresetIds: List<String>,
+        activeIndex: Int,
+        presetId: String,
+    ): PaintSlotAssignments = synchronized(paintSlotLock) {
+        val assignments = PaintSlotAssignments
+            .restore(cataloguePresetIds, requireLoadedPaintSlotIds())
+            .activate(activeIndex)
+            .assign(presetId)
+        publishPaintSlotIdsLocked(assignments.presetIds)
+        assignments
+    }
+
+    private fun publishPaintSlotIdsLocked(presetIds: List<String>) {
+        val snapshot = presetIds.toList()
+        if (paintSlotState.value == snapshot) return
+
+        paintSlotState.value = snapshot
+        check(paintSlotUpdates.trySend(snapshot).isSuccess) {
+            "paint slot writer is unavailable"
+        }
+    }
+
+    private fun requireLoadedPaintSlotIds(): List<String> =
+        checkNotNull(paintSlotState.value) { "paint slots are not loaded" }
 
     /**
      * The last size the New Canvas dialog's Custom row created, so the row
@@ -258,8 +379,16 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
 
     private companion object {
         const val STORE_NAME = "bangni"
+        const val TAG = "Prefs"
+        const val THEME_READ_FAILURE_MESSAGE = "theme read failed; retrying"
+        const val THEME_READ_EXHAUSTED_MESSAGE =
+            "theme read keeps failing; keeping the current theme"
+        const val PREFERENCE_CORRUPTION_MESSAGE = "preferences corrupted; resetting"
+        const val PREFERENCE_READ_RETRY_DELAY_MS = 1_000L
+        const val MAX_BACKOFF_MULTIPLIER = 16L
         val KEY_NEXT_SKETCH = intPreferencesKey("nextSketchNumber")
         val KEY_GALLERY_SYNC = booleanPreferencesKey("gallerySync")
+        val KEY_APP_THEME = stringPreferencesKey("appTheme")
         val KEY_HANDEDNESS = stringPreferencesKey("handedness")
         val KEY_TOUCH_DRAWING = stringPreferencesKey("touchDrawing")
         val KEY_HAPTICS = stringPreferencesKey("haptics")
@@ -274,7 +403,9 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         val KEY_ACTIVE_PALETTE = stringPreferencesKey("activePalette")
         val KEY_DISH_A = intPreferencesKey("dishA")
         val KEY_DISH_B = intPreferencesKey("dishB")
+        val KEY_DISH_T = floatPreferencesKey("dishT")
         val KEY_RECENT_COLORS = stringPreferencesKey("recent_colors")
+        val KEY_PAINT_SLOTS = stringPreferencesKey("paintSlots")
         val KEY_LAST_CUSTOM_WIDTH = intPreferencesKey("lastCustomWidth")
         val KEY_LAST_CUSTOM_HEIGHT = intPreferencesKey("lastCustomHeight")
     }

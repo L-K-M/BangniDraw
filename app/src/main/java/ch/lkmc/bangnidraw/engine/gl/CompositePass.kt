@@ -182,6 +182,39 @@ class CompositePass(
         backdrop = backdrop,
     )
 
+    /**
+     * Draws a coarse texture grid whose source pixel spans several canvas pixels.
+     *
+     * The dirty rect remains in source-grid coordinates. Scaling the basis
+     * keeps the shared tile batching unaware of the domain-specific grid.
+     */
+    internal fun drawScaled(
+        textures: LayerTextures,
+        opacity: Float,
+        screen: ScreenTransform,
+        projection: FloatArray,
+        bufferTransform: FloatArray,
+        sourceDirtyRect: IntRect,
+        sourceToCanvasScale: Float,
+    ): Int = drawTransformed(
+        textures = textures,
+        mode = BlendMode.NORMAL,
+        opacity = opacity,
+        xx = screen.a * sourceToCanvasScale,
+        xy = -screen.b * sourceToCanvasScale,
+        yx = screen.b * sourceToCanvasScale,
+        yy = screen.a * sourceToCanvasScale,
+        tx = screen.tx,
+        ty = screen.ty,
+        effectiveScale = screen.effectiveScale * sourceToCanvasScale,
+        sourcePerTargetX = screen.canvasPerScreen / sourceToCanvasScale,
+        sourcePerTargetY = screen.canvasPerScreen / sourceToCanvasScale,
+        projection = projection,
+        bufferTransform = bufferTransform,
+        dirtyRect = sourceDirtyRect,
+        backdrop = 0,
+    )
+
     /** Draws a reference after the canvas view without allocating a composed transform. */
     internal fun drawReferenceToScreen(
         textures: LayerTextures,

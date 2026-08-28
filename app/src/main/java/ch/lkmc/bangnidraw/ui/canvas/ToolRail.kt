@@ -82,6 +82,7 @@ import ch.lkmc.bangnidraw.engine.core.EraserTogglePolicy
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
+import ch.lkmc.bangnidraw.engine.core.PaintSlotAssignments
 import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RailSlotPolicy
 import ch.lkmc.bangnidraw.engine.core.ToolKind
@@ -89,7 +90,7 @@ import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.ToolSliderSecondary
 import ch.lkmc.bangnidraw.engine.core.ToolButtonEmphasis
 import ch.lkmc.bangnidraw.engine.core.ToolSelection
-import ch.lkmc.bangnidraw.ui.theme.LocalThemeTone
+import ch.lkmc.bangnidraw.ui.theme.LocalAppTheme
 import ch.lkmc.bangnidraw.ui.theme.railButtonColors
 
 /** One adaptive control: full rail, grouped rail, short rail, or bottom dock. */
@@ -97,11 +98,12 @@ import ch.lkmc.bangnidraw.ui.theme.railButtonColors
 internal fun ToolRail(
     layout: LayoutSpec,
     presets: List<BrushPreset>,
-    paintBrushId: String,
+    paintSlots: PaintSlotAssignments,
     eraserBrushId: String,
     selection: ToolSelection,
     hapticsMode: HapticsMode,
-    onBrushSelected: (String) -> Unit,
+    onPaintSlotSelected: (Int) -> Unit,
+    onEraserSelected: () -> Unit,
     onSmudgeSelected: () -> Unit,
     onWaterSelected: () -> Unit,
     onBlurSelected: () -> Unit,
@@ -116,21 +118,24 @@ internal fun ToolRail(
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
-    val paints = BrushPresets.railOrder(presets).filterNot(BrushPreset::eraseMode)
+    val paints = BrushPresets.paintRailOrder(presets)
+    val paintsById = paints.associateBy(BrushPreset::id)
     val sliderPreset = ToolSliderPreset.forKind(selection.kind)
     val sliderSecondaryValue = ToolSliderPreset.secondaryValue(selection.kind)
     val sliderSecondary = ToolSliderPreset.secondaryFor(selection.kind)
-    val currentPaint = paints.firstOrNull { it.id == paintBrushId } ?: paints.firstOrNull()
-    // The FULL rail shows as many paint slots as the window fits; the rest
-    // stay one tap away in the settings sheet's chip row.
+    val assignedPaints = paintSlots.presetIds.mapIndexedNotNull { index, id ->
+        paintsById[id]?.let { PaintRailSlot(index, it) }
+    }
+    val currentPaint = assignedPaints.firstOrNull {
+        it.assignmentIndex == paintSlots.activeIndex
+    } ?: assignedPaints.firstOrNull()
+    // A reduced FULL rail projects hidden active slots without changing assignments.
     val railPaints = if (layout.railMode == RailMode.FULL) {
-        RailSlotPolicy.visible(
-            paints,
-            activePaintId = currentPaint?.id,
-            budget = layout.paintSlotBudget,
-        )
+        RailSlotPolicy.visibleIndices(paintSlots, layout.paintSlotBudget).mapNotNull { index ->
+            paintsById[paintSlots.presetIds[index]]?.let { PaintRailSlot(index, it) }
+        }
     } else {
-        paints
+        assignedPaints
     }
     val eraser = presets.firstOrNull { it.id == eraserBrushId && it.eraseMode }
         ?: presets.firstOrNull { it.eraseMode }
@@ -149,7 +154,8 @@ internal fun ToolRail(
             selection = selection,
             view = view,
             hapticsMode = hapticsMode,
-            onBrushSelected = onBrushSelected,
+            onPaintSlotSelected = onPaintSlotSelected,
+            onEraserSelected = onEraserSelected,
             onSmudgeSelected = onSmudgeSelected,
             onWaterSelected = onWaterSelected,
             onBlurSelected = onBlurSelected,
@@ -166,7 +172,8 @@ internal fun ToolRail(
             selection = selection,
             view = view,
             hapticsMode = hapticsMode,
-            onBrushSelected = onBrushSelected,
+            onPaintSlotSelected = onPaintSlotSelected,
+            onEraserSelected = onEraserSelected,
             onSmudgeSelected = onSmudgeSelected,
             onWaterSelected = onWaterSelected,
             onBlurSelected = onBlurSelected,
@@ -231,8 +238,8 @@ internal fun ToolRail(
  */
 private fun dividersAfter(
     railMode: RailMode,
-    paints: List<BrushPreset>,
-    paint: BrushPreset?,
+    paints: List<PaintRailSlot>,
+    paint: PaintRailSlot?,
     eraser: BrushPreset?,
 ): Set<Int> = when (railMode) {
     RailMode.FULL -> buildSet {
@@ -360,12 +367,13 @@ private fun BrushSliders(
 
 @Composable
 private fun fullSlots(
-    paints: List<BrushPreset>,
+    paints: List<PaintRailSlot>,
     eraser: BrushPreset?,
     selection: ToolSelection,
     view: View,
     hapticsMode: HapticsMode,
-    onBrushSelected: (String) -> Unit,
+    onPaintSlotSelected: (Int) -> Unit,
+    onEraserSelected: () -> Unit,
     onSmudgeSelected: () -> Unit,
     onWaterSelected: () -> Unit,
     onBlurSelected: () -> Unit,
@@ -376,14 +384,14 @@ private fun fullSlots(
     onEraserToggle: (() -> Unit)?,
 ): List<ToolSlot> {
     val result = ArrayList<ToolSlot>()
-    for (preset in paints) {
+    for (paint in paints) {
         result += brushSlot(
-            preset,
+            paint.preset,
             selection,
             view,
             hapticsMode,
-            onBrushSelected,
-            onSettingsRequested,
+            onSelected = { onPaintSlotSelected(paint.assignmentIndex) },
+            onSettingsRequested = onSettingsRequested,
         )
     }
     if (eraser != null) {
@@ -392,8 +400,8 @@ private fun fullSlots(
             selection,
             view,
             hapticsMode,
-            onBrushSelected,
-            onSettingsRequested,
+            onSelected = onEraserSelected,
+            onSettingsRequested = onSettingsRequested,
             onEraserToggle = onEraserToggle,
         )
     }
@@ -415,12 +423,13 @@ private fun fullSlots(
 
 @Composable
 private fun groupedSlots(
-    paint: BrushPreset?,
+    paint: PaintRailSlot?,
     eraser: BrushPreset?,
     selection: ToolSelection,
     view: View,
     hapticsMode: HapticsMode,
-    onBrushSelected: (String) -> Unit,
+    onPaintSlotSelected: (Int) -> Unit,
+    onEraserSelected: () -> Unit,
     onSmudgeSelected: () -> Unit,
     onWaterSelected: () -> Unit,
     onBlurSelected: () -> Unit,
@@ -433,12 +442,12 @@ private fun groupedSlots(
     val result = ArrayList<ToolSlot>()
     if (paint != null) {
         result += brushSlot(
-            paint,
+            paint.preset,
             selection,
             view,
             hapticsMode,
-            onBrushSelected,
-            onSettingsRequested,
+            onSelected = { onPaintSlotSelected(paint.assignmentIndex) },
+            onSettingsRequested = onSettingsRequested,
         )
     }
     if (eraser != null) {
@@ -447,8 +456,8 @@ private fun groupedSlots(
             selection,
             view,
             hapticsMode,
-            onBrushSelected,
-            onSettingsRequested,
+            onSelected = onEraserSelected,
+            onSettingsRequested = onSettingsRequested,
             onEraserToggle = onEraserToggle,
         )
     }
@@ -474,7 +483,7 @@ private fun brushSlot(
     selection: ToolSelection,
     view: View,
     hapticsMode: HapticsMode,
-    onBrushSelected: (String) -> Unit,
+    onSelected: () -> Unit,
     onSettingsRequested: () -> Unit,
     onEraserToggle: (() -> Unit)? = null,
 ): ToolSlot {
@@ -496,7 +505,7 @@ private fun brushSlot(
                 onSettingsRequested()
             } else {
                 view.tick(hapticsMode)
-                onBrushSelected(preset.id)
+                onSelected()
             }
         },
         hapticsMode = hapticsMode,
@@ -710,9 +719,9 @@ private fun ToolButton(
     val active = state != ToolButtonState.Inactive
     val selectedText = stringResource(R.string.cd_selected)
     val shape = MaterialTheme.shapes.medium
-    val temporaryColor = MaterialTheme.colorScheme.secondary
     val emphasis = if (active) ToolButtonEmphasis.ACTIVE else ToolButtonEmphasis.INACTIVE
-    val buttonColors = railButtonColors(LocalThemeTone.current, emphasis)
+    val buttonColors = railButtonColors(LocalAppTheme.current, emphasis)
+    val temporaryColor = buttonColors.icon
     val visual = minOf(TOOL_VISUAL, slot - TOOL_VISUAL_INSET)
     val border = if (active) {
         Modifier.border(ACTIVE_BORDER, MaterialTheme.colorScheme.primary, shape)
@@ -853,10 +862,15 @@ private fun iconFor(glyph: BrushToolGlyph): ImageVector = when (glyph) {
     BrushToolGlyph.CALLIGRAPHY -> Icons.Filled.HistoryEdu
     BrushToolGlyph.DRY_BRUSH -> Icons.Filled.FormatPaint
     BrushToolGlyph.OIL_PAINT -> Icons.Filled.OilBarrel
-    BrushToolGlyph.PIGMENT_WASH -> Icons.Filled.WaterDrop
+    BrushToolGlyph.PIGMENT_WASH -> ToolGlyphs.PigmentWash
     BrushToolGlyph.ERASER -> ToolGlyphs.Eraser
     BrushToolGlyph.CUSTOM -> Icons.Filled.Tune
 }
+
+private data class PaintRailSlot(
+    val assignmentIndex: Int,
+    val preset: BrushPreset,
+)
 
 private data class ToolSlot(
     val icon: ImageVector,

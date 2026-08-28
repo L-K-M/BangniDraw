@@ -23,18 +23,20 @@ class CanvasShortcutCatalogTest {
     }
 
     @Test
-    fun `every shortcut is listed exactly once`() {
+    fun `every shortcut is listed and only redo repeats`() {
         // END_EYEDROPPER is the release half of Alt's hold — BEGIN carries it.
-        val expected = CanvasShortcut.entries.toList() - CanvasShortcut.END_EYEDROPPER
+        val expected = CanvasShortcut.entries.toSet() - CanvasShortcut.END_EYEDROPPER
+        val listed = CanvasShortcutCatalog.rows.map { it.action }
+        assertEquals(expected, listed.toSet(), "the catalog must list every shortcut and nothing else")
         assertEquals(
-            expected,
-            CanvasShortcutCatalog.rows.map { it.action }.distinct(),
-            "the catalog must list every shortcut, and only whole duplicates (redo's two chords) repeat",
+            expected.size,
+            listed.distinct().size,
+            "only redo's two chords may repeat an action",
         )
     }
 
     @Test
-    fun `chords are unique except redo's deliberate pair`() {
+    fun `chord labels are unique`() {
         val chords = CanvasShortcutCatalog.rows.map { it.chord }
         val duplicates = chords.groupBy { it }.filterValues { it.size > 1 }.keys
         assertEquals(emptySet(), duplicates.toSet())

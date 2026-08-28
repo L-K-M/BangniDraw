@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Show wet paper and make fresh Watercolor react to stored water.
+
 ## 1.1.1 - 2026-08-28
 
 - Keep the canvas visible after fold, rotation, and aspect-ratio changes.

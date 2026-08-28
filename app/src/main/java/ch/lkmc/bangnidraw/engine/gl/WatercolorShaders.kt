@@ -257,6 +257,22 @@ internal object WatercolorShaders {
             return texture(u_before, uv);
         }
 
+        float paperMobility(vec2 canvas) {
+            return mix(
+                1.0,
+                PAPER_MOBILITY_MIN + PAPER_MOBILITY_RANGE * proceduralPaper(canvas),
+                u_granulation
+            );
+        }
+
+        float pigmentDeposit(vec2 canvas) {
+            float dabMask = waterMask(canvas, u_dab, u_tip);
+            float radius = waterDistance(canvas, u_dab, u_tip) / max(u_dab.z, 1.0);
+            float rim = smoothstep(RIM_INNER_RADIUS, RIM_OUTER_RADIUS, radius) * dabMask;
+            return clamp(u_strength * dabMask * paperMobility(canvas) *
+                (1.0 + RIM_DEPOSIT_GAIN * u_edgeDarkening * rim), 0.0, 1.0);
+        }
+
         vec4 mixPigment(vec4 center, vec4 average, float t) {
             float alpha = mix(center.a, average.a, t);
             if (alpha <= ${SmudgeKernel.ALPHA_EPSILON}) return vec4(0.0);
@@ -305,7 +321,7 @@ internal object WatercolorShaders {
             float spreadPx = min(u_dab.z * u_spread * SPREAD_RADIUS_FRACTION, float(MAX_WATER_SPREAD_PX));
             float flowRadius = u_dab.z + spreadPx;
             float flowMask = waterMask(canvas, vec4(u_dab.xy, flowRadius, u_dab.w), u_tip);
-            float paper = mix(1.0, PAPER_MOBILITY_MIN + PAPER_MOBILITY_RANGE * proceduralPaper(canvas), u_granulation);
+            float paper = paperMobility(canvas);
             float t = min(${WatercolorKernel.MAX_DIFFUSION},
                 (wetState.r + wetState.a * ABSORBED_FLOW_WEIGHT) * u_spread * flowMask * paper);
             vec4 flowed = mixPigment(center, average, t);
@@ -316,14 +332,13 @@ internal object WatercolorShaders {
                 flowed = vec4(straight * center.a, center.a);
             }
 
-            float dabMask = waterMask(canvas, u_dab, u_tip);
-            float normalizedRadius = waterDistance(canvas, u_dab, u_tip) / max(u_dab.z, 1.0);
-            float rim = smoothstep(RIM_INNER_RADIUS, RIM_OUTER_RADIUS, normalizedRadius) * dabMask;
-            float deposit = clamp(
-                u_strength * dabMask * paper * (1.0 + RIM_DEPOSIT_GAIN * u_edgeDarkening * rim),
-                0.0,
-                1.0
-            );
+            float neighborDeposit = (
+                pigmentDeposit(canvas + vec2(1.0, 0.0)) +
+                pigmentDeposit(canvas - vec2(1.0, 0.0)) +
+                pigmentDeposit(canvas + vec2(0.0, 1.0)) +
+                pigmentDeposit(canvas - vec2(0.0, 1.0))
+            ) * 0.25;
+            float deposit = mix(pigmentDeposit(canvas), neighborDeposit, t);
             vec4 result = u_depositMode == PIGMENT_DEPOSIT
                 ? depositPigment(flowed, deposit) : flowed;
             float alpha = clamp(result.a, 0.0, 1.0);

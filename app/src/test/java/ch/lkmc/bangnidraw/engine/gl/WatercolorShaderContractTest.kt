@@ -2,11 +2,27 @@ package ch.lkmc.bangnidraw.engine.gl
 
 import ch.lkmc.bangnidraw.engine.core.DabStamp
 import ch.lkmc.bangnidraw.engine.core.WatercolorKernel
+import ch.lkmc.bangnidraw.engine.core.WatercolorOverlayKernel
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class WatercolorShaderContractTest {
+
+    @Test
+    fun `wet overlay decodes timestamps before sampling its cue`() {
+        val source = Shaders.WATERCOLOR_OVERLAY
+        val body = source.fragment
+
+        assertTrue("texelFetch(u_tiles" in body)
+        assertFalse("texture(u_tiles" in body)
+        assertTrue("floor(state.gb * float(TICK_CHANNEL_MAX) + 0.5)" in body)
+        assertTrue("(u_nowTick - updatedTick + TICK_MODULUS) % TICK_MODULUS" in body)
+        assertTrue("#define DRY_TICKS ${WatercolorKernel.DRY_TICKS}" in body)
+        assertTrue("#define OVERLAY_MAX_ALPHA ${WatercolorOverlayKernel.MAX_ALPHA}" in body)
+        assertTrue("vec4(CUE_COLOR * alpha, alpha)" in body)
+        assertTrue("if (outsideCanvas()) discard;" in body)
+    }
 
     @Test
     fun `wet state uses bounded four-neighbor diffusion`() {
@@ -71,6 +87,19 @@ class WatercolorShaderContractTest {
         assertTrue("uniform bool u_alphaLock;" in body)
         assertTrue("proceduralPaper" in body)
     }
+
+    @Test
+    fun `fresh pigment follows the same wet flow as existing pigment`() {
+        val body = Shaders.WATERCOLOR_COLOR.fragment
+
+        assertTrue("float pigmentDeposit(vec2 canvas)" in body)
+        assertTrue("pigmentDeposit(canvas + vec2(1.0, 0.0))" in body)
+        assertTrue("pigmentDeposit(canvas - vec2(1.0, 0.0))" in body)
+        assertTrue("pigmentDeposit(canvas + vec2(0.0, 1.0))" in body)
+        assertTrue("pigmentDeposit(canvas - vec2(0.0, 1.0))" in body)
+        assertTrue("mix(pigmentDeposit(canvas), neighborDeposit, t)" in body)
+    }
+
 
     @Test
     fun `clear water transports finished brush pixels without model state`() {

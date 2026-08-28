@@ -40,6 +40,56 @@ class CanvasRendererGeometryContractTest {
     }
 
     @Test
+    fun `wet overlay stays above the active layer and below upper layers`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+        val composite = section(source, COMPOSITE_START, COMPOSITE_END)
+        val cachedActive = composite.indexOf(ACTIVE_LAYER_CALL)
+        val cachedOverlay = composite.indexOf(OVERLAY_CALL, cachedActive)
+        val cachedAbove = composite.indexOf(ABOVE_CACHE_CALL, cachedOverlay)
+        val directLayer = composite.indexOf(LAYER_LOOP)
+        val directGuard = composite.indexOf(DIRECT_OVERLAY_GUARD, directLayer)
+        val directOverlay = composite.indexOf(OVERLAY_CALL, directGuard)
+
+        assertTrue(cachedActive >= 0 && cachedOverlay > cachedActive && cachedAbove > cachedOverlay)
+        assertTrue(directLayer >= 0 && directGuard > directLayer && directOverlay > directGuard)
+    }
+
+    @Test
+    fun `coarse wet texels scale into canvas space`() {
+        val overlay = File(repositoryRoot(), WATER_OVERLAY_PASS_PATH).readText()
+        val composite = File(repositoryRoot(), COMPOSITE_PASS_PATH).readText()
+        val scaled = section(composite, SCALED_DRAW_START, REFERENCE_DRAW_START)
+
+        assertTrue("val cell = WatercolorKernel.CELL_SIZE" in overlay)
+        assertTrue("sourceToCanvasScale = cell.toFloat()" in overlay)
+        assertTrue("u_canvasSize" in overlay)
+        assertTrue("xx = screen.a * sourceToCanvasScale" in scaled)
+        assertTrue("xy = -screen.b * sourceToCanvasScale" in scaled)
+        assertTrue("yx = screen.b * sourceToCanvasScale" in scaled)
+        assertTrue("yy = screen.a * sourceToCanvasScale" in scaled)
+        assertTrue(
+            "sourcePerTargetX = screen.canvasPerScreen / sourceToCanvasScale" in scaled,
+        )
+    }
+
+    @Test
+    fun `committed frames report whether presentation succeeded`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+        val frame = section(source, DRAW_FRAME_START, STROKE_FRAME_START)
+        val compositeFailure = frame.substringAfter("if (!compositeIntoAccum(")
+            .substringBefore("val effectiveBufferTransform")
+        val presentFailure = frame.substringAfter("if (!presentToWindow(")
+            .substringBefore("GlErrors.checkGlDebug")
+
+        assertTrue("): Boolean {" in frame)
+        assertTrue("return false" in compositeFailure)
+        assertTrue("return false" in presentFailure)
+        assertTrue(
+            frame.lastIndexOf("return true") > frame.indexOf("GlErrors.checkGlDebug"),
+        )
+    }
+
+    @Test
     fun `cached rendering adds the tracing reference above paper`() {
         val source = File(repositoryRoot(), SANDWICH_CACHE_PATH).readText()
         val build = section(source, CACHE_BUILD_START, CACHE_BUILD_END)
@@ -152,14 +202,21 @@ class CanvasRendererGeometryContractTest {
         const val APP_DIRECTORY = "app/src/main"
         const val CANVAS_RENDERER_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/CanvasRenderer.kt"
+        const val COMPOSITE_PASS_PATH =
+            "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/CompositePass.kt"
+        const val WATER_OVERLAY_PASS_PATH =
+            "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/WatercolorOverlayPass.kt"
         const val SANDWICH_CACHE_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/SandwichCache.kt"
+        const val DRAW_FRAME_START = "fun drawFrame("
         const val STROKE_FRAME_START = "fun drawStrokeFrame("
         const val STROKE_FRAME_END = "/**\n     * Hands one front-buffered frame"
         const val PRESENT_START = "private fun presentToWindow("
         const val PRESENT_END = "private fun rebuildSandwichIfNeeded("
         const val COMPOSITE_START = "private fun compositeIntoAccum("
         const val COMPOSITE_END = "private fun drawLayer("
+        const val SCALED_DRAW_START = "internal fun drawScaled("
+        const val REFERENCE_DRAW_START = "internal fun drawReferenceToScreen("
         const val PAPER_START = "private fun drawPaper("
         const val PAPER_END = "private fun setColorUniform("
         const val RELEASE_START = "fun release() {"
@@ -177,6 +234,12 @@ class CanvasRendererGeometryContractTest {
         const val PAPER_CALL = "drawPaper(screenTransform, bakedIntoBelow = useSandwich)"
         const val REFERENCE_CALL = "drawTracingReference(pass, screenTransform, rect)"
         const val LAYER_LOOP = "for (i in current.layers.indices)"
+        const val ACTIVE_LAYER_CALL =
+            "drawLayer(pass, current.activeIndex, current, screenTransform, rect, previewSpec)"
+        const val OVERLAY_CALL =
+            "drawWatercolorOverlay(current, screenTransform, rect, previewSpec, overlayNowNanos)"
+        const val ABOVE_CACHE_CALL = "readyCache.above"
+        const val DIRECT_OVERLAY_GUARD = "if (i == current.activeIndex)"
         const val CACHE_BUILD_START = "private fun buildTile("
         const val CACHE_BUILD_END = "private fun premultiplied("
         const val CACHE_PAPER_CLEAR = "fbo.clear("

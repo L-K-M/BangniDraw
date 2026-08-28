@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import android.view.HapticFeedbackConstants
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,12 +41,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
@@ -64,6 +64,8 @@ import ch.lkmc.bangnidraw.engine.core.TipOrientation
 import ch.lkmc.bangnidraw.engine.core.TipShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** Complete v1 brush editor; every change stays valid under [BrushPreset]'s schema. */
@@ -93,30 +95,47 @@ internal fun BrushSettingsSheet(
         stringResource(R.string.brush_value_number, it)
     }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
-    var preview by remember { mutableStateOf<ImageBitmap?>(null) }
     var previousOpacity by remember(active.id) { mutableFloatStateOf(active.opacity) }
+    // Two targets per preview size, ping-ponged: a slider drag re-renders
+    // every debounce tick, and each tick would otherwise allocate two
+    // width×height arrays plus a Bitmap that nothing but GC ever reads. The
+    // front target is only ever read by the draw pass; rendering mutates the
+    // back one, and publishing is a swap on the main thread — so a bitmap is
+    // never mutated while it can still be drawn.
+    var previewFront by remember(previewSize) { mutableStateOf<PreviewTarget?>(null) }
+    var previewBack by remember(previewSize) { mutableStateOf<PreviewTarget?>(null) }
+    val renderMutex = remember { Mutex() }
     LaunchedEffect(active, brushColor, paperColor, previewSize) {
-        if (watercolor != null) {
-            preview = null
-            return@LaunchedEffect
-        }
+        if (watercolor != null) return@LaunchedEffect
 
         if (previewSize.width <= 0 || previewSize.height <= 0) return@LaunchedEffect
         delay(PREVIEW_DEBOUNCE_MS)
-        preview = withContext(Dispatchers.Default) {
-            val pixels = BrushPreview.render(
-                active,
-                brushColor,
-                paperColor,
+        // The mutex serializes a cancelled predecessor's in-flight render
+        // against this tick's: withContext does not abort mid-block, so two
+        // effects could otherwise interleave dabs into one coverage plane.
+        renderMutex.withLock {
+            val back = previewBack ?: PreviewTarget(
                 previewSize.width,
                 previewSize.height,
-            )
-            Bitmap.createBitmap(
-                pixels,
-                previewSize.width,
-                previewSize.height,
-                Bitmap.Config.ARGB_8888,
-            ).asImageBitmap()
+            ).also { previewBack = it }
+            withContext(Dispatchers.Default) {
+                BrushPreview.render(active, brushColor, paperColor, back.buffer)
+                back.bitmap.setPixels(
+                    back.buffer.pixels,
+                    0,
+                    back.width,
+                    0,
+                    0,
+                    back.width,
+                    back.height,
+                )
+            }
+            // Publish on the main dispatcher: the swap is the redraw signal,
+            // and the old front becomes the next back — never mutated while
+            // it could still be part of an unfinished frame.
+            val retired = previewFront
+            previewFront = back
+            previewBack = retired
         }
     }
 
@@ -168,7 +187,6 @@ internal fun BrushSettingsSheet(
                     .height(PREVIEW_HEIGHT)
                     .onSizeChanged { previewSize = it },
             ) {
-                val bitmap = preview
                 if (watercolor != null) {
                     Text(
                         text = stringResource(R.string.watercolor_preview_hint),
@@ -176,13 +194,23 @@ internal fun BrushSettingsSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.align(Alignment.Center),
                     )
-                } else if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.FillBounds,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                } else {
+                    val target = previewFront
+                    if (target != null) {
+                        // The front swap is the redraw signal: the bitmap
+                        // instance is stable between swaps and immutable
+                        // while it is front.
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            drawImage(
+                                image = target.image,
+                                dstOffset = IntOffset.Zero,
+                                dstSize = IntSize(
+                                    target.width,
+                                    target.height,
+                                ),
+                            )
+                        }
+                    }
                 }
             }
 
@@ -756,6 +784,13 @@ private val CONTROL_GAP = 8.dp
 private val SHEET_BOTTOM_GAP = 32.dp
 private val PREVIEW_HEIGHT = 72.dp
 private const val PREVIEW_DEBOUNCE_MS = 50L
+
+/** One bitmap, one render buffer, and the cached Compose wrapper — per size. */
+private class PreviewTarget(val width: Int, val height: Int) {
+    val buffer = BrushPreview.RenderBuffer(width, height)
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val image = bitmap.asImageBitmap()
+}
 private const val PERCENT = 100f
 private const val DIAMETER_TO_RADIUS = 2f
 private const val DEFAULT_FLAT_ASPECT = 0.5f

@@ -50,7 +50,10 @@ class WaterToolUiContractTest {
                 ToggleRow(
                     label = stringResource(R.string.brush_grain)""" in paint,
         )
-        assertTrue("preview = null" in source)
+        assertTrue(
+            "if (watercolor != null) return@LaunchedEffect" in source,
+            "watercolor presets must not render the CPU preview (it cannot show wet behaviour)",
+        )
         assertTrue("R.string.watercolor_preview_hint" in source)
     }
 

@@ -50,6 +50,7 @@ internal object BrushPreview {
                 dab = batch[dabIndex],
                 mode = previewPreset.bufferMode,
                 grain = previewPreset.grainMode,
+                brushModel = previewPreset.model,
             )
         }
 
@@ -79,6 +80,7 @@ internal object BrushPreview {
         dab: Dab,
         mode: BufferMode,
         grain: GrainMode,
+        brushModel: BrushModel,
     ) {
         val drawRadius = DabStamp.drawRadius(dab.radius) + AA_MARGIN_PX
         val left = (dab.x - drawRadius).toInt().coerceAtLeast(0)
@@ -91,7 +93,8 @@ internal object BrushPreview {
                     x + PIXEL_CENTER,
                     y + PIXEL_CENTER,
                     dab,
-                    grain,
+                    grainMode = grain,
+                    brushModel = brushModel,
                 )
                 if (incoming <= 0f) continue
                 val index = y * width + x

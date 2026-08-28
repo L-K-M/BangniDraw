@@ -5,6 +5,7 @@ internal enum class CanvasPanel {
     COLOR,
     BRUSH_SETTINGS,
     FILL_SETTINGS,
+    REFERENCE,
     OVERFLOW,
 }
 
@@ -13,6 +14,7 @@ internal sealed interface CanvasDialog {
     data object FlattenLayers : CanvasDialog
     data class RenameLayer(val index: Int, val currentName: String) : CanvasDialog
     data object RenamePainting : CanvasDialog
+    data object RemoveTracingReference : CanvasDialog
 }
 
 internal enum class FocusMode { CHROME, FOCUSED }

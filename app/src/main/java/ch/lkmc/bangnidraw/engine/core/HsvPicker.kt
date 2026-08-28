@@ -3,6 +3,33 @@ package ch.lkmc.bangnidraw.engine.core
 import kotlin.math.atan2
 import kotlin.math.hypot
 
+/** Retains hue while ARGB is greyscale and cannot encode it. */
+internal class HsvSelection private constructor(
+    val hsv: HsvColor,
+    private val syncedArgb: Int,
+) {
+    val argb: Int get() = hsv.toArgb()
+
+    fun preview(next: HsvColor): HsvSelection = HsvSelection(next, syncedArgb)
+
+    fun commit(next: HsvColor): HsvSelection = HsvSelection(next, next.toArgb())
+
+    fun commit(argb: Int): HsvSelection = fromArgb(argb)
+
+    fun sync(argb: Int): HsvSelection {
+        if (argb == syncedArgb) return this
+
+        return fromArgb(argb)
+    }
+
+    companion object {
+        fun fromArgb(argb: Int): HsvSelection {
+            val hsv = HsvColor.fromArgb(argb)
+            return HsvSelection(hsv, hsv.toArgb())
+        }
+    }
+}
+
 /** Pointer math for the hue ring around an independent SV square. */
 object HsvPicker {
     fun select(x: Float, y: Float, size: Float, current: HsvColor): HsvColor {

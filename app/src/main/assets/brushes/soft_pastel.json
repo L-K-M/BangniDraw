@@ -1,0 +1,23 @@
+{
+  "v": 1,
+  "id": "builtin.soft_pastel",
+  "name": "@string/preset_soft_pastel",
+  "icon": "soft_pastel",
+  "size": 40.0,
+  "sizeMin": 6.0,
+  "sizeMax": 200.0,
+  "opacity": 0.8,
+  "flow": 0.24,
+  "hardness": 0.62,
+  "spacing": 0.14,
+  "tip": { "type": "flat", "aspect": 0.65 },
+  "orientation": "Stylus",
+  "pressureSize": { "p0": 0.65, "p1": 0.75, "p2": 0.87, "p3": 1.0 },
+  "pressureOpacity": { "p0": 0.15, "p1": 0.4, "p2": 0.72, "p3": 1.0 },
+  "pressureFlow": { "p0": 0.08, "p1": 0.3, "p2": 0.65, "p3": 1.0 },
+  "tilt": { "sizeAtFlat": 1.8, "opacityAtFlat": 0.75, "elongate": true },
+  "jitter": { "size": 0.18, "position": 0.15 },
+  "stabilizer": 0.18,
+  "grain": "procedural",
+  "bufferMode": "Accumulate"
+}

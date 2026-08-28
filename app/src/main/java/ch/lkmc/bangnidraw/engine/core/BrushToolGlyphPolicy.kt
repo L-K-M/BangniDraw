@@ -8,6 +8,13 @@ internal enum class BrushToolGlyph(val presetKey: String?) {
     AIRBRUSH("airbrush"),
     SPRAY_CAN("spray_can"),
     MARKER("marker"),
+    CHARCOAL("charcoal"),
+    SOFT_PASTEL("soft_pastel"),
+    TECHNICAL_PEN("technical_pen"),
+    CALLIGRAPHY("calligraphy"),
+    DRY_BRUSH("dry_brush"),
+    OIL_PAINT("oil_paint"),
+    PIGMENT_WASH("pigment_wash"),
     ERASER(null),
     CUSTOM(null),
 }

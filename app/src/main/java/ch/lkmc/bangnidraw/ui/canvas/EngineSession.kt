@@ -43,6 +43,7 @@ import ch.lkmc.bangnidraw.engine.core.StrokeFinish
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
+import ch.lkmc.bangnidraw.engine.core.TracingReference
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
 import java.nio.ByteBuffer
@@ -634,11 +635,17 @@ class EngineSession(
     // ---------------------------------------------------------------- façade
 
     /** Applies initial document state before scheduling one scene redraw. */
-    internal fun configure(stack: LayerStack, paperColor: Int, view: ViewTransform) {
+    internal fun configure(
+        stack: LayerStack,
+        paperColor: Int,
+        view: ViewTransform,
+        tracingReference: TracingReference?,
+    ) {
         glRenderer.execute {
             renderer.setStack(stack)
             renderer.setPaperColor(paperColor)
             renderer.setView(view)
+            renderer.setTracingReference(tracingReference)
         }
         redraw()
     }
@@ -658,6 +665,11 @@ class EngineSession(
 
     fun setStack(stack: LayerStack) {
         glRenderer.execute { renderer.setStack(stack) }
+        redraw()
+    }
+
+    fun setTracingReference(reference: TracingReference?) {
+        glRenderer.execute { renderer.setTracingReference(reference) }
         redraw()
     }
 
@@ -843,7 +855,7 @@ class EngineSession(
      * the main thread fills a slot, the GL thread consumes it and returns it.
      *
      * A ring rather than a copy per event, because a copy would allocate a
-     * whole `DabBatch` — 8 KiB of `FloatArray`s at the default capacity — on
+     * whole `DabBatch` — 44 KiB of `FloatArray`s at the default capacity — on
      * every `ACTION_MOVE`, which is precisely the per-sample allocation
      * `10-performance.md` §2.4 exists to forbid. Handing the caller's own
      * scratch over instead would race the input path's refill against the GL
@@ -1099,6 +1111,17 @@ class EngineSession(
                 // redraws would composite from a stale sandwich.
                 renderer.invalidate(SandwichPolicy.Op.UndoRedo)
             }
+        }
+        redraw()
+    }
+
+    fun uploadReferenceTiles(
+        assetName: String,
+        tiles: List<Pair<TileKey, ByteArray>>,
+    ) {
+        if (tiles.isEmpty()) return
+        glRenderer.execute {
+            if (renderer.isReady) renderer.uploadReferenceTiles(assetName, tiles)
         }
         redraw()
     }

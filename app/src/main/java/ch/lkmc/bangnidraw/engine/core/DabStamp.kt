@@ -104,8 +104,9 @@ object DabStamp {
         dab: Dab,
         colorRgb: FloatArray,
         grainMode: GrainMode = GrainMode.None,
+        brushModel: BrushModel = BrushModel.Standard,
     ): StrokeMerge.Rgba {
-        val w = alphaAt(px, py, dab, grainMode)
+        val w = alphaAt(px, py, dab, grainMode, brushModel)
         if (w <= 0f) return StrokeMerge.Rgba.TRANSPARENT
         return StrokeMerge.Rgba(colorRgb[0] * w, colorRgb[1] * w, colorRgb[2] * w, w)
     }
@@ -116,8 +117,10 @@ object DabStamp {
         py: Float,
         dab: Dab,
         grainMode: GrainMode = GrainMode.None,
+        brushModel: BrushModel = BrushModel.Standard,
     ): Float {
         var coverage = coverageAt(px, py, dab)
+        if (brushModel == BrushModel.ChineseInk) coverage *= InkBrushMask.weight(px, py, dab)
         if (grainMode == GrainMode.Procedural) coverage *= proceduralGrain(px, py)
         return dab.flow * areaWeight(dab.radius) * coverage
     }

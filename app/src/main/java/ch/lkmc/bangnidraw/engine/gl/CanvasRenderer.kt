@@ -29,6 +29,7 @@ import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.PoolExhausted
 import ch.lkmc.bangnidraw.engine.core.PerfStats
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.SANDWICH_MARGIN_PX
 import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.SampleSource
@@ -36,6 +37,9 @@ import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.RmwSpec
 import ch.lkmc.bangnidraw.engine.core.RmwTouchTracker
+import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
+import ch.lkmc.bangnidraw.engine.core.ReferenceVisibility
+import ch.lkmc.bangnidraw.engine.core.TracingReference
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.core.WatercolorEditPolicy
 import ch.lkmc.bangnidraw.engine.core.WatercolorInvalidation
@@ -167,6 +171,10 @@ class CanvasRenderer(
 
     private val projection = FloatArray(Mat4.SIZE)
     private val identity = Mat4.identity()
+    private val referenceTileProjection = Mat4.orthoYDown(
+        TILE_SIZE.toFloat(),
+        TILE_SIZE.toFloat(),
+    )
 
     var caps: GlCaps? = null
         private set
@@ -262,6 +270,8 @@ class CanvasRenderer(
     /** The `Accum` present uses the viewport's logical full-screen quad. */
     private val screenQuad = FullRectQuad()
     private var sandwich: SandwichCache? = null
+    private var tracingReference: TracingReference? = null
+    private var referenceTextures: ReferenceTextures? = null
 
     private val layers = LinkedHashMap<LayerId, LayerTextures>()
     private val transparentTile = java.nio.ByteBuffer.allocate(TILE_BYTES)
@@ -441,6 +451,9 @@ class CanvasRenderer(
         thumbnailPass = LayerThumbnailPass(canvas, state, canvasCompositePass)
         val tiles = TilePool(probed, budget, state)
         pool = tiles
+        tracingReference?.let {
+            referenceTextures = ReferenceTextures(it.imageWidth, it.imageHeight, tiles)
+        }
         sandwich = SandwichCache(grid, tiles, tileCompositeProgram, state)
         layerPixelPass = LayerPixelPass(tiles, tileCompositeProgram, state)
         dab = dabProgram
@@ -579,7 +592,7 @@ class CanvasRenderer(
         var dirty = IntRect.EMPTY
         if (committed > 0) {
             dirty = pass.stamp(
-                batch, buffer, strokeBufferMode, spec.grainMode,
+                batch, buffer, strokeBufferMode, spec.grainMode, spec.brushModel,
                 strokeR, strokeG, strokeB,
                 from = 0, until = committed,
             )
@@ -588,7 +601,7 @@ class CanvasRenderer(
             val tail = tailBuffer
             if (tail != null) {
                 val tailRect = pass.stamp(
-                    batch, tail, strokeBufferMode, spec.grainMode,
+                    batch, tail, strokeBufferMode, spec.grainMode, spec.brushModel,
                     strokeR, strokeG, strokeB,
                     from = committed, until = batch.count,
                 )
@@ -839,6 +852,38 @@ class CanvasRenderer(
             previous.active.id != next.active.id ->
                 sandwich?.invalidate(SandwichPolicy.Op.Select(next.activeIndex), previous.activeIndex)
         }
+    }
+
+    fun setTracingReference(next: TracingReference?) {
+        val previous = tracingReference
+        if (previous == next) return
+
+        tracingReference = next
+        val sameAsset = previous?.assetName == next?.assetName &&
+            previous?.imageWidth == next?.imageWidth &&
+            previous?.imageHeight == next?.imageHeight
+        if (!sameAsset) {
+            referenceTextures?.release()
+            referenceTextures = null
+            val tiles = pool
+            if (next != null && tiles != null) {
+                referenceTextures = ReferenceTextures(next.imageWidth, next.imageHeight, tiles)
+            }
+        }
+        invalidate(SandwichPolicy.Op.TracingReference)
+    }
+
+    /** Uploads one decoded reference batch; stale asset work is ignored. */
+    fun uploadReferenceTiles(
+        assetName: String,
+        batch: List<Pair<TileKey, ByteArray>>,
+    ) {
+        if (tracingReference?.assetName != assetName) return
+        val textures = referenceTextures ?: return
+        for ((key, pixels) in batch) {
+            textures.upload(key, java.nio.ByteBuffer.wrap(pixels))
+        }
+        invalidate(SandwichPolicy.Op.TracingReference)
     }
 
     /** Queues isolated layer renders; [pollLayerThumbnails] drains their PBOs. */
@@ -1558,6 +1603,8 @@ class CanvasRenderer(
             // of three, which is exactly what the sandwich exists to avoid —
             // and exactly what makes the sandwich an optimization rather than
             // a correctness requirement.
+            drawTracingReference(pass, screenTransform, rect)
+
             for (i in current.layers.indices) {
                 drawLayer(pass, i, current, screenTransform, rect, previewSpec)
             }
@@ -1706,12 +1753,13 @@ class CanvasRenderer(
         val program = checker ?: return
         state.useProgram(program)
         program.uniform4f(
-            "u_screen",
+            "u_screenBasis",
             screenTransform.a,
+            -screenTransform.b,
             screenTransform.b,
-            screenTransform.tx,
-            screenTransform.ty,
+            screenTransform.a,
         )
+        program.uniform2f("u_screenTranslation", screenTransform.tx, screenTransform.ty)
         program.uniformMatrix4("u_projection", projection)
         program.uniformMatrix4("u_bufferTransform", identity)
         program.uniform1f("u_checkerPx", checkerPx)
@@ -1833,9 +1881,67 @@ class CanvasRenderer(
         // Viewport-first, plus a margin so a small pan does not stall on a
         // rebuild (`docs/plan/10-performance.md` §2.6).
         val visible = visibleCanvasRect(screenTransform)
-        cache.rebuild(visible, current, paperColor) { index ->
-            textures(current.layers[index].id) ?: LayerTextures(grid, tiles)
-        }
+        cache.rebuild(
+            rect = visible,
+            stack = current,
+            paper = paperColor,
+            layerTextures = { index ->
+                textures(current.layers[index].id) ?: LayerTextures(grid, tiles)
+            },
+            drawBelowBase = ::drawTracingReferenceTile,
+        )
+    }
+
+    private fun drawTracingReference(
+        pass: CompositePass,
+        screenTransform: ScreenTransform,
+        canvasRect: IntRect,
+    ) {
+        val reference = tracingReference ?: return
+        if (reference.visibility != ReferenceVisibility.VISIBLE || reference.opacity <= 0f) return
+        val textures = referenceTextures?.layer ?: return
+        val sourceRect = reference.transform.sourceBoundsOf(
+            destination = canvasRect,
+            sourceWidth = reference.imageWidth,
+            sourceHeight = reference.imageHeight,
+        )
+        if (sourceRect.isEmpty) return
+
+        pass.drawReferenceToScreen(
+            textures = textures,
+            opacity = reference.opacity,
+            transform = reference.transform,
+            screen = screenTransform,
+            projection = projection,
+            bufferTransform = identity,
+            dirtyRect = sourceRect,
+        )
+    }
+
+    /** Draws the reference above the paper while Below's target tile is bound. */
+    private fun drawTracingReferenceTile(key: TileKey) {
+        val reference = tracingReference ?: return
+        if (reference.visibility != ReferenceVisibility.VISIBLE || reference.opacity <= 0f) return
+        val textures = referenceTextures?.layer ?: return
+        val pass = compositePass ?: return
+        val canvasRect = grid.tileRect(key)
+        val sourceRect = reference.transform.sourceBoundsOf(
+            destination = canvasRect,
+            sourceWidth = reference.imageWidth,
+            sourceHeight = reference.imageHeight,
+        )
+        if (sourceRect.isEmpty) return
+
+        pass.drawReferenceToTile(
+            textures = textures,
+            opacity = reference.opacity,
+            transform = reference.transform,
+            tileLeft = key.tx * TILE_SIZE,
+            tileTop = key.ty * TILE_SIZE,
+            projection = referenceTileProjection,
+            bufferTransform = identity,
+            dirtyRect = sourceRect,
+        )
     }
 
     /**
@@ -1901,6 +2007,8 @@ class CanvasRenderer(
         thumbnailPass?.forgetAll()
         failQueuedThumbnails()
         for (textures in layers.values) textures.forgetAll()
+        referenceTextures?.forgetAll()
+        referenceTextures = null
         sandwich?.forgetAll()
         watercolorPass?.forgetAll()
         // A stroke in progress cannot survive: its buffer's slices went with
@@ -1968,6 +2076,8 @@ class CanvasRenderer(
         readback?.release()
         for (textures in layers.values) textures.release()
         layers.clear()
+        referenceTextures?.release()
+        referenceTextures = null
         sandwich?.release()
         thumbnailPass?.release()
         failQueuedThumbnails()

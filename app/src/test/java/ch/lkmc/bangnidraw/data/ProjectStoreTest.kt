@@ -7,6 +7,9 @@ import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerProps
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
+import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
+import ch.lkmc.bangnidraw.engine.core.ReferenceVisibility
+import ch.lkmc.bangnidraw.engine.core.TracingReference
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import java.io.File
 import java.io.IOException
@@ -70,6 +73,15 @@ class ProjectStoreTest {
         updatedAt = updatedAt,
     )
 
+    private fun pngHeader(width: Int, height: Int): ByteArray = byteArrayOf(
+        0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        (width ushr 24).toByte(), (width ushr 16).toByte(),
+        (width ushr 8).toByte(), width.toByte(),
+        (height ushr 24).toByte(), (height ushr 16).toByte(),
+        (height ushr 8).toByte(), height.toByte(),
+    )
+
     @Test
     fun `a full document round-trips through project json`() {
         val doc = document()
@@ -77,6 +89,156 @@ class ProjectStoreTest {
         val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load("p-1"))
         assertEquals(0, loaded.unreadableLayers)
         assertEquals(doc, loaded.document)
+    }
+
+    @Test
+    fun `a tracing reference and its private asset survive reopen`() {
+        val id = "reference-round-trip"
+        val base = document(id = id)
+        store.checkpoint(base)
+        val assetName = "reference-a.png"
+        val bytes = pngHeader(320, 240)
+        store.writeReferenceAsset(id, assetName, bytes)
+        val reference = TracingReference(
+            assetName = assetName,
+            imageWidth = 320,
+            imageHeight = 240,
+            transform = ReferenceTransform(
+                xx = 1.5f,
+                xy = 0.25f,
+                yx = -0.5f,
+                yy = 2f,
+                tx = 12f,
+                ty = 34f,
+            ),
+            opacity = 0.35f,
+            visibility = ReferenceVisibility.HIDDEN,
+        )
+
+        store.checkpoint(base.copy(tracingReference = reference))
+
+        val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load(id))
+        assertEquals(reference, loaded.document.tracingReference)
+        assertFalse(loaded.unreadableReference)
+        assertTrue(store.referenceFile(id, assetName).readBytes().contentEquals(bytes))
+    }
+
+    @Test
+    fun `a missing tracing asset is dropped without losing the painting`() {
+        val id = "missing-reference"
+        val reference = TracingReference(
+            assetName = "missing.png",
+            imageWidth = 100,
+            imageHeight = 100,
+            transform = ReferenceTransform.IDENTITY,
+        )
+        store.checkpoint(document(id = id).copy(tracingReference = reference))
+
+        val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load(id))
+
+        assertNull(loaded.document.tracingReference)
+        assertTrue(loaded.unreadableReference)
+    }
+
+    @Test
+    fun `a corrupt tracing asset is dropped without losing the painting`() {
+        val id = "corrupt-reference"
+        val base = document(id = id)
+        store.checkpoint(base)
+        store.writeReferenceAsset(id, "corrupt.png", byteArrayOf(1, 2, 3))
+        val reference = TracingReference(
+            assetName = "corrupt.png",
+            imageWidth = 100,
+            imageHeight = 100,
+            transform = ReferenceTransform.IDENTITY,
+        )
+        // Write metadata directly so checkpoint cleanup does not hide the
+        // corrupt-file recovery path before load sees it.
+        val file = File(store.projectDir(id), ProjectFile.FILE_NAME)
+        file.writeText(
+            ProjectStore.json.encodeToString(
+                ProjectFile.serializer(),
+                base.copy(tracingReference = reference).toProjectFile(),
+            ),
+        )
+
+        val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load(id))
+
+        assertNull(loaded.document.tracingReference)
+        assertTrue(loaded.unreadableReference)
+        assertTrue(
+            store.referenceFile(id, reference.assetName).isFile,
+            "load must not destroy an unreadable committed asset",
+        )
+    }
+
+    @Test
+    fun `invalid tracing metadata is dropped before reaching a path`() {
+        val id = "invalid-reference-record"
+        val base = document(id = id)
+        store.checkpoint(base)
+        val file = File(store.projectDir(id), ProjectFile.FILE_NAME)
+        file.writeText(
+            ProjectStore.json.encodeToString(
+                ProjectFile.serializer(),
+                base.toProjectFile().copy(
+                    tracingReference = TracingReferenceRecord(
+                        assetName = "../escape.png",
+                        imageWidth = 0,
+                        imageHeight = 100,
+                        opacity = 2f,
+                    ),
+                ),
+            ),
+        )
+
+        val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load(id))
+
+        assertNull(loaded.document.tracingReference)
+        assertTrue(loaded.unreadableReference)
+    }
+
+    @Test
+    fun `checkpoint removes superseded tracing assets after metadata commits`() {
+        val id = "replace-reference"
+        val base = document(id = id)
+        store.checkpoint(base)
+        store.writeReferenceAsset(id, "old.png", pngHeader(100, 100))
+        val oldReference = TracingReference(
+            assetName = "old.png",
+            imageWidth = 100,
+            imageHeight = 100,
+            transform = ReferenceTransform.IDENTITY,
+        )
+        store.checkpoint(base.copy(tracingReference = oldReference))
+        store.writeReferenceAsset(id, "new.png", pngHeader(100, 100))
+        val newReference = oldReference.copy(assetName = "new.png")
+
+        store.checkpoint(base.copy(tracingReference = newReference))
+
+        assertFalse(store.referenceFile(id, "old.png").exists())
+        assertTrue(store.referenceFile(id, "new.png").isFile)
+    }
+
+    @Test
+    fun `an unrelated checkpoint preserves a staged tracing replacement`() {
+        val id = "staged-reference"
+        val base = document(id = id)
+        store.checkpoint(base)
+        store.writeReferenceAsset(id, "old.png", pngHeader(100, 100))
+        val oldReference = TracingReference(
+            assetName = "old.png",
+            imageWidth = 100,
+            imageHeight = 100,
+            transform = ReferenceTransform.IDENTITY,
+        )
+        val current = base.copy(tracingReference = oldReference)
+        store.checkpoint(current)
+        store.writeReferenceAsset(id, "staged.png", pngHeader(100, 100))
+
+        store.checkpoint(current)
+
+        assertTrue(store.referenceFile(id, "staged.png").isFile)
     }
 
     @Test
@@ -444,6 +606,30 @@ class ProjectStoreTest {
                 it.name.endsWith(ProjectStore.DUPLICATING_SUFFIX)
             },
         )
+    }
+
+    @Test
+    fun `duplicate copies a tracing asset`() {
+        val id = "reference-source"
+        val base = document(id = id)
+        store.checkpoint(base)
+        val assetName = "reference.png"
+        val bytes = pngHeader(20, 30)
+        store.writeReferenceAsset(id, assetName, bytes)
+        val reference = TracingReference(
+            assetName = assetName,
+            imageWidth = 20,
+            imageHeight = 30,
+            transform = ReferenceTransform.IDENTITY,
+        )
+        store.checkpoint(base.copy(tracingReference = reference))
+
+        val copyId = store.duplicate(id, { it + " copy" })
+        kotlin.test.assertNotNull(copyId)
+
+        val copy = assertIs<ProjectStore.LoadResult.Loaded>(store.load(copyId)).document
+        assertEquals(reference, copy.tracingReference)
+        assertTrue(store.referenceFile(copyId, assetName).readBytes().contentEquals(bytes))
     }
 
     @Test

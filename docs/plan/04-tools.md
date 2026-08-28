@@ -3,7 +3,7 @@
 **What this covers.** The implementable catalog behind PLAN.md §6 and
 decision 9 ("tools are presets over one engine"): the `Tool`/`ToolKind`
 model, the `BrushPreset` data class with every parameter and its meaning,
-the seven built-in presets with their actual values, the `DabGenerator`
+the built-in presets with their actual values, the `DabGenerator`
 and `Stabilizer` math, and the three non-brush tools (smudge/blur, fill,
 eyedropper) plus the eraser's S Pen bindings. It expands PLAN.md; where the
 engine plumbing (stroke buffer, `DabPass`, ping-pong RMW, tiles, readback)
@@ -64,7 +64,7 @@ one `HistoryEntry` per stroke.
 
 | Tool (rail slot) | `ToolKind` | Engine path | Writes to |
 | --- | --- | --- | --- |
-| Pencil, Ink pen, Airbrush, Marker | `Brush(preset)` | `DabPass` → stroke buffer → merge on pen-up | active layer |
+| Core buffered rail: Pencil, Ink pen, Airbrush, Marker; library: Spray can, Charcoal, Soft pastel, Technical pen, Chinese ink brush, Dry brush, Oil paint, Pigment wash | `Brush(preset)` | `DabPass` → stroke buffer → merge on pen-up | active layer |
 | Watercolor | `Brush(preset.watercolor != null)` | `WatercolorPass` RMW per dab | active layer colour + transient wet state |
 | Hard eraser, Soft eraser | `Brush(preset.eraseMode=true)` | `DabPass` → stroke buffer → erase merge on pen-up | active layer (alpha only) |
 | Smudge | `Smudge` | `SmudgePass` ping-pong RMW per dab | active layer, live |
@@ -118,6 +118,7 @@ data class BrushPreset(
     val dilution: Float = 0f,             // 0..1, mixing only: how much the paint's share yields to what is under it (09 §3.1)
     val watercolor: WatercolorBehavior? = null, // non-null selects direct wet RMW
     val grain: String? = null,            // post-v1: asset key of a tileable grain texture
+    val model: BrushModel = BrushModel.Standard,
     val eraseMode: Boolean = false,
     val bufferMode: BufferMode = BufferMode.Max,
 )
@@ -128,6 +129,7 @@ data class BrushPreset(
     @Serializable data class Flat(val aspect: Float) : TipShape
 }
 @Serializable enum class TipOrientation { Fixed, Stylus, StrokeDirection }
+@Serializable enum class BrushModel { Standard, ChineseInk }
 
 /** 4-point monotone curve on [0,1]: y at x = 0, 1/3, 2/3, 1; evaluated with Catmull-Rom clamped to [0,1]. */
 @Serializable data class Curve(val p0: Float, val p1: Float, val p2: Float, val p3: Float) {
@@ -187,6 +189,7 @@ the invariant PLAN §7 tests ("spacing invariant under resolution") holds.
 | `tip = Flat(aspect)` | `d` computed in a rotated ellipse frame: `d = length(vec2(u, v/aspect))` where `(u,v)` is the offset rotated by the dab's angle |
 | `orientation` | dab angle = 0 (`Fixed`), the stylus `AXIS_ORIENTATION` (`Stylus`), or `atan2(dy, dx)` of the stabilized path (`StrokeDirection`) |
 | `tilt.elongate` | major axis multiplied by `1 + tilt/(π/2)`, aligned to the tilt azimuth: the side of a pencil |
+| `model` | `Standard` uses the ordinary tip math. `ChineseInk` adds transported tuft direction, pressure splay, stationary presses and a depleting split-bristle mask (§3). The model is fixed at pen-down. |
 | `mixing` | merge calls `bangni_mix_over(D, c_p, k)` from `09-color-and-mixing.md` §3.1 with `k = strokeAlpha`; the pigment share `t = k / a` is derived inside, reduced by `dilution` where the layer already has paint, alpha stays linear coverage. One formula (`03-canvas-engine.md` §7.4's MIX branch), pinned by the CPU `Composite` reference |
 | `dilution` | mixing only: `t *= 1 − dilution` when the destination has paint (09 §3.1); 0 = plain pigment share |
 | `watercolor` | non-null routes the preset through `WatercolorPass`; requires mixing, Accumulate, opacity 1, constant pressure opacity, and diameter ≤ 1960 px |
@@ -202,14 +205,17 @@ per ring slot, `02-architecture.md` §3.2 / `10-performance.md` §4) that the
 GL thread drains through the ring buffer.
 
 ```kotlin
-class Dab(   // conceptually; stored as parallel FloatArrays in DabBatch (the 8 fields of DAB_STRIDE)
+class Dab(   // conceptually; eleven parallel FloatArrays in DabBatch
     val x: Float, val y: Float,      // canvas px, sub-pixel
     val radius: Float,               // px, ≥ 0.5
     val flow: Float,                 // dab alpha after curves, 0..1
     val hardness: Float,
     val angle: Float,                // radians
     val aspect: Float,               // 1 = round
-    val seed: Float,                 // per-dab jitter / grain phase from the stroke seed
+    val seed: Float,                 // per-dab Standard phase; fixed per Chinese-ink stroke
+    val wetness: Float,              // contacted-tuft ink load, 0..1; ordinary dabs use 1
+    val bristleAlong: Float,         // transported material coordinates
+    val bristleAcross: Float,        // ordinary dabs use 0 for both
 )
 
 class DabGenerator(preset: BrushPreset, seed: Long) {
@@ -241,6 +247,39 @@ produces a smooth taper. `step` uses the *pressured* size (mean of the two
 endpoints), so a hard pencil at light pressure keeps the same overlap ratio
 as at full pressure. Spacing is expressed in canvas px and the path is in
 canvas px, which is the "invariant under resolution" test in PLAN §7.
+
+**Chinese ink state.** `BrushModel.ChineseInk` gives `builtin.calligraphy`
+(the stable stored id retained from the display rename) a flexible tuft rather
+than a rigid chisel. A directionless first touch is round. Once the stroke moves,
+its target axis follows the stabilized path,
+nudged toward stylus azimuth as tilt rises; the tuft eases toward that target
+and preserves its incoming direction through a turn. Pressure splays the tuft
+from point to belly. A pressure increase at zero path length emits a new dab
+at the same centre, so pressing in place forms a stroke head.
+
+One stroke seed fixes the bristle lanes. A separate canvas-fixed hash gives
+every stroke the same paper tooth. `wetness` begins loaded and decays
+with swept canvas distance, accelerated by speed; it never decays per emitted
+dab, so changing spacing cannot change how soon the brush runs dry. Constant
+flow keeps retained hairs ink-black; pressure changes contact geometry. Its
+velocity curve permits only a 4 % width taper; speed primarily dries the
+mark. The CPU oracle and shader derive the split-bristle mask from local
+position plus along/across material phases integrated in the lagged tuft
+frame. As wetness falls,
+coherent lanes become zero-alpha paper gaps while surviving hairs stay
+ink-dark. Generator copies used for the predicted tail copy this state exactly
+and never advance the real stroke.
+
+The model follows measured brush behavior rather than a Western chisel
+metaphor. Lo et al.'s
+[robot footprint study](https://group-iris.com/wp-content/uploads/2024/06/2006-Brush-Footprint-Acquisition-and-Preliminary-Analysis-for-Chinese-Calligraphy-using-a-Robot-Drawing-Platform.pdf)
+found footprint axes grow strongly with penetration while steady linear speed
+changes them little. Chu and Tai's
+[expressive virtual brush](https://cse.hkust.edu.hk/VCB/CGA%20Brush%202004.pdf)
+uses retained deformation, split maps and contact-height thresholds for dry
+streaks. Here pressure grows the footprint, direction retains deformation,
+and wetness thresholds one stable procedural contact field. Paper diffusion
+is deliberately not claimed.
 
 ### 3.2 Sub-pixel placement
 
@@ -277,7 +316,9 @@ by Catmull-Rom per dab (a 1024-dab batch at 120 Hz must cost microseconds).
 `end()` guarantees at least one dab: if `begin()` emitted the first dab
 and no motion followed, a single dab at full dynamics is already there. If
 the stroke was shorter than `step`, the residual `carry` does *not* emit
-(that would double-dot every tap). For a *tap with pressure ramp* (S Pen
+(that would double-dot every tap). Chinese-ink pressure-only dabs are the
+intentional stationary splay described in §3.1, not residual spacing. For a
+*tap with pressure ramp* (S Pen
 touching and lifting within ~30 ms) the first dab is re-emitted with the
 **maximum** pressure seen during the tap, because the `ACTION_DOWN` sample
 almost always carries near-zero pressure and would leave an invisible
@@ -325,7 +366,7 @@ alpha in one stroke however many times it crosses itself — exactly the
 ```kotlin
 class Stabilizer(strength: Float) {         // 0..1
     fun reset(p: StrokeInput)               // output = input
-    fun push(raw: StrokeInput, out: StrokeInput): Boolean  // returns false if output moved < 0.05 px
+    fun push(raw: StrokeInput, out: StrokeInput): Boolean  // moved ≥ 0.05 px, or ChineseInk dynamics changed
     fun finish(out: StrokeInput): Int       // emits catch-up samples toward the last raw point
 }
 ```
@@ -345,6 +386,11 @@ is what makes it "pull string": the pen leads, the brush follows on a
 short leash, and fast motion does not lag ever further behind (pure
 exponential smoothing would). Pressure/tilt are smoothed with the same `k`
 so a taper follows the smoothed geometry.
+
+Ordinary brushes forward a sample only after meaningful position motion.
+`ChineseInk` also forwards pressure, tilt, or orientation changes. Pressure
+can stamp the tuft in place; current tilt and orientation feed its next moving
+segment. Existing brush sampling does not change.
 
 **Lag at stroke end.** With strength 0.7 the output trails the pen by up
 to ~17 px on screen. While the pen is down this is visible and expected
@@ -382,8 +428,21 @@ device"). All sizes in canvas px; spacing is a fraction of the radius (§2);
 | Watercolor | 40 (4–400) | 1.0 | 0.45 | 0.25 | 0.20 | Flat(0.7) / StrokeDirection | 0.35 | **on** (0.40) | – |
 | Airbrush | 120 (10–400) | 1.0 | 0.06 | 0.0 | 0.08 | Round / Fixed | 0.1 | off | – |
 | Marker | 24 (4–200) | 0.6 | 1.0 | 0.95 | 0.12 | Flat(0.3) / Stylus | 0.4 | off | – |
+| Spray can | 80 (10–300) | 1.0 | 0.045 | 0.0 | 0.50 | Round / Fixed | 0.05 | off | – |
+| Charcoal | 12 (2–120) | 0.95 | 0.28 | 0.6 | 0.12 | Round / Fixed | 0.15 | off | – |
+| Soft pastel | 40 (6–200) | 0.8 | 0.24 | 0.62 | 0.14 | Flat(0.65) / Stylus | 0.18 | off | – |
+| Technical pen | 4 (1–24) | 1.0 | 1.0 | 1.0 | 0.12 | Round / Fixed | 0.8 | off | – |
+| Chinese ink brush | 40 (3–240) | 1.0 | 1.0 | 0.92 | 0.08 | Flat(0.58) / StrokeDirection | 0.3 | off | – |
+| Dry brush | 52 (6–300) | 0.9 | 0.22 | 0.78 | 0.16 | Flat(0.45) / StrokeDirection | 0.25 | **on** (0.05) | – |
+| Oil paint | 64 (8–400) | 1.0 | 0.95 | 0.55 | 0.25 | Flat(0.6) / StrokeDirection | 0.3 | **on** (0.25) | – |
+| Pigment wash | 120 (12–600) | 0.38 | 0.12 | 0.18 | 0.10 | Flat(0.75) / StrokeDirection | 0.22 | **on** (0.65) | – |
 | Hard eraser | 30 (2–400) | 1.0 | 1.0 | 0.95 | 0.20 | Round / Fixed | 0.2 | off | yes |
 | Soft eraser | 80 (4–400) | 0.5 | 0.4 | 0.15 | 0.16 | Round / Fixed | 0.2 | off | yes |
+
+Chinese ink brush alone sets `model = ChineseInk`; all other rows use
+`Standard`. Its `Flat(0.58)` / `StrokeDirection` values describe neutral
+geometry; the model state owns the directionless head, moving aspect and
+target lag.
 
 | Preset | pressureSize | pressureOpacity | pressureFlow | tilt | velocity | jitter | bufferMode |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -392,6 +451,14 @@ device"). All sizes in canvas px; spacing is a fraction of the radius (§2);
 | Watercolor | `Curve(0.35, 0.6, 0.85, 1)` | One | gamma(0.7) | size 1.4 at flat | none | size 0.05 | Accumulate |
 | Airbrush | `Curve(0.6, 0.75, 0.9, 1)` | One | Linear | none | none | none | Accumulate |
 | Marker | One (constant width) | One | One | none | none | none | Max |
+| Spray can | `Curve(0.7, 0.8, 0.9, 1)` | One | Linear | none | none | size 0.35, pos 0.85 | Accumulate |
+| Charcoal | `Curve(0.6, 0.73, 0.87, 1)` | `Curve(0, 0.415244, 0.722981, 1)` | `Curve(0, 0.19245, 0.544331, 1)` | size 2.6 at flat, opacity 0.6, elongate | none | size 0.18, pos 0.22 | Accumulate |
+| Soft pastel | `Curve(0.65, 0.75, 0.87, 1)` | `Curve(0.15, 0.4, 0.72, 1)` | `Curve(0.08, 0.3, 0.65, 1)` | size 1.8 at flat, opacity 0.75, elongate | none | size 0.18, pos 0.15 | Accumulate |
+| Technical pen | One | One | One | none | none | none | Max |
+| Chinese ink brush | `Curve(0.05, 0.22, 0.62, 1)` | One | One | none | size 0.96 at fast (2.5 px/ms); `ChineseInk` also dries | none | Max |
+| Dry brush | `Curve(0.3, 0.5, 0.75, 1)` | One | `Curve(0.03, 0.18, 0.55, 1)` | none | none | size 0.12, pos 0.12 | Accumulate |
+| Oil paint | `Curve(0.5, 0.75, 0.92, 1)` | One | `Curve(0.35, 0.6, 0.85, 1)` | size 1.3 at flat | none | size 0.12, pos 0.05 | Accumulate |
+| Pigment wash | `Curve(0.65, 0.75, 0.87, 1)` | `Curve(0.25, 0.5, 0.75, 1)` | `Curve(0.15, 0.42, 0.72, 1)` | size 1.5 at flat, opacity 0.7 | none | size 0.05, pos 0.04 | Accumulate |
 | Hard eraser | floor(0.5) | One | One | none | none | none | Max |
 | Soft eraser | floor(0.6) | Linear | Linear | none | none | none | Accumulate |
 
@@ -432,6 +499,21 @@ Why the values feel the way they do:
   layers. Flat(0.3) tip oriented by the stylus so the chisel tip turns
   with the pen; on finger input orientation is 0 and it is a horizontal
   chisel, which is still recognisably a marker.
+- **Charcoal and soft pastel.** Procedural paper grain, pressure-driven flow,
+  jitter, and broad tilt shading separate a dusty stick from the clean pencil.
+- **Technical pen.** A hard 4 px round tip ignores pressure and uses the
+  strongest stabilizer for constant drafting lines.
+- **Spray can.** Wide position and size jitter scatter low-flow soft dabs;
+  pressure controls coverage without changing the paint model.
+- **Chinese ink brush.** The only `ChineseInk` preset: a pointed flexible tuft
+  splays under pressure, trails through turns and reveals stable split hairs
+  as its distance-based ink load falls. Stationary pressure forms a deliberate
+  head; speed makes the mark drier, not materially narrower.
+- **Dry brush.** Low flow, grain, jitter, and a narrow path-oriented tip leave
+  a broken mark while retaining pigment mixing.
+- **Oil paint.** High-flow, broad pigment dabs build opaque, mixed strokes.
+- **Pigment wash.** Low opacity, low flow, and strong dilution layer broad,
+  transparent pigment without claiming watercolor bloom or diffusion.
 - **Hard eraser.** A hard disc; `Max` with opacity 1 so one pass removes
   fully. Size floor 0.5 so light pressure still erases, just narrower.
 - **Soft eraser.** Hardness 0.15, opacity 0.5: it *lightens*; one stroke
@@ -469,6 +551,9 @@ Watercolor presets must use mixing, `Accumulate`, opacity 1, and
 `pressureOpacity = Curve.One`. The settings sheet hides stroke opacity and
 pressure opacity, which direct RMW cannot honour, and exposes Water, Spread,
 Granulation, and Edge darkening.
+
+The transient wet grid is separate from `Dab.wetness`, which remains only
+Chinese-ink tuft load and never drives diffusion.
 
 `WaterParams` defaults to size 72 (8–400), hardness 0.2, spacing 0.18,
 water 0.75, spread 0.65, and linear pressure-to-water. Its sheet exposes
@@ -803,12 +888,9 @@ rework.
   dab-anchored, so overlapping dabs reinforce the same paper texture like
   real graphite. One extra sampler and two uniforms in the shader
   contract test.
-- **Import image as layer / reference.** Photo picker → decode → tiled
-  into a new layer through the same tile upload path as fill; a
-  *reference* is a non-layer overlay drawn by `CompositePass` above
-  everything with its own `ViewTransform`, never exported. Requires the
-  memory budget to count the imported bitmap (`MemoryBudget` gets a
-  "transient" bucket).
+- **Import image as layer.** Photo picker → decode → tiles on a new paint
+  layer through the same upload path as fill. Tracing references shipped in
+  roadmap step 11; they are separate private assets beneath every paint layer.
 
 Common thread: every future tool is either a `BrushPreset` field with a
 default, a `StrokeFilter` in the one slot v1 reserves, or a new `ToolKind`

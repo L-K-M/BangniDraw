@@ -75,6 +75,18 @@ data class CanvasSize(val width: Int, val height: Int) {
     private val wetTilesY: Int get() = wetTilesFor(height)
     internal val wetTilesPerLayer: Long get() = wetTilesX.toLong() * wetTilesY
 
+    val pixelBytes: Long
+        get() {
+            if (width <= 0 || height <= 0) return 0L
+            val pixels = width.toLong() * height
+
+            return if (pixels > Long.MAX_VALUE / RGBA8_BYTES_PER_PIXEL) {
+                Long.MAX_VALUE
+            } else {
+                pixels * RGBA8_BYTES_PER_PIXEL
+            }
+        }
+
     /**
      * Saturates rather than wraps. `tilesPerLayer` fits a `Long` for every
      * `Int` side, but multiplying it by [TILE_BYTES] does not — and a budget
@@ -91,6 +103,7 @@ data class CanvasSize(val width: Int, val height: Int) {
 
     private companion object {
         const val CANVAS_PIXELS_PER_WET_TILE = WatercolorKernel.CELL_SIZE * TILE_SIZE
+        const val RGBA8_BYTES_PER_PIXEL = 4L
 
         fun bytesForTiles(tiles: Long): Long =
             if (tiles > Long.MAX_VALUE / TILE_BYTES) Long.MAX_VALUE else tiles * TILE_BYTES
@@ -147,6 +160,8 @@ object MemoryBudget {
         val historyMaxSteps: Int,
         val historyMaxBytes: Long,
         val thumbnailCacheBytes: Long,
+        /** Full decoded RGBA8 image allowed during a private image import. */
+        val transientImageBytes: Long,
         /** Slices per texture array `TilePool` creates; never above `glMaxArrayLayers`. */
         val poolArraySlices: Int,
         /** How many texture arrays fit the budget. */
@@ -252,6 +267,9 @@ object MemoryBudget {
         // disagree — so both the cap and the size ceiling come from capacity.
         val poolCapacityBytes = arrays.toLong() * slices * TILE_BYTES
         val maxLayers = maxLayersFor(poolCapacityBytes, canvas)
+        val perLayerLimit = poolCapacityBytes /
+            (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)
+        val transientImageBytes = minOf(canvas.pixelBytes, perLayerLimit)
         // maxCanvasEdge is bounded by memory and by the v1 ceiling, never by
         // glMaxTextureSize: tiles are 256 px, so a big canvas never needs a
         // big texture. The largest multiple of TILE_SIZE holds the minimum
@@ -295,6 +313,7 @@ object MemoryBudget {
             historyMaxSteps = historySteps,
             historyMaxBytes = historyBytes,
             thumbnailCacheBytes = thumbBytes,
+            transientImageBytes = transientImageBytes,
             poolArraySlices = slices,
             poolArrayCount = arrays,
         )

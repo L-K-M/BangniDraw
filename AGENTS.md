@@ -138,6 +138,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   hardcode "帮你Draw" in a composable (rename checklist: PLAN.md "Renaming").
 - Colors come from `ui/theme/Color.kt` — no ad-hoc `Color(0x…)` in
   screens. The theme follows the system (light and dark), no dynamic color.
+- **Greyscale ARGB cannot encode hue.** `ColorPanel` keeps an `HsvSelection`;
+  panel-originated ARGB echoes must not reconstruct HSV, while external colors
+  must. Do not key the selection state directly to the current ARGB.
 - Scripts follow the family house style: header comment doubles as
   `--help` via the awk one-liner; `==>` / `--` / `!!` log prefixes;
   `set -euo pipefail`.
@@ -153,6 +156,13 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   pre-decision docs (same Status/Date header as ADRs); an accepted proposal
   graduates into `docs/plan/12-roadmap.md`, a declined one stays with its
   status flipped so the reasoning isn't lost.
+- Tracing references are private project assets, not paint. They reserve one
+  layer of tile budget, render in `SandwichCache.Below` above paper, and never
+  enter thumbnails, flatten, gallery sync, sharing, export, or painting undo.
+  Photo Picker is the import boundary; do not add storage permission or retain
+  the picked URI. Checkpoints delete only the superseded committed asset;
+  reopen preserves the metadata-named asset even when unreadable and sweeps
+  other orphans, so a transient read failure cannot destroy recoverable bytes.
 
 ## Deviations discovered while building
 
@@ -185,14 +195,27 @@ and the contradiction is noted here.
   `StrokeShaderContractTest`, because this is the one place the shader
   deliberately departs from the document's literal text.
 
-- **The dab's colour is a uniform, not a per-instance attribute.** §7.3's
-  `dab.vert` snippet declares `layout(location = 7) in vec3 i_color`, but §6
-  states twice over that this is wrong: "Colour and the stroke opacity are per
-  stroke (uniforms), never per dab", and the eight per-dab fields it lists as
-  `DAB_STRIDE` do not include colour. `02-architecture.md` §3.2 pins the same
-  eight-float layout for `DabBatch`. A ninth per-instance `vec3` would
-  contradict both and send one stroke's single colour 1 024 times per batch, so
-  it is `u_color`.
+- **The dab's colour is a uniform; ink and bristle state are per dab.** The
+  original §7.3 snippet put `vec3 i_color` at location 7 even though one stroke
+  has one colour. It remains `u_color`. `DabBatch` now carries eleven floats:
+  `x, y, radius, flow, hardness, angle, aspect, seed, wetness, bristleAlong,
+  bristleAcross`; locations 7–10 activate the last four in `DabPass`. Brush
+  model and stroke opacity are also uniforms.
+
+- **`builtin.calligraphy` is the stateful Chinese ink brush, not a textured
+  chisel.** `BrushModel.ChineseInk` transports a soft tuft axis through turns,
+  splays the footprint with pressure, records stationary pressure changes, and
+  depletes `Dab.wetness` by swept distance rather than dab count. One seed
+  persists for the stroke. CPU and GLSL derive the same stroke-local
+  split-bristle lanes; dry gaps are zero coverage while surviving hairs stay
+  dark. Paper tooth is one canvas-fixed hash shared by every stroke. Both
+  phase coordinates integrate centre motion in the lagged tuft
+  frame; a scalar arc length cannot preserve lanes when the tuft moves across
+  its own axis. Prediction must copy all of that state. `StrokeDriver` selects
+  the dynamics-aware stabilizer
+  gate only for `ChineseInk`; `Standard` keeps its position-only sampling.
+  This procedural mask adds no third-party asset, and `wetness` is ink load,
+  not the post-v1 per-layer water/diffusion channel.
 
 - **`maxCanvasEdge` is not bounded by `GL_MAX_TEXTURE_SIZE`.**
   `docs/plan/11-testing.md` §3.11 lists `maxCanvasEdge <= glMaxTextureSize`
@@ -578,8 +601,13 @@ and the contradiction is noted here.
   the rail never grows past it; the active preset always keeps a slot
   (`RailSlotPolicy`), and the overflow presets are reachable through the
   settings sheet's chip row — the same path GROUPED/SHORT/DOCK already use.
+  The first five paint IDs in `BrushPresets.RAIL_ORDER` are the v1 core set;
+  additional brushes follow so they cannot displace a core slot until selected.
   The `*_FULL_MIN_DP` thresholds stay sized for the v1 catalogue; they select
   a mode, not a capacity.
+- **The seven specialty brush presets have no device feel pass.** Their JSON
+  parsing, dynamics, grain modes, rail priority, glyph roles, and localization
+  are pinned on the JVM; their physical feel still needs stylus testing.
 - **HSV fine controls use `HsvChannel`.** Keep their ranges, discrete steps,
   reads, and replacements in that pure enum so visual sliders and accessibility
   adjustments cannot drift. The current-color chip has a named long-click only;

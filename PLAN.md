@@ -25,8 +25,8 @@ with an S Pen (real paintings), and the UI reshapes itself between the two
 without ever becoming a different app.
 
 It is a **drawing app**, not a photo editor, not a vector tool, not a
-note-taking app. Images can come in as a layer or a reference (post-v1); the
-output is pictures.
+note-taking app. Images can be tracing references; paint-layer import is
+post-v1. The output is pictures.
 
 ### Principles
 
@@ -98,7 +98,7 @@ ch.lkmc.bangnidraw
 │     ViewTransform, FitTransform, GestureArbiter
 │     StrokeInput, Stabilizer, PressureCurve, DabGenerator, Dab (+ the
 │     strided DabBatch the hot path actually uses)
-│     BrushPreset, ToolKind, ToolSwitcher, RmwStrokePolicy
+│     BrushPreset, BrushModel, ToolKind, ToolSwitcher, RmwStrokePolicy
 │     ColorMixer (RgbMixer), Composite (CPU reference)
 │     WatercolorDabPlan/Bounds, WatercolorWet/ColorKernel, TileContentIndex
 │     FloodFill, HistoryJournal, HistoryEntry, AutosavePolicy
@@ -158,7 +158,8 @@ A stroke is: `MotionEvent` (+historical, +predicted) → `StrokeInput`
 (canvas-space x, y via the inverse view transform; pressure, tilt,
 orientation, time, tool type) → `Stabilizer` → `DabGenerator` (spacing as a
 fraction of radius; size/flow/opacity dynamics from pressure, tilt,
-velocity) → a batch of dabs → GPU. Dabs land in a per-stroke **stroke
+velocity; stateful tuft and ink-load dynamics for the Chinese ink model) →
+a batch of dabs → GPU. Dabs land in a per-stroke **stroke
 buffer**; *flow* is the per-dab weight and *opacity* is a **cap** on the
 buffer's accumulated coverage, so a stroke never exceeds its opacity no
 matter how many dabs overlap. The buffer is merged into the active layer
@@ -352,19 +353,26 @@ competes with the picture.
 | Watercolor | preset (RMW) | flat soft-edged pigment brush; pressure → size + flow; water, spread, granulation, dark rims |
 | Airbrush | preset | very soft, low flow, high spacing density |
 | Marker | preset | hard, semi-transparent, builds up to a cap (opacity), squared tip follows orientation |
+| Spray can | preset | scattered soft low-flow dabs across a broad radius |
+| Charcoal / Soft pastel | presets | procedural paper grain, jitter, pressure buildup, broad tilt shading |
+| Technical pen | preset | constant narrow width, hard edge, strong stabilizer |
+| Chinese ink brush | preset (`ChineseInk` model) | flexible pointed tuft: pressure splay, lagged turns and stationary presses; distance/speed expose stable split bristles |
+| Dry brush | preset | grainy broken edge, low flow, narrow path-oriented tip |
+| Oil paint | preset | broad, opaque, high-flow pigment mixing |
+| Pigment wash | preset | broad transparent pigment layers; no bloom or diffusion claim |
 | Eraser (hard / soft) | preset (erase mode) | same dab pipeline, subtracts alpha; the S Pen eraser end and button map here |
 | Smudge | RMW | picks up color under the dab and drags it; strength; pigment mixing |
 | Water | RMW | colourless wetting, dilution, and pigment transport; water load + spread |
 | Blur | RMW | softens under the dab |
 | Fill | fill | bucket flood fill: tolerance, contiguous/global, sample current or all layers, expand by N px (no halos under line art), anti-aliased edge |
 | Eyedropper | pick | tap/long-press samples the composite (or current layer) |
-| Post-v1 | | lasso/rect selection + transform (move/scale/rotate), straight-line/shape assist, symmetry guide, gradient fill, texture grains, image import as layer/reference, canvas crop/resize |
+| Post-v1 | | lasso/rect selection + transform (move/scale/rotate), straight-line/shape assist, symmetry guide, gradient fill, texture grains, image import as layer, canvas crop/resize |
 
 Buffered brushes expose size, opacity, flow, hardness, spacing, pressure
 curves (size / opacity / flow), tilt effect, velocity effect, jitter,
-stabilizer, and pigment mixing. Watercolor fixes opacity and mixing to its
-direct-RMW invariants, then exposes water, spread, granulation, and edge
-darkening. Presets are JSON in assets (built-in) and
+stabilizer, pigment mixing on/off, and footprint model. Watercolor fixes
+opacity and mixing to its direct-RMW invariants, then exposes water, spread,
+granulation, and edge darkening. Presets are JSON in assets (built-in) and
 `filesDir/brushes/` (user-edited).
 
 ## 7. Testing
@@ -373,7 +381,8 @@ darkening. Presets are JSON in assets (built-in) and
   `ViewTransform` (gesture composition, clamping, rebase), `GestureArbiter`
   (draw vs navigate vs tap-undo decisions from pointer timelines),
   `Stabilizer`/`DabGenerator` (spacing invariant under resolution, pressure
-  curves, zero-length strokes), `TileGrid` (dirty-rect → tile keys),
+  curves, zero-length strokes, Chinese-ink tuft/wetness state), `TileGrid`
+  (dirty-rect → tile keys),
   `LayerStack` ops (reorder/merge/delete invariants), `HistoryJournal`
   (undo/redo/truncate/prune, round-trip through the on-disk encoding),
   `FloodFill` (tolerance, expand, gap behavior on fixtures), `Composite`
@@ -437,11 +446,12 @@ acceptance tests per step: `docs/plan/12-roadmap.md`.
 | 8 | Fill | bucket fill with tolerance / all-layers reference / expand / anti-alias | fill line art with no halos |
 | 9 | Adaptive UI polish | compact vs expanded layouts, handedness, focus mode, gesture shortcuts, haptics, hover cursor, first-run hint | usable one-handed on a phone; roomy on a tablet |
 | 10 | v1.0 | Settings/About (licenses), zh-Hans strings, README screenshots, release v1.0.0 | tagged release with APK |
-| 11 | Watercolor | proposal 0001: coarse transient wet state, Watercolor preset, colourless Water tool, GLES RMW passes, adaptive controls | wet-on-wet mixing and clear-water transport without tile seams; device acceptance pending |
+| 11 | Tracing reference | Photo Picker import into a private project asset; affine two-finger placement beneath paint; opacity, visibility, replace, reset, remove; never exported | reference survives reopen; export pixels are unchanged; no permission added |
+| 12 | Watercolor | proposal 0001: coarse transient wet state, Watercolor preset, colourless Water tool, GLES RMW passes, adaptive controls | wet-on-wet mixing and clear-water transport without tile seams; device acceptance pending |
 
 Post-v1 (each its own proposal in `docs/proposals/`): selections +
 transform, rulers/shape assist, symmetry, gradient fill, brush grains,
-import image as layer/reference, canvas crop/resize,
+import image as layer, canvas crop/resize,
 tile residency/eviction (lifts the layer cap), OpenRaster export,
 time-lapse recording.
 

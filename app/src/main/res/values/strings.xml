@@ -121,6 +121,13 @@
     <string name="preset_airbrush">Airbrush</string>
     <string name="preset_spray_can">Spray can</string>
     <string name="preset_marker">Marker</string>
+    <string name="preset_charcoal">Charcoal</string>
+    <string name="preset_soft_pastel">Soft pastel</string>
+    <string name="preset_technical_pen">Technical pen</string>
+    <string name="preset_calligraphy">Chinese ink brush</string>
+    <string name="preset_dry_brush">Dry brush</string>
+    <string name="preset_oil_paint">Oil paint</string>
+    <string name="preset_pigment_wash">Pigment wash</string>
     <string name="preset_hard_eraser">Hard eraser</string>
     <string name="preset_soft_eraser">Soft eraser</string>
 
@@ -307,6 +314,23 @@
     <string name="err_layers_unreadable">Some layers of this painting could not be read.</string>
     <string name="err_storage_full">Storage full — free up space to keep your work.</string>
     <string name="err_leave_failed">Couldn’t finish saving — the painting stays open.</string>
+
+    <!-- Tracing reference controls and import errors. -->
+    <string name="err_reference_unreadable">The tracing image could not be read.</string>
+    <string name="err_reference_import">The tracing image could not be imported.</string>
+    <string name="err_reference_layer_budget">Remove a layer before adding a tracing image.</string>
+    <string name="err_reference_memory">Not enough memory to add a tracing image.</string>
+    <string name="reference_image">Tracing image</string>
+    <string name="reference_edit_help">Use two fingers on the canvas to move, scale, or rotate it.</string>
+    <string name="reference_opacity">Opacity</string>
+    <string name="reference_visible">Visible</string>
+    <string name="reference_replace">Replace</string>
+    <string name="reference_reset">Reset</string>
+    <string name="reference_remove">Remove</string>
+    <string name="reference_done">Done</string>
+    <string name="reference_panel_opened">Tracing image controls opened</string>
+    <string name="reference_remove_title">Remove tracing image?</string>
+    <string name="reference_remove_body">The private copy will be deleted after autosave.</string>
 
     <!-- Settings/About. Mixbox rows are shown only when BuildConfig.MIXBOX. -->
     <string name="settings_title">Settings</string>

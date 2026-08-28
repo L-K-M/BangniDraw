@@ -52,6 +52,7 @@ object SandwichPolicy {
         data class Clear(val index: Int) : Op
         data object Flatten : Op
         data object PaperColor : Op
+        data object TracingReference : Op
         data object UndoRedo : Op
 
         /** A stroke merged into the active layer. */
@@ -129,6 +130,9 @@ object SandwichPolicy {
         // paper-less cache drawn over the paper diverges from the direct
         // composite and from flatten.
         Op.PaperColor -> Stale.BELOW
+
+        // The reference is composited above paper and below every paint layer.
+        Op.TracingReference -> Stale.BELOW
 
         // An undo entry can be anything. Two stale flags cost one rebuild of
         // the visible tiles, and undo is not a per-frame event.

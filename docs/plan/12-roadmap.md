@@ -1,6 +1,6 @@
-# Roadmap — the ten PRs to v1.0, and what comes after
+# Roadmap — v1.0 and post-v1 work
 
-This document expands PLAN.md §10 (the ten PR-sized steps) into something an
+This document expands PLAN.md §10 into something an
 agent can execute one PR at a time: per step the goal, the files and classes
 it creates (package layout from PLAN.md §3 and `docs/plan/02-architecture.md`),
 what it depends on, the acceptance test on a device plus the JVM tests that
@@ -605,13 +605,24 @@ third-party asset, the rail and settings sheet edit those presets, and stylus
 eraser/button precedence is pinned in JVM tests. **The per-preset and S Pen
 device checks have not been run — no device has ever been available.**
 
+**Extended.** Seven specialty presets later joined the same JSON/dab path:
+charcoal, soft pastel, technical pen, Chinese ink brush (formerly Calligraphy;
+stored id `builtin.calligraphy` retained for user overrides),
+dry brush, oil paint, and pigment wash. Chinese ink selects
+`BrushModel.ChineseInk`: stateful tuft direction and pressure splay on the CPU
+feed a stable stroke-local split-hair mask and distance-based wetness on
+CPU/GPU. `DabBatch` is now eleven floats, with seed, wetness, and two
+transported material phases active in the shader. Physical feel remains
+unverified because no device was available.
+
 **Goal.** Every preset in PLAN.md §6 feels like its name: pencil, ink pen,
 paintbrush, airbrush, marker, hard and soft eraser, plus the eyedropper;
 S Pen eraser end and side button mapped.
 
 **Creates.** `tools/Tool`, `BrushTool`, `EraserTool`, `EyedropperTool`;
 `BrushPreset` full parameter set (size, opacity, flow, hardness, spacing,
-pressure curves ×3, tilt, velocity, jitter, stabilizer, pigment flag —
+pressure curves ×3, tilt, velocity, jitter, stabilizer, pigment flag,
+footprint model —
 mixing itself is step 7, the flag round-trips now); `data/BrushPresetStore`
 (built-in JSON in `assets/brushes/`, user edits in `filesDir/brushes/`);
 `DabPass` grows the grain, hardness and oriented (squared) tip paths;
@@ -628,7 +639,9 @@ lighter when the S Pen is tilted; ink pen line is smooth with a strong
 stabilizer and no grain; marker builds to its opacity cap and never past;
 airbrush is soft and slow; flipping the S Pen erases, the button erases
 while held, the eyedropper picks the composite color; hover shows the brush
-circle at the right size at any zoom. JVM: `DabGeneratorTest` per preset
+circle at the right size at any zoom; Chinese ink presses from point to belly,
+lags naturally through turns and runs into coherent flying-white lanes rather
+than uniform grey noise. JVM: `DabGeneratorTest` per preset
 (a fixture stroke → dab list with expected sizes/flows), `PressureCurveTest`,
 `BrushPresetStoreTest` (JSON round trip, unknown keys ignored, built-ins
 never overwritten), `StylusStateTest` (button/eraser precedence),
@@ -850,7 +863,28 @@ known issue.
 **Risks.** `versionName`/tag mismatch or a hand-made tag — `release.yml`
 gates on it; only the script cuts releases (PLAN.md §8).
 
-### Step 11 — Watercolor (L)
+### Step 11 — Tracing reference image (M)
+
+**Goal.** Place a private photo beneath paint for tracing without changing
+artwork or exports. Accepted proposal: `docs/proposals/0001-tracing-reference.md`.
+
+**Creates.** Optional `TracingReference` document metadata, private normalized
+PNG assets, Photo Picker import, affine reference transforms, a cached render
+between paper and paint, and Canvas controls for opacity, visibility, replace,
+reset, and confirmed removal. The reference reserves one layer of the existing
+tile budget and never enters the painting journal.
+
+**Acceptance.** JVM: affine transform and budget policy, project round-trip and
+asset recovery, export exclusion, cache invalidation, and two-finger routing.
+CI: no manifest permission. Device: pick, transform, hide, reopen, replace,
+remove, EXIF rotation, export equality, and the eight-layer 120 Hz composite
+gate. Device checks remain required before a release claim.
+
+**Risks.** EXIF orientation applied twice or never, or a large decode crossing
+the transient memory cap — the device EXIF check and `MemoryBudget` gate both.
+Photo Picker needs no permission, so none may appear in the manifest.
+
+### Step 12 — Watercolor (L)
 
 **Goal.** Add layer-local wet pigment and a colourless Water tool without a
 continuous solver.
@@ -891,8 +925,8 @@ follow-up.
  9 Adaptive UI polish   ← needs 4, 5, 6, 7, 8
  │
 10 v1.0
- │
-11 Watercolor   ← needs 7, the RMW history path, and adaptive UI
+ ├─ 11 Tracing reference   ← needs persistence, export, and adaptive UI
+ └─ 12 Watercolor          ← needs 7, the RMW history path, and adaptive UI
 ```
 
 | After this lands | These can run concurrently |
@@ -902,6 +936,7 @@ follow-up.
 | 3 and 5 | 8 |
 | 5 | 7 |
 | 4, 5, 6, 7, 8 | 9, then 10 |
+| 10 | 11 and 12 |
 
 Two agents is the practical maximum: one on the persistence spine (3 → 4/6, then 8 once 5 is in)
 and one on the tool spine (5 → 7). Both branch from `main`, and the second
@@ -922,7 +957,7 @@ Each item enters through a proposal (§6) and, once accepted, a row in PLAN.md
 | Symmetry | `DabGenerator` emits N mirrored/rotated dab copies per input dab about an axis in canvas space; one journal entry; a guide overlay in Compose. | S | 5 |
 | Gradient fill | `FillTool` variant: linear/radial gradient between two swatches, optionally mixed through `ColorMixer` (a pigment gradient), masked by the flood region. | S | 8 |
 | Brush grains | Tiling grain textures (CC0, provenance in AGENTS.md) sampled in `DabPass` in canvas space so the grain does not swim; preset field `grain` with scale and depth. | S | 5 |
-| Import image as layer / reference | Photo picker → decode → tiles on a new layer (scaled to the canvas) or a floating reference panel with its own pan/zoom that is not part of the document. | M | 6 |
+| Import image as layer | Photo picker → decode → tiles on a new paint layer, with a journaled insertion and normal export behavior. | M | 6 |
 | Canvas crop / resize | Document-space change journaled as a whole-document entry (all layers' before-tiles); crop by rect, resize by resampling on the GPU into a new tile set. | M | 3 |
 | Tile residency / eviction | `TilePool` becomes an LRU over slices with CPU mirrors for evicted tiles; lifts the layer cap from `MemoryBudget`; the readback handover already exists. | L | 3 |
 | OpenRaster export | `.ora` zip: `stack.xml` + one PNG per layer + `mergedimage.png` + thumbnail; blend modes map to the OpenRaster composite-op names. Import is a separate proposal. | S | 6 |

@@ -1,6 +1,8 @@
 package ch.lkmc.bangnidraw.data
 
+import ch.lkmc.bangnidraw.engine.core.BrushModel
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
+import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.core.Curve
 import ch.lkmc.bangnidraw.engine.core.GrainMode
@@ -46,6 +48,13 @@ class BrushPresetStoreTest {
                 "builtin.airbrush",
                 "builtin.spray_can",
                 "builtin.marker",
+                "builtin.charcoal",
+                "builtin.soft_pastel",
+                "builtin.technical_pen",
+                "builtin.calligraphy",
+                "builtin.dry_brush",
+                "builtin.oil_paint",
+                "builtin.pigment_wash",
                 "builtin.hard_eraser",
                 "builtin.soft_eraser",
             ),
@@ -64,6 +73,13 @@ class BrushPresetStoreTest {
             ),
             presets.single { it.id == "builtin.paintbrush" }.watercolor,
         )
+        assertEquals(
+            BrushModel.ChineseInk,
+            presets.single { it.id == BrushPresets.CALLIGRAPHY_ID }.model,
+        )
+        for (id in listOf("builtin.charcoal", "builtin.soft_pastel", "builtin.dry_brush")) {
+            assertEquals(GrainMode.Procedural, presets.single { it.id == id }.grainMode, id)
+        }
     }
 
     @Test
@@ -92,6 +108,7 @@ class BrushPresetStoreTest {
             mixing = true,
             dilution = 0.19f,
             grain = "paper-fine",
+            model = BrushModel.ChineseInk,
             bufferMode = BufferMode.Accumulate,
             watercolor = WatercolorBehavior(
                 waterLoad = 0.7f,
@@ -121,6 +138,7 @@ class BrushPresetStoreTest {
 
         assertEquals(12f, preset.size)
         assertEquals(TipShape.Round, preset.tip)
+        assertEquals(BrushModel.Standard, preset.model)
         assertEquals(BufferMode.Max, preset.bufferMode)
     }
 
@@ -173,6 +191,43 @@ class BrushPresetStoreTest {
         )
         assertTrue(File(root, "builtin.paintbrush.json").readText().contains("\"watercolor\""))
         assertEquals(migrated, store.load().single())
+    }
+
+    @Test
+    fun `a legacy calligraphy override gains the Chinese ink model without losing edits`() {
+        val store = BrushPresetStore(
+            root,
+            MapAssets(
+                "calligraphy.json" to
+                    """{"v":1,"id":"builtin.calligraphy","name":"Chinese ink","model":"ChineseInk"}""",
+            ),
+        )
+        File(root, "builtin.calligraphy.json").writeText(
+            """{"v":1,"id":"builtin.calligraphy","name":"My brush","size":73,"hardness":0.41}""",
+        )
+
+        val loaded = store.load().single()
+
+        assertEquals(BrushModel.ChineseInk, loaded.model)
+        assertEquals("My brush", loaded.name)
+        assertEquals(73f, loaded.size)
+        assertEquals(0.41f, loaded.hardness)
+    }
+
+    @Test
+    fun `an explicit calligraphy model is not migrated`() {
+        val store = BrushPresetStore(
+            root,
+            MapAssets(
+                "calligraphy.json" to
+                    """{"v":1,"id":"builtin.calligraphy","name":"Chinese ink","model":"ChineseInk"}""",
+            ),
+        )
+        File(root, "builtin.calligraphy.json").writeText(
+            """{"v":1,"id":"builtin.calligraphy","name":"Classic","model":"Standard"}""",
+        )
+
+        assertEquals(BrushModel.Standard, store.load().single().model)
     }
 
     @Test

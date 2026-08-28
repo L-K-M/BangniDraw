@@ -2,8 +2,10 @@ package ch.lkmc.bangnidraw.engine.gl
 
 import ch.lkmc.bangnidraw.engine.core.BlendMode
 import ch.lkmc.bangnidraw.engine.core.BlurKernel
+import ch.lkmc.bangnidraw.engine.core.BrushModel
 import ch.lkmc.bangnidraw.engine.core.DabStamp
 import ch.lkmc.bangnidraw.engine.core.GrainMode
+import ch.lkmc.bangnidraw.engine.core.InkBrushMask
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.SmudgeKernel
 
@@ -96,17 +98,19 @@ object Shaders {
         precision highp float;
         layout(location = $ATTR_POS) in vec2 a_canvas;
         layout(location = $ATTR_UV) in vec3 a_uvw;
-        // Packed similarity (a, b, tx, ty), i.e. the four floats of
-        // ScreenTransform: p = (a*x - b*y + tx, b*x + a*y + ty). The binder
-        // uploads them in this order; any other order compiles, passes the
-        // uniform contract test, and renders garbage.
-        uniform vec4 u_screen;
+        // Affine basis (xx, xy, yx, yy) plus translation. Ordinary canvas
+        // draws upload ScreenTransform's similarity; tracing references use
+        // the same pass with their independent affine mapping.
+        uniform vec4 u_screenBasis;
+        uniform vec2 u_screenTranslation;
         uniform mat4 u_projection;
         uniform mat4 u_bufferTransform;
         out vec3 v_uvw;
         void main() {
-            vec2 p = vec2(u_screen.x * a_canvas.x - u_screen.y * a_canvas.y + u_screen.z,
-                          u_screen.y * a_canvas.x + u_screen.x * a_canvas.y + u_screen.w);
+            vec2 p = vec2(
+                u_screenBasis.x * a_canvas.x + u_screenBasis.y * a_canvas.y,
+                u_screenBasis.z * a_canvas.x + u_screenBasis.w * a_canvas.y
+            ) + u_screenTranslation;
             gl_Position = u_projection * u_bufferTransform * vec4(p, 0.0, 1.0);
             v_uvw = a_uvw;
         }
@@ -238,8 +242,8 @@ object Shaders {
             // binder can send, rather than resting on a range nothing enforces.
             int taps = clamp(u_taps, 1, MAX_TAPS);
             if (taps == 1) return texture(u_tiles, v_uvw);
-            // Box filter over a taps x taps grid spanning one screen pixel,
-            // offsets in canvas px converted to tile uv (TILE_SIZE px per tile).
+            // Box filter over a taps x taps grid spanning one target pixel,
+            // converted into source tile pixels per affine axis.
             vec4 acc = vec4(0.0);
             float n = float(taps);
             for (int j = 0; j < MAX_TAPS; j++) {
@@ -317,7 +321,8 @@ object Shaders {
         vertex = COMPOSITE_VERT,
         fragment = COMPOSITE_FRAG,
         uniforms = listOf(
-            Uniform("u_screen", "vec4"),
+            Uniform("u_screenBasis", "vec4"),
+            Uniform("u_screenTranslation", "vec2"),
             Uniform("u_projection", "mat4"),
             Uniform("u_bufferTransform", "mat4"),
             Uniform("u_tiles", "sampler2DArray"),
@@ -346,7 +351,8 @@ object Shaders {
         vertex = COMPOSITE_VERT,
         fragment = CHECKER_FRAG,
         uniforms = listOf(
-            Uniform("u_screen", "vec4"),
+            Uniform("u_screenBasis", "vec4"),
+            Uniform("u_screenTranslation", "vec2"),
             Uniform("u_projection", "mat4"),
             Uniform("u_bufferTransform", "mat4"),
             Uniform("u_checkerPx", "float"),
@@ -375,6 +381,10 @@ object Shaders {
     const val ATTR_DAB_FLOW = 4
     const val ATTR_DAB_ANGLE = 5
     const val ATTR_DAB_ASPECT = 6
+    const val ATTR_DAB_SEED = 7
+    const val ATTR_DAB_WETNESS = 8
+    const val ATTR_DAB_BRISTLE_ALONG = 9
+    const val ATTR_DAB_BRISTLE_ACROSS = 10
 
     /**
      * §7.3's `dab.vert`: one instanced quad per dab, in canvas px, mapped into
@@ -383,10 +393,9 @@ object Shaders {
      * One deviation from the snippet, for the same reason as `u_viewport` in
      * [COMPOSITE_VERT]. The snippet declares `i_color` as a per-instance
      * attribute, but §6 is explicit that "colour and the stroke opacity are per
-     * stroke (uniforms), never per dab" and that the eight per-dab fields are
-     * `DAB_STRIDE`. A ninth per-instance `vec3` would contradict the dab layout
-     * `02-architecture.md` §3.2 pins, and would send the same value 1 024 times
-     * per batch. It is `u_color` here.
+     * stroke (uniforms), never per dab" and that the per-dab fields are
+     * `DAB_STRIDE`. A per-instance `vec3` would contradict that layout and send
+     * the same value 1 024 times per batch. It is `u_color` here.
      *
      * The clamp and the area weight are `DabStamp.drawRadius`/`areaWeight`
      * (§15's twin); `StrokeShaderContractTest` holds the two together.
@@ -401,12 +410,22 @@ object Shaders {
         layout(location = $ATTR_DAB_FLOW)     in float i_flow;
         layout(location = $ATTR_DAB_ANGLE)    in float i_angle;
         layout(location = $ATTR_DAB_ASPECT)   in float i_aspect;
+        layout(location = $ATTR_DAB_SEED)     in float i_seed;
+        layout(location = $ATTR_DAB_WETNESS)  in float i_wetness;
+        layout(location = $ATTR_DAB_BRISTLE_ALONG)  in float i_bristleAlong;
+        layout(location = $ATTR_DAB_BRISTLE_ACROSS) in float i_bristleAcross;
         uniform vec2 u_tileOrigin;
         uniform vec3 u_color;
         out vec2 v_local;
         out vec2 v_canvas;
+        flat out vec2  v_axisMajor;
+        flat out vec2  v_center;
         flat out float v_radius;
         flat out float v_hardness;
+        flat out float v_seed;
+        flat out float v_wetness;
+        flat out float v_bristleAlong;
+        flat out float v_bristleAcross;
         flat out vec4  v_color;
         void main() {
             float r = max(i_radius, 1.0);
@@ -418,8 +437,14 @@ object Shaders {
             vec2 d = p - i_center;
             v_local = vec2(dot(d, axisMajor), dot(d, axisMinor) / i_aspect);
             v_canvas = p;
+            v_axisMajor = axisMajor;
+            v_center = i_center;
             v_radius = r;
             v_hardness = i_hardness;
+            v_seed = i_seed;
+            v_wetness = i_wetness;
+            v_bristleAlong = i_bristleAlong;
+            v_bristleAcross = i_bristleAcross;
             float area = i_radius < 1.0 ? i_radius * i_radius : 1.0;
             v_color = vec4(u_color, 1.0) * (i_flow * area);
             vec2 t = (p - u_tileOrigin) / float($TILE_SIZE);
@@ -443,10 +468,17 @@ object Shaders {
         precision highp float;
         precision highp int;
         uniform int u_grainMode;
+        uniform int u_brushModel;
         in vec2 v_local;
         in vec2 v_canvas;
+        flat in vec2  v_axisMajor;
+        flat in vec2  v_center;
         flat in float v_radius;
         flat in float v_hardness;
+        flat in float v_seed;
+        flat in float v_wetness;
+        flat in float v_bristleAlong;
+        flat in float v_bristleAcross;
         flat in vec4  v_color;
         out vec4 o_color;
 
@@ -458,13 +490,130 @@ object Shaders {
             return ${DabStamp.GRAIN_MIN_WEIGHT} + (1.0 - ${DabStamp.GRAIN_MIN_WEIGHT}) * unit;
         }
 
+        uint inkSeedKey(float seed) {
+            return uint(floor(clamp(seed, 0.0, 1.0) * ${InkBrushMask.SEED_SCALE}));
+        }
+
+        float inkHashUnit(int x, int y, uint seed) {
+            uint hash = uint(x) * ${InkBrushMask.HASH_X}u
+                      + uint(y) * ${InkBrushMask.HASH_Y}u
+                      + seed * ${InkBrushMask.HASH_SEED}u;
+            hash = hash ^ (hash >> ${InkBrushMask.HASH_SHIFT_A}u);
+            hash *= ${InkBrushMask.HASH_MIX}u;
+            hash = hash ^ (hash >> ${InkBrushMask.HASH_SHIFT_B}u);
+            return float(hash & ${InkBrushMask.HASH_MASK}u) / float(${InkBrushMask.HASH_MASK}u);
+        }
+
+        float inkValueNoise1(float position, int y, uint seed) {
+            int index = int(floor(position));
+            float blend = smoothstep(0.0, 1.0, fract(position));
+            return mix(
+                inkHashUnit(index, y, seed),
+                inkHashUnit(index + 1, y, seed),
+                blend
+            );
+        }
+
+        float inkValueNoise2(vec2 position, uint seed) {
+            ivec2 cell = ivec2(floor(position));
+            vec2 blend = smoothstep(vec2(0.0), vec2(1.0), fract(position));
+            float lower = mix(
+                inkHashUnit(cell.x, cell.y, seed),
+                inkHashUnit(cell.x + 1, cell.y, seed),
+                blend.x
+            );
+            float upper = mix(
+                inkHashUnit(cell.x, cell.y + 1, seed),
+                inkHashUnit(cell.x + 1, cell.y + 1, seed),
+                blend.x
+            );
+            return mix(lower, upper, blend.y);
+        }
+
+        float inkBrushMask(
+            vec2 canvas,
+            vec2 center,
+            vec2 axisMajor,
+            float normalizedDistance,
+            float seedPhase,
+            float wetness,
+            float bristleAlong,
+            float bristleAcross
+        ) {
+
+            float edge = smoothstep(${InkBrushMask.EDGE_DRY_START}, 1.0, normalizedDistance);
+            float dry = clamp(
+                1.0 - clamp(wetness, 0.0, 1.0) + edge * ${InkBrushMask.EDGE_DRYING},
+                0.0,
+                1.0
+            );
+            if (dry <= ${InkBrushMask.LOADED_DRYNESS}) return 1.0;
+
+            vec2 axisMinor = vec2(-axisMajor.y, axisMajor.x);
+            vec2 local = canvas - center;
+            float across = bristleAcross + dot(local, axisMinor);
+            float along = bristleAlong + dot(local, axisMajor);
+            uint seed = inkSeedKey(seedPhase);
+
+            float fiber = inkValueNoise2(
+                vec2(
+                    across / ${InkBrushMask.BRISTLE_WIDTH_PX}
+                        + seedPhase * ${InkBrushMask.BRISTLE_PHASE},
+                    along / ${InkBrushMask.BREAK_LENGTH_PX}
+                        + seedPhase * ${InkBrushMask.BREAK_PHASE}
+                ),
+                seed
+            );
+            float tuft = inkValueNoise1(
+                across / ${InkBrushMask.TUFT_WIDTH_PX}
+                    + seedPhase * ${InkBrushMask.TUFT_PHASE},
+                int(seed),
+                seed ^ ${InkBrushMask.TUFT_SALT}u
+            );
+
+            int paperX = int(floor(canvas.x));
+            int paperY = int(floor(canvas.y));
+            float paper = inkHashUnit(paperX, paperY, ${InkBrushMask.PAPER_SEED}u);
+            float height = mix(fiber, tuft, ${InkBrushMask.TUFT_WEIGHT});
+            height -= dry * ${InkBrushMask.PAPER_TOOTH_DEPTH} * (1.0 - paper);
+
+            float thresholdCurve = pow(dry, ${InkBrushMask.DRY_THRESHOLD_POWER});
+            float threshold = mix(
+                ${InkBrushMask.DRY_THRESHOLD_MIN},
+                ${InkBrushMask.DRY_THRESHOLD_MAX},
+                thresholdCurve
+            );
+            return smoothstep(
+                threshold - ${InkBrushMask.CONTACT_FEATHER},
+                threshold + ${InkBrushMask.CONTACT_FEATHER},
+                height
+            );
+        }
+
         void main() {
             float d = length(v_local);
             float r = v_radius;
             float feather = max(fwidth(d), ${DabStamp.GRADIENT_EPSILON});
             float inner = clamp(min(r * v_hardness, r - feather), 0.0, r);
             float m = 1.0 - smoothstep(inner, r, d);
+            // Empty quad corners skip the procedural hashes.
+            if (m <= 0.0) {
+                o_color = vec4(0.0);
+                return;
+            }
             if (u_grainMode == ${GrainMode.Procedural.shaderId}) m *= proceduralGrain(v_canvas);
+            if (u_brushModel == ${BrushModel.ChineseInk.shaderId}) {
+                m *= inkBrushMask(
+                    v_canvas,
+                    v_center,
+                    v_axisMajor,
+                    d / r,
+                    v_seed,
+                    v_wetness,
+                    v_bristleAlong,
+                    v_bristleAcross
+                );
+            }
             o_color = v_color * m;
         }
     """.trimIndent()
@@ -477,6 +626,7 @@ object Shaders {
             Uniform("u_tileOrigin", "vec2"),
             Uniform("u_color", "vec3"),
             Uniform("u_grainMode", "int"),
+            Uniform("u_brushModel", "int"),
         ),
     )
 

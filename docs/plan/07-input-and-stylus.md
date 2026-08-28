@@ -79,7 +79,7 @@ class StrokeInput {
     var y = 0f
     var pressure = 1f     // 0..1 after PressureCurve; 1.0 constant for fingers unless fingerPressure is on
     var tilt = 0f         // radians, 0 = perpendicular, π/2 = flat (AXIS_TILT as delivered)
-    var orientation = 0f  // radians, AXIS_ORIENTATION rotated by -view.rotation so it is canvas-relative
+    var orientation = 0f  // radians from canvas +x: AXIS_ORIENTATION − π/2 − view.rotation
     var timeNs = 0L       // event time in ns (eventTime × 1e6 — ms precision; historical event time × 1e6)
     var source = StrokeSource.STYLUS
     var predicted = false // true only in onStrokePredicted batches
@@ -98,7 +98,7 @@ How each field is derived:
 | `x`, `y` | `event.getX(i)`/`getY(i)` or historical → `ViewTransform.invert` | `invert` returns a `Pair`; the handler uses an allocation-free variant `invertInto(x, y, out: FloatArray)` added in the port (same math). The Compose `AndroidView` sits at the window origin of the canvas area, so view coordinates are `SurfaceView` coordinates — no insets math. |
 | `pressure` | `getPressure(i)` / `getHistoricalPressure` → `PressureCurve.apply` | Raw value may exceed 1.0 on some devices; clamp to `[0, 1]` *before* the curve. For `TOOL_TYPE_FINGER`: constant `1.0` unless `InputPrefs.fingerPressure` is on — finger "pressure" on capacitive screens is contact area, which tracks finger angle and sweat, not intent. Mouse: constant 1.0. |
 | `tilt` | `getAxisValue(AXIS_TILT, i)` | Already radians. Devices without tilt report 0 (perpendicular) — tools treat 0 as "no tilt effect". |
-| `orientation` | `getAxisValue(AXIS_ORIENTATION, i)` − `view.rotation`, wrapped to (−π, π] | The pen's azimuth is reported in *screen* space; a rotated view would rotate the marker's square tip the wrong way otherwise. |
+| `orientation` | `getAxisValue(AXIS_ORIENTATION, i)` − π/2 − `view.rotation`, wrapped to (−π, π] | Android measures from screen-up; the engine measures from canvas +x. The second subtraction makes it canvas-relative. |
 | `timeNs` | `event.eventTime * 1_000_000` for the current sample and `getHistoricalEventTime(pos) * 1_000_000` for historical ones (ms precision on all API levels; `getEventTimeNanos()` is public only from API 34 — to verify — and may be used behind a `Build.VERSION.SDK_INT >= 34` check with the ms path as the fallback, the older `getEventTimeNano()` being hidden API) | Time drives velocity dynamics and the stabilizer; monotonic per stroke by construction of the history order. |
 | `source` | `getToolType(i)` ∈ STYLUS / ERASER / FINGER / MOUSE | Stored per sample so a stroke's source is available at every stage; a stroke never changes source mid-way (a tool-type change is a stroke boundary, §6). |
 
@@ -239,8 +239,8 @@ one finger goes straight to NAVIGATE (pan only) after slop, or to TAP_WAIT
 | `ACTION_DOWN`, finger | `requestUnbufferedDispatch`; arbiter `down` → pending (buffer sample) or `Ignore` (stylus active / palm) |
 | `ACTION_POINTER_DOWN` | arbiter `down` for the new pointer → `Navigate` / `Ignore` |
 | `ACTION_MOVE` | for each pointer: historical + current samples → arbiter `move`; drawing pointer → `onStrokeSamples` (+ `predictor.record`); navigating pointers → `NavigationStep` (§7) |
-| `ACTION_POINTER_UP` | arbiter `up`; navigation continues with the remaining pointer as pan-only until it lifts (no zoom from one finger) |
-| `ACTION_UP` | arbiter `up` → `onStrokeEnd` / `TapUndo` / `TapRedo` / `onNavigateEnd` |
+| `ACTION_POINTER_UP` | If this is the drawing pointer, its final coordinates and axes → `onStrokeSample`; then arbiter `up`. Navigation continues with a remaining pointer as pan-only until it lifts. |
+| `ACTION_UP` | drawing pointer's final coordinates and axes → `onStrokeSample`; then arbiter `up` → `onStrokeEnd` / `TapUndo` / `TapRedo` / `onNavigateEnd` |
 | `ACTION_CANCEL`, or any event with `FLAG_CANCELED` (API 33+) | `onStrokeCancel` (front buffer `cancel()`, stroke buffer discarded, no `HistoryEntry`), arbiter reset, navigation ended without a step |
 | `ACTION_HOVER_ENTER/MOVE` (generic motion) | `HoverState(x, y, distance?, source)` → `onHover`; palm-rejection "stylus near" flag set |
 | `ACTION_HOVER_EXIT` | `onHover(NONE)`; start the `HOVER_GRACE_MS` timer (§5) |

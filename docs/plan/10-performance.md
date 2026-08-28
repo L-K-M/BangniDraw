@@ -118,8 +118,9 @@ allocated in steady state.** Concretely:
   capacity) spills the oldest samples to a second pool that is allocated
   once and kept.
 - `Dab` is likewise a slot in `DabBatch` (SoA `FloatArray`s, the
-  `DAB_STRIDE` = 8 fields x, y, radius, flow, hardness, angle, aspect,
-  seed — `02-architecture.md` §3.2), written by
+  `DAB_STRIDE` = 11 fields x, y, radius, flow, hardness, angle, aspect,
+  seed, wetness, bristle-along and bristle-across phase —
+  `02-architecture.md` §3.2), written by
   `DabGenerator.begin/advance/end(…, out)` (`04-tools.md` §3) into a caller
   supplied batch.
 - The ring buffer between threads is `DabRing`: `Array<DabBatch>` of
@@ -286,7 +287,7 @@ object PerfConstants {
 
     // Touch path (all preallocated once per CanvasTouchHandler)
     const val STROKE_INPUT_CAPACITY = 8192       // samples kept in the SoA before spilling
-    const val DAB_STRIDE = 8                     // x y radius flow hardness angle aspect seed (02 §3.2; colour and opacity are per stroke)
+    const val DAB_STRIDE = 11 // geometry + seed, wetness and two bristle phases
     const val DAB_BATCH_CAPACITY = 1024          // dabs per ring slot
     const val DAB_RING_SLOTS = 8
     const val DAB_RING_CAPACITY = DAB_BATCH_CAPACITY * DAB_RING_SLOTS
@@ -341,10 +342,23 @@ data class CanvasSize(val width: Int, val height: Int) {
     private val wetTilesX: Int get() = wetTilesFor(width)
     private val wetTilesY: Int get() = wetTilesFor(height)
     val wetTilesPerLayer: Long get() = wetTilesX.toLong() * wetTilesY
+    val pixelBytes: Long
+        get() {
+            if (width <= 0 || height <= 0) return 0L
+            val pixels = width.toLong() * height
+
+            return if (pixels > Long.MAX_VALUE / RGBA8_BYTES_PER_PIXEL) {
+                Long.MAX_VALUE
+            } else {
+                pixels * RGBA8_BYTES_PER_PIXEL
+            }
+        }
+
     val layerBytesWorstCase: Long get() = bytesForTiles(tilesPerLayer)
     val wetLayerBytesWorstCase: Long get() = bytesForTiles(wetTilesPerLayer)
 
     private companion object {
+        const val RGBA8_BYTES_PER_PIXEL = 4L
         const val CANVAS_PIXELS_PER_WET_TILE =
             WatercolorKernel.CELL_SIZE * TILE_SIZE
 
@@ -377,6 +391,7 @@ object MemoryBudget {
         val historyMaxSteps: Int,
         val historyMaxBytes: Long,
         val thumbnailCacheBytes: Long,
+        val transientImageBytes: Long, // maximum decoded RGBA8 import
         val poolArraySlices: Int,       // slices per texture array TilePool creates (≤ glMaxArrayLayers)
         val poolArrayCount: Int,        // how many arrays fit the budget
     )
@@ -434,6 +449,9 @@ object MemoryBudget {
 
         // Largest whole-tile square whose minimum stack, wet state, and
         // the larger exclusive gesture reserve fits.
+        val perLayerLimit =
+            poolCapacityBytes / (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)
+        val transientImageBytes = minOf(canvas.pixelBytes, perLayerLimit)
         var maxCanvasEdge = TILE_SIZE
         while (maxCanvasEdge + TILE_SIZE <= MAX_CANVAS_EDGE_V1 &&
                requiredPoolBytes(
@@ -452,16 +470,17 @@ object MemoryBudget {
             else -> THUMB_MIB_SMALL
         }).toLong() shl 20
         return Result(
-            gpu,
-            WatercolorScratchBudget.MAX_BYTES,
-            poolCapacityBytes,
-            maxLayers,
-            maxCanvasEdge,
-            historySteps,
-            historyBytes,
-            thumbBytes,
-            slices,
-            arrays,
+            gpuTileBudgetBytes = gpu,
+            watercolorScratchMaxBytes = WatercolorScratchBudget.MAX_BYTES,
+            poolCapacityBytes = poolCapacityBytes,
+            maxLayers = maxLayers,
+            maxCanvasEdge = maxCanvasEdge,
+            historyMaxSteps = historySteps,
+            historyMaxBytes = historyBytes,
+            thumbnailCacheBytes = thumbBytes,
+            transientImageBytes = transientImageBytes,
+            poolArraySlices = slices,
+            poolArrayCount = arrays,
         )
     }
 }

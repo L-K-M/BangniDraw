@@ -12,6 +12,7 @@ import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.GestureListener
 import ch.lkmc.bangnidraw.engine.core.LatencyTrace
 import ch.lkmc.bangnidraw.engine.core.NavigationStep
+import ch.lkmc.bangnidraw.engine.core.NavigationTarget
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PredictionGate
 import ch.lkmc.bangnidraw.engine.core.PressureCurve
@@ -24,6 +25,7 @@ import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.core.ViewportResizeOwner
 import ch.lkmc.bangnidraw.engine.core.ViewportResizePolicy
 import ch.lkmc.bangnidraw.engine.core.ViewportResizeState
+import kotlin.math.PI
 
 /**
  * What the canvas does with pointers — the callbacks a host implements.
@@ -58,6 +60,16 @@ interface CanvasInputHost {
      * disappear when they lift.
      */
     fun onNavigateActive(active: Boolean) {}
+
+    /** A tracing-reference gesture, already converted from window to canvas px. */
+    fun onReferenceGesture(
+        pivotX: Float,
+        pivotY: Float,
+        panX: Float,
+        panY: Float,
+        zoom: Float,
+        rotationDelta: Float,
+    ) {}
 
     /** Roadmap 2.4b. A stroke began with [source] at this pointer. */
     fun onStrokeBegin(pointerId: Int, source: StrokeSource) {}
@@ -123,6 +135,8 @@ class CanvasTouchHandler(
 
     var view: ViewTransform = ViewTransform()
         private set
+
+    var navigationTarget: NavigationTarget = NavigationTarget.CANVAS
 
     private var fit: FitTransform? = null
     private var screen: ScreenTransform? = null
@@ -219,6 +233,8 @@ class CanvasTouchHandler(
     private val decisions = object : GestureListener {
         override fun onDraw(pointerId: Int, source: StrokeSource) {
             navigating = false
+            if (navigationTarget == NavigationTarget.TRACING_REFERENCE) return
+
             strokeLive = true
             drawingId = pointerId
             drawingSource = source
@@ -247,12 +263,22 @@ class CanvasTouchHandler(
             stopPredicting()
             host.onStrokeCancel()
         }
-        override fun onTapUndo() = host.onUndoRequested()
-        override fun onTapRedo() = host.onRedoRequested()
+        override fun onTapUndo() {
+            if (navigationTarget == NavigationTarget.CANVAS) host.onUndoRequested()
+        }
+        override fun onTapRedo() {
+            if (navigationTarget == NavigationTarget.CANVAS) host.onRedoRequested()
+        }
         override fun onLongPressPick(x: Float, y: Float) =
-            host.onColorPick(canvasX(x, y), canvasY(x, y))
+            if (navigationTarget == NavigationTarget.CANVAS) {
+                host.onColorPick(canvasX(x, y), canvasY(x, y))
+            } else {
+                Unit
+        }
         override fun onIgnore(pointerId: Int) = Unit
         override fun onStrokeEnd(pointerId: Int) {
+            if (!strokeLive) return
+
             strokeLive = false
             drawingId = NO_POINTER
             drawingSource = null
@@ -353,20 +379,29 @@ class CanvasTouchHandler(
         track(pointerId, x, y, pressure, tilt, orientation, timeNs)
         pendingMove = true
         if (strokeLive && pointerId == drawingId) {
-            // Window px, deliberately: §8's threshold is about what the eye
-            // sees, so a stroke at 8x zoom must not become eight times more
-            // tolerant of a bad guess. [emitSample] converts to canvas px on
-            // the way to the host; the gate is fed before that.
-            if (prediction.actual(x, y, timeNs)) {
-                latency.record(
-                    prediction.scoredPredictedX,
-                    prediction.scoredPredictedY,
-                    prediction.scoredActualX,
-                    prediction.scoredActualY,
-                )
-            }
-            emitSample(x, y, pressure, tilt, orientation, timeNs)
+            emitDrawingSample(x, y, pressure, tilt, orientation, timeNs)
         }
+    }
+
+    private fun emitDrawingSample(
+        x: Float,
+        y: Float,
+        pressure: Float,
+        tilt: Float,
+        orientation: Float,
+        timeNs: Long,
+    ) {
+        // Window px: prediction error is visual. Canvas conversion happens only
+        // when the accepted sample reaches the host.
+        if (prediction.actual(x, y, timeNs)) {
+            latency.record(
+                prediction.scoredPredictedX,
+                prediction.scoredPredictedY,
+                prediction.scoredActualX,
+                prediction.scoredActualY,
+            )
+        }
+        emitSample(x, y, pressure, tilt, orientation, timeNs)
     }
 
     /**
@@ -406,29 +441,16 @@ class CanvasTouchHandler(
         screen?.invertY(x, y) ?: view.invertY(x, y)
 
     /**
-     * The pen's azimuth in **canvas** space: the screen-space azimuth minus the
-     * view's rotation, wrapped to (−π, π] (§2's sample table).
+     * The pen's azimuth in **canvas** space, wrapped to (−π, π].
      *
-     * The digitizer reports azimuth relative to the *screen*. A chisel tip
-     * takes its angle from that value, so on a rotated canvas the tip would
-     * turn the wrong way — rotate the paper 90° and every chisel stroke lands
-     * across the grain. Converted here beside the x/y conversion, because this
-     * class owns the view transform during a gesture and nothing downstream
-     * should have to know a screen exists.
-     *
-     * **Nothing shows this on the shipped preset**, and it is worth being exact
-     * about why rather than leaving the next reader to guess. `DabGenerator`
-     * takes a dab's angle from `sample.orientation` under *two* conditions:
-     * when the tip elongates under tilt (`elongation > 1f`), or when
-     * `preset.orientation` is `TipOrientation.Stylus`. `INK_PEN` — the only
-     * preset in `BrushPresets.ALL` — has `tilt = TiltEffect.None`, whose
-     * `elongate` is false, and `orientation = TipOrientation.Fixed`, so its
-     * dabs are drawn at angle 0 and neither door opens. Fixed now because the
-     * flat and bristle tips of `04-tools.md` walk straight through both, and a
-     * wrong azimuth there is not a subtle defect.
+     * Android's `AXIS_ORIENTATION` is zero at screen-up; brush geometry is zero
+     * on +x. Subtract that quarter-turn before the view rotation. Converted
+     * here beside x/y because this class owns the view transform.
      */
     private fun canvasOrientation(screenAzimuth: Float): Float =
-        ViewTransform.normalizeAngle(screenAzimuth - view.rotation)
+        ViewTransform.normalizeAngle(
+            screenAzimuth - ANDROID_ORIENTATION_BASIS_RAD - view.rotation,
+        )
 
     /**
      * The sample a tracked pointer is currently standing on — position and axes
@@ -487,6 +509,22 @@ class CanvasTouchHandler(
         }
     }
 
+    /** Forwards the lifting pointer's final coordinates and axes before pen-up. */
+    internal fun handleUp(
+        pointerId: Int,
+        x: Float,
+        y: Float,
+        timeNs: Long,
+        pressure: Float,
+        tilt: Float,
+        orientation: Float,
+    ) {
+        if (strokeLive && pointerId == drawingId) {
+            emitDrawingSample(x, y, pressure, tilt, orientation, timeNs)
+        }
+        handleUp(pointerId, timeNs)
+    }
+
     internal fun handleCancel(timeNs: Long) {
         arbiter.cancel(decisions)
         navigating = false
@@ -530,6 +568,11 @@ class CanvasTouchHandler(
             prevX[0] = trackX[ai]; prevY[0] = trackY[ai]
             prevX[1] = trackX[bi]; prevY[1] = trackY[bi]
         }
+        if (navigationTarget == NavigationTarget.TRACING_REFERENCE) {
+            applyReferenceNavigation()
+            return
+        }
+
         rawRotation += step.rotation
         // The angle to DISPLAY, which is the snap's target — zero, or the
         // nearest right angle when Prefs.snapRightAngles is on. Hardcoding 0f
@@ -542,6 +585,22 @@ class CanvasTouchHandler(
         updateScreen()
         if (snap.justEntered) host.onRotationSnapped()
         host.onViewChanged(view)
+    }
+
+    private fun applyReferenceNavigation() {
+        val current = screen ?: return
+        val pivotX = current.invertX(step.anchorX, step.anchorY)
+        val pivotY = current.invertY(step.anchorX, step.anchorY)
+        val movedX = current.invertX(step.anchorX + step.panX, step.anchorY + step.panY)
+        val movedY = current.invertY(step.anchorX + step.panX, step.anchorY + step.panY)
+        host.onReferenceGesture(
+            pivotX = pivotX,
+            pivotY = pivotY,
+            panX = movedX - pivotX,
+            panY = movedY - pivotY,
+            zoom = step.zoom,
+            rotationDelta = step.rotation,
+        )
     }
 
     private fun captureNavPointers() {
@@ -946,7 +1005,12 @@ class CanvasTouchHandler(
                 handleMoveEnd(timeNs)
             }
 
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> handleUp(id, timeNs)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> handleUp(
+                id, e.getX(index), e.getY(index), timeNs,
+                e.getPressure(index),
+                e.getAxisValue(MotionEvent.AXIS_TILT, index),
+                e.getOrientation(index),
+            )
             // §6's barrel button. Without these StylusState.buttonPressed could
             // never leave false, and its KDoc promising these two actions was a
             // description of code that did not exist.
@@ -1139,6 +1203,9 @@ class CanvasTouchHandler(
 
     private companion object {
         const val NO_POINTER = -1
+
+        /** Android orientation zero is screen-up; engine angle zero is +x. */
+        val ANDROID_ORIENTATION_BASIS_RAD = (PI / 2.0).toFloat()
 
         /** [fill]'s "not a historical sample, the event's own". */
         const val CURRENT = -1

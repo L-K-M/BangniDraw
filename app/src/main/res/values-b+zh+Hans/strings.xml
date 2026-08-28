@@ -104,6 +104,13 @@
     <string name="preset_airbrush">喷枪</string>
     <string name="preset_spray_can">喷漆罐</string>
     <string name="preset_marker">马克笔</string>
+    <string name="preset_charcoal">炭笔</string>
+    <string name="preset_soft_pastel">软粉彩</string>
+    <string name="preset_technical_pen">针管笔</string>
+    <string name="preset_calligraphy">毛笔</string>
+    <string name="preset_dry_brush">干画笔</string>
+    <string name="preset_oil_paint">油画笔</string>
+    <string name="preset_pigment_wash">淡彩笔</string>
     <string name="preset_hard_eraser">硬橡皮擦</string>
     <string name="preset_soft_eraser">软橡皮擦</string>
     <string name="tool_eraser">橡皮擦</string>
@@ -274,6 +281,23 @@
     <string name="err_layers_unreadable">这张画的一些图层无法读取。</string>
     <string name="err_storage_full">存储空间已满——请清理空间以保留更改。</string>
     <string name="err_leave_failed">无法完成保存——画作保持打开。</string>
+
+    <!-- 描图参考图控件和导入错误。 -->
+    <string name="err_reference_unreadable">描图图像无法读取。</string>
+    <string name="err_reference_import">无法导入描图图像。</string>
+    <string name="err_reference_layer_budget">添加描图图像前请先移除一个图层。</string>
+    <string name="err_reference_memory">内存不足，无法添加描图图像。</string>
+    <string name="reference_image">描图图像</string>
+    <string name="reference_edit_help">在画布上用双指移动、缩放或旋转图像。</string>
+    <string name="reference_opacity">不透明度</string>
+    <string name="reference_visible">显示</string>
+    <string name="reference_replace">替换</string>
+    <string name="reference_reset">重置</string>
+    <string name="reference_remove">移除</string>
+    <string name="reference_done">完成</string>
+    <string name="reference_panel_opened">已打开描图图像控件</string>
+    <string name="reference_remove_title">移除描图图像？</string>
+    <string name="reference_remove_body">自动保存后将删除应用内的图像副本。</string>
 
     <string name="settings_title">设置</string>
     <string name="settings_drawing">绘画</string>

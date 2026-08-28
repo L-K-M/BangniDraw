@@ -159,6 +159,13 @@ data class WatercolorBehavior(
     }
 }
 
+/** Stateful footprint model selected once at pen-down. */
+@Serializable
+enum class BrushModel(val shaderId: Int) {
+    Standard(0),
+    ChineseInk(1),
+}
+
 /**
  * Every parameter a brush can have (`docs/plan/04-tools.md` §2). All
  * serializable, all defaulted, so a preset JSON can omit what it does not
@@ -224,6 +231,8 @@ data class BrushPreset(
     val watercolor: WatercolorBehavior? = null,
     /** Reserved `procedural` key now; a tileable asset key when grains land. */
     val grain: String? = null,
+    /** [BrushModel.ChineseInk] adds soft-tuft memory, ink load, and split bristles. */
+    val model: BrushModel = BrushModel.Standard,
     val eraseMode: Boolean = false,
     val bufferMode: BufferMode = BufferMode.Max,
 ) {

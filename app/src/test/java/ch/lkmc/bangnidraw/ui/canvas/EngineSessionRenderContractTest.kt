@@ -433,7 +433,7 @@ class EngineSessionRenderContractTest {
         const val EXECUTE_CALL = "glRenderer.execute {"
         const val FRAME_SNAPSHOT_SCOPE = "PendingBatchDrainScope.FRAME_SNAPSHOT"
         const val EXHAUSTIVE_SCOPE = "PendingBatchDrainScope.EXHAUSTIVE"
-        const val CONFIGURE_CALL = "session.configure(stack, paperColor, view)"
+        const val CONFIGURE_CALL = "session.configure(stack, paperColor, view, tracingReference)"
         const val SET_STACK_CALL = "session.setStack(stack)"
         const val SET_PAPER_CALL = "session.setPaperColor(paperColor)"
         const val SET_VIEW_CALL = "session.setView(view)"

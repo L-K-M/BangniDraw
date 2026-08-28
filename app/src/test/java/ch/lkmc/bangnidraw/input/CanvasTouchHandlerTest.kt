@@ -1,8 +1,9 @@
 package ch.lkmc.bangnidraw.input
 
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
-import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.FitTransform
+import ch.lkmc.bangnidraw.engine.core.GestureArbiter
+import ch.lkmc.bangnidraw.engine.core.NavigationTarget
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PressureCalibration
 import ch.lkmc.bangnidraw.engine.core.PressureCurve
@@ -44,8 +45,10 @@ class CanvasTouchHandlerTest {
         var lastPressure = -1f
         var lastTilt = -1f
         var lastOrientation = -1f
+        var samplesAtEnd = -1
         /** Every sample's timestamp, so the opening pair's dt is checkable. */
         val times = mutableListOf<Long>()
+        val referencePans = mutableListOf<Pair<Float, Float>>()
         /** Muted during the allocation gate's measured window, so the harness costs nothing. */
         var record = true
         override fun onViewChanged(view: ViewTransform) { this.view = view; if (record) events += "view" }
@@ -69,9 +72,22 @@ class CanvasTouchHandlerTest {
             lastTilt = tilt
             lastOrientation = orientation
         }
-        override fun onStrokeEnd(pointerId: Int) { events += "end" }
+        override fun onStrokeEnd(pointerId: Int) {
+            samplesAtEnd = samples.size
+            events += "end"
+        }
         override fun onStrokeCancel() { events += "cancel" }
         override fun onNavigateActive(active: Boolean) { events += if (active) "nav+" else "nav-" }
+        override fun onReferenceGesture(
+            pivotX: Float,
+            pivotY: Float,
+            panX: Float,
+            panY: Float,
+            zoom: Float,
+            rotationDelta: Float,
+        ) {
+            referencePans += panX to panY
+        }
     }
 
     private fun ms(v: Long) = v * 1_000_000L
@@ -110,6 +126,40 @@ class CanvasTouchHandlerTest {
         h.handleMoveEnd(ms(30))
         assertTrue(host.events.contains("view"), "a two-finger drag must move the view")
         assertTrue(host.view.tx > 0f, "panning right must move the view right: ${host.view}")
+    }
+
+    @Test
+    fun `reference edit routes navigation without moving the canvas`() {
+        val host = Host()
+        val h = handler(host)
+        h.setViewport(CanvasSize(1_000, 1_000), width = 1_000, height = 1_000)
+        h.navigationTarget = NavigationTarget.TRACING_REFERENCE
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        h.handleDown(2, PointerTool.FINGER, 300f, 100f, ms(10))
+        h.handleMove(1, 150f, 100f, ms(30))
+        h.handleMove(2, 350f, 100f, ms(30))
+        h.handleMoveEnd(ms(30))
+
+        assertTrue(h.view.isIdentity)
+        assertEquals(50f, host.referencePans.single().first, 0.001f)
+        assertEquals(0f, host.referencePans.single().second, 0.001f)
+        assertTrue(
+            host.events.none { it.startsWith("begin") || it == "cancel" },
+            "reference navigation has no stroke to cancel: ${host.events}",
+        )
+    }
+
+    @Test
+    fun `one finger in reference edit emits no stroke lifecycle`() {
+        val host = Host()
+        val h = handler(host)
+        h.navigationTarget = NavigationTarget.TRACING_REFERENCE
+
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        h.handleTick(ms(GestureArbiter.PENDING_MS + 1L))
+        h.handleUp(1, ms(GestureArbiter.PENDING_MS + 2L))
+
+        assertTrue(host.events.none { it.startsWith("begin") || it == "end" || it == "cancel" })
     }
 
     @Test
@@ -410,9 +460,18 @@ class CanvasTouchHandlerTest {
         val h = handler(host)
         h.handleDown(1, PointerTool.STYLUS, 100f, 100f, ms(0))
         h.handleDown(2, PointerTool.FINGER, 400f, 400f, ms(5))
-        h.handleUp(2, ms(20))
+        val samplesBeforePalmUp = host.samples.size
+        h.handleUp(
+            2, 400f, 400f, ms(20),
+            pressure = 1f, tilt = 0f, orientation = 0f,
+        )
 
         assertTrue(h.stylus.isDown, "the pen is still on the glass after the palm lifts")
+        assertEquals(
+            samplesBeforePalmUp,
+            host.samples.size,
+            "a non-drawing pointer's final sample must not enter the pen stroke",
+        )
         assertTrue(
             PalmRejection.rejects(PointerTool.FINGER, h.stylus, ms(20) + 5_000_000_000L),
             "fingers must stay rejected while the pen is down, however long after",
@@ -420,6 +479,28 @@ class CanvasTouchHandlerTest {
 
         h.handleUp(1, ms(30))
         assertTrue(!h.stylus.isDown, "the pen's own lift does end contact")
+    }
+
+    @Test
+    fun `a drawing pointer's up sample reaches the stroke before it ends`() {
+        val host = Host()
+        val h = handler(host)
+        val halfPi = (PI / 2.0).toFloat()
+        h.handleDown(
+            1, PointerTool.STYLUS, 100f, 100f, ms(0),
+            pressure = 0.1f, tilt = 0.1f, orientation = halfPi,
+        )
+
+        h.handleUp(
+            1, 124f, 108f, ms(10),
+            pressure = 0.8f, tilt = 0.4f, orientation = halfPi,
+        )
+
+        assertEquals(2, host.samplesAtEnd, "the final sample must precede onStrokeEnd")
+        assertEquals(124f to 108f, host.samples.last())
+        assertEquals(PressureCurve.of().apply(0.8f), host.lastPressure, 1e-6f)
+        assertEquals(0.4f, host.lastTilt, 1e-6f)
+        assertEquals(0f, host.lastOrientation, 1e-6f, "screen-right is canvas +x")
     }
 
     @Test
@@ -597,15 +678,17 @@ class CanvasTouchHandlerTest {
             "the sample must carry the normalized PEN pressure, not the palm's",
         )
         assertEquals(0.4f, host.lastTilt, 1e-6f, "and the pen's tilt")
-        assertEquals(0.6f, host.lastOrientation, 1e-6f, "and the pen's orientation")
+        assertEquals(
+            0.6f - (PI / 2.0).toFloat(),
+            host.lastOrientation,
+            1e-6f,
+            "and the pen's converted orientation",
+        )
     }
 
     @Test
-    fun `the pen's azimuth reaches the host canvas-relative, not screen-relative`() {
-        // §2's sample table: `orientation` is the azimuth MINUS the view
-        // rotation. The digitizer reports it against the screen, so on a
-        // rotated canvas a chisel tip would turn the wrong way — rotate the
-        // paper a quarter turn and every chisel stroke lands across the grain.
+    fun `Android stylus azimuth becomes an x-axis canvas angle`() {
+        // Android measures from screen-up; the engine measures from canvas +x.
         val host = Host()
         val h = handler(host)
         h.setView(ViewTransform(rotation = 0.5f))
@@ -613,24 +696,16 @@ class CanvasTouchHandlerTest {
         h.handleMove(1, 120f, 100f, ms(10), orientation = 1.2f)
         h.handleMoveEnd(ms(10))
 
+        val expected = 1.2f - (PI / 2.0).toFloat() - 0.5f
         assertEquals(
-            0.7f, host.lastOrientation, 1e-6f,
-            "1.2 rad of azimuth on a canvas turned 0.5 rad is 0.7 rad on the paper",
-        )
-        // And it is genuinely different from forwarding the raw value, which is
-        // what this test exists to stop.
-        assertTrue(
-            abs(host.lastOrientation - 1.2f) > 1e-3f,
-            "the raw screen azimuth must not reach the host",
+            expected, host.lastOrientation, 1e-6f,
+            "screen-up needs a -pi/2 basis conversion before view rotation",
         )
     }
 
     @Test
     fun `a canvas-relative azimuth is wrapped, not left to run past pi`() {
-        // `normalizeAngle`'s job, and the reason the subtraction cannot stand
-        // alone: a pen at +2.9 rad on a canvas turned -2.9 rad is 5.8 rad of
-        // raw difference, which is -0.48 rad on the paper. Left unwrapped it
-        // would be a tip angle no shader clamps and no reader expects.
+        // Basis conversion and view rotation can still leave an angle past pi.
         val host = Host()
         val h = handler(host)
         h.setView(ViewTransform(rotation = -2.9f))
@@ -643,8 +718,10 @@ class CanvasTouchHandlerTest {
             "orientation must land in (-pi, pi], was ${host.lastOrientation}",
         )
         assertEquals(
-            (5.8f - 2f * PI.toFloat()), host.lastOrientation, 1e-5f,
-            "5.8 rad wraps to about -0.48, not to 5.8",
+            (5.8f - (PI / 2.0).toFloat() - 2f * PI.toFloat()),
+            host.lastOrientation,
+            1e-5f,
+            "the converted canvas angle must wrap back into range",
         )
     }
 
@@ -694,7 +771,12 @@ class CanvasTouchHandlerTest {
             "finger drawing must ignore capacitive pressure",
         )
         assertEquals(0.25f, host.lastTilt, 1e-6f, "and the drawing finger's tilt")
-        assertEquals(0.55f, host.lastOrientation, 1e-6f, "and the drawing finger's orientation")
+        assertEquals(
+            0.55f - (PI / 2.0).toFloat(),
+            host.lastOrientation,
+            1e-6f,
+            "and the drawing finger's converted orientation",
+        )
     }
 
     @Test

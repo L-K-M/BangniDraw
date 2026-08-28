@@ -141,18 +141,24 @@ follower with a per-preset strength.
 - `` `on pen-up the output catches up to the last input exactly` `` (the tail is flushed; a stroke ends where the pen lifted)
 - `` `the first sample is emitted unchanged` `` (no dead start)
 - `` `output is invariant under a canvas-space translation` `` (property)
-- `` `pressure and tilt are smoothed with the same window as position` ``
+- `` `pressure, tilt and orientation are smoothed with the same window as position` ``
+- `` `a stationary pressure change is forwarded` `` under the dynamics-aware
+  policy so a flexible tuft can press in place
+- `` `stationary pressure does not reshape a Standard brush segment` `` in
+  `StrokeDriverTest`, pinning the legacy position-only gate
 
 ### 3.4 `DabGenerator` — `DabGeneratorTest`
 
 Turns stabilized `StrokeInput`s into `Dab`s (`x, y, radius, flow,
-hardness, angle, aspect, seed` — the eight `DAB_STRIDE` fields of
+hardness, angle, aspect, seed, wetness, bristle-along phase,
+bristle-across phase` — the eleven
+`DAB_STRIDE` fields of
 `02-architecture.md` §3.2) at spacing `s · radius` along the
 path, with size/flow dynamics from pressure, tilt, velocity and the
 per-stroke opacity ceiling (`04-tools.md` §3.3).
 
 - `` `a tap yields exactly one dab` `` — one down+up sample, or down and up at the same point, emits exactly one dab at that point
-- `` `a zero-length move emits no additional dab` ``
+- `` `a zero-length move with unchanged dynamics emits no additional dab` ``
 - `` `dab spacing is invariant under canvas scale` `` — property: the same
   screen gesture at view scale 1 and view scale 4 produces dab lists whose
   canvas-space spacing differs only by the `screen→canvas` factor; the
@@ -166,6 +172,14 @@ per-stroke opacity ceiling (`04-tools.md` §3.3).
 - `` `velocity dynamics are computed from canvas-space speed` `` (so zoom does not change the feel)
 - `` `jitter is deterministic for a given stroke seed` ``
 - `` `a marker dab's angle follows orientation` ``
+- `` `Chinese ink pressure spreads a pointed tuft into its belly` `` and a
+  directionless first touch stays round
+- `` `Chinese ink records a stationary press` `` at the same centre
+- `` `Chinese ink keeps brush direction through a turn` `` — the tuft retains
+  its incoming axis, then eases toward the new tangent
+- `` `Chinese ink depletion follows swept distance rather than dab count` `` —
+  changing spacing preserves end wetness and one seed fixes the stroke's lanes
+- `` `Chinese ink speed exposes bristles without collapsing width` ``
 - `` `erase-mode presets emit dabs flagged erase with the same geometry` ``
 - The **golden stroke** (§6) lives here too.
 
@@ -270,8 +284,9 @@ from `05-layers.md` §4, in a table-driven test
 Inputs: `totalMem` bytes, `isLowRamDevice`, `largeMemoryClass` MB, GL limits
 (`glMaxTextureSize`, `glMaxArrayLayers`), canvas size — `DeviceMemory` and
 `CanvasSize` of `10-performance.md` §4. Outputs: `Result(maxLayers,
-maxCanvasEdge, poolArraySlices, poolArrayCount, history caps, thumbnail
-cache)`; the pinned worked table is 10 §4's (`05-layers.md` §6).
+maxCanvasEdge, poolArraySlices, poolArrayCount, history caps, thumbnail cache,
+transient image bytes)`; the pinned worked table is 10 §4's (`05-layers.md`
+§6).
 
 - `` `the layer cap is monotone non-decreasing in totalMem` `` (property over sorted random memory sizes, fixed canvas)
 - `` `the layer cap is monotone non-increasing in canvas area` ``
@@ -343,7 +358,7 @@ They are part of the suite under the §11 rule (every pure class gets a
 | `TilePoolAllocatorTest` | the pure slice allocator behind `TilePool` (ADR 0001, 03 §2.1) | allocate/free reuse, lazy page growth, `allocateNotOn` never returns an excluded page and creates a page when all are excluded, exhaustion is a value not an exception |
 | `StrokeMergeTest` | `StrokeMerge` (03 §7.4, §15) | the four merge modes on hand-computed premultiplied pixels; the opacity cap; MIX bit-exact with PAINT where one side is empty |
 | `OffscreenCapacityTest` | `OffscreenCapacity` (03 §7.6) | pressure-size ramps allocate only at new high-water marks; width/height grow independently; retained RGBA8 byte cost is exact |
-| `DabStampTest` | `DabStamp` (03 §7.2) | hardness falloff at `d = 0`, `h·r`, `r`; ≥ 1 px AA band at hardness 1; sub-pixel dab area weighting; `Max` vs `Accumulate` overlap |
+| `DabStampTest` | `DabStamp` (03 §7.2–7.3) | hardness falloff at `d = 0`, `h·r`, `r`; ≥ 1 px AA band at hardness 1; sub-pixel area weighting; `Max` vs `Accumulate`; loaded Chinese ink stays dense, dry ink has dark hairs and zero-alpha gaps, overlapping dabs keep the same lanes |
 | `HistoryEntryTest`, `MergeSemanticsTest` | `05-layers.md` §9 | as listed there (apply → undo → equality; merge/flatten equal `Composite.tile`; the readback-drain case; undo on a locked layer succeeds, 05 §1) |
 | `ToolSwitcherTest` | `ToolSwitcher` (`04-tools.md` §9) | push/pop order with eraser end during a button hold; `select` during a temporary replaces the base; pop of a non-top reason is a no-op |
 | `GallerySyncDecisionTest` | `GallerySyncDecision` (`06-document-and-persistence.md` §9.2, `12-roadmap.md` step 4) | `(uriPresent, isOwner, threw, modifiedByOther)` → Insert / Rewrite / Reinsert, every combination |
@@ -373,6 +388,7 @@ What is pinned, and from where:
 | `#define BANGNI_MIXING` / `mixbox_lerp(` present in the `*_mix` merge and smudge variants; **absent** from the plain ones (`09-color-and-mixing.md` §5.2) | — | paying the LUT cost on every stroke |
 | RMW scratch UVs use `u_beforeTexel`/`u_beforeScale`; blur work uses `u_horizontalTexel`/`u_horizontalScale`; every tap calls `clampLogicalUv` (`03-canvas-engine.md` §7.6) | `SmudgePass` uploads logical/capacity scales from `OffscreenTarget` | retained high-water textures stretching, offsetting, or exposing stale edge texels |
 | The stroke-buffer opacity cap `S *= u_strokeOpacity / S.a` (`03-canvas-engine.md` §7.4) | `StrokeBuffer.MERGE_EXPR` | opacity cap drift from `CompositeTest` |
+| `i_seed`, `i_wetness`, both `i_bristle*` phases, `u_brushModel`, transported `v_axisMajor`, and dab-local coordinates in `inkBrushMask` | `DAB_STRIDE`, `BrushModel`, `InkBrushMask` and the CPU `DabStamp` oracle | an inactive payload field, location-dependent or per-dab lane swimming, or CPU/GPU dry-brush drift |
 | The 8-bit rounding helper | `Composite.ROUND_EXPR` | last-bit disagreement with the CPU reference |
 | `layout(location = N)` attribute indices | `Shaders.ATTR_POS`, `ATTR_UV` | VAO binding mismatch |
 | `#version 300 es` first line of every source | — | ES 2 parse |

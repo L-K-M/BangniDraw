@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * One dab, as a value — for tests, fixtures and anything off the hot path.
  *
- * The stroke path does **not** allocate these: it writes the same eight
+ * The stroke path does **not** allocate these: it writes the same eleven
  * fields into the parallel arrays of a [DabBatch] (`02-architecture.md`
  * §3.2), which is what `DAB_STRIDE` counts. Colour and opacity are not here
  * because they are per *stroke*, not per dab.
@@ -25,8 +25,13 @@ data class Dab(
     val angle: Float,
     /** Minor/major axis; 1 is round. */
     val aspect: Float,
-    /** Reserved texture-grain phase, derived from the stroke seed. */
+    /** Standard per-dab phase; fixed for one Chinese ink stroke. */
     val seed: Float,
+    /** Ink remaining in the contacted tuft; 1 for ordinary dabs. */
+    val wetness: Float = 1f,
+    /** Transported bristle-field coordinates at the dab centre. */
+    val bristleAlong: Float = 0f,
+    val bristleAcross: Float = 0f,
 ) {
     companion object {
         /**
@@ -63,6 +68,9 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
     val angle = FloatArray(capacity)
     val aspect = FloatArray(capacity)
     val seed = FloatArray(capacity)
+    val wetness = FloatArray(capacity)
+    val bristleAlong = FloatArray(capacity)
+    val bristleAcross = FloatArray(capacity)
 
     var count = 0
         private set
@@ -143,6 +151,9 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         angle: Float,
         aspect: Float,
         seed: Float,
+        wetness: Float = 1f,
+        bristleAlong: Float = 0f,
+        bristleAcross: Float = 0f,
     ): Boolean {
         // [Dab]'s documented range, enforced where it is written rather than
         // only promised. An oversized radius is not a wrong-looking dab, it is
@@ -152,10 +163,14 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         require(radius >= Dab.MIN_RADIUS && radius <= Dab.MAX_RADIUS) {
             "dab radius $radius is outside ${Dab.MIN_RADIUS}..${Dab.MAX_RADIUS}"
         }
+        requireExtendedState(seed, wetness, bristleAlong, bristleAcross)
         DabBounds.requireValid(x, y, radius)
         if (isFull) return false
         val i = count
-        write(i, x, y, radius, flow, hardness, angle, aspect, seed)
+        write(
+            i, x, y, radius, flow, hardness, angle, aspect, seed, wetness,
+            bristleAlong, bristleAcross,
+        )
         count = i + 1
         includeDirtyDab(x, y, radius)
         return true
@@ -172,15 +187,39 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         angle: Float,
         aspect: Float,
         seed: Float,
+        wetness: Float = 1f,
+        bristleAlong: Float = 0f,
+        bristleAcross: Float = 0f,
     ) {
         require(index in 0 until count) { "index $index is outside 0..${count - 1}" }
         require(radius in Dab.MIN_RADIUS..Dab.MAX_RADIUS) {
             "dab radius $radius is outside ${Dab.MIN_RADIUS}..${Dab.MAX_RADIUS}"
         }
+        requireExtendedState(seed, wetness, bristleAlong, bristleAcross)
         DabBounds.requireValid(x, y, radius)
 
-        write(index, x, y, radius, flow, hardness, angle, aspect, seed)
+        write(
+            index, x, y, radius, flow, hardness, angle, aspect, seed, wetness,
+            bristleAlong, bristleAcross,
+        )
         includeDirtyDab(x, y, radius)
+    }
+
+    private fun requireExtendedState(
+        seed: Float,
+        wetness: Float,
+        bristleAlong: Float,
+        bristleAcross: Float,
+    ) {
+        require(seed.isFinite() && seed in 0f..1f) {
+            "dab seed must be 0..1, was $seed"
+        }
+        require(wetness.isFinite() && wetness in 0f..1f) {
+            "dab wetness must be 0..1, was $wetness"
+        }
+        require(bristleAlong.isFinite() && bristleAcross.isFinite()) {
+            "dab bristle coordinates must be finite, were $bristleAlong, $bristleAcross"
+        }
     }
 
     private fun includeDirtyDab(x: Float, y: Float, radius: Float) {
@@ -213,6 +252,9 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         angle: Float,
         aspect: Float,
         seed: Float,
+        wetness: Float,
+        bristleAlong: Float,
+        bristleAcross: Float,
     ) {
         val i = index
         this.x[i] = x
@@ -223,10 +265,14 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         this.angle[i] = angle
         this.aspect[i] = aspect
         this.seed[i] = seed
+        this.wetness[i] = wetness
+        this.bristleAlong[i] = bristleAlong
+        this.bristleAcross[i] = bristleAcross
     }
 
     fun add(dab: Dab): Boolean = add(
         dab.x, dab.y, dab.radius, dab.flow, dab.hardness, dab.angle, dab.aspect, dab.seed,
+        dab.wetness, dab.bristleAlong, dab.bristleAcross,
     )
 
     /** Dab [index] as a value. Off the hot path — for tests and diagnostics. */
@@ -234,7 +280,8 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         require(index in 0 until count) { "index $index is outside 0..${count - 1}" }
         return Dab(
             x[index], y[index], radius[index], flow[index],
-            hardness[index], angle[index], aspect[index], seed[index],
+            hardness[index], angle[index], aspect[index], seed[index], wetness[index],
+            bristleAlong[index], bristleAcross[index],
         )
     }
 
@@ -243,7 +290,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
     /**
      * Empties the batch for reuse. Deliberately does not zero the arrays:
      * entries past [count] are unreadable through [get], and clearing 1024
-     * floats × 8 on every batch is work that buys nothing.
+     * floats × 11 on every batch is work that buys nothing.
      */
     fun clear() {
         reuseGeneration++

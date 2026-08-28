@@ -34,7 +34,14 @@ class StrokeDriver(
 ) {
 
     private val generator = DabGenerator(preset, seed, spacingPolicy)
-    private val stabilizer = Stabilizer(preset.stabilizer, zoom)
+    private val stabilizer = Stabilizer(
+        strength = preset.stabilizer,
+        zoom = zoom,
+        samplePolicy = when (preset.model) {
+            BrushModel.Standard -> StabilizerSamplePolicy.PositionOnly
+            BrushModel.ChineseInk -> StabilizerSamplePolicy.PositionOrDynamics
+        },
+    )
 
     /** The sample the stabilizer produces; fed to the generator. */
     private val smoothed = StrokeInput()

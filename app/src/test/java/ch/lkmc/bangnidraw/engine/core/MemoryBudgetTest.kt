@@ -48,6 +48,7 @@ class MemoryBudgetTest {
             assertEquals(24 * mib, it.thumbnailCacheBytes)
             assertEquals(256, it.poolArraySlices)
             assertEquals(16, it.poolArrayCount)
+            assertEquals(64 * mib, it.transientImageBytes)
         }
         MemoryBudget.compute(device(8.0), canvas2048).let {
             assertEquals(16, it.maxLayers, "a smaller canvas hits the MAX_LAYERS clamp")

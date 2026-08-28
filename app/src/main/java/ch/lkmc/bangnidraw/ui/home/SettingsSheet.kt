@@ -1,6 +1,5 @@
 package ch.lkmc.bangnidraw.ui.home
 
-import androidx.annotation.StringRes
 import android.content.Intent
 import android.net.Uri
 import androidx.annotation.StringRes

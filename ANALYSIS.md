@@ -443,3 +443,123 @@ completeness (new `layer_clear_*` in both); RMW ordering; and that
 `MixingDish.gradient` is now correctly remembered (`ColorPanel.kt:732`) so
 it no longer recomputes 9 Mixbox mixes per drag frame.
 
+
+---
+
+## hy3 review (2026-08-28) — `hy3.md`
+
+A fresh, source-verified review for a 14-year-old user, written up in
+`hy3.md`. Every item below was cross-checked against the prior backlog; only
+genuinely new findings are listed (prior items are not re-litigated). Five were
+implemented as open PRs against `main` (1.1.0); the rest are shovel-ready.
+
+### Landed (open PRs — leave in flight, do not re-pick)
+
+- **Watercolor wetness wiped at the 16-bit tick epoch rollover** — `engine/core/WatercolorWetKernel.kt` (CPU `ageFactor`) and `engine/gl/WatercolorShaders.kt` (`u_epochRollover`) dried `surfaceWater`/`saturation` to 0 on `EPOCH_REBASE`, contradicting AGENTS.md's "preserves water". Fixed to re-stamp the tick and preserve channels. Pinned by `WatercolorWetKernelTest`. PR **#127**.
+- **`SandwichCache.rebuild` allocated a boxed tile-key list every frame** while
+  drawing/panning (stale flags never clear until the whole canvas is built).
+  Now reuses a persistent `IntArray` scratch, with a separate `invalidateScratch`
+  so `buildTile` re-entrancy cannot corrupt the loop. PR **#108**.
+- **Landscape (DOCK) rail hid one of the two brush sliders behind a tab** — now
+  both sliders render side by side, like `SHORT`. PR **#110**.
+- **Tapping a layer on a phone closed the whole Layer panel** — now stays open
+  (matches the tablet sheet); dismiss via scrim/Back. PR **#114**.
+- **Transparent-paper choice had no explanatory hint** — a one-line helper now
+  appears under the swatches. Strings in both locales. PR **#117**.
+
+### Deferred (blocked on the in-canvas Settings entry point)
+
+- **Opening Settings from the canvas ejects the user to the Studio**
+  (`ui/navigation/BangniNavHost.kt:42-45` → `navigateUp`). Feels like losing
+  work. Needs Settings to render as an overlay above the live canvas; that entry
+  point does not exist on `main` yet, so it is blocked on the same work as the
+  replayable-hint item below.
+- **First-run hint is one-and-done and omits the real tools** (`ui/canvas/FirstRunHint.kt`).
+  A "Tips" replay belongs in Settings/About, which (see above) has no in-canvas
+  surface on `main`. Deferred until the canvas can host Settings.
+
+### Shovel-ready (new, unimplemented)
+
+**Performance (hot path)**
+- `CanvasRenderer.setStack` allocates a layer-id `Set` + filtered list per
+  opacity/visibility drag tick (`CanvasRenderer.kt:842`, pushed by
+  `CanvasViewModel.previewLayerOpacity`/`toggleLayerVisibility`); do it
+  allocation-free and only re-observe when blend/structure actually changes.
+- `StrokeBuffer.uploadFill` uses the `List` overload of `grid.keysFor`
+  (`StrokeBuffer.kt:96`); use the `IntArray` overload like the other callers.
+- `LayerEditPolicy.changedTiles` allocates a `LinkedHashSet` + `toList()` per
+  commit (`LayerEditPolicy.kt:35,54`); reuse a scratch.
+- `CanvasRenderer.endStroke`/`cancelStroke` copy `mergedKeys` per stroke end
+  (`CanvasRenderer.kt:716,748`); pass the reused field directly.
+- `ColorPanel` rebuilds the saturation gradient on every hue change
+  (`ColorPanel.kt:258-266`); remember it keyed on quantized hue.
+- `LayerThumbnailPass` re-composites the entire layer each 500 ms refresh
+  (`LayerThumbnailPass.kt:79-88`); composite only dirty tiles, as the main
+  canvas does.
+
+**Visual / layout**
+- `FULL` rail can overflow/clip on short landscape windows and puts the size
+  slider far from the active tool (`ToolRail.kt:187-223`, `CanvasScreen.kt:842`);
+  cap rail height with internal scroll or anchor sliders near the active tool.
+- New-canvas presets show only text + dimensions (`NewCanvasDialog.kt:340-384`);
+  add a tiny aspect-ratio / orientation glyph per preset.
+- Color-chip recent-colors long-press is invisible to sighted users
+  (`TopStrip.kt:290-324`); add a dot/badge or teach it in onboarding.
+- Active-tool re-tap-to-open-settings has no cue (`ToolRail.kt:494-507`); add a
+  subtle gear/pencil-edit badge.
+- Blur + Eyedropper are buried in "More" with no teaching on medium phones
+  (`ToolRail.kt:567-595`); surface in onboarding or show the active tool name.
+- Recent-colors popover auto-dismisses after 4 s (`CanvasScreen.kt:1984`,
+  `RECENT_POPOVER_MS`); extend the timeout or dismiss only on an explicit tap.
+- HSV ring/square picker is a dead zone for screen readers
+  (`ColorPanel.kt:274-355`); expose via `customActions` (set hue / saturation /
+  value).
+
+**Missing features (competitor parity; respect no-permission / no-internet)**
+- Text tool (`ToolKind.TEXT`, rasterize to the active layer).
+- Selection + free transform (rect/ellipse/lasso gating `StrokeMerge`/`FloodFill`
+  + a transform pass reusing RMW ping-pong).
+- Layer groups / folders (`LayerStack` nesting + collapsible UI).
+- Gradient fill (multi-stop Mixbox, reuse `MixingDish.gradient` + `FillTool`).
+- Layer clipping / clip-to-below (`clipToBelow` in `Layer.kt`; `Composite`
+  restricts the upper layer to the lower layer's coverage; one `LayerProps`
+  journal entry).
+- Import image as a real editable/exportable/undoable layer (Photo Picker, no
+  permission; decode into `TileStore` tiles of a new `Layer`).
+- Stamp / sticker tool (CC0 `ImageVector` silhouettes).
+- Perspective / vanishing-point guide + optional snap (beyond `CompositionGuide.kt`).
+- Blend-mode visual gallery (live per-mode thumbnails in `LayerPanel.kt`).
+- Non-destructive adjust layer (Hue/Sat/Brightness).
+- Auto-shape assist (snap a rough stroke to a clean shape with handles).
+- Expanded color-history ribbon (chronological strip of every color this session).
+- Pixel-grid snap + square guide + "pixel" canvas preset (`CompositionGuide.kt`
+  + `CanvasPresets.kt`).
+
+**UX / aesthetics (restated from hy3.md; not yet landed)**
+- No visual feedback when a stroke is refused because the document is busy
+  (`CanvasViewModel.beginStrokeTool` returns null while `CanvasActionGate` is
+  busy) — reuse the `strokeLayerNotice` toast path.
+- Keyboard shortcuts undiscoverable (`engine/core/CanvasShortcut.kt`); add a
+  Shortcuts section in Settings/About.
+- Mixing-dish slider position not durable (`DishState.t` resets on recomposition);
+  persist beside the wells.
+- Panel close affordance missing (close icon in panel headers).
+- Shelf cards flat; a whisper of elevation + `primaryContainer` "New painting"
+  cell adds polish (`StudioScreen`).
+- No display face for the app name / panel headers (CC0/OFL font; provenance in
+  AGENTS.md).
+- Checkerboard doesn't scale with zoom (band `checkerPx` by `view.scale`).
+
+**Delight (novel / quirky; all respect the hard red lines)**
+- Daily draw prompt (offline `PromptBank`, "Surprise me" on `StudioScreen`).
+- Color name label (offline `ColorName.kt` under the HSV picker).
+- Shake-to-undo (accelerometer, debounced; triggers existing undo path).
+- Mirror-check toggle (one-click horizontal flip of the composited view).
+- Satisfying stroke sound/haptic (toggle, off by default; CC0 click on pen-up).
+- Custom app accent color (`Color.kt` + `Prefs.kt` via `MaterialTheme`).
+- "Made with 帮你Draw" share card + celebratory state (via `ShareCache`/`GalleryExporter`).
+- Onion-skin / flipbook peek (previous N committed states faintly beneath the
+  live layer; read-only).
+- Quick-color radial on canvas long-press (recent/most-used colors + eyedropper).
+- Ambient Studio shelf, composition guides, 100% zoom, edge rubber-band, hue
+  haptic, layer solo — restated from the prior backlog; still unlanded.

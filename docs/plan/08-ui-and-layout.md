@@ -623,6 +623,8 @@ selection. Surfaces carry a restrained tint from the same palette.
 All themes share `error = #B3261E`, `onError = #FFFFFF`, and
 `canvasVoid = #B8B2AA`. The canvas void is sent through the existing
 Compose-to-GL boundary and never changes with the selected palette.
+`BangniColorSchemeTest` separately checks shared error content and error text
+against every surface tier where it appears.
 
 | Checked pair | Saffron | Coral | Violet | Teal |
 | --- | ---: | ---: | ---: | ---: |
@@ -630,6 +632,9 @@ Compose-to-GL boundary and never changes with the selected palette.
 | Active rail icon/container | 9.57:1 | 8.52:1 | 8.85:1 | 9.75:1 |
 | `primary` / `surface` | 5.48:1 | 6.72:1 | 6.37:1 | 6.19:1 |
 | `secondary` / `surface` | 6.49:1 | 5.82:1 | 6.00:1 | 6.27:1 |
+| `primary` / `surfaceContainer` | 4.95:1 | 5.99:1 | 5.80:1 | 5.64:1 |
+| `secondary` / `surfaceContainer` | 5.87:1 | 5.19:1 | 5.46:1 | 5.71:1 |
+| `secondary` / `secondaryContainer` | 5.21:1 | 4.68:1 | 4.80:1 | 5.02:1 |
 | `outline` / `surface` | 4.95:1 | 5.09:1 | 5.10:1 | 4.94:1 |
 | `primary` / `primaryContainer` | 3.15:1 | 3.22:1 | 3.25:1 | 3.64:1 |
 
@@ -639,18 +644,20 @@ must be used whenever the boundary is the sole affordance.
 
 `ThemeColorPolicy` owns the palette-specific ARGB values in `engine/core`, so
 the decision remains JVM-testable and independent of Compose and DataStore.
-`Color.kt` fills every `lightColorScheme` argument. Tertiary, fixed, inverse,
-and `surfaceContainerLowest` through `surfaceContainerHighest` derive from the
-same palette; shared error and scrim roles remain app-owned. No Material
-baseline role may leak into chrome. `LocalAppTheme` carries the selection. The
+`Color.kt` constructs the complete `ColorScheme`. Tertiary, fixed, inverse, and
+`surfaceContainerLowest` through `surfaceContainerHighest` derive from the same
+palette; shared error and scrim roles remain app-owned. No Material baseline
+role may leak into chrome. `LocalAppTheme` carries the selection. The
 activity-scoped `AppThemeViewModel` observes `Prefs.appTheme`. While it is
 unloaded, the root composes no navigation and leaves the fixed-light launch
 window visible.
 The first `IOException` is logged; before any value it emits Saffron once. I/O
 retries keep the current selection; cancellation and non-I/O failures propagate.
 `CanvasAppearance` reaches `EngineSession.configure` before GL's bootstrap
-frame; a later effect applies theme and density changes. Dynamic colour,
-`isSystemInDarkTheme()`, and a System option are deliberately absent.
+frame; a later effect applies theme and density changes. During a live stroke,
+that update waits for the commit or cancel scene so dirty front frames cannot
+mix old and new checkerboard cells. Dynamic colour, `isSystemInDarkTheme()`,
+and a System option are deliberately absent.
 
 | Token | Value |
 | --- | --- |

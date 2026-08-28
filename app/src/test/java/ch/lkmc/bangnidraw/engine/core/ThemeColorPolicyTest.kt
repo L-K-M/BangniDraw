@@ -95,12 +95,37 @@ class ThemeColorPolicyTest {
     }
 
     @Test
+    fun `accent text meets contrast on chrome surfaces`() {
+        for (theme in AppTheme.entries) {
+            val colors = ThemeColorPolicy.colors(theme)
+            val pairs = listOf(
+                "primary on background" to (colors.primaryArgb to colors.backgroundArgb),
+                "primary on surface" to (colors.primaryArgb to colors.surfaceArgb),
+                "primary on surfaceContainer" to
+                    (colors.primaryArgb to colors.surfaceContainerArgb),
+                "secondary on surface" to (colors.secondaryArgb to colors.surfaceArgb),
+                "secondary on surfaceContainer" to
+                    (colors.secondaryArgb to colors.surfaceContainerArgb),
+            )
+
+            for ((role, pair) in pairs) {
+                val contrast = contrastRatio(pair.first, pair.second)
+
+                assertTrue(
+                    contrast >= MIN_TEXT_CONTRAST,
+                    "$theme $role contrast is $contrast:1",
+                )
+            }
+        }
+    }
+
+    @Test
     fun `accent boundaries meet non text contrast`() {
         for (theme in AppTheme.entries) {
             val colors = ThemeColorPolicy.colors(theme)
             val pairs = listOf(
-                "primary on surface" to (colors.primaryArgb to colors.surfaceArgb),
-                "secondary on surface" to (colors.secondaryArgb to colors.surfaceArgb),
+                "selected layer marker" to
+                    (colors.secondaryArgb to colors.secondaryContainerArgb),
                 "active tool border" to
                     (colors.primaryArgb to colors.primaryContainerArgb),
             )

@@ -1818,9 +1818,28 @@ touchscreen hover too, not only a pen.
   already present, and the complete JVM suite compiled and passed at the
   reviewed commit.
 
-- **R-111 ⏸️ Round 1, outside diff: sibling plans retain obsolete theme
-  terminology.** Refuted by a scoped repository search. Remaining `select`
-  hits are domain methods or verbs; `accent` is generic accessibility or visual
-  language, and `isSystemInDarkTheme` appears only in an intentional negative
-  contract. Roadmap step 1's saffron/light-dark text records that historical
-  scaffold; rewriting it would falsify what that step landed.
+- **R-111 🟢 Round 1, outside diff: sibling plans retain obsolete theme
+  terminology.** Initially refuted after the current plans were clean. Latest
+  main's backlog consolidation now records PR #141's four fixed selectable
+  palettes and rejects a competing theme path. The dated `k3.md` snapshot and
+  roadmap step 1 remain as historical records.
+
+- **R-112 🟢 Round 2, minor: live-stroke updates can mix checker themes or
+  replay a stale palette after begin refusal.** Applied test-first. Checker and
+  canvas-void mutations now wait for commit or cancel, preventing a dirty front
+  frame from patching new cells over the old baseline. A newer immediate choice
+  clears any refused stroke's deferred value.
+
+- **R-113 🟢 Round 2, minor: default-equal Material roles can escape the
+  scheme test.** Applied. `BangniTheme` now constructs `ColorScheme` directly,
+  so every role is required; a source contract prevents regression to the
+  defaulting factory.
+
+- **R-114 🟢 Round 2, minor: the Appearance semantics slice can absorb later
+  sections.** Applied. The contract now requires the exact Drawing-section
+  boundary before checking the theme radio group.
+
+- **R-115 🟢 Round 2, minor: contrast coverage omits used chrome surfaces.**
+  Applied. Palette tests now cover primary and secondary across their actual
+  surfaces, selected markers, and shared error roles; the plan records the
+  exact palette ratios.

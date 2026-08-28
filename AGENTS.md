@@ -152,10 +152,10 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   hardcode "帮你Draw" in a composable (rename checklist: PLAN.md "Renaming").
 - Application palette decisions live in `engine/core/ThemeColorPolicy`;
   `ui/theme/Color.kt` adapts them to Compose. This keeps palette decisions pure
-  and JVM-testable while the data layer stores only the choice. Map every
-  Material 3 role, including tertiary, fixed, inverse, and all
-  surface-container tiers; an omitted `lightColorScheme` argument imports a
-  baseline Material colour. Screen chrome never uses ad-hoc
+  and JVM-testable while the data layer stores only the choice. Construct the
+  complete `ColorScheme`, including tertiary, fixed, inverse, and all
+  surface-container roles; a defaulting scheme factory imports baseline
+  Material colours. Screen chrome never uses ad-hoc
   `Color(0x…)`; `DebugOverlay`'s fixed diagnostic signal colors are the sole
   exception and stay palette-independent. `AppTheme` is a persisted choice
   among fixed-light Saffron (default), Coral, Violet, and Teal palettes; system
@@ -174,6 +174,11 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   session or allowing its bootstrap frame; the later Compose effect keeps
   theme and density changes synchronized. Otherwise transparent canvases can
   flash the renderer's fallback checker colours.
+  While a front-buffered stroke is active, defer checker/void mutation with its
+  redraw until the stroke's commit or cancel scene; changing only the dirty
+  front scissor makes the new checker patchwork over the old baseline.
+  A newer immediate appearance must clear any pending value left by a refused
+  stroke.
 - **Greyscale ARGB cannot encode hue.** `ColorPanel` keeps an `HsvSelection`;
   panel-originated ARGB echoes must not reconstruct HSV, while external colors
   must. Do not key the selection state directly to the current ARGB.

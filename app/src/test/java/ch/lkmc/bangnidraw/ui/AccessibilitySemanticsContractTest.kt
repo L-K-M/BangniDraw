@@ -40,7 +40,11 @@ class AccessibilitySemanticsContractTest {
     @Test
     fun `settings themes are a named radio group`() {
         val source = source(SETTINGS_PATH)
-        val appearance = sourceSection(source, SETTINGS_APPEARANCE_START)
+        val appearance = sourceSection(
+            source,
+            SETTINGS_APPEARANCE_START,
+            SETTINGS_DRAWING_START,
+        )
         val themeChoice = sourceSection(source, THEME_CHOICE_START, CHOICE_ROW_START)
 
         assertTrue(
@@ -99,17 +103,6 @@ class AccessibilitySemanticsContractTest {
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
 
-    private fun sourceSection(source: String, start: String): String {
-        val startIndex = source.indexOf(start)
-        if (startIndex < 0) fail("missing source marker: $start")
-
-        val contentStart = startIndex + start.length
-        val endIndex = source.indexOf(SETTINGS_SECTION_START, contentStart)
-        if (endIndex < contentStart) return source.substring(contentStart)
-
-        return source.substring(contentStart, endIndex)
-    }
-
     private fun sourceSection(source: String, start: String, end: String): String {
         val startIndex = source.indexOf(start)
         if (startIndex < 0) fail("missing source marker: $start")
@@ -146,7 +139,8 @@ class AccessibilitySemanticsContractTest {
         const val SETTINGS_CHOICE_GROUPS = 6
         const val SETTINGS_APPEARANCE_START =
             "item { SectionTitle(R.string.settings_appearance) }"
-        const val SETTINGS_SECTION_START = "item { SectionTitle("
+        const val SETTINGS_DRAWING_START =
+            "item { SectionTitle(R.string.settings_drawing) }"
         const val THEME_CHOICE_START = "private fun ThemeChoiceRow("
         const val CHOICE_ROW_START = "private fun ChoiceRow("
         const val FILL_SLIDER_START = "\n    Slider("

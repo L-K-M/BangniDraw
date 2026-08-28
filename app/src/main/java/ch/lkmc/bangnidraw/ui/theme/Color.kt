@@ -1,7 +1,6 @@
 package ch.lkmc.bangnidraw.ui.theme
 
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.CanvasVoidColorPolicy
@@ -18,7 +17,7 @@ private val OnAppErrorContainer = Color(0xFF410E0B)
 internal fun bangniColorScheme(theme: AppTheme): ColorScheme {
     val colors = ThemeColorPolicy.colors(theme)
 
-    return lightColorScheme(
+    return ColorScheme(
         primary = Color(colors.primaryArgb),
         onPrimary = Color(colors.onPrimaryArgb),
         primaryContainer = Color(colors.primaryContainerArgb),

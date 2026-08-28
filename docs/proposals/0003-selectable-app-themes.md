@@ -42,7 +42,9 @@ supplies light system-bar appearance. `LocalAppTheme` carries it, while the
 renderer receives the shared neutral canvas-void colour through its existing
 Compose-to-GL appearance boundary. `CanvasSurface` includes that appearance in
 the session's initial configuration before GL can draw its bootstrap frame;
-later theme or density changes update the live session.
+later theme or density changes update the live session. During a live stroke,
+the renderer defers that mutation to its commit or cancel scene so front-frame
+damage cannot mix old and new checkerboard cells.
 
 Android resource themes cannot read DataStore before Compose starts. The
 launch window therefore uses the fixed light Saffron background, with no
@@ -62,8 +64,9 @@ already-visible selection. Cancellation and non-I/O failures propagate.
 - JVM: `BangniColorSchemeTest` proves every Material role is mapped explicitly.
 - Contract: Settings exposes one labelled radio group; the selected palette
   reaches `BangniTheme`, light system bars, `android:forceDarkAllowed = false`,
-  and the GL canvas appearance before its bootstrap frame; the root keeps
-  navigation behind the fixed launch window until a theme arrives.
+  and the GL canvas appearance before bootstrap and across a live-stroke
+  boundary; the root keeps navigation behind the fixed launch window until a
+  theme arrives.
 - Device: each choice applies immediately, survives restart, and remains
   unchanged when Android dark mode is toggled.
 

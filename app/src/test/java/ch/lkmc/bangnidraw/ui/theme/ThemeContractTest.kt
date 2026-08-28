@@ -56,6 +56,20 @@ class ThemeContractTest {
     }
 
     @Test
+    fun `scheme construction cannot inherit Material baseline roles`() {
+        val colors = source(COLOR_SCHEME_PATH)
+
+        assertTrue(
+            "return ColorScheme(" in colors,
+            "the complete constructor must make every role explicit",
+        )
+        assertFalse(
+            "lightColorScheme(" in colors,
+            "a defaulting factory can leak Material baseline colors",
+        )
+    }
+
+    @Test
     fun `launch background matches the default palette`() {
         val resources = source(COLOR_RESOURCES_PATH)
         val actual = colorResource(resources, LAUNCH_BACKGROUND_RESOURCE)
@@ -165,6 +179,8 @@ class ThemeContractTest {
         const val STUDIO_SCREEN_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/home/StudioScreen.kt"
         const val PLATFORM_THEME_PATH = "app/src/main/res/values/themes.xml"
+        const val COLOR_SCHEME_PATH =
+            "app/src/main/java/ch/lkmc/bangnidraw/ui/theme/Color.kt"
         const val COLOR_RESOURCES_PATH = "app/src/main/res/values/colors.xml"
         const val NIGHT_RESOURCES_PATH = "app/src/main/res/values-night"
         const val LAUNCH_BACKGROUND_RESOURCE = "launch_background"

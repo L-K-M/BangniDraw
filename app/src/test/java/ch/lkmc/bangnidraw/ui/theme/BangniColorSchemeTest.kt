@@ -145,6 +145,32 @@ class BangniColorSchemeTest {
         }
     }
 
+    @Test
+    fun `shared error roles meet text contrast`() {
+        for (theme in AppTheme.entries) {
+            val scheme = bangniColorScheme(theme)
+            val pairs = listOf(
+                "error" to (scheme.error to scheme.onError),
+                "errorContainer" to (scheme.errorContainer to scheme.onErrorContainer),
+                "error on background" to (scheme.error to scheme.background),
+                "error on surface" to (scheme.error to scheme.surface),
+                "error on surfaceContainer" to
+                    (scheme.error to scheme.surfaceContainer),
+                "error on surfaceContainerHigh" to
+                    (scheme.error to scheme.surfaceContainerHigh),
+            )
+
+            for ((role, pair) in pairs) {
+                val contrast = contrastRatio(pair.first.toArgb(), pair.second.toArgb())
+
+                assertTrue(
+                    contrast >= MIN_TEXT_CONTRAST,
+                    "$theme $role contrast is $contrast:1",
+                )
+            }
+        }
+    }
+
     private companion object {
         val expectedError = Color(0xFFB3261E)
         val expectedOnError = Color(0xFFFFFFFF)

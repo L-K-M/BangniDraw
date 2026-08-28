@@ -48,6 +48,9 @@ class SandwichCache(
     private val pass = TileCompositePass(program, state, pool)
     private val excludedPages = IntArray(2)
 
+    /** Reused tile-key scratch so [rebuild]/[invalidateTiles] stay allocation-free on the GL thread. */
+    private var keyScratch = IntArray(0)
+
     /** A whole half needs rebuilding; individual tiles are rebuilt as they are drawn. */
     private var belowStale = true
     private var aboveStale = true
@@ -107,10 +110,11 @@ class SandwichCache(
      * every visible one.
      */
     fun invalidateTiles(rect: IntRect, below: Boolean, above: Boolean) {
-        val keys = grid.keysFor(rect)
-        for (k in keys) {
-            if (below) belowBuilt.remove(k.packed)
-            if (above) aboveBuilt.remove(k.packed)
+        if (keyScratch.size < grid.tileCount) keyScratch = IntArray(grid.tileCount)
+        val count = grid.keysFor(rect, keyScratch)
+        for (i in 0 until count) {
+            if (below) belowBuilt.remove(keyScratch[i])
+            if (above) aboveBuilt.remove(keyScratch[i])
         }
         if (below) belowStale = true
         if (above) aboveStale = true
@@ -150,8 +154,10 @@ class SandwichCache(
         val abovePending = aboveStale && aboveAvailable
         if (!belowPending && !abovePending) return
         val activeIndex = stack.activeIndex
-        val keys = grid.keysFor(rect)
-        for (key in keys) {
+        if (keyScratch.size < grid.tileCount) keyScratch = IntArray(grid.tileCount)
+        val count = grid.keysFor(rect, keyScratch)
+        for (i in 0 until count) {
+            val key = TileKey(keyScratch[i])
             if (belowPending && key.packed !in belowBuilt) {
                 val built = buildTile(
                     key,

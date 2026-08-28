@@ -12,6 +12,11 @@ class PixelChannelOrderTest {
         0x55, 0x66, 0x77, 0x7F,
     )
 
+    private val bigEndianArgb = byteArrayOf(
+        0x44, 0x11, 0x22, 0x33,
+        0x7F, 0x55, 0x66, 0x77,
+    )
+
     @Test
     fun `little endian ARGB bitmap bytes are BGRA`() {
         val pixels = rgba.copyOf()
@@ -33,13 +38,7 @@ class PixelChannelOrderTest {
 
         PixelChannelOrder.rgbaToArgb8888InPlace(pixels, ByteOrder.BIG_ENDIAN)
 
-        assertContentEquals(
-            byteArrayOf(
-                0x44, 0x11, 0x22, 0x33,
-                0x7F, 0x55, 0x66, 0x77,
-            ),
-            pixels,
-        )
+        assertContentEquals(bigEndianArgb, pixels)
     }
 
     @Test
@@ -57,6 +56,7 @@ class PixelChannelOrderTest {
         val pixels = rgba.copyOf()
 
         PixelChannelOrder.rgbaToArgb8888InPlace(pixels, ByteOrder.BIG_ENDIAN)
+        assertContentEquals(bigEndianArgb, pixels)
         PixelChannelOrder.argb8888ToRgbaInPlace(pixels, ByteOrder.BIG_ENDIAN)
 
         assertContentEquals(rgba, pixels)

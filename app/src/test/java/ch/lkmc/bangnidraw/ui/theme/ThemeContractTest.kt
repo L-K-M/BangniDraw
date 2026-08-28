@@ -32,7 +32,15 @@ class ThemeContractTest {
         )
         assertTrue(
             "SystemBarStyle.light(" in activity,
-            "edge-to-edge bars must use an explicit light appearance",
+            "the launch window and light themes need light-appearance bars",
+        )
+        assertTrue(
+            "SystemBarStyle.dark(" in activity,
+            "dark themes need light icons on the system bars",
+        )
+        assertTrue(
+            "appTheme.tone" in activity,
+            "the resolved theme's tone must drive the system-bar appearance",
         )
         assertTrue(
             "statusBarStyle =" in activity,

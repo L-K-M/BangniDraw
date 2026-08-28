@@ -8,6 +8,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
@@ -16,6 +17,7 @@ import ch.lkmc.bangnidraw.engine.core.KeyModifiers
 import ch.lkmc.bangnidraw.engine.core.KeyPhase
 import ch.lkmc.bangnidraw.engine.core.ShortcutContext
 import ch.lkmc.bangnidraw.engine.core.ShortcutKey
+import ch.lkmc.bangnidraw.engine.core.ThemeTone
 import ch.lkmc.bangnidraw.ui.navigation.BangniNavHost
 import ch.lkmc.bangnidraw.ui.theme.AppThemeViewModel
 import ch.lkmc.bangnidraw.ui.theme.BangniTheme
@@ -28,20 +30,33 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Every app palette is light, so system night mode must not invert bar icons.
-        val systemBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+        // The launch window cannot read DataStore: start light, then re-apply
+        // the resolved theme's tone as soon as storage emits it.
         enableEdgeToEdge(
-            statusBarStyle = systemBarStyle,
-            navigationBarStyle = systemBarStyle,
+            statusBarStyle = systemBarStyle(ThemeTone.LIGHT),
+            navigationBarStyle = systemBarStyle(ThemeTone.LIGHT),
         )
         setContent {
             val state by appThemeViewModel.uiState.collectAsStateWithLifecycle()
             val appTheme = state.appTheme ?: return@setContent
 
+            val tone = appTheme.tone
+            LaunchedEffect(tone) {
+                enableEdgeToEdge(
+                    statusBarStyle = systemBarStyle(tone),
+                    navigationBarStyle = systemBarStyle(tone),
+                )
+            }
+
             BangniTheme(appTheme = appTheme) {
                 BangniNavHost()
             }
         }
+    }
+
+    private fun systemBarStyle(tone: ThemeTone): SystemBarStyle = when (tone) {
+        ThemeTone.LIGHT -> SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+        ThemeTone.DARK -> SystemBarStyle.dark(Color.TRANSPARENT)
     }
 
     internal fun installShortcutSink(sink: CanvasShortcutSink) {

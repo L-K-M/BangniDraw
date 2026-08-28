@@ -933,6 +933,25 @@ before it emits would flash Saffron on an existing non-default install. The
 fixed light launch background appears immediately; Compose withholds navigation
 until the asynchronous read emits, and a read failure falls back to Saffron.
 
+### Step 14 — Darker and louder themes (S, **landed on main** — PR #150, 2026-08-28, CI green; the device check has not been run — no device has ever been available)
+
+**Goal.** Give the studio a night shift and more personality: dark palettes
+for evening drawing, louder ones for play.
+
+**Creates.** Proposal 0004's `ThemeTone` on `AppTheme` and four values:
+Nineties (light Memphis), Synthwave, Midnight, and Forest (dark). The tone
+drives system-bar icon appearance, the per-tone neutral canvas void, and the
+per-tone error roles. Android dark mode remains ignored.
+
+**Depends on.** Step 13's theme persistence and root owner.
+
+**Acceptance.** Every contrast gate becomes tone-aware and passes for all
+eight palettes. Device: dark themes show light bar icons and a dark canvas
+void; cold start still opens on the fixed light launch window.
+
+**Risk.** A wrong tone assignment inverts bar icons invisibly on a matching
+background; the policy test pins every theme's tone and icon contrast.
+
 ## 4. Dependency graph and parallelism
 
 ```

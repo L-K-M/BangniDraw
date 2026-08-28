@@ -162,8 +162,11 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   Material colours. Screen chrome never uses ad-hoc
   `Color(0x…)`; `DebugOverlay`'s fixed diagnostic signal colors are the sole
   exception and stay palette-independent. `AppTheme` is a persisted choice
-  among fixed-light Saffron (default), Coral, Violet, and Teal palettes; system
-  dark mode and dynamic color are deliberately ignored. Its enum names are
+  among light Saffron (default), Coral, Violet, Teal, and Nineties palettes
+  and dark Synthwave, Midnight, and Forest ones; system dark mode and dynamic
+  color are deliberately ignored. Each theme declares a `ThemeTone`, which
+  picks the system-bar icon appearance, the tone's neutral canvas void, and
+  the tone's error roles. Its enum names are
   stored values, so renaming or removing one silently resets affected users to
   Saffron unless a migration rewrites the stored names.
   The canvas void stays neutral.
@@ -172,10 +175,12 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   reset a corrupted preference file with `ReplaceFileCorruptionHandler`
   before flows retry; otherwise observation and writes can remain blocked
   forever.
-- The launch window cannot read DataStore. Keep its background and system-bar
-  appearance fixed light, set `android:forceDarkAllowed` to `false`, and add no
+- The launch window cannot read DataStore. Keep its background and initial
+  system-bar appearance fixed light, set `android:forceDarkAllowed` to
+  `false`, and add no
   `values-night` override. The fixed launch window remains while the root theme
-  owner withholds navigation until the first preference emission. Log the first
+  owner withholds navigation until the first preference emission; the resolved
+  theme's tone then re-applies the bar appearance. Log the first
   `IOException`; if it precedes any successful load, emit Saffron once. Retry
   I/O with backoff, at most five attempts, never replacing a loaded theme; a
   persistent failure ends the flow on the current theme. Cancellation and

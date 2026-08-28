@@ -127,6 +127,10 @@ internal fun SettingsSheet(
                                 AppTheme.CORAL -> R.string.settings_theme_coral
                                 AppTheme.VIOLET -> R.string.settings_theme_violet
                                 AppTheme.TEAL -> R.string.settings_theme_teal
+                                AppTheme.NINETIES -> R.string.settings_theme_nineties
+                                AppTheme.SYNTHWAVE -> R.string.settings_theme_synthwave
+                                AppTheme.MIDNIGHT -> R.string.settings_theme_midnight
+                                AppTheme.FOREST -> R.string.settings_theme_forest
                             },
                             appTheme,
                             onAppTheme,

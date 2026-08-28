@@ -28,6 +28,16 @@ internal object HoverCursorPolicy {
             return HoverCursorSpec(0f, HoverRing.None, crosshair = false, ink = false)
         }
 
+        if (pointer != PointerTool.ERASER && active is ToolKind.Water) {
+            val diameter = (active.params.size * canvasToScreenScale).coerceAtLeast(0f)
+            return HoverCursorSpec(
+                diameterPx = diameter,
+                ring = HoverRing.Solid,
+                crosshair = diameter < CROSSHAIR_THRESHOLD_PX,
+                ink = false,
+            )
+        }
+
         val preset = if (pointer == PointerTool.ERASER) {
             eraserPreset
         } else {

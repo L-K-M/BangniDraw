@@ -76,7 +76,7 @@ class CanvasPresetsTest {
     @Test
     fun `a preset above maxCanvasEdge is offered disabled, never dropped`() {
         val result = budget(4.0, lowRam = true)
-        assertEquals(3584, result.maxCanvasEdge, "the low-RAM ceiling of 10 section 4")
+        assertEquals(3328, result.maxCanvasEdge, "the wet-aware low-RAM ceiling of 10 section 4")
         val presets = CanvasPresets.forDevice(result)
         assertEquals(4, presets.size, "nothing is dropped from the list")
         assertEquals(
@@ -136,7 +136,7 @@ class CanvasPresetsTest {
 
     @Test
     fun `a custom size exactly at maxCanvasEdge is accepted`() {
-        // The refusal test above only proves 4096 > 3584 is refused. An
+        // The refusal test above only proves 4096 > 3328 is refused. An
         // off-by-one in the ceiling comparison would refuse the exact number
         // the dialog advertises as the maximum, and nothing would fail.
         val result = budget(4.0, lowRam = true)

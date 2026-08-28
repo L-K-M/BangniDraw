@@ -2,12 +2,12 @@
   "v": 1,
   "id": "builtin.paintbrush",
   "name": "@string/preset_paintbrush",
-  "icon": "paintbrush",
+  "icon": "watercolor",
   "size": 40.0,
   "sizeMin": 4.0,
   "sizeMax": 400.0,
-  "flow": 0.6,
-  "hardness": 0.45,
+  "flow": 0.45,
+  "hardness": 0.25,
   "spacing": 0.2,
   "tip": { "type": "flat", "aspect": 0.7 },
   "orientation": "StrokeDirection",
@@ -17,6 +17,12 @@
   "jitter": { "size": 0.05, "position": 0.0 },
   "stabilizer": 0.35,
   "mixing": true,
-  "dilution": 0.15,
+  "dilution": 0.4,
+  "watercolor": {
+    "waterLoad": 0.72,
+    "spread": 0.6,
+    "granulation": 0.32,
+    "edgeDarkening": 0.4
+  },
   "bufferMode": "Accumulate"
 }

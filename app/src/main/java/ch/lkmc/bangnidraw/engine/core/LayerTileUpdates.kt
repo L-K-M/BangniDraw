@@ -1,5 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
+import java.nio.ByteBuffer
+
 /** Whether a readback keeps a sparse tile key or proves it empty. */
 internal enum class TilePresence { PAINTED, EMPTY }
 
@@ -13,6 +15,15 @@ internal fun presenceOf(bytes: ByteArray?): TilePresence =
     if (bytes == null || bytes.all { it == ZERO_BYTE }) TilePresence.EMPTY else TilePresence.PAINTED
 
 private const val ZERO_BYTE: Byte = 0
+
+internal fun presenceOf(bytes: ByteBuffer): TilePresence {
+    val remaining = bytes.duplicate()
+    while (remaining.hasRemaining()) {
+        if (remaining.get() != ZERO_BYTE) return TilePresence.PAINTED
+    }
+
+    return TilePresence.EMPTY
+}
 
 /** Folds readback outcomes into the immutable layer model at checkpoint time. */
 internal object LayerTileUpdates {

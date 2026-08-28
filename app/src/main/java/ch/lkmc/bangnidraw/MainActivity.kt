@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
         KeyEvent.KEYCODE_B -> ShortcutKey.B
         KeyEvent.KEYCODE_E -> ShortcutKey.E
         KeyEvent.KEYCODE_S -> ShortcutKey.S
+        KeyEvent.KEYCODE_W -> ShortcutKey.W
         KeyEvent.KEYCODE_G -> ShortcutKey.G
         KeyEvent.KEYCODE_I -> ShortcutKey.I
         KeyEvent.KEYCODE_0 -> ShortcutKey.DIGIT_ZERO

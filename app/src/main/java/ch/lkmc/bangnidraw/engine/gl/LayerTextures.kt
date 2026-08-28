@@ -5,6 +5,7 @@ import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.PreviewPlan
 import ch.lkmc.bangnidraw.engine.core.SliceHandle
+import ch.lkmc.bangnidraw.engine.core.TileContentIndex
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.TileIndex
 import ch.lkmc.bangnidraw.engine.core.TileKey
@@ -31,6 +32,7 @@ class LayerTextures(
 ) {
 
     private val index = TileIndex(grid)
+    private val content = TileContentIndex(grid)
 
     /**
      * Scratch for [visibleKeys]'s sort, sized once at the grid's tile count.
@@ -78,6 +80,7 @@ class LayerTextures(
         // slice the pool refused would be a handle into nothing, and
         // `PoolExhausted` is a normal outcome, so this path runs.
         index.put(k, fresh)
+        content.allocated(k)
         return fresh
     }
 
@@ -92,12 +95,14 @@ class LayerTextures(
     fun swap(k: TileKey, handle: SliceHandle) {
         require(pool.isLive(handle)) { "cannot map $k to $handle: not allocated" }
         val previous = index.put(k, handle)
+        content.allocated(k)
         if (previous.packed != handle.packed) pool.free(previous)
     }
 
     /** Removes one restored-as-empty key and returns its slice to the pool. */
     internal fun remove(k: TileKey) {
         val previous = index.put(k, SliceHandle.NONE)
+        content.removed(k)
         pool.free(previous)
     }
 
@@ -122,6 +127,42 @@ class LayerTextures(
      * §3.2's bottom-to-top loop does — or give each layer its own buffer.
      */
     fun visibleKeys(rect: IntRect, out: IntArray): Int = index.visibleKeys(rect, out, sortScratch)
+
+    internal fun mayContainColor(key: TileKey): Boolean = content.mayContainColor(key)
+
+    internal fun markColorWritten(key: TileKey) = content.written(key)
+
+    /** Resident transparent tiles stay excluded from clear-water history. */
+    internal fun hasColorContent(rect: IntRect, out: IntArray): Boolean {
+        val count = grid.keysFor(rect, out)
+        for (index in 0 until count) {
+            if (content.mayContainColor(TileKey(out[index]), rect)) return true
+        }
+
+        return false
+    }
+
+    /** Primitive form for allocation-free dab loops. */
+    internal fun hasColorContent(
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+        out: IntArray,
+    ): Boolean {
+        val count = grid.keysForBounds(left, top, right, bottom, out)
+        for (index in 0 until count) {
+            val key = TileKey(out[index])
+            if (content.mayContainColor(key, left, top, right, bottom)) return true
+        }
+
+        return false
+    }
+
+    /** Readback is the authority that can prove a resident tile transparent. */
+    internal fun recordReadback(key: TileKey, pixels: ByteBuffer) {
+        content.record(key, pixels)
+    }
 
     /**
      * The GL texture of a pool [page] — what `CompositePass` binds per batch.
@@ -186,10 +227,14 @@ class LayerTextures(
                 pixels,
             )
         }
+        content.record(k, pixels)
     }
 
     /** Frees every slice this layer holds — the layer is being deleted. */
-    fun release() = index.clear(pool::free)
+    fun release() {
+        index.clear(pool::free)
+        content.clear()
+    }
 
     /**
      * Drops every handle **without freeing** — the context died and the
@@ -201,5 +246,8 @@ class LayerTextures(
      * empty afterwards and `TileStore` refills it, tile by tile, as the IO
      * arrives.
      */
-    fun forgetAll() = index.forgetAll()
+    fun forgetAll() {
+        index.forgetAll()
+        content.clear()
+    }
 }

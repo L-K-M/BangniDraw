@@ -81,6 +81,7 @@ internal fun BrushSettingsSheet(
     onReset: () -> Unit,
 ) {
     val view = LocalView.current
+    val watercolor = active.watercolor
     val category = BrushPresets.railOrder(presets).filter {
         it.eraseMode == active.eraseMode
     }
@@ -94,6 +95,11 @@ internal fun BrushSettingsSheet(
     var preview by remember { mutableStateOf<ImageBitmap?>(null) }
     var previousOpacity by remember(active.id) { mutableFloatStateOf(active.opacity) }
     LaunchedEffect(active, brushColor, paperColor, previewSize) {
+        if (watercolor != null) {
+            preview = null
+            return@LaunchedEffect
+        }
+
         if (previewSize.width <= 0 || previewSize.height <= 0) return@LaunchedEffect
         delay(PREVIEW_DEBOUNCE_MS)
         preview = withContext(Dispatchers.Default) {
@@ -162,7 +168,14 @@ internal fun BrushSettingsSheet(
                     .onSizeChanged { previewSize = it },
             ) {
                 val bitmap = preview
-                if (bitmap != null) {
+                if (watercolor != null) {
+                    Text(
+                        text = stringResource(R.string.watercolor_preview_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                } else if (bitmap != null) {
                     Image(
                         bitmap = bitmap,
                         contentDescription = null,
@@ -187,23 +200,25 @@ internal fun BrushSettingsSheet(
                 },
                 onValueChangeFinished = onPresetPersisted,
             )
-            SettingSlider(
-                label = stringResource(R.string.brush_opacity),
-                value = active.opacity,
-                valueText = percent(active.opacity),
-                range = UNIT_RANGE,
-                onValueChange = { value ->
-                    if (
-                        hapticsMode == HapticsMode.ENABLED &&
-                        OpacityMilestone.crossed(previousOpacity, value).isNotEmpty()
-                    ) {
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    }
-                    previousOpacity = value
-                    onPresetChanged(active.copy(opacity = value))
-                },
-                onValueChangeFinished = onPresetPersisted,
-            )
+            if (active.watercolor == null) {
+                SettingSlider(
+                    label = stringResource(R.string.brush_opacity),
+                    value = active.opacity,
+                    valueText = percent(active.opacity),
+                    range = UNIT_RANGE,
+                    onValueChange = { value ->
+                        if (
+                            hapticsMode == HapticsMode.ENABLED &&
+                            OpacityMilestone.crossed(previousOpacity, value).isNotEmpty()
+                        ) {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        }
+                        previousOpacity = value
+                        onPresetChanged(active.copy(opacity = value))
+                    },
+                    onValueChangeFinished = onPresetPersisted,
+                )
+            }
             SettingSlider(
                 label = stringResource(R.string.brush_flow),
                 value = active.flow,
@@ -302,13 +317,15 @@ internal fun BrushSettingsSheet(
                 onFinished = onPresetPersisted,
                 valueText = percent,
             )
-            CurveEditor(
-                title = stringResource(R.string.brush_pressure_opacity),
-                curve = active.pressureOpacity,
-                onChanged = { onPresetChanged(active.copy(pressureOpacity = it)) },
-                onFinished = onPresetPersisted,
-                valueText = percent,
-            )
+            if (active.watercolor == null) {
+                CurveEditor(
+                    title = stringResource(R.string.brush_pressure_opacity),
+                    curve = active.pressureOpacity,
+                    onChanged = { onPresetChanged(active.copy(pressureOpacity = it)) },
+                    onFinished = onPresetPersisted,
+                    valueText = percent,
+                )
+            }
             CurveEditor(
                 title = stringResource(R.string.brush_pressure_flow),
                 curve = active.pressureFlow,
@@ -406,30 +423,78 @@ internal fun BrushSettingsSheet(
             )
 
             SettingsGroup(stringResource(R.string.brush_group_paint))
-            ToggleRow(
-                label = stringResource(R.string.brush_grain),
-                value = if (active.grain == BrushPreset.PROCEDURAL_GRAIN) {
-                    ToggleValue.On
-                } else {
-                    ToggleValue.Off
-                },
-                onChanged = {
-                    val grain = if (it.enabled) BrushPreset.PROCEDURAL_GRAIN else null
-                    onPresetChanged(active.copy(grain = grain))
-                    onPresetPersisted()
-                },
-            )
-            // RGB ignores these stored values; retaining them restores the
-            // brush's pigment tuning when the user switches back.
-            if (BrushSettingsPolicy.showsPigmentControls(active, mixerChoice)) {
+            if (watercolor == null) {
                 ToggleRow(
-                    label = stringResource(R.string.brush_pigment),
-                    value = if (active.mixing) ToggleValue.On else ToggleValue.Off,
+                    label = stringResource(R.string.brush_grain),
+                    value = if (active.grain == BrushPreset.PROCEDURAL_GRAIN) {
+                        ToggleValue.On
+                    } else {
+                        ToggleValue.Off
+                    },
                     onChanged = {
-                        onPresetChanged(active.copy(mixing = it.enabled))
+                        val grain = if (it.enabled) BrushPreset.PROCEDURAL_GRAIN else null
+                        onPresetChanged(active.copy(grain = grain))
                         onPresetPersisted()
                     },
                 )
+            }
+            if (watercolor != null) {
+                SettingSlider(
+                    label = stringResource(R.string.water_amount),
+                    value = watercolor.waterLoad,
+                    valueText = percent(watercolor.waterLoad),
+                    range = UNIT_RANGE,
+                    onValueChange = {
+                        onPresetChanged(
+                            active.copy(watercolor = watercolor.copy(waterLoad = it)),
+                        )
+                    },
+                    onValueChangeFinished = onPresetPersisted,
+                )
+                SettingSlider(
+                    label = stringResource(R.string.water_spread),
+                    value = watercolor.spread,
+                    valueText = percent(watercolor.spread),
+                    range = UNIT_RANGE,
+                    onValueChange = {
+                        onPresetChanged(active.copy(watercolor = watercolor.copy(spread = it)))
+                    },
+                    onValueChangeFinished = onPresetPersisted,
+                )
+                SettingSlider(
+                    label = stringResource(R.string.water_granulation),
+                    value = watercolor.granulation,
+                    valueText = percent(watercolor.granulation),
+                    range = UNIT_RANGE,
+                    onValueChange = {
+                        onPresetChanged(active.copy(watercolor = watercolor.copy(granulation = it)))
+                    },
+                    onValueChangeFinished = onPresetPersisted,
+                )
+                SettingSlider(
+                    label = stringResource(R.string.water_edge_darkening),
+                    value = watercolor.edgeDarkening,
+                    valueText = percent(watercolor.edgeDarkening),
+                    range = UNIT_RANGE,
+                    onValueChange = {
+                        onPresetChanged(active.copy(watercolor = watercolor.copy(edgeDarkening = it)))
+                    },
+                    onValueChangeFinished = onPresetPersisted,
+                )
+            }
+            // RGB ignores these stored values; retaining them restores the
+            // brush's pigment tuning when the user switches back.
+            if (BrushSettingsPolicy.showsPigmentControls(active, mixerChoice)) {
+                if (active.watercolor == null) {
+                    ToggleRow(
+                        label = stringResource(R.string.brush_pigment),
+                        value = if (active.mixing) ToggleValue.On else ToggleValue.Off,
+                        onChanged = {
+                            onPresetChanged(active.copy(mixing = it.enabled))
+                            onPresetPersisted()
+                        },
+                    )
+                }
                 SettingSlider(
                     label = stringResource(R.string.brush_dilution),
                     value = active.dilution,
@@ -439,22 +504,24 @@ internal fun BrushSettingsSheet(
                     onValueChangeFinished = onPresetPersisted,
                 )
             }
-            ChoiceLabel(stringResource(R.string.brush_buffer_mode))
-            Row(horizontalArrangement = Arrangement.spacedBy(CHIP_GAP)) {
-                BufferChip(
-                    active,
-                    BufferMode.Max,
-                    R.string.brush_buffer_max,
-                    onPresetChanged,
-                    onPresetPersisted,
-                )
-                BufferChip(
-                    active,
-                    BufferMode.Accumulate,
-                    R.string.brush_buffer_accumulate,
-                    onPresetChanged,
-                    onPresetPersisted,
-                )
+            if (active.watercolor == null) {
+                ChoiceLabel(stringResource(R.string.brush_buffer_mode))
+                Row(horizontalArrangement = Arrangement.spacedBy(CHIP_GAP)) {
+                    BufferChip(
+                        active,
+                        BufferMode.Max,
+                        R.string.brush_buffer_max,
+                        onPresetChanged,
+                        onPresetPersisted,
+                    )
+                    BufferChip(
+                        active,
+                        BufferMode.Accumulate,
+                        R.string.brush_buffer_accumulate,
+                        onPresetChanged,
+                        onPresetPersisted,
+                    )
+                }
             }
 
             Spacer(Modifier.height(GROUP_GAP))

@@ -29,7 +29,9 @@ import ch.lkmc.bangnidraw.data.TileBufferPool
 import ch.lkmc.bangnidraw.data.TileFlusher
 import ch.lkmc.bangnidraw.data.TileStore
 import ch.lkmc.bangnidraw.data.Thumbnails
+import ch.lkmc.bangnidraw.data.applyTuning
 import ch.lkmc.bangnidraw.data.highestDefaultNameIn
+import ch.lkmc.bangnidraw.data.persistedTuning
 import ch.lkmc.bangnidraw.engine.core.AutosavePolicy
 import ch.lkmc.bangnidraw.engine.core.BlendMode
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
@@ -94,6 +96,7 @@ import ch.lkmc.bangnidraw.engine.core.RmwSpec
 import ch.lkmc.bangnidraw.engine.core.RmwStrokePolicy
 import ch.lkmc.bangnidraw.engine.core.SmudgeParams
 import ch.lkmc.bangnidraw.engine.core.SizeAdjustment
+import ch.lkmc.bangnidraw.engine.core.WaterParams
 import ch.lkmc.bangnidraw.engine.core.StackEdit
 import ch.lkmc.bangnidraw.engine.core.StackResult
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
@@ -294,6 +297,7 @@ class CanvasViewModel @Inject constructor(
 
     /** Session-local tool parameters; the settings sheets edit these live. */
     private var smudgeParams = SmudgeParams()
+    private var waterParams = WaterParams()
     private var blurParams = BlurParams()
     private var eyedropperParams = EyedropperParams()
 
@@ -511,10 +515,18 @@ class CanvasViewModel @Inject constructor(
             .onFailure { android.util.Log.w(TAG, "brush tuning could not be loaded", it) }
             .getOrDefault(emptyMap())
         brushPresets = loadedPresets.map { preset ->
-            val tuning = tunings[preset.id]
-            preset
-                .withSize(tuning?.size ?: preset.size)
-                .withOpacity(tuning?.opacity ?: preset.opacity)
+            preset.applyTuning(tunings[preset.id])
+        }
+        // Watercolor cannot honor the opacity key written by older builds.
+        for (preset in brushPresets) {
+            val tuning = tunings[preset.id] ?: continue
+            if (preset.watercolor == null || tuning.opacity == null) continue
+
+            runCatching {
+                prefs.setBrushTuning(preset.id, preset.persistedTuning())
+            }.onFailure {
+                android.util.Log.w(TAG, "legacy brush opacity could not be removed", it)
+            }
         }
         userPalettes = paletteStore.load()
         val default = brushPresets.firstOrNull { it.id == BrushPresets.PENCIL_ID }
@@ -880,6 +892,12 @@ class CanvasViewModel @Inject constructor(
         updateToolUi()
     }
 
+    internal fun selectWater() {
+        clearColorPick()
+        toolSwitcher.select(ToolKind.Water(waterParams))
+        updateToolUi()
+    }
+
     fun selectBlur() {
         clearColorPick()
         toolSwitcher.select(ToolKind.Blur(blurParams))
@@ -904,6 +922,14 @@ class CanvasViewModel @Inject constructor(
         smudgeParams = params
         if (toolSwitcher.selection.value.kind is ToolKind.Smudge) {
             toolSwitcher.select(ToolKind.Smudge(params))
+        }
+        updateToolUi()
+    }
+
+    internal fun updateWaterParams(params: WaterParams) {
+        waterParams = params
+        if (toolSwitcher.selection.value.kind is ToolKind.Water) {
+            toolSwitcher.select(ToolKind.Water(params))
         }
         updateToolUi()
     }
@@ -1297,15 +1323,25 @@ class CanvasViewModel @Inject constructor(
         when (val kind = toolSwitcher.selection.value.kind) {
             is ToolKind.Brush -> updateActiveBrush { it.withSize(value) }
             is ToolKind.Smudge -> updateSmudgeParams(kind.params.copy(size = value))
+            is ToolKind.Water -> updateWaterParams(kind.params.withSize(value))
             is ToolKind.Blur -> updateBlurParams(kind.params.copy(size = value))
             is ToolKind.Fill, is ToolKind.Eyedropper -> Unit
         }
     }
 
-    fun updateActiveToolOpacity(value: Float) {
+    fun updateActiveToolSecondary(value: Float) {
         when (val kind = toolSwitcher.selection.value.kind) {
-            is ToolKind.Brush -> updateActiveBrush { it.withOpacity(value) }
+            is ToolKind.Brush -> updateActiveBrush { preset ->
+                if (preset.watercolor == null) {
+                    preset.withOpacity(value)
+                } else {
+                    preset.copy(
+                        flow = if (value.isNaN()) preset.flow else value.coerceIn(0f, 1f),
+                    )
+                }
+            }
             is ToolKind.Smudge -> updateSmudgeParams(kind.params.copy(strength = value))
+            is ToolKind.Water -> updateWaterParams(kind.params.withWaterLoad(value))
             is ToolKind.Blur -> updateBlurParams(kind.params.copy(strength = value))
             is ToolKind.Fill, is ToolKind.Eyedropper -> Unit
         }
@@ -1329,6 +1365,16 @@ class CanvasViewModel @Inject constructor(
             is ToolKind.Smudge -> updateSmudgeParams(
                 kind.params.copy(
                     size = BrushSizeScale.adjust(
+                        kind.params.size,
+                        kind.params.sizeMin,
+                        kind.params.sizeMax,
+                        adjustment,
+                    ),
+                ),
+            )
+            is ToolKind.Water -> updateWaterParams(
+                kind.params.withSize(
+                    BrushSizeScale.adjust(
                         kind.params.size,
                         kind.params.sizeMin,
                         kind.params.sizeMax,
@@ -1371,7 +1417,7 @@ class CanvasViewModel @Inject constructor(
         appScope.launch(Dispatchers.IO) {
             runCatching {
                 presetStore.save(preset)
-                prefs.setBrushTuning(preset.id, preset.size, preset.opacity)
+                prefs.setBrushTuning(preset.id, preset.persistedTuning())
             }
                 .onFailure { android.util.Log.w(TAG, "brush ${preset.id} could not be saved", it) }
         }
@@ -1380,7 +1426,7 @@ class CanvasViewModel @Inject constructor(
     internal fun persistBrushTuning() {
         val preset = (toolSwitcher.selection.value.kind as? ToolKind.Brush)?.preset ?: return
         appScope.launch(Dispatchers.IO) {
-            runCatching { prefs.setBrushTuning(preset.id, preset.size, preset.opacity) }
+            runCatching { prefs.setBrushTuning(preset.id, preset.persistedTuning()) }
                 .onFailure { android.util.Log.w(TAG, "brush ${preset.id} tuning could not be saved", it) }
         }
     }

@@ -55,7 +55,10 @@ otherwise; small sealed hierarchies share a file with their root.
 | `Stabilizer` | Position smoothing (pull-string / EMA per preset strength). Stateful per stroke, `reset()` on pen-down. |
 | `PressureCurve` | The device-level pressure map (docs/plan/07-input-and-stylus.md §2: per-device calibration composed with the Softer / Linear / Harder preference), applied by the touch handler before a sample reaches the generator. Per-preset size/opacity/flow curves are docs/plan/04-tools.md's `Curve`. |
 | `DabGenerator`, `Dab` | Turns consecutive `StrokeInput` into `Dab`s at `spacing × radius` intervals with size/flow/angle dynamics (`begin` / `advance` / `end`, docs/plan/04-tools.md §3). Writes into a caller-supplied `DabBatch` (§3.2); allocates nothing after construction. |
-| `BrushPreset`, `ToolKind` | The JSON-serializable brush description (PLAN.md §6 parameter list) and the sealed interface `Brush(preset)`, `Smudge`, `Blur`, `Fill`, `Eyedropper` (docs/plan/04-tools.md §1 — erasers are `Brush` presets with `eraseMode`, not a kind). |
+| `BrushPreset`, `ToolKind` | The JSON-serializable brush description (PLAN.md §6 parameter list) and the sealed interface `Brush(preset)`, `Smudge`, `Water`, `Blur`, `Fill`, `Eyedropper` (docs/plan/04-tools.md §1 — erasers are `Brush` presets with `eraseMode`, not a kind). |
+| `ToolSwitcher`, `RmwStrokePolicy` | Own selection/temporary-tool state and freeze the RMW spec for Smudge, Blur, Watercolor, or Water once at pen-down. |
+| `WatercolorDabPlan`, `WatercolorDabBounds`, `TileContentIndex` | Immutable test oracle, allocation-free live dab bounds, and conservative 4×4-block colour occupancy used to plan direct watercolor RMW without touching blank colour tiles. |
+| `WatercolorWetKernel`, `WatercolorColorKernel` | Pure CPU references for wet diffusion/aging and pigment transport/deposition; shader contract tests pin the GLES passes to them. |
 | `ColorMixer`, `RgbMixer` | `interface ColorMixer { fun mix(a: Int, b: Int, t: Float): Int; val isPigment: Boolean }` plus `LatentColorMixer` for weighted N-way mixes (docs/plan/09-color-and-mixing.md §4). `RgbMixer` is the license-free fallback (decision 5). |
 | `Composite` | CPU reference compositor: every `BlendMode` over premultiplied RGBA8, the pinned semantics the shaders must match (docs/plan/11-testing.md). Also used to flatten for thumbnails/gallery when the GPU is unavailable. |
 | `FloodFill` | Scanline flood fill over a CPU tile window with tolerance / contiguous / expand / AA; returns dirty tile keys. docs/plan/04-tools.md. |
@@ -73,7 +76,7 @@ otherwise; small sealed hierarchies share a file with their root.
 | `TilePool` | The `GL_TEXTURE_2D_ARRAY` atlas: slice allocation/free list, `glTexStorage3D` sized from the queried limits, upload from CPU tiles, `trim()` on memory pressure. |
 | `LayerTextures` | Per-layer `(tx, ty) → slice` index (a dense `IntArray(tilesX × tilesY)` of packed `SliceHandle`s, docs/plan/03-canvas-engine.md §2.2, no boxing) and the layer's dirty-tile set since last readback. |
 | `StrokeBuffer`, `TailBuffer` | The per-stroke RGBA8 accumulation target (capped at the stroke opacity on merge), and the per-frame predicted-tail scratch (docs/plan/03-canvas-engine.md §9). |
-| `DabPass`, `SmudgePass`, `CompositePass` | One pass each: stamp dabs into the stroke buffer; ping-pong RMW for smudge/blur/mixing; composite N layers of one tile into a target. |
+| `DabPass`, `SmudgePass`, `WatercolorPass`, `CompositePass` | Stamp buffered dabs; ping-pong smudge/blur; update colour plus coarse wet state for Watercolor/Water; composite N layers of one tile into a target. |
 | `SandwichCache` | The two cached composites (below / above the active layer) per visible tile; invalidated by layer edits and by the active-layer change. |
 | `Readback` | PBO pool: enqueue `glReadPixels` per dirty tile, poll fences, hand mapped bytes to the IO side as immutable `CpuTile`s (§3.3). |
 | `Shaders` | GLSL sources as Kotlin string constants (one `object` per program) with the uniform names the contract test parses. |
@@ -285,7 +288,7 @@ data class CanvasUiState(
     val document: Document?,                 // null while loading
     val activeLayerId: LayerId?,
     val tool: ToolKind, val preset: BrushPreset, val color: Int,
-    val size: Float, val opacity: Float,     // rail sliders (preset overrides)
+    val size: Float, val secondary: Float,  // opacity, Watercolor flow, or Water load
     val view: ViewTransform, val viewIsIdentity: Boolean,
     val canUndo: Boolean, val canRedo: Boolean,
     val historyCost: HistoryCost,            // steps/bytes vs cap, for the UI readout

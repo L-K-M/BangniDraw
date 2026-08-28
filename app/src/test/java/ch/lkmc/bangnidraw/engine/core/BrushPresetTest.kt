@@ -52,6 +52,75 @@ class BrushPresetTest {
     }
 
     @Test
+    fun `watercolor behavior round-trips through JSON`() {
+        val original = BrushPreset(
+            id = "test.watercolor",
+            name = "Watercolor",
+            mixing = true,
+            bufferMode = BufferMode.Accumulate,
+            watercolor = WatercolorBehavior(
+                waterLoad = 0.7f,
+                spread = 0.6f,
+                granulation = 0.3f,
+                edgeDarkening = 0.4f,
+            ),
+        )
+
+        val decoded = json.decodeFromString<BrushPreset>(json.encodeToString(original))
+
+        assertEquals(original, decoded)
+    }
+
+    @Test
+    fun `watercolor behavior validates its unit parameters`() {
+        assertFailsWith<IllegalArgumentException> { WatercolorBehavior(waterLoad = -0.1f) }
+        assertFailsWith<IllegalArgumentException> { WatercolorBehavior(spread = 1.1f) }
+        assertFailsWith<IllegalArgumentException> { WatercolorBehavior(granulation = Float.NaN) }
+        assertFailsWith<IllegalArgumentException> { WatercolorBehavior(edgeDarkening = 2f) }
+    }
+
+    @Test
+    fun `watercolor presets use the pigment accumulate path`() {
+        val behavior = WatercolorBehavior()
+
+        assertFailsWith<IllegalArgumentException> {
+            preset().copy(watercolor = behavior)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            preset().copy(eraseMode = true, watercolor = behavior)
+        }
+
+        val valid = preset().copy(
+            mixing = true,
+            bufferMode = BufferMode.Accumulate,
+            watercolor = behavior,
+        )
+        assertEquals(behavior, valid.watercolor)
+    }
+
+    @Test
+    fun `watercolor presets keep direct stroke controls meaningful`() {
+        val valid = preset().copy(
+            mixing = true,
+            bufferMode = BufferMode.Accumulate,
+            watercolor = WatercolorBehavior(),
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            valid.copy(opacity = 0.5f)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            valid.copy(pressureOpacity = Curve.Linear)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            valid.copy(sizeMax = WatercolorDabPlan.MAX_DIAMETER_PX + 1f)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            WaterParams(sizeMax = WatercolorDabPlan.MAX_DIAMETER_PX + 1f)
+        }
+    }
+
+    @Test
     fun `an unknown field is ignored and a missing one takes the default`() {
         // Forward compatibility (`04` §5.1): an old build must open a preset
         // written by a new one, and a hand-edited file may omit anything it
@@ -243,6 +312,7 @@ class BrushPresetTest {
             is ToolKind.Brush -> "brush"
             is ToolKind.Smudge -> "smudge"
             is ToolKind.Blur -> "blur"
+            is ToolKind.Water -> "water"
             is ToolKind.Fill -> "fill"
             is ToolKind.Eyedropper -> "eyedropper"
         }
@@ -257,6 +327,7 @@ class BrushPresetTest {
             ToolKind.Brush(BrushPresets.INK_PEN),
             ToolKind.Smudge(SmudgeParams(strength = 0.4f)),
             ToolKind.Blur(BlurParams(strength = 0.2f)),
+            ToolKind.Water(WaterParams(waterLoad = 0.8f)),
             ToolKind.Fill(FillParams(tolerance = 0.3f, contiguous = false)),
             ToolKind.Eyedropper(EyedropperParams(source = SampleSource.CurrentLayer, radius = 1)),
         )
@@ -272,6 +343,9 @@ class BrushPresetTest {
         assertFailsWith<IllegalArgumentException> { SmudgeParams(spacing = 0f) }
         assertFailsWith<IllegalArgumentException> { SmudgeParams(size = 1000f) }
         assertFailsWith<IllegalArgumentException> { BlurParams(radiusFraction = 1.5f) }
+        assertFailsWith<IllegalArgumentException> { WaterParams(waterLoad = -0.1f) }
+        assertFailsWith<IllegalArgumentException> { WaterParams(spread = 1.1f) }
+        assertFailsWith<IllegalArgumentException> { WaterParams(size = 1000f) }
         assertFailsWith<IllegalArgumentException> { FillParams(tolerance = 2f) }
         assertFailsWith<IllegalArgumentException> { FillParams(expand = -1) }
         assertFailsWith<IllegalArgumentException> { FillParams(expand = FillParams.MAX_EXPAND + 1) }

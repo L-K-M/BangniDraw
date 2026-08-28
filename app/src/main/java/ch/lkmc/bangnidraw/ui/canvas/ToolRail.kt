@@ -26,7 +26,11 @@ import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,11 +38,13 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,6 +60,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selectableGroup
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
@@ -73,6 +80,7 @@ import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RailSlotPolicy
 import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
+import ch.lkmc.bangnidraw.engine.core.ToolSliderSecondary
 import ch.lkmc.bangnidraw.engine.core.ToolButtonEmphasis
 import ch.lkmc.bangnidraw.engine.core.ToolSelection
 import ch.lkmc.bangnidraw.ui.theme.LocalThemeTone
@@ -89,6 +97,7 @@ internal fun ToolRail(
     hapticsMode: HapticsMode,
     onBrushSelected: (String) -> Unit,
     onSmudgeSelected: () -> Unit,
+    onWaterSelected: () -> Unit,
     onBlurSelected: () -> Unit,
     onFillSelected: () -> Unit,
     onEyedropperSelected: () -> Unit,
@@ -96,13 +105,15 @@ internal fun ToolRail(
     onFillSettingsRequested: () -> Unit,
     onEraserToggle: () -> Unit,
     onSizeChanged: (Float) -> Unit,
-    onOpacityChanged: (Float) -> Unit,
+    onSecondaryChanged: (Float) -> Unit,
     onTuningFinished: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
     val paints = BrushPresets.railOrder(presets).filterNot(BrushPreset::eraseMode)
     val sliderPreset = ToolSliderPreset.forKind(selection.kind)
+    val sliderSecondaryValue = ToolSliderPreset.secondaryValue(selection.kind)
+    val sliderSecondary = ToolSliderPreset.secondaryFor(selection.kind)
     val currentPaint = paints.firstOrNull { it.id == paintBrushId } ?: paints.firstOrNull()
     // The FULL rail shows as many paint slots as the window fits; the rest
     // stay one tap away in the settings sheet's chip row.
@@ -134,6 +145,7 @@ internal fun ToolRail(
             hapticsMode = hapticsMode,
             onBrushSelected = onBrushSelected,
             onSmudgeSelected = onSmudgeSelected,
+            onWaterSelected = onWaterSelected,
             onBlurSelected = onBlurSelected,
             onFillSelected = onFillSelected,
             onEyedropperSelected = onEyedropperSelected,
@@ -150,6 +162,7 @@ internal fun ToolRail(
             hapticsMode = hapticsMode,
             onBrushSelected = onBrushSelected,
             onSmudgeSelected = onSmudgeSelected,
+            onWaterSelected = onWaterSelected,
             onBlurSelected = onBlurSelected,
             onFillSelected = onFillSelected,
             onEyedropperSelected = onEyedropperSelected,
@@ -187,14 +200,16 @@ internal fun ToolRail(
                 gap = if (layout.railMode == RailMode.SHORT) 0.dp else TOOL_GAP,
             )
 
-            if (sliderPreset != null && layout.sliderLengthDp > 0) {
+            if (sliderPreset != null && sliderSecondaryValue != null && layout.sliderLengthDp > 0) {
                 BrushSliders(
                     preset = sliderPreset,
+                    secondary = sliderSecondary,
+                    secondaryValue = sliderSecondaryValue,
                     length = layout.sliderLengthDp.dp,
                     view = view,
                     hapticsMode = hapticsMode,
                     onSizeChanged = onSizeChanged,
-                    onOpacityChanged = onOpacityChanged,
+                    onSecondaryChanged = onSecondaryChanged,
                     onTuningFinished = onTuningFinished,
                 )
             }
@@ -246,6 +261,7 @@ private fun ToolColumn(
             item.onLongClick,
             item.longClickLabel,
             item.hapticsMode,
+            item.menuItems,
         )
         if (index == slots.lastIndex) continue
 
@@ -278,6 +294,7 @@ private fun Dock(slots: List<ToolSlot>, slot: Dp, modifier: Modifier) {
                     item.onLongClick,
                     item.longClickLabel,
                     item.hapticsMode,
+                    item.menuItems,
                 )
             }
         }
@@ -287,14 +304,18 @@ private fun Dock(slots: List<ToolSlot>, slot: Dp, modifier: Modifier) {
 @Composable
 private fun BrushSliders(
     preset: BrushPreset,
+    secondary: ToolSliderSecondary,
+    secondaryValue: Float,
     length: Dp,
     view: View,
     hapticsMode: HapticsMode,
     onSizeChanged: (Float) -> Unit,
-    onOpacityChanged: (Float) -> Unit,
+    onSecondaryChanged: (Float) -> Unit,
     onTuningFinished: () -> Unit,
 ) {
-    var previousOpacity by remember(preset.id) { mutableFloatStateOf(preset.opacity) }
+    var previousSecondary by remember(preset.id, secondary) {
+        mutableFloatStateOf(secondaryValue)
+    }
     Row {
         ThinSlider(
             value = BrushSizeScale.fraction(preset.size, preset.sizeMin, preset.sizeMax),
@@ -308,16 +329,22 @@ private fun BrushSliders(
             length = length,
         )
         ThinSlider(
-            value = preset.opacity,
+            value = secondaryValue,
             range = 0f..1f,
             axis = SliderAxis.Vertical,
-            description = stringResource(R.string.brush_opacity),
+            description = stringResource(
+                when (secondary) {
+                    ToolSliderSecondary.OPACITY -> R.string.brush_opacity
+                    ToolSliderSecondary.FLOW -> R.string.brush_flow
+                    ToolSliderSecondary.WATER -> R.string.water_amount
+                },
+            ),
             onValueChange = { value ->
-                if (OpacityMilestone.crossed(previousOpacity, value).isNotEmpty()) {
+                if (OpacityMilestone.crossed(previousSecondary, value).isNotEmpty()) {
                     view.tick(hapticsMode)
                 }
-                previousOpacity = value
-                onOpacityChanged(value)
+                previousSecondary = value
+                onSecondaryChanged(value)
             },
             onValueChangeFinished = onTuningFinished,
             length = length,
@@ -334,6 +361,7 @@ private fun fullSlots(
     hapticsMode: HapticsMode,
     onBrushSelected: (String) -> Unit,
     onSmudgeSelected: () -> Unit,
+    onWaterSelected: () -> Unit,
     onBlurSelected: () -> Unit,
     onFillSelected: () -> Unit,
     onEyedropperSelected: () -> Unit,
@@ -364,11 +392,12 @@ private fun fullSlots(
         )
     }
     result +=
-        secondarySlots(
+        fullSecondarySlots(
             selection,
             view,
             hapticsMode,
             onSmudgeSelected,
+            onWaterSelected,
             onBlurSelected,
             onFillSelected,
             onEyedropperSelected,
@@ -387,6 +416,7 @@ private fun groupedSlots(
     hapticsMode: HapticsMode,
     onBrushSelected: (String) -> Unit,
     onSmudgeSelected: () -> Unit,
+    onWaterSelected: () -> Unit,
     onBlurSelected: () -> Unit,
     onFillSelected: () -> Unit,
     onEyedropperSelected: () -> Unit,
@@ -417,11 +447,12 @@ private fun groupedSlots(
         )
     }
     result +=
-        secondarySlots(
+        groupedSecondarySlots(
             selection,
             view,
             hapticsMode,
             onSmudgeSelected,
+            onWaterSelected,
             onBlurSelected,
             onFillSelected,
             onEyedropperSelected,
@@ -471,11 +502,12 @@ private fun brushSlot(
 }
 
 @Composable
-private fun secondarySlots(
+private fun groupedSecondarySlots(
     selection: ToolSelection,
     view: View,
     hapticsMode: HapticsMode,
     onSmudgeSelected: () -> Unit,
+    onWaterSelected: () -> Unit,
     onBlurSelected: () -> Unit,
     onFillSelected: () -> Unit,
     onEyedropperSelected: () -> Unit,
@@ -483,6 +515,95 @@ private fun secondarySlots(
     onFillSettingsRequested: () -> Unit,
 ): List<ToolSlot> {
     val smudgeActive = selection.kind is ToolKind.Smudge
+    val waterActive = selection.kind is ToolKind.Water
+    val fillActive = selection.kind is ToolKind.Fill
+    val blurActive = selection.kind is ToolKind.Blur
+    val eyedropperActive = selection.kind is ToolKind.Eyedropper
+    val moreActive = blurActive || eyedropperActive
+
+    return listOf(
+        ToolSlot(
+            icon = Icons.Filled.Gesture,
+            description = { stringResource(R.string.tool_smudge) },
+            state = buttonState(
+                if (smudgeActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
+                selection,
+            ),
+            onClick = {
+                if (smudgeActive) onSettingsRequested()
+                else switch(view, hapticsMode, onSmudgeSelected)
+            },
+        ),
+        ToolSlot(
+            icon = Icons.Filled.WaterDrop,
+            description = { stringResource(R.string.tool_water) },
+            state = buttonState(
+                if (waterActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
+                selection,
+            ),
+            onClick = {
+                if (waterActive) onSettingsRequested()
+                else switch(view, hapticsMode, onWaterSelected)
+            },
+        ),
+        ToolSlot(
+            icon = Icons.Filled.FormatColorFill,
+            description = { stringResource(R.string.tool_fill) },
+            state = buttonState(
+                if (fillActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
+                selection,
+            ),
+            onClick = {
+                if (fillActive) onFillSettingsRequested()
+                else switch(view, hapticsMode, onFillSelected)
+            },
+        ),
+        ToolSlot(
+            icon = Icons.Filled.MoreHoriz,
+            description = { stringResource(R.string.tool_more) },
+            state = buttonState(
+                if (moreActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
+                selection,
+            ),
+            onClick = {},
+            menuItems = listOf(
+                ToolMenuItem(
+                    icon = Icons.Filled.BlurOn,
+                    description = { stringResource(R.string.tool_blur) },
+                    active = blurActive,
+                    onClick = {
+                        if (blurActive) onSettingsRequested()
+                        else switch(view, hapticsMode, onBlurSelected)
+                    },
+                ),
+                ToolMenuItem(
+                    icon = Icons.Filled.Colorize,
+                    description = { stringResource(R.string.tool_eyedropper) },
+                    active = eyedropperActive,
+                    onClick = {
+                        if (eyedropperActive) onSettingsRequested()
+                        else switch(view, hapticsMode, onEyedropperSelected)
+                    },
+                ),
+            ),
+        ),
+    )
+}
+@Composable
+private fun fullSecondarySlots(
+    selection: ToolSelection,
+    view: View,
+    hapticsMode: HapticsMode,
+    onSmudgeSelected: () -> Unit,
+    onWaterSelected: () -> Unit,
+    onBlurSelected: () -> Unit,
+    onFillSelected: () -> Unit,
+    onEyedropperSelected: () -> Unit,
+    onSettingsRequested: () -> Unit,
+    onFillSettingsRequested: () -> Unit,
+): List<ToolSlot> {
+    val smudgeActive = selection.kind is ToolKind.Smudge
+    val waterActive = selection.kind is ToolKind.Water
     val blurActive = selection.kind is ToolKind.Blur
     val fillActive = selection.kind is ToolKind.Fill
     val eyedropperActive = selection.kind is ToolKind.Eyedropper
@@ -497,6 +618,18 @@ private fun secondarySlots(
             onClick = {
                 if (smudgeActive) onSettingsRequested()
                 else switch(view, hapticsMode, onSmudgeSelected)
+            },
+        ),
+        ToolSlot(
+            icon = Icons.Filled.WaterDrop,
+            description = { stringResource(R.string.tool_water) },
+            state = buttonState(
+                if (waterActive) ButtonActivation.ACTIVE else ButtonActivation.INACTIVE,
+                selection,
+            ),
+            onClick = {
+                if (waterActive) onSettingsRequested()
+                else switch(view, hapticsMode, onWaterSelected)
             },
         ),
         ToolSlot(
@@ -562,7 +695,12 @@ private fun ToolButton(
     onLongClick: (() -> Unit)? = null,
     longClickLabel: String? = null,
     hapticsMode: HapticsMode = HapticsMode.DISABLED,
+    menuItems: List<ToolMenuItem> = emptyList(),
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val click: () -> Unit = {
+        if (menuItems.isEmpty()) onClick() else menuExpanded = true
+    }
     val active = state != ToolButtonState.Inactive
     val selectedText = stringResource(R.string.cd_selected)
     val shape = MaterialTheme.shapes.medium
@@ -592,7 +730,7 @@ private fun ToolButton(
         // swatch does.
         if (onLongClick == null) {
             IconButton(
-                onClick = onClick,
+                onClick = click,
                 colors = IconButtonDefaults.iconButtonColors(contentColor = buttonColors.icon),
                 modifier = Modifier
                     .size(slot)
@@ -619,7 +757,7 @@ private fun ToolButton(
                         .clip(shape)
                         .combinedClickable(
                             role = Role.Button,
-                            onClick = onClick,
+                            onClick = click,
                             onLongClickLabel = longClickLabel,
                             onLongClick = onLongClick,
                         )
@@ -645,6 +783,30 @@ private fun ToolButton(
                         ),
                     ),
                 )
+            }
+        }
+        if (menuItems.isNotEmpty()) {
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+                modifier = Modifier.semantics { selectableGroup() },
+            ) {
+                for (item in menuItems) {
+                    DropdownMenuItem(
+                        text = { Text(item.description()) },
+                        onClick = {
+                            menuExpanded = false
+                            item.onClick()
+                        },
+                        leadingIcon = {
+                            Icon(item.icon, contentDescription = null)
+                        },
+                        modifier = Modifier.semantics {
+                            role = Role.RadioButton
+                            selected = item.active
+                        },
+                    )
+                }
             }
         }
     }
@@ -675,6 +837,7 @@ private fun iconFor(glyph: BrushToolGlyph): ImageVector = when (glyph) {
     BrushToolGlyph.PENCIL -> Icons.Filled.Draw
     BrushToolGlyph.INK_PEN -> Icons.Filled.Create
     BrushToolGlyph.PAINTBRUSH -> Icons.Filled.Brush
+    BrushToolGlyph.WATERCOLOR -> WaterToolGlyphs.Watercolor
     BrushToolGlyph.AIRBRUSH -> Icons.Filled.Air
     BrushToolGlyph.SPRAY_CAN -> ToolGlyphs.SprayCan
     BrushToolGlyph.MARKER -> ToolGlyphs.Marker
@@ -690,6 +853,14 @@ private data class ToolSlot(
     val onLongClick: (() -> Unit)? = null,
     val longClickLabel: String? = null,
     val hapticsMode: HapticsMode = HapticsMode.DISABLED,
+    val menuItems: List<ToolMenuItem> = emptyList(),
+)
+
+private data class ToolMenuItem(
+    val icon: ImageVector,
+    val description: @Composable () -> String,
+    val active: Boolean,
+    val onClick: () -> Unit,
 )
 
 private enum class ToolButtonState {

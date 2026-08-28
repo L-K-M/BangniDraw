@@ -74,6 +74,7 @@
     <string name="panel_fill_opened">填充设置已打开</string>
     <string name="panel_smudge_opened">涂抹设置已打开</string>
     <string name="panel_blur_opened">模糊设置已打开</string>
+    <string name="panel_water_opened">清水设置已打开</string>
     <string name="panel_eyedropper_opened">吸管设置已打开</string>
     <string name="canvas_undo">撤销</string>
     <string name="canvas_redo">重做</string>
@@ -99,7 +100,7 @@
 
     <string name="preset_pencil">铅笔</string>
     <string name="preset_ink_pen">墨水笔</string>
-    <string name="preset_paintbrush">画笔</string>
+    <string name="preset_paintbrush">水彩笔</string>
     <string name="preset_airbrush">喷枪</string>
     <string name="preset_spray_can">喷漆罐</string>
     <string name="preset_marker">马克笔</string>
@@ -108,6 +109,12 @@
     <string name="tool_eraser">橡皮擦</string>
     <string name="tool_smudge">涂抹</string>
     <string name="tool_blur">模糊</string>
+    <string name="tool_water">清水</string>
+    <string name="tool_more">更多工具</string>
+    <string name="water_amount">水量</string>
+    <string name="water_spread">扩散</string>
+    <string name="water_granulation">颗粒感</string>
+    <string name="water_edge_darkening">边缘加深</string>
     <string name="tool_fill">填充</string>
     <string name="fill_settings">填充设置</string>
     <string name="fill_tolerance">容差</string>
@@ -161,6 +168,7 @@
     <string name="brush_size">大小</string>
     <string name="brush_opacity">不透明度</string>
     <string name="brush_flow">流量</string>
+    <string name="watercolor_preview_hint">在画布上绘制以预览水彩流动</string>
     <string name="brush_group_tip">笔尖</string>
     <string name="brush_hardness">硬度</string>
     <string name="brush_spacing">间距</string>

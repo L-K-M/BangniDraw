@@ -850,6 +850,29 @@ known issue.
 **Risks.** `versionName`/tag mismatch or a hand-made tag — `release.yml`
 gates on it; only the script cuts releases (PLAN.md §8).
 
+### Step 11 — Watercolor (L)
+
+**Goal.** Add layer-local wet pigment and a colourless Water tool without a
+continuous solver.
+
+**Creates.** Proposal 0001's pure wet/colour kernels, quarter-resolution
+sparse wet grids, `WatercolorPass` GLES 3.0 fragment passes, transient
+cancel/expiry lifecycle, Watercolor preset migration, Water tool, adaptive
+rail placement, controls, glyphs, shortcuts, English/zh-Hans strings, and
+wet-aware memory caps.
+
+**Depends on.** Step 7's Mixbox path, the RMW history path, and step 9's
+adaptive controls.
+
+**Acceptance.** JVM tests pin kernels, bounds, clock wrap/expiry, lifecycle,
+history, memory, shader contracts, and UI policy. Manual phone/tablet and
+lowest-GPU checks for mixing, transport, tile seams, stylus pressure,
+cancel/undo, context loss, TalkBack, and GL errors remain pending.
+
+**Risk.** Quarter-resolution water and one diffusion step per dab are
+approximations. Device evidence, not a larger untimed solver, decides any
+follow-up.
+
 ## 4. Dependency graph and parallelism
 
 ```
@@ -868,6 +891,8 @@ gates on it; only the script cuts releases (PLAN.md §8).
  9 Adaptive UI polish   ← needs 4, 5, 6, 7, 8
  │
 10 v1.0
+ │
+11 Watercolor   ← needs 7, the RMW history path, and adaptive UI
 ```
 
 | After this lands | These can run concurrently |
@@ -896,7 +921,6 @@ Each item enters through a proposal (§6) and, once accepted, a row in PLAN.md
 | Rulers / shape assist | `Stabilizer` gains a constraint stage: snap the stroke to a line, ellipse or bezier ruler placed with two fingers; strokes stay ordinary dab strokes, so every brush works on a ruler. | M | 5 |
 | Symmetry | `DabGenerator` emits N mirrored/rotated dab copies per input dab about an axis in canvas space; one journal entry; a guide overlay in Compose. | S | 5 |
 | Gradient fill | `FillTool` variant: linear/radial gradient between two swatches, optionally mixed through `ColorMixer` (a pigment gradient), masked by the flood region. | S | 8 |
-| Wet / watercolor brushes | A per-layer wetness tile channel and a diffusion RMW pass ticked on a timer while wet; pigment via Mixbox latents; dries to the layer. The first brush needing a timer-driven pass. | L | 7 |
 | Brush grains | Tiling grain textures (CC0, provenance in AGENTS.md) sampled in `DabPass` in canvas space so the grain does not swim; preset field `grain` with scale and depth. | S | 5 |
 | Import image as layer / reference | Photo picker → decode → tiles on a new layer (scaled to the canvas) or a floating reference panel with its own pan/zoom that is not part of the document. | M | 6 |
 | Canvas crop / resize | Document-space change journaled as a whole-document entry (all layers' before-tiles); crop by rect, resize by resampling on the GPU into a new tile set. | M | 3 |

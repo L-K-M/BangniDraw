@@ -686,7 +686,12 @@ class EngineSession(
                 return@execute
             }
             val revision = revisions.incrementAndGet()
-            val applied = renderer.applyPixelOps(pixelOps, revision, beforeCommit)
+            val applied = renderer.applyPixelOps(
+                pixelOps,
+                revision,
+                invalidation,
+                beforeCommit,
+            )
             if (applied) {
                 renderer.setStack(stack, invalidation)
                 pendingMirror = renderer.readbackPending
@@ -942,9 +947,10 @@ class EngineSession(
      * Merges the stroke into its layer (§7.4) and enqueues §10.1's readback of
      * the merged tiles. The fences usually signal a frame or two later, so
      * [pumpReadback] keeps polling after the commit until everything in flight
-     * has been mapped and handed to the tile sink.
+     * has been mapped and handed to the tile sink. [onCommitted] returns on
+     * Main only when the merge changed at least one tile.
      */
-    fun endStroke(opacityCeiling: Float) {
+    fun endStroke(opacityCeiling: Float, onCommitted: () -> Unit) {
         renderPolicy.finishStroke(StrokeFinish.COMMIT)
         activeStrokeRmw = false
         activeStrokeSpec = null
@@ -994,6 +1000,9 @@ class EngineSession(
             ) { spec, keys ->
                 if (pendingStrokeFallback.compareAndSet(fallback, null)) {
                     mergedListener?.invoke(spec, keys, thisRevision)
+                    if (keys.isNotEmpty()) {
+                        pollHandler.post(onCommitted)
+                    }
                 }
             }
             if (merged == 0) completeStrokeWithoutMerge(fallback)

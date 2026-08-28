@@ -26,6 +26,7 @@ class GlState {
     private var blendSrc = -1
     private var blendDst = -1
     private var blendEquation = -1
+    private var ditherEnabled: Boolean? = null
     private var scissorEnabled: Boolean? = null
     private var scissorX = -1
     private var scissorY = -1
@@ -54,6 +55,7 @@ class GlState {
         blendSrc = -1
         blendDst = -1
         blendEquation = -1
+        ditherEnabled = null
         scissorEnabled = null
         scissorX = -1
         scissorY = -1
@@ -120,6 +122,14 @@ class GlState {
 
     /** Blending off: the shader writes the finished composite (§3.3). */
     fun blendOff() = setBlend(false, 0, 0, GLES30.GL_FUNC_ADD)
+
+    /** Fixed-point simulation targets must not receive driver dithering. */
+    fun ditherOff() {
+        if (ditherEnabled == false) return
+
+        GLES30.glDisable(GLES30.GL_DITHER)
+        ditherEnabled = false
+    }
 
     /**
      * The equation is cached alongside the factors, and that is not

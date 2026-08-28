@@ -89,6 +89,9 @@ class SmudgePass(
                     if (added > 0) onFirstTouch(outputKeys, added)
                     blur(plan, batch, index, layer, spec)
                 }
+                is RmwSpec.Watercolor, is RmwSpec.Water -> {
+                    error("Watercolor strokes must use WatercolorPass")
+                }
             }
             dirty = dirty.union(plan.output)
         }

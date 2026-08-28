@@ -40,7 +40,8 @@ class MemoryBudgetTest {
     fun `the worked table of 10 section 4 holds`() {
         MemoryBudget.compute(device(8.0), canvas4096).let {
             assertEquals(1024 * mib, it.gpuTileBudgetBytes, "8 GiB device, tile budget")
-            assertEquals(15, it.maxLayers, "8 GiB device, 4096 canvas")
+            assertEquals(WatercolorScratchBudget.MAX_BYTES, it.watercolorScratchMaxBytes)
+            assertEquals(14, it.maxLayers, "8 GiB device, 4096 canvas")
             assertEquals(4096, it.maxCanvasEdge, "the v1 ceiling")
             assertEquals(200, it.historyMaxSteps)
             assertEquals(256 * mib, it.historyMaxBytes)
@@ -52,9 +53,12 @@ class MemoryBudgetTest {
             assertEquals(16, it.maxLayers, "a smaller canvas hits the MAX_LAYERS clamp")
             assertEquals(4096, it.maxCanvasEdge)
         }
+        MemoryBudget.compute(device(4.0, lowRam = true), canvas2048).let {
+            assertEquals(14, it.maxLayers, "wet state and both gesture reserves fit")
+        }
         MemoryBudget.compute(device(4.0), canvas4096).let {
             assertEquals(512 * mib, it.gpuTileBudgetBytes)
-            assertEquals(7, it.maxLayers)
+            assertEquals(6, it.maxLayers)
             assertEquals(4096, it.maxCanvasEdge)
             assertEquals(100, it.historyMaxSteps)
             assertEquals(128 * mib, it.historyMaxBytes)
@@ -63,8 +67,8 @@ class MemoryBudgetTest {
         }
         MemoryBudget.compute(device(4.0, lowRam = true), canvas4096).let {
             assertEquals(256 * mib, it.gpuTileBudgetBytes, "a low-RAM device gets the flat budget")
-            assertEquals(3, it.maxLayers)
-            assertEquals(3584, it.maxCanvasEdge, "3840 squared would need 5 x 56.3 MiB")
+            assertEquals(2, it.maxLayers)
+            assertEquals(3328, it.maxCanvasEdge, "3584 squared exceeds the wet-aware reserve")
             assertEquals(100, it.historyMaxSteps)
             assertEquals(128 * mib, it.historyMaxBytes)
             assertEquals(8 * mib, it.thumbnailCacheBytes)
@@ -79,6 +83,17 @@ class MemoryBudgetTest {
             assertEquals(24 * mib, it.thumbnailCacheBytes)
             assertEquals(24, it.poolArrayCount)
         }
+    }
+
+    @Test
+    fun `mutually exclusive gesture buffers share the larger reserve`() {
+        // Two 4096² layers use 136 MiB. A gesture then needs either a 64 MiB
+        // stroke buffer or a 4 MiB wet backup, never both.
+        assertEquals(
+            1,
+            MemoryBudget.maxLayersFor(199 * mib, canvas4096),
+        )
+        assertEquals(2, MemoryBudget.maxLayersFor(200 * mib, canvas4096))
     }
 
     @Test
@@ -105,15 +120,15 @@ class MemoryBudgetTest {
     }
 
     @Test
-    fun `the layer cap is monotone non-increasing in canvas area`() {
+    fun `the layer cap is monotone non-increasing in tile storage`() {
         // Squares only walk the diagonal. A cap that depended on width or
         // height alone rather than on tile area would pass every one of them,
         // so pair each square with a rectangle of the same tile count.
         val squares = (256..4096 step 256).map { CanvasSize(it, it) }
         val rectangles = (512..4096 step 512).map { CanvasSize(it / 2, it * 2) }
-        for ((tiles, group) in (squares + rectangles).groupBy { it.tilesPerLayer }.toSortedMap()) {
+        for ((tiles, group) in (squares + rectangles).groupBy { it.tilesPerLayer to it.wetTilesPerLayer }) {
             val caps = group.map { MemoryBudget.compute(device(8.0), it).maxLayers }.toSet()
-            assertEquals(1, caps.size, "$tiles tiles must mean one cap, got $caps for $group")
+            assertEquals(1, caps.size, "$tiles color/wet tiles must mean one cap, got $caps for $group")
         }
         val edges = (256..4096 step 256).toList()
         var previous = Int.MAX_VALUE
@@ -170,24 +185,25 @@ class MemoryBudgetTest {
                 assertTrue(edge % PerfConstants.TILE_SIZE == 0, "maxCanvasEdge is a whole number of tiles")
                 assertTrue(edge <= PerfConstants.MAX_CANVAS_EDGE_V1, "v1 never offers past 4096")
                 // poolCapacityBytes, not gpuTileBudgetBytes: the raw budget is
-                // the misuse maxLayersFor's KDoc warns about, and it is what
-                // forDevice() feeds, so asking any other way tests a number
-                // the dialog never shows.
-                val atEdge = MemoryBudget.maxLayersFor(result.poolCapacityBytes, CanvasSize(edge, edge))
-                // No exemption for the TILE_SIZE floor any more: compute() now
+                // the misuse maxLayersFor's KDoc warns about. Include document
+                // pigment, per-layer wet state, and both gesture reserves.
+                val atEdge = CanvasSize(edge, edge)
+                val requiredSlices = requiredTileSlices(atEdge, PerfConstants.MIN_USEFUL_LAYERS)
+                val capacitySlices = result.poolCapacityBytes / PerfConstants.TILE_BYTES
+                // No exemption for the TILE_SIZE floor: compute() now
                 // asserts that the pool holds MIN_USEFUL_LAYERS + reserve of a
                 // one-tile canvas, so the floor carries the promise like every
                 // other edge does.
                 assertTrue(
-                    atEdge >= PerfConstants.MIN_USEFUL_LAYERS,
-                    "a $totalGib GiB device offers ${edge}px but only holds $atEdge layers there",
+                    requiredSlices <= capacitySlices,
+                    "a $totalGib GiB device offers ${edge}px but needs $requiredSlices of $capacitySlices slices",
                 )
             }
         }
     }
 
     @Test
-    fun `the pool spans enough arrays for every layer`() {
+    fun `the pool spans every advertised layer and both gesture reserves`() {
         // The odd sizes matter: the pool allocates whole 64 MiB arrays, so a
         // budget that is not a multiple of one has capacity the raw byte count
         // does not describe. 2800 MiB / 2304 square is the case that used to
@@ -214,11 +230,14 @@ class MemoryBudgetTest {
                     )) {
                         val r = MemoryBudget.compute(device(totalGib, lowRam, glLayers), canvas)
                         val slices = r.poolArraySlices.toLong() * r.poolArrayCount
+                        if (canvas.width > r.maxCanvasEdge || canvas.height > r.maxCanvasEdge) continue
+
+                        val requiredSlices = requiredTileSlices(canvas, r.maxLayers)
                         assertTrue(
-                            r.maxLayers * canvas.tilesPerLayer <= slices,
+                            requiredSlices <= slices,
                             "$totalGib GiB / lowRam=$lowRam / ${canvas.width}x${canvas.height} / " +
-                                "$glLayers per array: ${r.maxLayers} layers need " +
-                                "${r.maxLayers * canvas.tilesPerLayer} slices, pool has $slices",
+                                "$glLayers per array: ${r.maxLayers} layers and reserves need " +
+                                "$requiredSlices slices, pool has $slices",
                         )
                     }
                 }
@@ -347,13 +366,44 @@ class MemoryBudgetTest {
     @Test
     fun `a canvas size reports its tile geometry`() {
         assertEquals(256L, canvas4096.tilesPerLayer)
+        assertEquals(16L, canvas4096.wetTilesPerLayer)
         // 16 x 16 = 256 tiles, TILE_BYTES each. No extra per-pixel factor:
         // TILE_BYTES already counts the four bytes of RGBA8.
         assertEquals(256L * PerfConstants.TILE_BYTES, canvas4096.layerBytesWorstCase)
+        assertEquals(16L * PerfConstants.TILE_BYTES, canvas4096.wetLayerBytesWorstCase)
         CanvasSize(1080, 1920).let {
             assertEquals(5, it.tilesX, "1080 px is 4.2 tiles, so 5")
             assertEquals(8, it.tilesY, "1920 px is exactly 7.5 tiles, so 8")
             assertEquals(40L, it.tilesPerLayer)
+            assertEquals(4L, it.wetTilesPerLayer)
         }
+    }
+
+    @Test
+    fun `wet tiles match the padded quarter-resolution grid`() {
+        for (canvas in listOf(
+            CanvasSize(256, 256),
+            CanvasSize(1024, 1024),
+            CanvasSize(1025, 1025),
+            canvas2048,
+            canvas4096,
+            CanvasSize(8192, 8192),
+        )) {
+            val wetGrid = TileGrid(
+                WatercolorKernel.wetPixels(canvas.width),
+                WatercolorKernel.wetPixels(canvas.height),
+            )
+            assertEquals(wetGrid.tileCount.toLong(), canvas.wetTilesPerLayer, "$canvas")
+        }
+    }
+
+    private fun requiredTileSlices(canvas: CanvasSize, layers: Int): Long {
+        val persistent = (canvas.tilesPerLayer + canvas.wetTilesPerLayer) * layers
+        val gesture = maxOf(
+            canvas.tilesPerLayer * PerfConstants.STROKE_BUFFER_RESERVE_LAYERS,
+            canvas.wetTilesPerLayer * PerfConstants.WET_GESTURE_BACKUP_LAYERS,
+        )
+
+        return persistent + gesture
     }
 }

@@ -1,20 +1,15 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /**
- * The preset that drives the rail and ledge size/opacity sliders
- * (`docs/plan/08-ui-and-layout.md` §3.2: the two thin sliders "edit the
- * *active tool's* size and opacity").
+ * The size preset and secondary value for the rail and ledge sliders.
  *
- * Brushes carry their own [BrushPreset]. Read-modify-write tools carry
- * [SmudgeParams]/[BlurParams], and the stroke path already synthesizes a
- * preset for them ([RmwDabPreset]); the sliders show that same synthesis, so
- * the numbers on the sliders are the numbers the next stroke uses. Smudge
- * and blur have no opacity — their per-dab intensity is *strength* — so the
- * opacity slider edits strength, carried on the synthesized preset's
- * `opacity` field where [ToolRail]'s sliders read it.
+ * A watercolor preset stays unchanged because its opacity invariant is real;
+ * [secondaryValue] presents flow without constructing an invalid copy.
  *
- * Fill and the eyedropper take no size, so they get no sliders.
+ * [ToolSliderSecondary] tells the caller which domain field an edit updates.
  */
+internal enum class ToolSliderSecondary { OPACITY, FLOW, WATER }
+
 object ToolSliderPreset {
 
     fun forKind(kind: ToolKind): BrushPreset? = when (kind) {
@@ -23,6 +18,26 @@ object ToolSliderPreset {
             .withOpacity(kind.params.strength)
         is ToolKind.Blur -> RmwDabPreset.blur(kind.params)
             .withOpacity(kind.params.strength)
+        is ToolKind.Water -> RmwDabPreset.water(kind.params)
+            .withOpacity(kind.params.waterLoad)
         is ToolKind.Fill, is ToolKind.Eyedropper -> null
+    }
+
+    fun secondaryValue(kind: ToolKind): Float? = when (kind) {
+        is ToolKind.Brush -> if (kind.preset.watercolor == null) {
+            kind.preset.opacity
+        } else {
+            kind.preset.flow
+        }
+        is ToolKind.Smudge -> kind.params.strength
+        is ToolKind.Water -> kind.params.waterLoad
+        is ToolKind.Blur -> kind.params.strength
+        is ToolKind.Fill, is ToolKind.Eyedropper -> null
+    }
+
+    internal fun secondaryFor(kind: ToolKind): ToolSliderSecondary = when {
+        kind is ToolKind.Water -> ToolSliderSecondary.WATER
+        kind is ToolKind.Brush && kind.preset.watercolor != null -> ToolSliderSecondary.FLOW
+        else -> ToolSliderSecondary.OPACITY
     }
 }

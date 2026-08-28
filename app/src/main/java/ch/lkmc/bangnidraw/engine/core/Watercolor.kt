@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.engine.core
 
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.sqrt
 
 /** Pure reference arithmetic shared by the wet-state pass and JVM tests. */
 object WatercolorKernel {
@@ -13,6 +14,12 @@ object WatercolorKernel {
 
     const val ABSORPTION_PER_STEP = 0.08f
     const val ABSORBED_FLOW_WEIGHT = 0.4f
+
+    /** Paper valleys approach full absorption; raised fibers shed more water. */
+    const val PAPER_ABSORPTION_MIN = 0.55f
+    const val PAPER_ABSORPTION_RANGE = 0.45f
+    const val PAPER_CAPACITY_MIN = 0.7f
+    const val PAPER_CAPACITY_RANGE = 0.3f
 
     /** Paper noise slows pigment without ever stopping it. */
     const val PAPER_MOBILITY_MIN = 0.55f
@@ -34,9 +41,10 @@ object WatercolorKernel {
     const val DRY_TICKS = 120
 
     const val TICK_NANOS = 100_000_000L
+    const val DRY_NANOS = DRY_TICKS * TICK_NANOS
 
     /** Wetness reaches zero this long after its last update. */
-    const val DRY_TIME_MILLIS = DRY_TICKS * TICK_NANOS / 1_000_000L
+    const val DRY_TIME_MILLIS = DRY_NANOS / 1_000_000L
 
     /** Quarter-resolution storage, padded to TileGrid's minimum side. */
     fun wetPixels(canvasPixels: Int): Int {
@@ -71,23 +79,34 @@ object WatercolorKernel {
             ).coerceIn(0f, 1f)
     }
 
-    fun ageMillis(nowMillis: Long, updatedAtMillis: Long): Long {
-        require(nowMillis >= 0L) { "nowMillis must not be negative, was $nowMillis" }
-        require(updatedAtMillis >= 0L) {
-            "updatedAtMillis must not be negative, was $updatedAtMillis"
+    /** Covers every corner of a coarse cell for any valid tip rotation. */
+    fun wetCoverageInflation(aspect: Float): Float {
+        require(aspect.isFinite() && aspect in TipShape.Flat.MIN_ASPECT..1f) {
+            "tip aspect must be ${TipShape.Flat.MIN_ASPECT}..1, was $aspect"
         }
+
+        val halfCell = CELL_SIZE * 0.5f
+        return halfCell * sqrt(2f) / aspect
+    }
+
+    fun ageMillis(nowMillis: Long, updatedAtMillis: Long): Long {
         if (nowMillis <= updatedAtMillis) return 0L
 
         return nowMillis - updatedAtMillis
     }
 
-    fun tickAt(monotonicNanos: Long): Int {
-        require(monotonicNanos >= 0L) {
-            "monotonicNanos must not be negative, was $monotonicNanos"
-        }
+    fun tickAt(monotonicNanos: Long): Int = Math.floorMod(
+        Math.floorDiv(monotonicNanos, TICK_NANOS),
+        TICK_MODULUS.toLong(),
+    ).toInt()
 
-        return ((monotonicNanos / TICK_NANOS) % TICK_MODULUS).toInt()
-    }
+    fun tickEpoch(monotonicNanos: Long): Long = Math.floorDiv(
+        Math.floorDiv(monotonicNanos, TICK_NANOS),
+        TICK_MODULUS.toLong(),
+    )
+
+    fun isExpired(nowNanos: Long, updatedAtNanos: Long): Boolean =
+        nowNanos - updatedAtNanos >= DRY_NANOS
 
     fun ageTicks(nowTick: Int, updatedTick: Int): Int {
         require(nowTick in 0 until TICK_MODULUS) { "nowTick must fit two bytes, was $nowTick" }
@@ -137,6 +156,12 @@ data class WatercolorDabPlan(
         /** Limits one dab's diffusion work while still allowing visible blooms. */
         const val MAX_SPREAD_PX = 32
 
+        /** GLES 3.0 guarantees at least this texture edge. */
+        const val MIN_GL_TEXTURE_SIZE = 2048
+
+        /** Leaves spread, wet-cell alignment, and a source halo in one scratch texture. */
+        const val MAX_DIAMETER_PX = 1960f
+
         const val SPREAD_RADIUS_FRACTION = 0.5f
         private const val WET_SOURCE_HALO = 1
 
@@ -149,6 +174,11 @@ data class WatercolorDabPlan(
         ): WatercolorDabPlan {
             require(spread.isFinite() && spread in 0f..1f) {
                 "watercolor spread must be 0..1, was $spread"
+            }
+
+            val diameter = radius * 2f
+            require(radius.isFinite() && radius >= 0f && diameter <= MAX_DIAMETER_PX) {
+                "watercolor diameter exceeds the GLES scratch bound"
             }
 
             val spreadPx = ceil(radius * spread * SPREAD_RADIUS_FRACTION)

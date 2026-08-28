@@ -27,6 +27,7 @@ import ch.lkmc.bangnidraw.engine.core.BrushSizeScale
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.SampleSource
 import ch.lkmc.bangnidraw.engine.core.SmudgeParams
+import ch.lkmc.bangnidraw.engine.core.WaterParams
 import kotlin.math.roundToInt
 
 /**
@@ -105,6 +106,39 @@ internal fun SmudgeSettingsSheet(
             valueText = percent(active.pickupRate),
             range = UNIT_RANGE,
             onValueChange = { onChanged(active.copy(pickupRate = it)) },
+            onValueChangeFinished = {},
+        )
+    }
+}
+
+/** The colorless water tool keeps its three expressive controls together. */
+@Composable
+internal fun WaterSettingsSheet(
+    active: WaterParams,
+    onChanged: (WaterParams) -> Unit,
+) {
+    ToolSheetScaffold(title = stringResource(R.string.tool_water)) {
+        val percent: @Composable (Float) -> String = {
+            stringResource(R.string.brush_value_percent, it * PERCENT)
+        }
+
+        ToolSizeSlider(active.size, active.sizeMin, active.sizeMax) {
+            onChanged(active.withSize(it))
+        }
+        SettingSlider(
+            label = stringResource(R.string.water_amount),
+            value = active.waterLoad,
+            valueText = percent(active.waterLoad),
+            range = UNIT_RANGE,
+            onValueChange = { onChanged(active.withWaterLoad(it)) },
+            onValueChangeFinished = {},
+        )
+        SettingSlider(
+            label = stringResource(R.string.water_spread),
+            value = active.spread,
+            valueText = percent(active.spread),
+            range = UNIT_RANGE,
+            onValueChange = { onChanged(active.copy(spread = it)) },
             onValueChangeFinished = {},
         )
     }

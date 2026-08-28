@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.engine.gl
 import ch.lkmc.bangnidraw.engine.core.DabStamp
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.SmudgeKernel
+import ch.lkmc.bangnidraw.engine.core.TipShape
 import ch.lkmc.bangnidraw.engine.core.WatercolorKernel
 import ch.lkmc.bangnidraw.engine.core.WatercolorDabPlan
 
@@ -10,8 +11,20 @@ import ch.lkmc.bangnidraw.engine.core.WatercolorDabPlan
 internal object WatercolorShaders {
 
     private val mask = """
-        float waterMask(vec2 canvas, vec4 dab) {
-            float d = distance(canvas, dab.xy);
+        float waterDistance(vec2 canvas, vec4 dab, vec2 tip) {
+            vec2 delta = canvas - dab.xy;
+            float c = cos(tip.x);
+            float s = sin(tip.x);
+            vec2 major = vec2(c, s);
+            vec2 minor = vec2(-s, c);
+            return length(vec2(
+                dot(delta, major),
+                dot(delta, minor) / max(tip.y, ${DabStamp.GRADIENT_EPSILON})
+            ));
+        }
+
+        float waterMask(vec2 canvas, vec4 dab, vec2 tip) {
+            float d = waterDistance(canvas, dab, tip);
             float feather = max(fwidth(d), ${DabStamp.GRADIENT_EPSILON});
             float inner = clamp(min(dab.z * dab.w, dab.z - feather), 0.0, dab.z);
             return 1.0 - smoothstep(inner, dab.z, d);
@@ -29,10 +42,15 @@ internal object WatercolorShaders {
         ${Shaders.VERSION_LINE}
         precision highp float;
         precision highp sampler2D;
+        precision highp int;
         #define WATER_CELL_PX ${WatercolorKernel.CELL_SIZE}
         #define MAX_WATER_SPREAD_PX ${WatercolorDabPlan.MAX_SPREAD_PX}
         #define MAX_WATER_DIFFUSION ${WatercolorKernel.MAX_DIFFUSION}
         #define WATER_ABSORPTION ${WatercolorKernel.ABSORPTION_PER_STEP}
+        #define PAPER_ABSORPTION_MIN ${WatercolorKernel.PAPER_ABSORPTION_MIN}
+        #define PAPER_ABSORPTION_RANGE ${WatercolorKernel.PAPER_ABSORPTION_RANGE}
+        #define PAPER_CAPACITY_MIN ${WatercolorKernel.PAPER_CAPACITY_MIN}
+        #define PAPER_CAPACITY_RANGE ${WatercolorKernel.PAPER_CAPACITY_RANGE}
         #define SPREAD_RADIUS_FRACTION ${WatercolorDabPlan.SPREAD_RADIUS_FRACTION}
         #define TICK_CHANNEL_MAX ${WatercolorKernel.CHANNEL_MAX}
         #define TICK_RADIX ${WatercolorKernel.TICK_RADIX}
@@ -43,14 +61,24 @@ internal object WatercolorShaders {
         uniform vec2 u_wetTexel;
         uniform vec2 u_wetScale;
         uniform vec4 u_dab;
+        uniform vec2 u_tip;
         uniform float u_waterLoad;
         uniform float u_spread;
         uniform float u_nowTick;
+        uniform bool u_ageOnly;
+        uniform bool u_epochRollover;
         in vec2 v_uv;
         out vec4 o_color;
 
         $mask
         $sampling
+
+        float proceduralPaper(vec2 canvas) {
+            uvec2 cell = uvec2(floor(max(canvas, vec2(0.0))));
+            uint h = cell.x * ${DabStamp.GRAIN_HASH_X}u + cell.y * ${DabStamp.GRAIN_HASH_Y}u;
+            h = h ^ (h >> ${DabStamp.GRAIN_HASH_SHIFT}u);
+            return float(h & ${DabStamp.GRAIN_HASH_MASK}u) / float(${DabStamp.GRAIN_HASH_MASK});
+        }
 
         float decodeTick(vec4 state) {
             float high = floor(state.g * float(TICK_CHANNEL_MAX) + 0.5);
@@ -66,10 +94,13 @@ internal object WatercolorShaders {
         }
 
         float ageFactor(vec4 state) {
-            float age = mod(
-                u_nowTick - decodeTick(state) + float(TICK_MODULUS),
-                float(TICK_MODULUS)
-            );
+            float updatedTick = decodeTick(state);
+            float age = u_epochRollover && updatedTick <= u_nowTick
+                ? float(DRY_TICKS)
+                : mod(
+                    u_nowTick - updatedTick + float(TICK_MODULUS),
+                    float(TICK_MODULUS)
+                );
             return clamp(1.0 - age / float(DRY_TICKS), 0.0, 1.0);
         }
 
@@ -82,33 +113,73 @@ internal object WatercolorShaders {
             return state.r * ageFactor(state);
         }
 
+        float wetCoverageMask(vec2 canvas, vec4 dab, vec2 tip) {
+            float halfCell = float(WATER_CELL_PX) * 0.5;
+            float aspect = max(tip.y, ${TipShape.Flat.MIN_ASPECT});
+            float cellReach = halfCell * sqrt(2.0) / aspect;
+            return waterMask(canvas, vec4(dab.xy, dab.z + cellReach, dab.w), tip);
+        }
+
+        float suppliedWet(vec2 uv, vec2 canvas) {
+            float wet = sampleWet(uv);
+            float source = clamp(
+                u_waterLoad * wetCoverageMask(canvas, u_dab, u_tip),
+                0.0,
+                1.0
+            );
+            return wet + source * (1.0 - wet);
+        }
+
         void main() {
             vec2 wetPixel = u_wetOrigin + v_uv * (u_wetScale / u_wetTexel);
             vec2 canvas = wetPixel * float(WATER_CELL_PX);
             vec2 wetUv = v_uv * u_wetScale;
             vec4 previous = sampleState(wetUv);
-            float center = sampleWet(wetUv);
+            vec2 stamp = encodeTick(u_nowTick);
+            if (u_ageOnly) {
+                float age = ageFactor(previous);
+                o_color = vec4(
+                    previous.r * age, stamp.x, stamp.y, previous.a * age
+                );
+                return;
+            }
+
+            float cell = float(WATER_CELL_PX);
+            float center = suppliedWet(wetUv, canvas);
             float average = (
-                sampleWet(wetUv + vec2(u_wetTexel.x, 0.0)) +
-                sampleWet(wetUv - vec2(u_wetTexel.x, 0.0)) +
-                sampleWet(wetUv + vec2(0.0, u_wetTexel.y)) +
-                sampleWet(wetUv - vec2(0.0, u_wetTexel.y))
+                suppliedWet(wetUv + vec2(u_wetTexel.x, 0.0),
+                    canvas + vec2(cell, 0.0)
+                ) +
+                suppliedWet(wetUv - vec2(u_wetTexel.x, 0.0),
+                    canvas - vec2(cell, 0.0)
+                ) +
+                suppliedWet(wetUv + vec2(0.0, u_wetTexel.y),
+                    canvas + vec2(0.0, cell)
+                ) +
+                suppliedWet(wetUv - vec2(0.0, u_wetTexel.y),
+                    canvas - vec2(0.0, cell)
+                )
             ) * 0.25;
             float spreadPx = min(u_dab.z * u_spread * SPREAD_RADIUS_FRACTION, float(MAX_WATER_SPREAD_PX));
             float flowRadius = u_dab.z + spreadPx;
-            float flowMask = waterMask(canvas, vec4(u_dab.xy, flowRadius, u_dab.w));
-            float sourceMask = waterMask(canvas, u_dab);
+            float flowMask = wetCoverageMask(
+                canvas, vec4(u_dab.xy, flowRadius, u_dab.w), u_tip
+            );
             float diffusion = 4.0 * MAX_WATER_DIFFUSION * u_spread * flowMask;
             float wet = clamp(center + diffusion * (average - center), 0.0, 1.0);
-            float source = clamp(u_waterLoad * sourceMask, 0.0, 1.0);
-            wet = wet + source * (1.0 - wet);
 
             float saturation = previous.a * ageFactor(previous);
-            float absorbed = min(wet, WATER_ABSORPTION * (1.0 - saturation) * flowMask);
+            float paperPocket = 1.0 - proceduralPaper(canvas);
+            float paperCapacity = PAPER_CAPACITY_MIN + PAPER_CAPACITY_RANGE * paperPocket;
+            float paperAbsorption = PAPER_ABSORPTION_MIN + PAPER_ABSORPTION_RANGE * paperPocket;
+            float absorbed = min(
+                wet,
+                WATER_ABSORPTION * paperAbsorption * paperCapacity *
+                    (1.0 - saturation) * flowMask
+            );
             wet -= absorbed;
             saturation = clamp(saturation + absorbed, 0.0, 1.0);
 
-            vec2 stamp = encodeTick(u_nowTick);
             o_color = vec4(wet, stamp.x, stamp.y, saturation);
         }
     """.trimIndent()
@@ -123,9 +194,12 @@ internal object WatercolorShaders {
             Shaders.Uniform("u_wetTexel", "vec2"),
             Shaders.Uniform("u_wetScale", "vec2"),
             Shaders.Uniform("u_dab", "vec4"),
+            Shaders.Uniform("u_tip", "vec2"),
             Shaders.Uniform("u_waterLoad", "float"),
             Shaders.Uniform("u_spread", "float"),
             Shaders.Uniform("u_nowTick", "float"),
+            Shaders.Uniform("u_ageOnly", "bool"),
+            Shaders.Uniform("u_epochRollover", "bool"),
         ),
     )
 
@@ -155,6 +229,7 @@ internal object WatercolorShaders {
         uniform vec2 u_wetTexel;
         uniform vec2 u_wetScale;
         uniform vec4 u_dab;
+        uniform vec2 u_tip;
         uniform vec3 u_color;
         uniform float u_strength;
         uniform float u_spread;
@@ -207,7 +282,7 @@ internal object WatercolorShaders {
                 t = sourceAlpha;
                 alpha = layer.a;
             }
-            if (layer.a <= ${SmudgeKernel.ALPHA_EPSILON}) {
+            if (layer.a <= ${SmudgeKernel.ALPHA_EPSILON} && !u_alphaLock) {
                 return vec4(u_color * sourceAlpha, sourceAlpha);
             }
             vec3 current = layer.rgb / layer.a;
@@ -229,7 +304,7 @@ internal object WatercolorShaders {
             vec4 wetState = texture(u_wet, wetUv);
             float spreadPx = min(u_dab.z * u_spread * SPREAD_RADIUS_FRACTION, float(MAX_WATER_SPREAD_PX));
             float flowRadius = u_dab.z + spreadPx;
-            float flowMask = waterMask(canvas, vec4(u_dab.xy, flowRadius, u_dab.w));
+            float flowMask = waterMask(canvas, vec4(u_dab.xy, flowRadius, u_dab.w), u_tip);
             float paper = mix(1.0, PAPER_MOBILITY_MIN + PAPER_MOBILITY_RANGE * proceduralPaper(canvas), u_granulation);
             float t = min(${WatercolorKernel.MAX_DIFFUSION},
                 (wetState.r + wetState.a * ABSORBED_FLOW_WEIGHT) * u_spread * flowMask * paper);
@@ -241,8 +316,8 @@ internal object WatercolorShaders {
                 flowed = vec4(straight * center.a, center.a);
             }
 
-            float dabMask = waterMask(canvas, u_dab);
-            float normalizedRadius = distance(canvas, u_dab.xy) / max(u_dab.z, 1.0);
+            float dabMask = waterMask(canvas, u_dab, u_tip);
+            float normalizedRadius = waterDistance(canvas, u_dab, u_tip) / max(u_dab.z, 1.0);
             float rim = smoothstep(RIM_INNER_RADIUS, RIM_OUTER_RADIUS, normalizedRadius) * dabMask;
             float deposit = clamp(
                 u_strength * dabMask * paper * (1.0 + RIM_DEPOSIT_GAIN * u_edgeDarkening * rim),
@@ -273,6 +348,7 @@ internal object WatercolorShaders {
             Shaders.Uniform("u_wetTexel", "vec2"),
             Shaders.Uniform("u_wetScale", "vec2"),
             Shaders.Uniform("u_dab", "vec4"),
+            Shaders.Uniform("u_tip", "vec2"),
             Shaders.Uniform("u_color", "vec3"),
             Shaders.Uniform("u_strength", "float"),
             Shaders.Uniform("u_spread", "float"),

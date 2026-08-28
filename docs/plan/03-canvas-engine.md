@@ -90,8 +90,9 @@ coordinates, the readback chunking and the sandwich rebuild are sized for
 `TilePool` owns a small number of **pages**. A page is one
 `GL_TEXTURE_2D_ARRAY` created with `glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1,
 GL_RGBA8, 256, 256, slicesPerPage)`; each slice holds one tile. Every tile of
-every layer, the two sandwich caches, the stroke buffer and the RMW scratch
-slices come from the same pool.
+every layer, the two sandwich caches, the stroke buffer, each watercolor
+wet grid and the active wet-gesture backup come from the same pool. RMW
+scratch textures are private `GL_TEXTURE_2D` targets outside it.
 
 `slicesPerPage = min(GL_MAX_ARRAY_TEXTURE_LAYERS, 256)`. The spec minimum
 is 256 and we query at startup (§13); we do not use more than 256 even
@@ -137,9 +138,11 @@ is `glCopyTexSubImage3D` of the source slice into a private, non-pool
 page before the pass (`GlCaps.forceCopyBeforeRmw`, off by default).
 
 `allocate()` failing is an ordinary outcome, not a crash: `MemoryBudget`
-already sized the layer cap so that a fully painted document fits, plus
-the sandwich, one stroke buffer and scratch; if `glTexStorage3D` still
-returns `GL_OUT_OF_MEMORY` (or the pool passes `Result.gpuTileBudgetBytes`),
+already sized the layer cap for fully painted colour and fully allocated
+wet state, plus the larger of the mutually exclusive stroke-buffer and
+wet-backup reserves. Sandwich caches remain sparse and unreserved. If
+`glTexStorage3D` still returns `GL_OUT_OF_MEMORY` (or the pool passes
+`Result.gpuTileBudgetBytes`),
 the operation that needed the tile is refused — a stroke is cancelled with
 a one-line notice, a layer add is refused with the budget readout (decision
 4: honest, never silent).
@@ -539,7 +542,7 @@ class StrokeSpec(                   // fixed for the whole stroke
     val mode: StrokeMode,
     val opacity: Float,             // the stroke's ceiling, applied at merge
     val alphaLock: Boolean,         // from the layer
-    val rmw: RmwKind?,              // SMUDGE / BLUR / null; RMW strokes bypass the stroke buffer (§7.6)
+    val rmw: RmwKind?,              // SMUDGE / BLUR / WATERCOLOR / WATER / null; RMW bypasses the stroke buffer (§7.6)
 )
 
 /** A dab is a slot in a DabBatch (SoA FloatArrays, 02 §3.2); the eight per-dab fields are
@@ -802,11 +805,10 @@ mixing over a half-transparent wash.
 
 ### 7.6 Read-modify-write tools
 
-Smudge, blur and the mixing-with-pickup brushes cannot stamp into a
-private buffer: their result at dab *n* depends on the layer as modified
-by dab *n−1*. They write to the layer **directly**, dab by dab, in order,
-with a ping-pong over the dab's rectangle (`SmudgePass`; blur is the same
-pass with a different kernel):
+RMW tools cannot stamp into a private buffer: their result at dab *n*
+depends on the layer as modified by dab *n−1*. They write to the layer
+**directly**, dab by dab, in order. Smudge and blur use a ping-pong over the
+dab's rectangle (`SmudgePass`; blur is the same pass with another kernel):
 
 ```
 for each dab d (in batch order):
@@ -847,15 +849,27 @@ canvas-clipped logical rect clamp to its edge, never into retained stale
 texels. Memory reporting uses the allocated capacity, not the current logical
 viewport.
 
-**Cost model.** Per dab: ≈2 × (2r+2)² px of work (copy + draw) × tiles
+**Smudge/blur cost model.** Per dab: ≈2 × (2r+2)² px of work (copy + draw) × tiles
 touched, plus one FBO bind per tile. At r = 32 and 4 tiles that is ≈36 K
 px; at 200 dabs per frame ≈7 M px — trivial. At r = 256 a single dab is
 ≈530 K px × 2; `DabGenerator` therefore enforces a minimum spacing of
-0.25·r for RMW tools regardless of preset, and the RMW presets cap
-`sizeMax` at 400 px diameter (`docs/plan/04-tools.md` §6; the UI slider
-knows). Dabs of a batch are never
+0.25·r for RMW tools regardless of preset. Smudge, Blur, and the shipped
+Water/Watercolor controls cap diameter at 400 px. Custom watercolor presets
+instead validate against their separate 1960 px scratch bound; the pass below
+owns that cost model. Dabs of a batch are never
 reordered and never merged: each one's read must see the previous one's
 write, which is what makes smudge drag.
+
+**Watercolor and Water.** `WatercolorPass` is a separate GLES 3.0 RMW
+path. Per accepted non-zero dab it snapshots the full-resolution colour
+source and quarter-resolution wet source, including a one-cell wet halo;
+runs one bounded four-neighbour wet pass; then transports and optionally
+deposits full-resolution colour. The source is a private 2-D texture, so
+the pass can write the original pool slice without a feedback loop. Wet
+state uses shared-pool `LayerTextures`; scratch textures stay outside the
+pool. There is no background or pen-up pass. Proposal
+`docs/proposals/0001-gesture-scoped-watercolor.md` owns the equations,
+clock, bounds, history, and lifecycle.
 
 ## 8. The front-buffered path
 
@@ -1232,36 +1246,39 @@ no preprocessor include).
 | One tile, RGBA8 | 262 144 (256 KiB) | GPU slice and CPU copy alike |
 | One pool page (256 slices) | 64 MiB | allocated lazily |
 | `Accum` + `Scratch` at 2560×1600 | 2 × 16 MiB | per surface size |
+| Watercolor scratch targets | ≤ 18.25 MiB | retained session high-water outside the pool |
 | Readback PBOs | 2 × 16 MiB | 64 tiles each |
 | `TailBuffer`, RMW `Reservoir`, sandwich scratch | ≤ 4 + 4 + 2 tiles | fixed |
 | Mixbox LUT | 1 MiB | 512² RGBA |
 | `DabRing` (CPU) | 256 KiB | fixed (8 × 1024 dabs × 8 floats) |
 
-Per layer, worst case (every tile painted), for the size presets
-`CanvasPresets` offers (`docs/plan/10-performance.md` §4; the dialog shows
-only those the budget admits — these rows are the arithmetic):
+Per layer, worst case (every colour tile painted and every coarse wet tile
+allocated), for the size presets `CanvasPresets` offers:
 
-| Preset | Tiles (tx × ty) | Per layer, full | 8 layers + sandwich (2) + stroke buffer (1) |
-| --- | --- | --- | --- |
-| Phone sketch 1080×1920 | 5 × 8 = 40 | 10 MiB | 110 MiB |
-| Square 2048² | 8 × 8 = 64 | 16 MiB | 176 MiB |
-| Tablet 2560×1600 | 10 × 7 = 70 | 17.5 MiB | 192.5 MiB |
-| Large 4096² | 16 × 16 = 256 | 64 MiB | 704 MiB |
-| Format ceiling 8192² (post-v1) | 32 × 32 = 1024 | 256 MiB | 2.75 GiB (the budget will not admit 8 layers here on any current device) |
+| Preset | Colour tiles | Colour C | Wet W | 8 × (C + W) + max(C, W) |
+| --- | --- | --- | --- | --- |
+| Phone sketch 1080×1920 | 5 × 8 = 40 | 10 MiB | 1 MiB | 98 MiB |
+| Square 2048² | 8 × 8 = 64 | 16 MiB | 1 MiB | 152 MiB |
+| Tablet 2560×1600 | 10 × 7 = 70 | 17.5 MiB | 1.5 MiB | 169.5 MiB |
+| Large 4096² | 16 × 16 = 256 | 64 MiB | 4 MiB | 608 MiB |
+| Format ceiling 8192² (post-v1) | 32 × 32 = 1024 | 256 MiB | 16 MiB | 2.375 GiB |
 
-`MemoryBudget.compute(device, canvas).maxLayers` is
-`docs/plan/10-performance.md` §4's: `gpuTileBudgetBytes / layerBytes −
-STROKE_BUFFER_RESERVE_LAYERS (1)`, clamped to `1..MAX_LAYERS (16)`, where
-`gpuTileBudgetBytes` is `totalMem / 8` clamped to 256 MiB..1.5 GiB (a flat
-256 MiB on `isLowRamDevice`). The sandwich halves are not reserved: they
-are sparse canvas-space grids that ride on the tiles no layer has painted
-(10 §2.6), and the lazy page allocation is the backstop. It assumes fully
-painted layers — pessimistic on purpose (decision 4: honest, not clever).
-Because memory grows with painted tiles, the cap is a guarantee, not an
-estimate: if the budget admits 8 layers, all 8 can be painted edge to
-edge. The CPU side is bounded separately by the dirty-mirror flush cadence
-(`CPU_MIRROR_CAP_BYTES`, 10 §4) in
-`docs/plan/06-document-and-persistence.md`.
+One 256² wet slice covers 1024² canvas pixels. `MemoryBudget` reserves
+
+```text
+N × C + N × W + max(
+    C × STROKE_BUFFER_RESERVE_LAYERS,
+    W × WET_GESTURE_BACKUP_LAYERS
+)
+```
+
+against whole-array `poolCapacityBytes`, then clamps the result to
+`1..MAX_LAYERS (16)`. Ordinary buffered strokes and direct watercolor
+gestures cannot be active together, so only the larger gesture reserve is
+live. Sandwich halves are sparse and unreserved. This remains a pessimistic
+guarantee: every advertised colour layer may be painted edge to edge and
+carry a full wet grid. The CPU side is bounded separately by the dirty-mirror
+flush cadence (`CPU_MIRROR_CAP_BYTES`, 10 §4).
 
 ## 15. Class map (engine/gl)
 
@@ -1269,11 +1286,12 @@ edge. The CPU side is bounded separately by the dirty-mirror flush cadence
 | --- | --- | --- |
 | `CanvasRenderer` | the graphics-core callbacks, frame orchestration, `GlCaps`, context lifecycle | `CanvasSurface` (UI), `CanvasViewModel` via a thin `EngineCommands` interface |
 | `TilePool` | pages, free lists, `SliceHandle`s | everything below |
-| `LayerTextures` | per-layer index, upload, swap-on-merge | `MergePass`, `SmudgePass`, undo restore |
+| `LayerTextures` | per-layer index, upload, swap-on-merge | `MergePass`, `SmudgePass`, `WatercolorPass`, undo restore |
 | `StrokeBuffer` / `TailBuffer` | per-stroke tile sets | `DabPass`, `MergePass`, front composite (`preview.frag`) |
 | `DabPass` | instanced dab stamping | front callback, commit |
 | `MergePass` | stroke → layer, all four modes, Mixbox | commit, fill |
 | `SmudgePass` | RMW ping-pong, `Reservoir` | front callback (RMW strokes) |
+| `WatercolorPass` | coarse per-layer wet grids, sparse wet gesture backup, colour/wet fragment passes | front callback (Watercolor and Water) |
 | `CompositePass` | tile quads by page, blend modes, filtering choice, `Accum`/`Scratch` | both callbacks, `SandwichCache`, flatten |
 | `SandwichCache` | Below/Above grids, invalidation | layer edits, active-layer change |
 | `Readback` | PBOs, fences, `CpuTile` channel | commit, undo, flatten |
@@ -1283,5 +1301,6 @@ Everything decision-shaped — which keys a rect touches, which cache half
 an edit invalidates, which filter a zoom uses, how many layers fit, the
 blend and merge arithmetic — has a pure-JVM twin in `engine/core`
 (`TileGrid`, `SandwichPolicy`, `FilterPolicy`, `MemoryBudget`, `Composite`,
-`DabStamp`, `StrokeMerge`) with tests; the GL classes call those and issue
-GL calls, nothing else.
+`DabStamp`, `StrokeMerge`, `WatercolorDabPlan`, `WatercolorDabBounds`,
+`TileContentIndex`, `WatercolorWetKernel`, and `WatercolorColorKernel`)
+with tests; the GL classes call those and issue GL calls, nothing else.

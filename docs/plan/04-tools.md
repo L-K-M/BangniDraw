@@ -23,9 +23,10 @@ the pen moves*. Nothing in `engine/core` imports Android or GL.
 // engine/core
 @Serializable
 sealed interface ToolKind {
-    @Serializable data class Brush(val preset: BrushPreset) : ToolKind   // pencil, pen, brush, airbrush, marker, erasers
+    @Serializable data class Brush(val preset: BrushPreset) : ToolKind   // pencil, pen, watercolor, airbrush, marker, erasers
     @Serializable data class Smudge(val params: SmudgeParams) : ToolKind
     @Serializable data class Blur(val params: BlurParams) : ToolKind
+    @Serializable data class Water(val params: WaterParams) : ToolKind
     @Serializable data class Fill(val params: FillParams) : ToolKind
     @Serializable data class Eyedropper(val params: EyedropperParams) : ToolKind
 }
@@ -63,21 +64,25 @@ one `HistoryEntry` per stroke.
 
 | Tool (rail slot) | `ToolKind` | Engine path | Writes to |
 | --- | --- | --- | --- |
-| Pencil, Ink pen, Paintbrush, Airbrush, Marker | `Brush(preset)` | `DabPass` → stroke buffer → merge on pen-up | active layer |
-| Hard eraser, Soft eraser | `Brush(preset.eraseMode=true)` | same | active layer (alpha only) |
+| Pencil, Ink pen, Airbrush, Marker | `Brush(preset)` | `DabPass` → stroke buffer → merge on pen-up | active layer |
+| Watercolor | `Brush(preset.watercolor != null)` | `WatercolorPass` RMW per dab | active layer colour + transient wet state |
+| Hard eraser, Soft eraser | `Brush(preset.eraseMode=true)` | `DabPass` → stroke buffer → erase merge on pen-up | active layer (alpha only) |
 | Smudge | `Smudge` | `SmudgePass` ping-pong RMW per dab | active layer, live |
 | Blur | `Blur` | `SmudgePass` variant (separable kernel) | active layer, live |
+| Water | `Water` | `WatercolorPass` without pigment deposition | active layer colour + transient wet state |
 | Fill | `Fill` | CPU `FloodFill` → coverage uploaded into the stroke buffer → normal merge | active layer, one shot |
 | Eyedropper | `Eyedropper` | `Readback` of one pixel (composite or layer) | nothing — sets color |
 
 RMW tools bypass the stroke buffer because their result depends on what
 was already under the dab; "never exceed opacity" is meaningless for them.
-They journal identically to brushes, though: at pen-up the dirty
+They journal colour identically to brushes, though: at pen-up the dirty
 `TileKey`s are the union of the dab rects and the before contents come
 from `06-document-and-persistence.md §5.5` (mirror/disk hold last-commit
 state until this stroke's own readback lands). Only ordering matters: the
 smudge stroke's readback must not be swapped into the mirror before the
 entry captures its sources — the same (a)–(d) order as a brush commit.
+Blank Water that touches no colour reports no dirty colour keys and creates
+no history entry.
 
 ## 2. `BrushPreset`
 
@@ -111,6 +116,7 @@ data class BrushPreset(
     val stabilizer: Float = 0.3f,         // 0..1, §4
     val mixing: Boolean = false,          // Mixbox pigment merge instead of alpha-over (09 §3.1); effective only when the mixer is pigment (09 §4)
     val dilution: Float = 0f,             // 0..1, mixing only: how much the paint's share yields to what is under it (09 §3.1)
+    val watercolor: WatercolorBehavior? = null, // non-null selects direct wet RMW
     val grain: String? = null,            // post-v1: asset key of a tileable grain texture
     val eraseMode: Boolean = false,
     val bufferMode: BufferMode = BufferMode.Max,
@@ -183,6 +189,7 @@ the invariant PLAN §7 tests ("spacing invariant under resolution") holds.
 | `tilt.elongate` | major axis multiplied by `1 + tilt/(π/2)`, aligned to the tilt azimuth: the side of a pencil |
 | `mixing` | merge calls `bangni_mix_over(D, c_p, k)` from `09-color-and-mixing.md` §3.1 with `k = strokeAlpha`; the pigment share `t = k / a` is derived inside, reduced by `dilution` where the layer already has paint, alpha stays linear coverage. One formula (`03-canvas-engine.md` §7.4's MIX branch), pinned by the CPU `Composite` reference |
 | `dilution` | mixing only: `t *= 1 − dilution` when the destination has paint (09 §3.1); 0 = plain pigment share |
+| `watercolor` | non-null routes the preset through `WatercolorPass`; requires mixing, Accumulate, opacity 1, constant pressure opacity, and diameter ≤ 1960 px |
 | `eraseMode` | merge: `dst.a *= 1 − strokeAlpha`, premultiplied RGB scaled with it |
 | `bufferMode` | stroke-buffer blend equation: `GL_MAX` vs standard over (`03-canvas-engine.md` §7.2) |
 
@@ -372,7 +379,7 @@ device"). All sizes in canvas px; spacing is a fraction of the radius (§2);
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Pencil | 4 (1–40) | 0.9 | 0.35 | 0.75 | 0.16 | Round / Fixed | 0.2 | off | – |
 | Ink pen | 6 (1–60) | 1.0 | 1.0 | 1.0 | 0.10 | Round / Fixed | 0.7 | off | – |
-| Paintbrush | 40 (4–400) | 1.0 | 0.6 | 0.45 | 0.20 | Flat(0.7) / StrokeDirection | 0.35 | **on** (0.15) | – |
+| Watercolor | 40 (4–400) | 1.0 | 0.45 | 0.25 | 0.20 | Flat(0.7) / StrokeDirection | 0.35 | **on** (0.40) | – |
 | Airbrush | 120 (10–400) | 1.0 | 0.06 | 0.0 | 0.08 | Round / Fixed | 0.1 | off | – |
 | Marker | 24 (4–200) | 0.6 | 1.0 | 0.95 | 0.12 | Flat(0.3) / Stylus | 0.4 | off | – |
 | Hard eraser | 30 (2–400) | 1.0 | 1.0 | 0.95 | 0.20 | Round / Fixed | 0.2 | off | yes |
@@ -382,7 +389,7 @@ device"). All sizes in canvas px; spacing is a fraction of the radius (§2);
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Pencil | floor(0.7) | gamma(0.8) | gamma(1.3) | size 2.2 at flat, opacity 0.5, elongate | none | size 0.1, pos 0.15 | Accumulate |
 | Ink pen | gamma(1.4), floor 0.15 blended: `Curve(0.15, 0.3, 0.6, 1)` | One | One | none | size 0.85 at fast (2 px/ms) | none | Max |
-| Paintbrush | `Curve(0.35, 0.6, 0.85, 1)` | One | gamma(0.7) | size 1.4 at flat | none | size 0.05 | Accumulate |
+| Watercolor | `Curve(0.35, 0.6, 0.85, 1)` | One | gamma(0.7) | size 1.4 at flat | none | size 0.05 | Accumulate |
 | Airbrush | `Curve(0.6, 0.75, 0.9, 1)` | One | Linear | none | none | none | Accumulate |
 | Marker | One (constant width) | One | One | none | none | none | Max |
 | Hard eraser | floor(0.5) | One | One | none | none | none | Max |
@@ -406,16 +413,13 @@ Why the values feel the way they do:
   the calligraphic thick/thin comes from. Velocity thins fast strokes to
   85 %, a subtle cue that reads as confidence. Strong stabilizer (0.7)
   because a pen line has nowhere to hide wobble.
-- **Paintbrush.** Flat(0.7) tip following stroke direction gives a
-  bristle-ish edge: the dab is narrower across the stroke than along it,
-  so turns show the brush "rolling". Mixing on with flow 0.6: where the
-  stroke's coverage is below 1 the pigment share `t = k / a` (09 §3.1)
-  lets it yield to what is underneath, so dragging blue over yellow
-  produces green *at the edges and in the overlap*, not a sharp blue
-  band; dilution 0.15 lets even an opaque pass "see through" a little to
-  the paint under it (09 §3.1). Soft-ish hardness 0.45, flow 0.6 so one
-  pass is not fully opaque; pressure raises flow (gamma 0.7 → responds
-  early).
+- **Watercolor.** The flat 0.7 tip follows the stroke and widens with
+  tilt. Flow 0.45 controls direct pigment deposition; opacity stays 1
+  because this RMW path has no stroke-buffer ceiling. Water 0.72, Spread
+  0.60, Granulation 0.32, and Edge darkening 0.40 drive the coarse wet
+  field, paper mobility, and bounded rim deposit. Mixing is on with 0.40
+  dilution, so crossings use the selected Mixbox/RGB mixer rather than a
+  plain translucent over.
 - **Airbrush.** Hardness 0, flow 0.06, spacing 0.08: hundreds of nearly
   invisible dabs per stroke that build a smooth gradient; `Accumulate` is
   what makes it build. Size barely responds to pressure (60 % floor),
@@ -452,9 +456,29 @@ pencil gets `"grain": "paper-fine"` and the position jitter drops to 0.05.
   of any painting's document (a painting stores pixels, not brushes).
 - Format versioned by a top-level `"v": 1`; unknown fields are ignored
   (`ignoreUnknownKeys = true`) so old builds open new presets.
-- The size/opacity rail sliders write `size`/`opacity` into the *session*
-  copy only and are remembered per preset in `Prefs`, not in the JSON —
-  slider fiddling is not "editing a brush".
+- Brush quick sliders write `size` and the secondary value (opacity or
+  Watercolor flow) into the session copy and remember them per preset in
+  `Prefs`. Water's quick Size and Water values remain session-only. Neither
+  path edits JSON; slider fiddling is not "editing a brush".
+
+### 5.2 Watercolor and Water
+
+`WatercolorBehavior(waterLoad, spread, granulation, edgeDarkening)` is
+defaulted and serializable. A non-null value selects the direct RMW path.
+Watercolor presets must use mixing, `Accumulate`, opacity 1, and
+`pressureOpacity = Curve.One`. The settings sheet hides stroke opacity and
+pressure opacity, which direct RMW cannot honour, and exposes Water, Spread,
+Granulation, and Edge darkening.
+
+`WaterParams` defaults to size 72 (8–400), hardness 0.2, spacing 0.18,
+water 0.75, spread 0.65, and linear pressure-to-water. Its sheet exposes
+Size, Water, and Spread. Water keeps the selected colour unchanged and
+sets the colour pass to transport-only.
+
+Both tools execute one wet and optional colour update per accepted non-zero
+dab. They never run a frame timer or a pen-up settle pass. Wet state lasts
+12 seconds by lazy monotonic age and is transient; proposal 0001 owns the
+engine and lifecycle details.
 
 ## 6. Smudge and Blur
 
@@ -766,12 +790,6 @@ rework.
   evaluate a linear/radial gradient at `(x, y)` — with Mixbox interpolation
   between stops (`mixbox_lerp` in the CPU apply). `FillParams` gets a
   `paint: FillPaint = Solid` field, defaulted, so v1 JSON stays valid.
-- **Wet / watercolor brushes.** A per-layer "wetness" channel (another
-  sparse single-channel tile grid, transient, not saved) plus a diffusion
-  pass run per frame over dirty wet tiles. The `BrushPreset` grows
-  `wetness: Float` and `dryRate: Float`; `DabPass` writes wetness alongside
-  colour. Pigment mixing is already in place, which is the hard half of
-  watercolor. The `SandwichCache`'s dirty-rect recompositing is the hook.
 - **Hue jitter / "dirty brush".** `Jitter.hue` (± degrees, per dab)
   needs the stroke buffer to carry premultiplied colour instead of
   coverage only; the merge then reads `buffer.rgb` in place of `c_p` and

@@ -304,6 +304,7 @@ class CanvasViewModel @Inject constructor(
         PaletteCatalog.ULTRAMARINE_BLUE_ARGB.toInt(),
         PaletteCatalog.CADMIUM_YELLOW_ARGB.toInt(),
     )
+    private var dishTJob: Job? = null
     private var colorPickSession: ColorPickSession? = null
     private var swatchPickSession: PaletteSwatchPickSession? = null
     private var activeColorMixer = ColorMixerResolver.resolve(
@@ -1575,6 +1576,19 @@ class CanvasViewModel @Inject constructor(
         viewModelScope.launch { prefs.setDishWells(dish.a, dish.b) }
     }
 
+    internal fun setDishT(t: Float) {
+        if (t.isNaN()) return
+        val clamped = t.coerceIn(0f, 1f)
+        if (dish.t == clamped) return
+        dish = dish.copy(t = clamped)
+        updateToolUi()
+        dishTJob?.cancel()
+        dishTJob = viewModelScope.launch {
+            delay(200)
+            prefs.setDishT(clamped)
+        }
+    }
+
     private fun editActivePalette(edit: (Palette) -> Palette) {
         val active = colorUiState().activePalette
         if (active.builtIn) return
@@ -2788,6 +2802,15 @@ class CanvasViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        // Flush a debounced dish-t write that has not yet hit disk — the ViewModel
+        // is going away but the child's chosen mix should not.
+        dishTJob?.let { job ->
+            if (job.isActive) {
+                job.cancel()
+                val toPersist = dish.t
+                appScope.launch { runCatching { prefs.setDishT(toPersist) } }
+            }
+        }
         // Belt and braces behind [requestLeave]: whatever is still unwritten when the
         // screen is torn down gets one more drain. The session is gone by now,
         // so there is no readback left to wait on — release() already

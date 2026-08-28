@@ -18,19 +18,26 @@ class CanvasCheckpointContractTest {
     }
 
     @Test
-    fun `thumbnail clears only for a successful write result`() {
+    fun `thumbnail clears only for a successful, still-current write`() {
         val checkpoint = checkpointSource()
         val write = checkpoint.indexOf(THUMBNAIL_WRITE)
         if (write < 0) fail("missing $THUMBNAIL_WRITE")
-        val success = checkpoint.indexOf(THUMBNAIL_WRITTEN, write)
-        if (success < 0) fail("missing $THUMBNAIL_WRITTEN after thumbnail write")
-        val clear = checkpoint.indexOf(CLEAR_THUMBNAIL_DIRTY, write)
-        if (clear < 0) fail("missing $CLEAR_THUMBNAIL_DIRTY after thumbnail write")
-        val guardedStatement = checkpoint.substring(success).substringBefore('\n')
+
+        // The clear lives in finishCheckpoint: it runs only after the write
+        // returned unthrown, and only while no newer edit owns the dirty
+        // state — the generation guard subsumes the old WRITTEN branch.
+        val finish = checkpoint.indexOf(FINISH_CHECKPOINT)
+        if (finish < 0) fail("missing $FINISH_CHECKPOINT")
+        assertTrue(finish > write, "$FINISH_CHECKPOINT must follow $THUMBNAIL_WRITE")
+
+        val guarded = checkpoint.substring(finish)
+        val clear = guarded.indexOf(CLEAR_THUMBNAIL_DIRTY)
+        if (clear < 0) fail("missing $CLEAR_THUMBNAIL_DIRTY in finishCheckpoint")
+        val staleRecheck = guarded.indexOf(FRESHNESS_STALE)
 
         assertTrue(
-            clear >= success && CLEAR_THUMBNAIL_DIRTY in guardedStatement,
-            "thumbDirty must clear only inside the WRITTEN branch",
+            staleRecheck in 0 until clear,
+            "thumbDirty must clear only behind the stale-generation re-check",
         )
     }
 
@@ -62,8 +69,9 @@ class CanvasCheckpointContractTest {
         const val CHECKPOINT_END = "private suspend fun maybeSyncGallery("
         const val COMMIT_BARRIER = "CheckpointBarrier.commitWhenFlushed("
         const val THUMBNAIL_WRITE = "Thumbnails.write("
-        const val THUMBNAIL_WRITTEN = "ThumbnailWriteResult.WRITTEN"
         const val CLEAR_THUMBNAIL_DIRTY = "thumbDirty = false"
+        const val FINISH_CHECKPOINT = "private fun finishCheckpoint("
+        const val FRESHNESS_STALE = "CheckpointFreshness.STALE"
         const val THUMBNAIL_DIRTY = "thumbDirty"
         const val PENDING_DELETES = "pendingDeletes"
     }

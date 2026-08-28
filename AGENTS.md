@@ -182,6 +182,13 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   the picked URI. Checkpoints delete only the superseded committed asset;
   reopen preserves the metadata-named asset even when unreadable and sweeps
   other orphans, so a transient read failure cannot destroy recoverable bytes.
+- Checkpoints install their immutable document/history snapshot on Main before
+  IO and tag it with `CheckpointGeneration`. GL readback dirties share the
+  checkpoint-state lock; completion may clear dirty, content, and thumbnail
+  state only while its generation is still current. A newer edit already owns
+  those flags and the live document. Finish that generation before gallery
+  sync can dirty its new metadata; the metadata belongs to the next
+  checkpoint, not the content checkpoint that produced it.
 
 ## Deviations discovered while building
 

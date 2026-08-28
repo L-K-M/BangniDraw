@@ -261,8 +261,9 @@ class TileFlusher(
      * Stops accepting work, drains the accepted FIFO, then joins its worker.
      *
      * Call this after the Canvas's final checkpoint. Cancelling an
-     * application-scope worker would abandon queued writes and retain this
-     * flusher for the rest of the process.
+     * application-scope worker would abandon queued writes. Expected storage
+     * failures are contained inside [run]; cancellation therefore means an
+     * unexpected failure or a violated lifecycle and must be reported.
      */
     suspend fun closeAndJoin() {
         val worker = synchronized(workerLock) {
@@ -274,6 +275,7 @@ class TileFlusher(
         }
 
         worker.join()
+        check(!worker.isCancelled) { "TileFlusher worker failed before drain completed" }
     }
 
     /** Drains every job queued so far, inline — the tests' worker. */

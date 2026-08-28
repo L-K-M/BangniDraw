@@ -13,10 +13,12 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -91,6 +93,31 @@ class TileFlusherTest {
                 assertTrue(withTimeout(WORKER_TIMEOUT_MS) { job.done.await() })
             }
             assertFalse(flusher.enqueueNow(TileFlusher.FlushJob.Checkpoint()))
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `close reports an unexpected worker failure`() = runBlocking {
+        val failure = IllegalStateException("unexpected worker failure")
+        val failing = TileFlusher(
+            write = TileFlusher.TileWriter { _, _, _ -> throw failure },
+        )
+        failing.markDirty(tile(TileKey(0, 0)))
+        assertTrue(failing.enqueueNow(TileFlusher.FlushJob.Checkpoint()))
+
+        val exceptionHandler = CoroutineExceptionHandler { _, _ -> }
+        val scope = CoroutineScope(SupervisorJob() + exceptionHandler)
+        try {
+            val worker = failing.start(scope, Dispatchers.Default)
+
+            assertFailsWith<IllegalStateException> {
+                withTimeout(WORKER_TIMEOUT_MS) {
+                    failing.closeAndJoin()
+                }
+            }
+            assertTrue(worker.isCancelled)
         } finally {
             scope.cancel()
         }

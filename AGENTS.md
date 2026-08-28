@@ -586,8 +586,10 @@ and the contradiction is noted here.
   teardown takes the checkpoint mutex, runs one final leave checkpoint, closes
   the flusher's channel, and joins its application-scope worker. Closing the
   channel lets the receive loop finish every accepted job before it exits;
-  cancelling the worker can strand tile buffers and a coroutine per opened
-  painting.
+  cancelling the worker can strand tile buffers. Expected storage failures are
+  contained by each job, complete its result, and retain pending pixels for a
+  retry. An unexpected exception instead cancels the worker, and
+  `closeAndJoin` must report that failure rather than claim the FIFO drained.
   The per-Canvas worker starts synchronously in the ViewModel's property
   initializer and is single-use. `onCleared` detaches the engine session
   before the final checkpoint, so its readback drain cannot remain pending.

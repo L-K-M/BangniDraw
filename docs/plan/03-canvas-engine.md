@@ -1216,8 +1216,9 @@ chunks — never held whole.
 Everything on the GPU is derived state. A plain `surfaceDestroyed` /
 `surfaceChanged` (activity stop, rotation, fold) does **not** drop the
 pool: graphics-core's `GLRenderer` and its EGL context persist across
-`SurfaceHolder` callbacks and only `Accum`/`Scratch` are re-created
-(`02-architecture.md` §8.2). The cold path is a new `EngineSession` —
+`SurfaceHolder` callbacks; only `Accum`/`Scratch` and their reusable FBOs
+are re-created (`02-architecture.md` §8.2). The cold path is a new
+`EngineSession` —
 after `release()` on Compose dispose, `detachSession()`, or a genuine
 `EGL_CONTEXT_LOST` — when `CanvasRenderer.release()` has dropped the pool,
 caches, `Accum`, PBOs and shaders. On the next surface of a cold session:

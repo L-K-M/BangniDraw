@@ -791,10 +791,17 @@ class CanvasRenderer(
     internal val strokePreviewDirty: IntRect
         get() = strokeDirty.union(previousTailRect)
 
-    /** A new surface, or a resize: `Accum` and `Scratch` are the only casualties. */
+    /** Rebuilds viewport targets and their cached FBO attachments after a resize. */
     fun onSurfaceChanged(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
         val previous = fit
+        val viewportChanged = width != viewportWidth || height != viewportHeight
+        if (viewportChanged) {
+            // Drop old attachments before GLES can reuse deleted texture IDs.
+            fbo.release()
+            readFbo.release()
+        }
+
         viewportWidth = width
         viewportHeight = height
         val next = FitTransform(

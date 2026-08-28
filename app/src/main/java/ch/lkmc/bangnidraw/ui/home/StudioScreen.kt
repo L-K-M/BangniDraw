@@ -461,7 +461,7 @@ private fun PaintingCell(
             },
         )
     } else {
-        Modifier.semantics { disabled() }
+        Modifier.semantics(mergeDescendants = true) { disabled() }
     }
 
     Column(modifier = interactionModifier) {
@@ -508,7 +508,7 @@ private fun PaintingCell(
                         ),
                 ) {
                     Text(
-                        text = stringResource(R.string.cd_unavailable),
+                        text = stringResource(R.string.studio_painting_unavailable_badge),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.align(Alignment.Center),

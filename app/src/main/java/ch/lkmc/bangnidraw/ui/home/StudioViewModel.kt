@@ -18,7 +18,6 @@ import ch.lkmc.bangnidraw.data.ShareCache
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Document
-import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayerId
@@ -303,14 +302,7 @@ class StudioViewModel @Inject constructor(
      */
     private fun syncStale(listed: List<ProjectStore.Summary>) {
         if (staleSyncJob?.isActive == true) return
-        val stale = listed.filter { summary ->
-            if (summary.availability != ProjectStore.ShelfAvailability.AVAILABLE) return@filter false
-
-            val updatedAt = summary.updatedAt ?: return@filter false
-            val lastSyncAt = summary.lastGallerySyncAt ?: return@filter false
-
-            GallerySyncDecision.isStaleOnDisk(updatedAt, lastSyncAt)
-        }
+        val stale = StudioGallerySyncPolicy.staleCandidates(listed)
         if (stale.isEmpty()) return
         staleSyncJob = viewModelScope.launch(Dispatchers.IO) {
             if (!prefs.gallerySync.first()) return@launch

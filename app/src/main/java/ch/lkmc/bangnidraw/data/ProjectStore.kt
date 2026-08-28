@@ -623,6 +623,8 @@ class ProjectStore internal constructor(
         layerCount = null,
         thumbnail = File(dir, THUMB_NAME).takeIf { it.isFile },
         bytes = folderBytes(dir),
+        // Malformed metadata has no trustworthy public URI. Never guess at a
+        // Gallery item by title or id: either may identify another image.
         galleryUri = null,
         availability = ShelfAvailability.UNREADABLE,
     )

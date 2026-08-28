@@ -218,6 +218,8 @@ class ThemeColorPolicyTest {
                     (errors.errorContainerArgb to errors.onErrorContainerArgb),
                 "error text/surface" to (errors.errorArgb to colors.surfaceArgb),
                 "error text/background" to (errors.errorArgb to colors.backgroundArgb),
+                "error text/surfaceContainer" to
+                    (errors.errorArgb to colors.surfaceContainerArgb),
                 "error text/surfaceContainerHigh" to
                     (errors.errorArgb to colors.surfaceContainerHighArgb),
             )

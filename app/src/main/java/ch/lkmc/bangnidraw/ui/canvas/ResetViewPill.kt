@@ -7,8 +7,12 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -18,7 +22,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.ResetViewPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeActivity
@@ -33,6 +40,7 @@ internal fun ResetViewPill(
     density: Float,
     strokeActivity: StrokeActivity,
     onReset: () -> Unit,
+    onActualSize: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val displaced = ResetViewPolicy.isDisplaced(view, density)
@@ -52,8 +60,26 @@ internal fun ResetViewPill(
         exit = if (motionEnabled) fadeOut(tween(FADE_MS)) else ExitTransition.None,
         modifier = modifier,
     ) {
-        FilledTonalButton(onClick = onReset) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // combinedClickable rather than a nested button: the long-press
+        // jumps to actual size, and a button inside a long-press wrapper
+        // would fire its own click on the same release.
+        Surface(
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            shape = ButtonDefaults.shape,
+            modifier = Modifier
+                .clip(ButtonDefaults.shape)
+                .combinedClickable(
+                role = Role.Button,
+                onClick = onReset,
+                onLongClickLabel = stringResource(R.string.canvas_actual_size),
+                onLongClick = onActualSize,
+            ),
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
                 Text(stringResource(R.string.canvas_reset_view))
                 Text(
                     stringResource(

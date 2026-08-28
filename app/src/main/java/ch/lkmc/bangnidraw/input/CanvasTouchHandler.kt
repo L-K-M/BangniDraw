@@ -5,6 +5,7 @@ import android.view.Choreographer
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
+import ch.lkmc.bangnidraw.engine.core.ActualSizePolicy
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.FitTransform
@@ -299,6 +300,14 @@ class CanvasTouchHandler(
         rawRotation = next.rotation
         snap.reset()
     }
+
+    /**
+     * The 100 %-zoom view anchored at the viewport centre — the reset pill's
+     * long-press — or null before the first layout. The handler owns [fit],
+     * so the policy's 1/fit.scale is computed here, not in the composable.
+     */
+    fun actualSizeView(): ViewTransform? =
+        fit?.let { ActualSizePolicy.transform(it, view) }
 
     fun setViewport(canvas: CanvasSize, width: Int, height: Int) {
         val next = if (width > 0 && height > 0) {

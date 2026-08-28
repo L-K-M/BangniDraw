@@ -14,7 +14,7 @@ class ThemeContractTest {
     @Test
     fun `app theme ignores the system appearance`() {
         val activity = strippedKotlin(MAIN_ACTIVITY_PATH)
-        val platformTheme = source(PLATFORM_THEME_PATH)
+        val platformTheme = strippedXml(PLATFORM_THEME_PATH)
         val kotlinRoot = File(repositoryRoot(), MAIN_SOURCES_PATH)
 
         val nightFollowers = kotlinRoot.walkTopDown()
@@ -100,7 +100,7 @@ class ThemeContractTest {
 
     @Test
     fun `launch background matches the default palette`() {
-        val resources = source(COLOR_RESOURCES_PATH)
+        val resources = strippedXml(COLOR_RESOURCES_PATH)
         val actual = colorResource(resources, LAUNCH_BACKGROUND_RESOURCE)
         val expected = ThemeColorPolicy.colors(AppTheme.DEFAULT).backgroundArgb
 
@@ -127,8 +127,16 @@ class ThemeContractTest {
             "the activity-scoped owner must observe the persisted theme",
         )
         assertFalse(
-            "prefs.appTheme.collect" in studioViewModel,
+            "prefs.appTheme" in studioViewModel,
             "the activity-scoped owner must be the only theme observer",
+        )
+        val appThemeFlow = prefs
+            .substringAfter("val appTheme", "")
+            .substringBefore("internal suspend fun setAppTheme", "")
+        assertTrue(appThemeFlow.isNotEmpty(), "the appTheme flow section is missing")
+        assertTrue(
+            ".distinctUntilChanged()" in appThemeFlow,
+            "unrelated preference writes must not recompose the whole app",
         )
         assertTrue(
             "appTheme = LocalAppTheme.current" in studioScreen,
@@ -179,6 +187,9 @@ class ThemeContractTest {
 
     private fun stripComments(text: String): String = TOKEN_OR_COMMENT
         .replace(text) { if (it.value.startsWith("/")) "" else it.value }
+
+    private fun strippedXml(path: String): String =
+        source(path).replace(XML_COMMENT, "")
 
     private fun colorResource(source: String, name: String): Int {
         val resource = Regex(
@@ -248,5 +259,6 @@ class ThemeContractTest {
         val TOKEN_OR_COMMENT = Regex(
             """"{3}[\s\S]*?"{3}|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])+'|/\*[\s\S]*?\*/|//[^\r\n]*""",
         )
+        val XML_COMMENT = Regex("""<!--[\s\S]*?-->""")
     }
 }

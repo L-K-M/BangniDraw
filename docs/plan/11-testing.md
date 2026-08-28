@@ -63,7 +63,7 @@ timelines of samples and never see a `MotionEvent`.
 app/src/test/java/ch/lkmc/bangnidraw/
   engine/core/      one XxxTest.kt per class listed in PLAN.md §3 (incl. GestureArbiterTest.kt,
                     ThemeColorPolicyTest.kt, ToolRailColorPolicyTest.kt,
-                    CanvasVoidColorPolicyTest.kt)
+                    CanvasVoidColorPolicyTest.kt, UserPreferencesTest.kt)
   engine/gl/        GlShaderContractTest.kt, GlslDeclarationOrderTest.kt
   engine/mixbox/    MixboxMixerTest.kt
   tools/            FillToolTest.kt, BrushPresetTest.kt (JSON presets load and validate)
@@ -549,7 +549,7 @@ checklist with ticks; a failing row blocks the merge.
 | U2 | Fold/unfold (Z Fold) and multi-window resize: the layout reflows by width, panels reopen where they were | 9 |
 | U3 | One-handed on a phone: every tool and the undo are reachable with the thumb | 9 |
 | U4 | Focus mode hides all chrome; a tap brings it back | 9 |
-| U5 | Select every theme: named radio state and chrome update immediately; restart preserves it; toggling Android dark mode changes nothing | 13 |
+| U5 | Select every theme: named radio state and chrome update immediately; restart preserves it; cold start with a non-default theme shows the fixed light launch window, then the selected chrome with no wrong-palette Compose frame; toggling Android dark mode changes nothing | 13 |
 | S1 | `adb shell dumpsys package` shows no requested permissions | every release |
 
 ## 9. Instrumented tests: none in v1

@@ -150,7 +150,8 @@ COMPACT (phone portrait, 360 dp)      MEDIUM (600–840 dp)                EXPAN
   swatch and selection mark. Saffron is the default. The group exposes
   `selectableGroup`/radio semantics, so neither meaning nor selection depends
   on colour perception. Selection persists immediately and recolours every
-  screen; Android dark mode is not a choice or input.
+  screen. The chooser offers only the four light-toned palettes; Android's
+  dark mode is neither an option in it nor an input to it.
 - **Empty state**: centred, no illustration: "No paintings yet." / "Tap + to
   start one. Everything you draw is saved as you go." The second line is the
   only place the app explains autosave, because the Canvas will never prompt.

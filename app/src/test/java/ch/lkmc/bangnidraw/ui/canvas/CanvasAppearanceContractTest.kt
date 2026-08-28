@@ -50,6 +50,10 @@ class CanvasAppearanceContractTest {
             firstAppearance < firstRedraw,
             "initial appearance must reach GL before its first redraw",
         )
+        assertTrue(
+            "pendingCanvasAppearance = null" in configure,
+            "a full configure must supersede any deferred appearance",
+        )
     }
 
     @Test

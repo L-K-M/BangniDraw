@@ -280,7 +280,8 @@ device type — foldables and multi-window just work.
 Design language: an expressive studio. The user chooses one of four curated
 light palettes — Saffron, Coral, Violet, or Teal — with subtly tinted chrome
 and chunky tactile controls. The canvas void stays neutral, system dark mode
-is ignored, and decoration never competes with the picture.
+is ignored (rationale in proposal 0003), and decoration never competes with
+the picture.
 
 ## 4. Key design decisions
 

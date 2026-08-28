@@ -38,6 +38,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -129,10 +130,14 @@ class Prefs @Inject constructor(
                     Log.w(TAG, THEME_READ_EXHAUSTED_MESSAGE, error)
                 },
                 pauseBeforeRetry = { attempt ->
-                    val multiplier = minOf(1L shl attempt.toInt(), MAX_BACKOFF_MULTIPLIER)
+                    val multiplier = minOf(
+                        1L shl attempt.toInt().coerceAtMost(MAX_BACKOFF_SHIFT),
+                        MAX_BACKOFF_MULTIPLIER,
+                    )
                     delay(PREFERENCE_READ_RETRY_DELAY_MS * multiplier)
                 },
             )
+            .distinctUntilChanged()
 
     internal suspend fun setAppTheme(theme: AppTheme) {
         dataStore.edit { it[KEY_APP_THEME] = theme.name }
@@ -386,6 +391,9 @@ class Prefs @Inject constructor(
         const val PREFERENCE_CORRUPTION_MESSAGE = "preferences corrupted; resetting"
         const val PREFERENCE_READ_RETRY_DELAY_MS = 1_000L
         const val MAX_BACKOFF_MULTIPLIER = 16L
+        // Keep in sync with MAX_BACKOFF_MULTIPLIER (1L shl MAX_BACKOFF_SHIFT
+        // must equal it) or the shift clamp caps the backoff first.
+        const val MAX_BACKOFF_SHIFT = 4
         val KEY_NEXT_SKETCH = intPreferencesKey("nextSketchNumber")
         val KEY_GALLERY_SYNC = booleanPreferencesKey("gallerySync")
         val KEY_APP_THEME = stringPreferencesKey("appTheme")

@@ -151,6 +151,7 @@ class TileFlusher(
 
     private val workerLock = Any()
     private var workerJob: Job? = null
+    private var workerFailure: Throwable? = null
 
     private val _storageFull = MutableStateFlow(false)
 
@@ -249,9 +250,15 @@ class TileFlusher(
             check(workerJob == null) { "TileFlusher worker already started" }
 
             return scope.launch(io) {
-                // Closing preserves accepted writes: receive until the FIFO is empty.
-                for (job in queue) {
-                    jobMutex.withLock { run(job) }
+                try {
+                    // Closing preserves accepted writes: drain the accepted FIFO.
+                    for (job in queue) {
+                        jobMutex.withLock { run(job) }
+                    }
+                } catch (failure: Throwable) {
+                    // Capture before Job completion so close can report the root cause.
+                    synchronized(workerLock) { workerFailure = failure }
+                    throw failure
                 }
             }.also { workerJob = it }
         }
@@ -275,7 +282,13 @@ class TileFlusher(
         }
 
         worker.join()
-        check(!worker.isCancelled) { "TileFlusher worker failed before drain completed" }
+        if (!worker.isCancelled) return
+
+        val failure = synchronized(workerLock) { workerFailure }
+        throw IllegalStateException(
+            "TileFlusher worker failed before drain completed",
+            failure,
+        )
     }
 
     /** Drains every job queued so far, inline — the tests' worker. */

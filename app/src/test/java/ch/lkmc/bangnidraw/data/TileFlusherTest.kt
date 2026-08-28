@@ -112,12 +112,16 @@ class TileFlusherTest {
         try {
             val worker = failing.start(scope, Dispatchers.Default)
 
-            assertFailsWith<IllegalStateException> {
+            val reported = assertFailsWith<IllegalStateException> {
                 withTimeout(WORKER_TIMEOUT_MS) {
                     failing.closeAndJoin()
                 }
             }
             assertTrue(worker.isCancelled)
+            // Coroutine stack recovery may insert a copy; pin the full chain.
+            assertTrue(generateSequence<Throwable>(reported) { it.cause }.any {
+                it === failure
+            })
         } finally {
             scope.cancel()
         }

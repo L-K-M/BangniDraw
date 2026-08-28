@@ -42,12 +42,30 @@ class CanvasTileFlusherLifecycleContractTest {
         assertTrue(NO_SESSION_COMPLETES in awaitReadbacks)
     }
 
+    @Test
+    fun `teardown logs close failures without crashing the process`() {
+        val source = source(CANVAS_VIEW_MODEL_PATH)
+        val teardown = section(source, ON_CLEARED, NOTE_CHANGE)
+        val close = teardown.indexOf(CLOSE_METHOD_CALL)
+        if (close < 0) fail("missing $CLOSE_METHOD_CALL")
+        val cancellation = teardown.indexOf(CLOSE_CANCELLATION)
+        if (cancellation < 0) fail("missing $CLOSE_CANCELLATION")
+        val failure = teardown.indexOf(CLOSE_FAILURE)
+        if (failure < 0) fail("missing $CLOSE_FAILURE")
+        val report = teardown.indexOf(CLOSE_FAILURE_REPORT)
+        if (report < 0) fail("missing $CLOSE_FAILURE_REPORT")
+
+        assertTrue(close < cancellation)
+        assertTrue(cancellation < failure)
+        assertTrue(failure < report)
+    }
+
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
 
     private fun section(source: String, startMarker: String, endMarker: String): String {
         val start = uniqueIndexOf(source, startMarker)
-        val end = uniqueIndexOf(source, endMarker)
-        if (end <= start) fail("$endMarker must follow $startMarker")
+        val end = source.indexOf(endMarker, start + startMarker.length)
+        if (end < 0) fail("missing $endMarker after $startMarker")
 
         return source.substring(start, end)
     }
@@ -82,6 +100,10 @@ class CanvasTileFlusherLifecycleContractTest {
         const val NOTE_CHANGE = "private fun noteChange()"
         const val CLOSE_METHOD_CALL =
             "withContext(NonCancellable) { checkpointAndCloseFlusher() }"
+        const val CLOSE_CANCELLATION =
+            "catch (e: kotlinx.coroutines.CancellationException)"
+        const val CLOSE_FAILURE = "catch (e: Exception)"
+        const val CLOSE_FAILURE_REPORT = "final checkpoint or flusher close failed"
         const val CLOSE_METHOD = "private suspend fun checkpointAndCloseFlusher()"
         const val CHECKPOINT_METHOD = "private suspend fun checkpointLocked("
         const val LEAVE_CHECKPOINT = "checkpointLocked(GallerySyncDecision.Trigger.LEAVE)"

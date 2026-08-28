@@ -2743,7 +2743,13 @@ class CanvasViewModel @Inject constructor(
         session?.onRmwCancelled = null
         session = null
         appScope.launch {
-            withContext(NonCancellable) { checkpointAndCloseFlusher() }
+            try {
+                withContext(NonCancellable) { checkpointAndCloseFlusher() }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "final checkpoint or flusher close failed", e)
+            }
         }
     }
 

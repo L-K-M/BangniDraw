@@ -6,7 +6,8 @@ in `glm.md`), consolidated with the second-pass deep review of the same day
 fourth deep review of 2026-08-28 (`muse.md`, 8d638d3, 217 Kt files, 14-year-old
 lens), the `hy3.md` review, and the fifth pass (`glm.md`, 2026-08-28,
 v1.1.0 @ `8d638d3`, focused on the post-#58 features: watercolor, Water tool,
-tracing references, Chinese ink, spray can, rail budget, composition guides).
+tracing references, Chinese ink, spray can, rail budget, composition guides),
+and the sixth pass (`k3.md`, 2026-08-28, v1.1.0).
 Every entry was verified in the source, not inferred from the docs;
 everything marked [fix-now] or **[do]** has landed (see the cleared list);
 what remains is shovel-ready work for a future LLM session, ordered
@@ -96,9 +97,47 @@ are open.
   ANALYSIS #8 / glm.md §A.8 + §B.1.3.
 
 Parallel-agent PRs that touch the same backlog (recorded so this list stays
-honest): #120 panel close affordance (shovel-ready #20 / larger idea),
-#111 pigment-wash rail glyph (glyph territory — see the dead-`PAINTBRUSH`
-note below), #117 transparent-paper hint (muse #15 adjacent).
+honest): #117 transparent-paper hint (muse #15 adjacent). (#111, #120,
+#132, #135/#137 below belong to the sixth pass, k3.md.)
+
+## Implemented during the sixth pass (2026-08-28, k3.md) — in review
+
+Four PRs, each with CI green (`testDebugUnitTest lintDebug`), strings in both
+locales where user-visible, and pure tests where decision-shaped. All reached
+a GLM round with **0 actionable suggestions** after the recorded follow-ups.
+Do not re-pick while open.
+
+- PR #111 — **Pigment wash rail glyph** (k3 §1.1; `BrushToolGlyph.PIGMENT_WASH`
+  had shipped mapped to the Water tool's `Icons.Filled.WaterDrop`, two
+  droplets in one FULL rail). New repo-owned `ToolGlyphs.PigmentWash` swash;
+  `ToolIconContractTest` now pins per-glyph distinctness, a droplet ban for
+  every brush mapping, and non-vacuous regex capture. GLM rounds 1–4 were all
+  test-hardening and were all applied. AGENTS.md's glyph rule records the
+  droplet as the Water tool's.
+- PR #120 — **Panel close affordance** (shovel-ready #20 / larger idea): a
+  shared `PanelHeader`/`PanelCloseButton` for the colour, brush, fill and RMW
+  sheets plus the layer panel's header; `panel_close` in both locales;
+  `PanelCloseContractTest` walks each sheet call site's own argument region.
+  GLM rounds applied: shared button, per-call-site check, window bound at the
+  enclosing function.
+- PR #132 — **Actual-size (100 %) zoom** on the reset pill's long-press
+  (larger idea): `ActualSizePolicy` (pure, tested) computes `1 / fit.scale`
+  clamped to the pinch limits, anchored at the view centre, rotation zeroed;
+  the pill is a `Surface` with `combinedClickable` (a nested button would fire
+  on the long-press release). GLM round 1 applied (ripple clip, haptic
+  double-fire gate, boundary test, KDoc clamp note); round 2 was clean.
+- PR #143 — **HSV picker sized to its panel** (larger idea): `pickerSizeFor`
+  caps at 280 dp instead of the fixed 220 dp, with behavioral tests including
+  the height-constrained arm.
+
+Closed as duplicates of earlier in-flight PRs (recorded so the reasoning is
+not lost; do not reopen): **#135** (custom paper colour — duplicate of #131,
+whose `paperIsCustom` flag and float-channel saver are the cleaner reads of
+the same item) and **#137** (shortcut legend — duplicate of #125, same
+single-source-verified-against-`resolve` design; #125's row-per-binding
+layout moots this one's merged-row test). Lesson recorded below under
+sixth-pass notes: the open-PR list moved while the pass ran.
+
 
 ## Implemented during review session (2026-08-27)
 
@@ -266,6 +305,8 @@ in source, ordered small-to-large, no duplicates with above):
     **→ in review as PR #120 (parallel agent); do not re-pick.**
 21. **Focus handle tiny and faint.** `FocusHandle.kt` 6×48 dp at 35 % opacity.
     Bump to 8×48, 55 % and add `semantics { onClick }` "Show controls".
+    The first-run hint never mentions focus mode either (k3 §4.8) — a
+    one-time focus hint is the other half of the discoverability fix.
 22. **Slider ledge mirrors visually but not for touch when left-handed.**
     `SliderLedge.kt:222` `mirrored()` does `scaleX = -1f` on `ThinSlider`
     for `Hand.LEFT`; that flips paint, not `pointerInput` coords, so drag
@@ -304,6 +345,15 @@ Fifth-pass additions (from `glm.md`, verified in source, ordered small-to-large)
     `Composite` CPU path with the behavior's falloff, a speckle pass for
     granulation, a darker rim. M size, high kid-value, JVM-testable.
     (`engine/core/BrushPreview.kt`, `ui/canvas/BrushSettingsSheet.kt`.)
+    (Also k3 §3.4.)
+28. **`brushPresetName` falls through to the raw `@string/…` token** (k3 §1.2).
+    Every built-in id is registered in the `when` today, but the
+    `else -> preset.name` arm displays the stored name verbatim — and
+    built-ins store `@string/preset_*` — so the first future preset that
+    forgets to register shows users a literal token. Pin it: a test that
+    every id in `assets/brushes/*.json` resolves (the assets are already
+    read by `BrushPresetStoreTest`), or a resource-key field on the preset.
+    XS. (`ui/canvas/BrushPresetName.kt`.)
 
 ## Larger ideas (need product judgment or a proposal doc)
 
@@ -374,7 +424,7 @@ scratchpad** higher — they make the tools feel owned and legible to a child.
 - **Actual-size (100 %) zoom action.** Reset-to-fit exists; the other anchor
   for pixel work is scale = 1. A long-press on the reset pill (or a second
   pill state) jumping to 100 % at the view center is pure `ViewTransform`
-  math.
+  math. **→ in review as PR #132; do not re-pick.**
 - **Mouse wheel zoom at the pointer.** `CanvasTouchHandler` returns false
   for `ACTION_SCROLL`; a wheel → `NavigationStep`-style zoom anchored at
   the pointer serves trackpad/keyboard-cover users.
@@ -391,18 +441,22 @@ scratchpad** higher — they make the tools feel owned and legible to a child.
   the most recently updated painting — long-press the launcher icon, jump
   straight back in. No permissions; the Studio already knows the newest id.
   Pairs with the one-tap promise. (`StudioViewModel`, `BangniApp`.)
-- **HSV picker sized to its panel.** `PICKER_SIZE` is a fixed 220 dp in a
-  panel that reaches 320 dp on tablets; a width-scaled picker (with a cap,
-  now `BoxWithConstraints` + `minOf` in `ColorPanel.kt:223`) is a quiet
-  aesthetic win. Consider lifting cap to 280 dp on expanded.
+- **HSV picker sized to its panel.** `PICKER_SIZE` was a fixed 220 dp in a
+  panel that reaches 320 dp on tablets. **→ in review as PR #143**
+  (`pickerSizeFor`, capped at 280 dp); do not re-pick.
 - **Panel close affordance.** Dismissal is scrim-tap or Back; a side sheet
   on a tablet reads as permanent furniture to a first-time user. A close
   icon in the panel header costs ~12 lines. (`ColorPanel`, `LayerPanel`,
   `BrushSettingsSheet` headers.) — also listed as shovel-ready #20.
-- **Checkerboard that scales with zoom.** The transparent-paper checker is
-  a fixed 8 dp; at 64× it becomes a shout. Banding `checkerPx` by
-  `view.scale` (8/16/32) keeps it a texture — `setCanvasAppearance` already
-  takes it as a parameter. (`EngineSession`, `CanvasScreen`.)
+- **Checkerboard "scales with zoom" — premise corrected (k3 §2).** The
+  transparent-paper checker is *screen-space* (`gl_FragCoord / u_checkerPx`
+  in `Shaders.kt`'s checker program): zoom never changes its size, so the
+  banding fix this entry used to prescribe (8/16/32 dp by `view.scale`)
+  would have no visible effect. The honest open question is different:
+  screen-anchored cells slide under the paper during pan/zoom instead of
+  moving with it; a canvas-anchored checker would track the paper but
+  aliases under minification. A visual decision, not a banding fix.
+  (`Shaders.kt` checker program, `EngineSession.setCanvasAppearance`.)
 - **Dock rail rounded.** Side rails are rounded rectangles; the DOCK variant
   is a full-width slab. Rounding its top corners makes the dock read as the
   same object in a different posture. (`ToolRail.Dock`.)
@@ -448,6 +502,11 @@ scratchpad** higher — they make the tools feel owned and legible to a child.
   MP4. From `muse.md#8.7`.
 - **Sound-of-brush (XS, opt-in, off by default).** Pitch maps to pressure
   via `AudioTrack`. From `muse.md#8.13`.
+- **Tool-switch confirmation chip (k3 §4.7).** Switching to a tool hidden in
+  the GROUPED rail's More menu (blur, eyedropper) leaves a highlighted "⋯"
+  and no confirmation of *which* tool answered. A one-second tool-name chip
+  under the top strip (the history readout's exact pattern) closes the loop
+  for every tool change. (`CanvasScreen`, `ToolRail`.)
 
 ## New observations from the second pass (durable notes)
 
@@ -616,6 +675,38 @@ in (−π/2, π/2], stationary pressure steps hysteresis-gated); the
 **`CanvasActionGate`** phase machine and `beginStrokeTool`'s hover/tool-
 switcher ordering; and zh-Hans coverage of every new key. Prior passes'
 "verified clean" lists above remain in force.
+
+The sixth pass (k3.md, 2026-08-28, v1.1.0) additionally verified: the
+gesture arbiter's tap/palm/chord state machine with per-pointer axis
+tracking; the fill SNAPSHOT→COMPUTE→APPLY generation guards and cancel
+rules; the leave/checkpoint handoff including the stranded-scrim grace;
+`CpuFlatten`'s sparse-key read skipping (no I/O for absent tiles) and
+`Composite.tile`'s zero-opacity skip before any disk read; that the
+hidden-layer stroke preview is deliberate (AGENTS.md; toast at pen-down);
+that merge-down's blend-mode-only confirm matches the opacity-baking
+deviation; the dish gradient's remember-wrapping; and the reference
+panel's gesture routing (drawing, picking and tap-undo correctly
+suppressed while it owns navigation). The one latent trap found is
+shovel-ready #28.
+
+## New observations from the sixth pass (k3.md, 2026-08-28, v1.1.0)
+
+- **The open-PR list moved while the pass ran.** k3 picked the shortcuts
+  legend and the custom-paper swatch while the fifth pass's #125/#131 were
+  already in flight for the same items; both k3 PRs closed in favour. The
+  header's "re-check the open-PR list" line is now load-bearing — check it
+  *again* immediately before opening a PR, not only when picking.
+- **GLM review on test-only deltas converges to test-hardening rounds.** The
+  pattern across #111/#120/#143: exact-substring contract assertions get
+  flagged for whitespace/regex brittleness round after round. The settled
+  idiom: collapse whitespace in the source reader, assert per call site
+  rather than by totals, guard against vacuous regex matches, and name the
+  offenders in failure messages. Write new contract tests in that shape
+  directly.
+- **`rememberSaveable` without a `Saver` is a crash on rotation for any
+  non-Bundle type** — GLM caught `HsvColor` (a plain engine/core data class)
+  in the k3 custom-paper picker before merge. Pure-JVM value types need a
+  `listSaver`/custom saver or plain `remember`; the suite cannot see it.
 
 
 ---

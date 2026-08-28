@@ -907,7 +907,7 @@ cancel/undo, context loss, TalkBack, and GL errors remain pending.
 approximations. Device evidence, not a larger untimed solver, decides any
 follow-up.
 
-### Step 13 — Selectable application themes (S)
+### Step 13 — Selectable application themes (S, **landed on main** — PRs #141 and #148, 2026-08-28, CI green; the device check has not been run — no device has ever been available)
 
 **Goal.** Let the user choose expressive application chrome without allowing
 the system or wallpaper to recolour the studio.

@@ -2,6 +2,8 @@ package ch.lkmc.bangnidraw.engine.core
 
 internal enum class RedrawDecision { DRAW, DEFER, COVERED }
 
+internal enum class OverlayRedrawDecision { SCENE, FRONT, DEFER, COVERED }
+
 private enum class FrontDirtySource { INCREMENTAL, CUMULATIVE }
 
 internal data class FrontFrameDirty(
@@ -63,6 +65,21 @@ internal class EngineRenderPolicy {
 
         deferredRedraw = true
         return RedrawDecision.DEFER
+    }
+
+    /** Keeps transient presentation on the cancellable front buffer mid-stroke. */
+    @Synchronized
+    fun requestOverlayRedraw(): OverlayRedrawDecision {
+        if (released) return OverlayRedrawDecision.COVERED
+        if (rmwCancelPending) {
+            deferredRedraw = true
+            return OverlayRedrawDecision.DEFER
+        }
+        if (!strokeActive) return OverlayRedrawDecision.SCENE
+
+        // Cancel exposes the older multi-buffer scene, so it still needs a redraw.
+        deferredRedraw = true
+        return OverlayRedrawDecision.FRONT
     }
 
     @Synchronized

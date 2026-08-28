@@ -79,6 +79,7 @@ internal fun BrushSettingsSheet(
     onPresetChanged: (BrushPreset) -> Unit,
     onPresetPersisted: () -> Unit,
     onReset: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val view = LocalView.current
     val watercolor = active.watercolor
@@ -130,9 +131,9 @@ internal fun BrushSettingsSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = SHEET_PADDING),
         ) {
-            Text(
-                text = stringResource(R.string.brush_settings),
-                style = MaterialTheme.typography.headlineSmall,
+            PanelHeader(
+                title = stringResource(R.string.brush_settings),
+                onClose = onDismiss,
             )
             Text(
                 text = brushPresetName(active),

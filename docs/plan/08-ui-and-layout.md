@@ -46,7 +46,7 @@ data class LayoutSpec(
 | MEDIUM/EXPANDED, rail height < `SHORT_MIN` (288 dp) — split-screen slivers | DOCK, as compact | FULL_HEIGHT_SHEET | LEDGE, one slider |
 | MEDIUM/EXPANDED, rail height `SHORT_MIN` … < `GROUPED_MIN` (phone landscape) | SHORT — 6 grouped slots, 48 dp, no gaps, no padding | SIDE_SHEET 300 dp, full height | LEDGE at the bottom edge, opposite the rail, two sliders |
 | MEDIUM/EXPANDED, rail height `GROUPED_MIN` … < `FULL_MIN` | GROUPED — 6 grouped slots + sliders | SIDE_SHEET 300 dp | IN_RAIL, 120 dp long |
-| MEDIUM/EXPANDED, rail height ≥ `FULL_MIN` (tablets) | FULL — every tool that fits (paint presets up to the height's `paintSlotBudget`, the rest in the settings sheet's chip row) + sliders | FLOATING 320 dp card beside the rail | IN_RAIL, 160 dp long |
+| MEDIUM/EXPANDED, rail height ≥ `FULL_MIN` (tablets) | FULL — every tool that fits (assigned paint slots up to the height's `paintSlotBudget`, all presets in the settings sheet's chip row) + sliders | FLOATING 320 dp card beside the rail | IN_RAIL, 160 dp long |
 
 "Rail height" is window height minus the top strip (48 dp plus the status-bar
 inset it pads for). The tool slot is `slot` = 48 dp on MEDIUM and 56 dp on
@@ -63,12 +63,17 @@ asserts each mode's content height against them:
 
 The FULL rail has six fixed non-paint slots: Eraser, Smudge, Water, Blur,
 Fill, and Eyedropper. `FULL_MIN` remains the ten-slot mode threshold, so it
-fits four paint presets at exactly 718/798 dp; the fifth appears once the
+fits four paint assignments at exactly 718/798 dp; the fifth appears once the
 eleven-slot sum fits. `LayoutSpec.paintSlotBudget` solves
-`paints·(slot + gap) + non-paint ≤ rail height`, the active preset always
-keeps a slot (`RailSlotPolicy`), and remaining presets stay reachable through
-the settings sheet's chip row — the same path GROUPED/SHORT/DOCK use for
-every preset but the active one.
+`paints·(slot + gap) + non-paint ≤ rail height`.
+
+Paint slots are stable assignments initialized from `BrushPresets.RAIL_ORDER`.
+Choosing a preset in the settings sheet swaps it into the active slot; the
+ordered assignments persist globally in `Prefs`, while the active slot index
+remains session state. If a shorter window hides that active index,
+`RailSlotPolicy` projects it into the last visible position without changing
+the assignments. Every preset remains reachable through the settings sheet's
+chip row.
 
 SHORT is the one place the rail keeps 48 dp slots on an expanded width (an
 S-series Ultra in landscape is ≥ 840 dp wide and ~288 dp tall); T1's 56 dp
@@ -79,11 +84,11 @@ Fold inner GROUPED or FULL depending on orientation, phone landscape SHORT,
 phone portrait DOCK. Foldables and multi-window fall out of the same
 function because it is fed the *window*, never the device.
 
-**Grouped slots.** GROUPED, SHORT, and DOCK hold six: **Brush** (the current
-brush preset — pencil, ink pen, Watercolor, airbrush, or marker), **Eraser**,
-**Smudge**, **Water**, **Fill**, and **More**. More contains Blur and
-Eyedropper. Tapping the active Brush slot opens the settings sheet whose
-header is the preset row, so switching pencil → marker on a phone is tap-tap.
+**Grouped slots.** GROUPED, SHORT, and DOCK hold six: **Brush** (the active
+paint slot's assigned preset), **Eraser**, **Smudge**, **Water**, **Fill**, and
+**More**. More contains Blur and Eyedropper. Tapping the active Brush slot
+opens the settings sheet; choosing a preset reassigns that same paint slot, so
+switching pencil → marker on a phone is tap-tap.
 The eraser keeps its own slot in every mode because the S Pen's eraser end and
 button map to it and the user needs to *see* that state
 (`07-input-and-stylus.md`).

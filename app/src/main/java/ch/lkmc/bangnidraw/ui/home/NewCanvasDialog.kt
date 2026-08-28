@@ -255,6 +255,14 @@ fun NewCanvasDialog(
                         onSelect = { showPaperPicker = true },
                     )
                 }
+                if (paper == Color.Transparent.toArgb()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        stringResource(R.string.paper_transparent_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         },
         confirmButton = {

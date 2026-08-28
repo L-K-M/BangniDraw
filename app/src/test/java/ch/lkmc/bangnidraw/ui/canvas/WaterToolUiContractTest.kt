@@ -107,27 +107,42 @@ class WaterToolUiContractTest {
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
+    private fun section(source: String, start: String, end: String): String {
+        assertTrue(start in source, "missing source anchor: $start")
+
+        val afterStart = source.substringAfter(start)
+        assertTrue(end in afterStart, "missing source anchor: $end")
+        return afterStart.substringBefore(end)
+    }
 
     @Test
-    fun `water preserves the last specialty brush route`() {
+    fun `water preserves the active paint slot`() {
         val viewModel = source(CANVAS_VIEW_MODEL_PATH)
-        val selection = viewModel
-            .substringAfter("fun selectBrush(id: String)")
-            .substringBefore("internal fun toggleEraserPreset")
-        val water = viewModel
-            .substringAfter("internal fun selectWater()")
-            .substringBefore("fun selectBlur()")
+        val selection = section(
+            viewModel,
+            "fun selectBrushPreset(id: String)",
+            "internal fun toggleEraserPreset",
+        )
+        val water = section(
+            viewModel,
+            "internal fun selectWater()",
+            "fun selectBlur()",
+        )
         val rail = source(TOOL_RAIL_PATH)
+        val prefs = source(PREFS_PATH)
 
-        assertTrue(
-            "if (preset.eraseMode) eraserBrushId = id else paintBrushId = id" in selection,
-        )
-        assertTrue("selectBrush(paintBrushId)" in selection)
+        assertTrue("val updated = prefs.assignPaintSlot(" in selection)
+        assertTrue("activeIndex = paintSlots.activeIndex" in selection)
+        assertTrue("presetId = id" in selection)
+        assertTrue("paintSlots = updated" in selection)
+        assertTrue("firstOrNull { it.id == updated.activePresetId }" in selection)
+        assertTrue("?: return@collect" in selection)
+        assertTrue("paintSlots = prefs.loadPaintSlots(paintPresetIds)" in viewModel)
+        assertTrue("synchronized(paintSlotLock)" in prefs)
+        assertTrue("selectPaintSlot(paintSlots.activeIndex)" in selection)
         assertTrue("toolSwitcher.select(ToolKind.Water(waterParams))" in water)
-        assertTrue("paintBrushId" !in water)
-        assertTrue(
-            "val currentPaint = paints.firstOrNull { it.id == paintBrushId }" in rail,
-        )
+        assertTrue("paintSlots" !in water)
+        assertTrue("it.assignmentIndex == paintSlots.activeIndex" in rail)
     }
 
     private fun repositoryRoot(): File {

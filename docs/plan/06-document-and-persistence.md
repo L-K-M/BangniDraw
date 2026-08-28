@@ -710,7 +710,7 @@ post-v1) is the intended way to move paintings between devices.
 | `TileFlusher` | data | IO (single) | the writer coroutine; coalescing; ordering |
 | `GalleryExporter` | data | IO | MediaStore mirror, share/export encodes |
 | `ShareCache` | data | IO | `cacheDir/share` rotation |
-| `Prefs` | data | — | DataStore: `gallerySync`, `nextSketchNumber`, journal limits |
+| `Prefs` | data | — | DataStore: app settings, paint-slot assignments, brush tuning |
 | `CanvasViewModel` | ui/canvas | main | owns the clocks, calls `flush()`, applies entries, pushes `UiState` |
 
 Test hooks (`11-testing.md`): `HistoryJournal` round-trips through `HistoryStore`'s encoder on

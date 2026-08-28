@@ -266,8 +266,9 @@ readout so decisions about deleting are informed. **Canvas**: the painting,
 edge to edge; a slim top strip (back, undo, redo, layers, color, menu) and
 a **tool rail** on the left or right (handedness setting) holding the tools
 plus two thin sliders (size and the active tool's secondary value: opacity,
-Watercolor Flow, or Water load); when the window is too short for one tool
-per slot, the five brush presets share one Brush slot. Tap the active tool
+Watercolor Flow, or Water load); when the window is too short for
+separate paint shortcuts, the assigned slots collapse to one active Brush
+slot. Tap the active tool
 again for its settings sheet. Layers and color are modeless panels
 that dismiss with a tap on the canvas (a tap that dismisses never draws)
 and close themselves when a stroke starts on compact widths. A **focus**

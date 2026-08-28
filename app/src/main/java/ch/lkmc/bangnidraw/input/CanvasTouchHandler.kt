@@ -547,13 +547,24 @@ class CanvasTouchHandler(
     }
 
     /**
-     * API 33 palm rejection marks a lift with [MotionEvent.FLAG_CANCELED]
-     * instead of sending [MotionEvent.ACTION_CANCEL]. Both must roll back the
-     * whole stroke before the lifting sample can reach the document.
+     * Rolls back only a rejected stroke owner or the gesture's last pointer.
+     *
+     * A flagged `ACTION_POINTER_UP` may be a rejected palm beside a live pen;
+     * that pointer follows normal per-pointer cleanup without touching the pen.
      */
-    internal fun handlePlatformCancellation(flags: Int, apiLevel: Int, timeNs: Long): Boolean {
+    internal fun handlePlatformCancellation(
+        pointerId: Int,
+        action: Int,
+        flags: Int,
+        apiLevel: Int,
+        timeNs: Long,
+    ): Boolean {
+        // The flag is delivered only on T+ to apps targeting T+; the runtime
+        // check is a safe superset of that platform contract.
         if (apiLevel < Build.VERSION_CODES.TIRAMISU) return false
+        if (action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_POINTER_UP) return false
         if (flags and MotionEvent.FLAG_CANCELED == 0) return false
+        if (action == MotionEvent.ACTION_POINTER_UP && pointerId != drawingId) return false
 
         handleCancel(timeNs)
         return true
@@ -957,11 +968,16 @@ class CanvasTouchHandler(
      */
     override fun onTouch(v: View?, event: MotionEvent?): Boolean {
         val e = event ?: return false
-        val timeNs = e.eventTime * 1_000_000L
-        if (handlePlatformCancellation(e.flags, Build.VERSION.SDK_INT, timeNs)) return true
-
+        val action = e.actionMasked
         val index = e.actionIndex
         val id = e.getPointerId(index)
+        val timeNs = e.eventTime * 1_000_000L
+        if (handlePlatformCancellation(
+                id, action, e.flags, Build.VERSION.SDK_INT, timeNs,
+            )
+        ) {
+            return true
+        }
         // §8: one predictor per surface, recreated with it. `v` is the
         // SurfaceView the session draws into, so building it from here means
         // nothing has to be plumbed through the composable that owns both.
@@ -973,8 +989,8 @@ class CanvasTouchHandler(
         // value the `when` had already switched on — invisible to anyone
         // scanning the arms, and silently inherited by whatever action is added
         // to that arm next.
-        if (e.actionMasked == MotionEvent.ACTION_DOWN) requestUnbuffered(v, e)
-        when (e.actionMasked) {
+        if (action == MotionEvent.ACTION_DOWN) requestUnbuffered(v, e)
+        when (action) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 handleDown(
                     id, toolOf(e.getToolType(index)), e.getX(index), e.getY(index), timeNs,
@@ -1047,8 +1063,8 @@ class CanvasTouchHandler(
             else -> return false
         }
         val downTool = toolOf(e.getToolType(index))
-        val isDown = e.actionMasked == MotionEvent.ACTION_DOWN ||
-            e.actionMasked == MotionEvent.ACTION_POINTER_DOWN
+        val isDown = action == MotionEvent.ACTION_DOWN ||
+            action == MotionEvent.ACTION_POINTER_DOWN
         if (isDown && (downTool == PointerTool.STYLUS || downTool == PointerTool.ERASER)) {
             postHoverFrame()
         }

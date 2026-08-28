@@ -19,6 +19,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -196,7 +197,7 @@ class CanvasTouchHandlerTest {
     }
 
     @Test
-    fun `a platform-cancelled lift cancels instead of ending the stroke`() {
+    fun `a platform-cancelled stroke lift cancels instead of ending`() {
         val host = Host()
         val h = handler(host)
         h.handleDown(7, PointerTool.STYLUS, 100f, 100f, ms(0))
@@ -204,14 +205,60 @@ class CanvasTouchHandlerTest {
 
         assertTrue(
             h.handlePlatformCancellation(
-                MotionEvent.FLAG_CANCELED,
-                Build.VERSION_CODES.TIRAMISU,
-                ms(1),
+                pointerId = 7,
+                action = MotionEvent.ACTION_UP,
+                flags = MotionEvent.FLAG_CANCELED,
+                apiLevel = Build.VERSION_CODES.TIRAMISU,
+                timeNs = ms(1),
             ),
         )
         h.handleUp(7, ms(2))
 
         assertEquals(listOf("cancel"), host.events)
+    }
+
+    @Test
+    fun `a platform-cancelled palm lift preserves the stylus stroke`() {
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(7, PointerTool.STYLUS, 100f, 100f, ms(0))
+        h.handleDown(9, PointerTool.FINGER, 300f, 300f, ms(1))
+        host.events.clear()
+
+        assertFalse(
+            h.handlePlatformCancellation(
+                pointerId = 9,
+                action = MotionEvent.ACTION_POINTER_UP,
+                flags = MotionEvent.FLAG_CANCELED,
+                apiLevel = Build.VERSION_CODES.TIRAMISU,
+                timeNs = ms(2),
+            ),
+        )
+        h.handleUp(9, ms(2))
+        h.handleUp(7, ms(3))
+
+        assertEquals(listOf("end"), host.events)
+    }
+
+    @Test
+    fun `a cancellation flag on a move does not cancel the stroke`() {
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(7, PointerTool.STYLUS, 100f, 100f, ms(0))
+        host.events.clear()
+
+        assertFalse(
+            h.handlePlatformCancellation(
+                pointerId = 7,
+                action = MotionEvent.ACTION_MOVE,
+                flags = MotionEvent.FLAG_CANCELED,
+                apiLevel = Build.VERSION_CODES.TIRAMISU,
+                timeNs = ms(1),
+            ),
+        )
+        h.handleUp(7, ms(2))
+
+        assertEquals(listOf("end"), host.events)
     }
 
     @Test

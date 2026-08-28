@@ -39,6 +39,25 @@ class BrushPreviewTest {
         assertTrue(large.count { it != WHITE } > small.count { it != WHITE })
     }
 
+    @Test
+    fun `a reused render buffer matches fresh renders exactly`() {
+        val buffer = BrushPreview.RenderBuffer(WIDTH, HEIGHT)
+        val presets = listOf(
+            BrushPresets.INK_PEN.copy(size = 2f),
+            BrushPresets.INK_PEN.copy(size = 24f),
+        )
+
+        // A second render through the same buffer must not see the first's
+        // coverage — the slider-drag path renders into one buffer per tick.
+        for (preset in presets) {
+            val reused = BrushPreview.render(preset, BLACK, WHITE, buffer)
+            val fresh = BrushPreview.render(preset, BLACK, WHITE, WIDTH, HEIGHT)
+
+            assertTrue(reused === buffer.pixels)
+            assertTrue(fresh.contentEquals(reused), "reused buffer diverged for size ${preset.size}")
+        }
+    }
+
     private companion object {
         const val WIDTH = 160
         const val HEIGHT = 72

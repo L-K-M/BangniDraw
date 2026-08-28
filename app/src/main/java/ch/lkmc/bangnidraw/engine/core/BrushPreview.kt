@@ -7,6 +7,24 @@ import kotlin.math.sin
 /** CPU brush-settings preview: generator → reference stamp → compositor. */
 internal object BrushPreview {
 
+    /**
+     * Reusable scratch for the settings sheet's debounced re-renders: one
+     * coverage plane and one pixel plane, sized once per preview size, so a
+     * slider drag does not allocate two width×height arrays per tick.
+     */
+    internal class RenderBuffer(val width: Int, val height: Int) {
+        init {
+            require(width > 0 && height > 0)
+        }
+
+        val coverage = FloatArray(width * height)
+        val pixels = IntArray(width * height)
+
+        fun clear() {
+            coverage.fill(0f)
+        }
+    }
+
     fun render(
         preset: BrushPreset,
         brushColor: Int,
@@ -14,7 +32,21 @@ internal object BrushPreview {
         width: Int,
         height: Int,
     ): IntArray {
-        require(width > 0 && height > 0)
+        val pixels = render(preset, brushColor, paperColor, RenderBuffer(width, height))
+        val copy = IntArray(pixels.size)
+        pixels.copyInto(copy)
+        return copy
+    }
+
+    fun render(
+        preset: BrushPreset,
+        brushColor: Int,
+        paperColor: Int,
+        buffer: RenderBuffer,
+    ): IntArray {
+        val width = buffer.width
+        val height = buffer.height
+        buffer.clear()
 
         val previewPreset = preset.withSize(preset.size.coerceAtMost(PREVIEW_SIZE_CAP_PX))
         // Dab spacing floors at 0.5 px. The rectilinear path bound is width
@@ -41,10 +73,9 @@ internal object BrushPreview {
             Composite.green(brushColor) / CHANNEL_MAX_F,
             Composite.blue(brushColor) / CHANNEL_MAX_F,
         )
-        val buffer = FloatArray(width * height)
         for (dabIndex in 0 until batch.count) {
             stamp(
-                buffer = buffer,
+                buffer = buffer.coverage,
                 width = width,
                 height = height,
                 dab = batch[dabIndex],
@@ -56,8 +87,8 @@ internal object BrushPreview {
 
         val opacity = previewPreset.opacity * generator.pressureOpacityMax
         val paper = Composite.premultiply(paperColor)
-        return IntArray(buffer.size) { index ->
-            val alpha = minOf(buffer[index], opacity)
+        for (index in buffer.pixels.indices) {
+            val alpha = minOf(buffer.coverage[index], opacity)
             val stroke = Composite.argb(
                 quantize(alpha),
                 quantize(color[0] * alpha),
@@ -69,8 +100,9 @@ internal object BrushPreview {
             } else {
                 Composite.over(paper, stroke)
             }
-            unpremultiply(merged)
+            buffer.pixels[index] = unpremultiply(merged)
         }
+        return buffer.pixels
     }
 
     private fun stamp(

@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import android.view.HapticFeedbackConstants
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -41,12 +42,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
@@ -92,30 +93,35 @@ internal fun BrushSettingsSheet(
         stringResource(R.string.brush_value_number, it)
     }
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
-    var preview by remember { mutableStateOf<ImageBitmap?>(null) }
     var previousOpacity by remember(active.id) { mutableFloatStateOf(active.opacity) }
+    var previewVersion by remember { mutableIntStateOf(0) }
+    // One bitmap and one render buffer per preview size: a slider drag
+    // re-renders every debounce tick, and each tick would otherwise allocate
+    // two width×height arrays plus a Bitmap that nothing but GC ever reads.
+    var previewTarget by remember(previewSize) {
+        mutableStateOf<PreviewTarget?>(null)
+    }
     LaunchedEffect(active, brushColor, paperColor, previewSize) {
-        if (watercolor != null) {
-            preview = null
-            return@LaunchedEffect
-        }
+        if (watercolor != null) return@LaunchedEffect
 
         if (previewSize.width <= 0 || previewSize.height <= 0) return@LaunchedEffect
         delay(PREVIEW_DEBOUNCE_MS)
-        preview = withContext(Dispatchers.Default) {
-            val pixels = BrushPreview.render(
-                active,
-                brushColor,
-                paperColor,
+        withContext(Dispatchers.Default) {
+            val target = previewTarget ?: PreviewTarget(
                 previewSize.width,
                 previewSize.height,
+            ).also { previewTarget = it }
+            BrushPreview.render(active, brushColor, paperColor, target.buffer)
+            target.bitmap.setPixels(
+                target.buffer.pixels,
+                0,
+                target.width,
+                0,
+                0,
+                target.width,
+                target.height,
             )
-            Bitmap.createBitmap(
-                pixels,
-                previewSize.width,
-                previewSize.height,
-                Bitmap.Config.ARGB_8888,
-            ).asImageBitmap()
+            previewVersion++
         }
     }
 
@@ -167,7 +173,6 @@ internal fun BrushSettingsSheet(
                     .height(PREVIEW_HEIGHT)
                     .onSizeChanged { previewSize = it },
             ) {
-                val bitmap = preview
                 if (watercolor != null) {
                     Text(
                         text = stringResource(R.string.watercolor_preview_hint),
@@ -175,13 +180,23 @@ internal fun BrushSettingsSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.align(Alignment.Center),
                     )
-                } else if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.FillBounds,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                } else {
+                    val target = previewTarget
+                    if (target != null) {
+                        // The bitmap instance is stable; the version read is
+                        // what schedules a redraw after each in-place update.
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            previewVersion
+                            drawImage(
+                                image = target.image,
+                                dstOffset = IntOffset.Zero,
+                                dstSize = IntSize(
+                                    target.width,
+                                    target.height,
+                                ),
+                            )
+                        }
+                    }
                 }
             }
 
@@ -755,6 +770,13 @@ private val CONTROL_GAP = 8.dp
 private val SHEET_BOTTOM_GAP = 32.dp
 private val PREVIEW_HEIGHT = 72.dp
 private const val PREVIEW_DEBOUNCE_MS = 50L
+
+/** One bitmap, one render buffer, and the cached Compose wrapper — per size. */
+private class PreviewTarget(val width: Int, val height: Int) {
+    val buffer = BrushPreview.RenderBuffer(width, height)
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val image = bitmap.asImageBitmap()
+}
 private const val PERCENT = 100f
 private const val DIAMETER_TO_RADIUS = 2f
 private const val DEFAULT_FLAT_ASPECT = 0.5f

@@ -11,6 +11,9 @@ class UserPreferencesTest {
         assertEquals(TouchDrawingMode.ENABLED, TouchDrawingMode.fromStored("sometimes"))
         assertEquals(HapticsMode.ENABLED, HapticsMode.fromStored("maybe"))
         assertEquals(PressurePreference.LINEAR, PressurePreference.fromStored("curved"))
+        assertEquals(AppTheme.DEFAULT, AppTheme.fromStored("wallpaper"))
+        assertEquals(AppTheme.DEFAULT, AppTheme.fromStored(null))
+        assertEquals(AppTheme.SAFFRON, AppTheme.DEFAULT)
     }
 
     @Test
@@ -24,6 +27,18 @@ class UserPreferencesTest {
         }
         for (preference in PressurePreference.entries) {
             assertEquals(preference, PressurePreference.fromStored(preference.name))
+        }
+        assertEquals(
+            listOf(
+                AppTheme.SAFFRON,
+                AppTheme.CORAL,
+                AppTheme.VIOLET,
+                AppTheme.TEAL,
+            ),
+            AppTheme.entries.toList(),
+        )
+        for (theme in AppTheme.entries) {
+            assertEquals(theme, AppTheme.fromStored(theme.name))
         }
     }
 }

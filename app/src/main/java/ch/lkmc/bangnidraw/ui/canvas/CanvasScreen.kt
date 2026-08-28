@@ -157,7 +157,7 @@ import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.core.WidthClass
 import ch.lkmc.bangnidraw.input.CanvasInputHost
 import ch.lkmc.bangnidraw.input.CanvasTouchHandler
-import ch.lkmc.bangnidraw.ui.theme.LocalThemeTone
+import ch.lkmc.bangnidraw.ui.theme.LocalAppTheme
 import ch.lkmc.bangnidraw.ui.theme.canvasVoidColor
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -741,9 +741,12 @@ private fun CanvasContent(
         )
         handler
     }
-    val checkerA = MaterialTheme.colorScheme.surface.toArgb()
-    val checkerB = MaterialTheme.colorScheme.surfaceVariant.toArgb()
-    val canvasVoid = canvasVoidColor(LocalThemeTone.current).toArgb()
+    val canvasAppearance = CanvasAppearance(
+        checkerPx = with(density) { CHECKER_DP.dp.toPx() },
+        checkerA = MaterialTheme.colorScheme.surface.toArgb(),
+        checkerB = MaterialTheme.colorScheme.surfaceVariant.toArgb(),
+        canvasVoid = canvasVoidColor(LocalAppTheme.current).toArgb(),
+    )
 
     // Keyed on the handler, not Unit: a recreated handler starts from an
     // identity transform, and without re-seeding its first gesture would
@@ -909,6 +912,7 @@ private fun CanvasContent(
             canvas = state.canvas,
             stack = stack,
             paperColor = state.paperColor,
+            appearance = canvasAppearance,
             tracingReference = state.tracingReference,
             view = view,
             canvasDescription = canvasDescription,
@@ -996,15 +1000,15 @@ private fun CanvasContent(
         )
 
         // Not in `onSession`: that fires once, from the AndroidView factory, so
-        // a dark-mode toggle kept the old theme's checkerboard and canvas void
-        // until the screen was torn down, while a density change kept the old
-        // square size. These values recompose; the engine has to be told.
-        LaunchedEffect(session, checkerA, checkerB, canvasVoid, density) {
+        // a theme change kept the old palette's checkerboard and canvas void
+        // until the screen was torn down. Initial configuration prevents a
+        // default-color frame; this effect keeps later changes in sync.
+        LaunchedEffect(session, canvasAppearance) {
             session?.setCanvasAppearance(
-                checkerPx = with(density) { CHECKER_DP.dp.toPx() },
-                colorA = checkerA,
-                colorB = checkerB,
-                canvasVoid = canvasVoid,
+                checkerPx = canvasAppearance.checkerPx,
+                colorA = canvasAppearance.checkerA,
+                colorB = canvasAppearance.checkerB,
+                canvasVoid = canvasAppearance.canvasVoid,
             )
         }
 

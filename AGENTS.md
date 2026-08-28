@@ -150,8 +150,42 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   `LocalWindowInfo` from inside the dialog.
 - App display name lives ONLY in `strings.xml` (`app_name`). Never
   hardcode "帮你Draw" in a composable (rename checklist: PLAN.md "Renaming").
-- Colors come from `ui/theme/Color.kt` — no ad-hoc `Color(0x…)` in
-  screens. The theme follows the system (light and dark), no dynamic color.
+- Application palette decisions live in `engine/core/ThemeColorPolicy`;
+  `ui/theme/Color.kt` adapts them to Compose. This keeps palette decisions pure
+  and JVM-testable while the data layer stores only the choice. Construct the
+  complete `ColorScheme`, including tertiary, fixed, inverse, and all
+  surface-container roles; a defaulting scheme factory imports baseline
+  Material colours. Screen chrome never uses ad-hoc
+  `Color(0x…)`; `DebugOverlay`'s fixed diagnostic signal colors are the sole
+  exception and stay palette-independent. `AppTheme` is a persisted choice
+  among fixed-light Saffron (default), Coral, Violet, and Teal palettes; system
+  dark mode and dynamic color are deliberately ignored. Its enum names are
+  stored values, so renaming or removing one silently resets affected users to
+  Saffron unless a migration rewrites the stored names.
+  The canvas void stays neutral.
+- Backup allowlists include the whole Preferences DataStore and legacy shared
+  preferences, so privacy claims apply to painting data, not settings. Log and
+  reset a corrupted preference file with `ReplaceFileCorruptionHandler`
+  before flows retry; otherwise observation and writes can remain blocked
+  forever.
+- The launch window cannot read DataStore. Keep its background and system-bar
+  appearance fixed light, set `android:forceDarkAllowed` to `false`, and add no
+  `values-night` override. The fixed launch window remains while the root theme
+  owner withholds navigation until the first preference emission. Log the first
+  `IOException`; if it precedes any successful load, emit Saffron once. Retry
+  I/O with backoff, at most five attempts, never replacing a loaded theme; a
+  persistent failure ends the flow on the current theme. Cancellation and
+  non-I/O failures propagate.
+- The GL canvas appearance is startup state, not merely a theme-change update.
+  Include `CanvasAppearance` in `EngineSession.configure` before publishing the
+  session or allowing its bootstrap frame; the later Compose effect keeps
+  theme and density changes synchronized. Otherwise transparent canvases can
+  flash the renderer's fallback checker colours.
+  While a front-buffered stroke is active, defer checker/void mutation with its
+  redraw until the stroke's commit or cancel scene; changing only the dirty
+  front scissor makes the new checker patchwork over the old baseline.
+  A newer immediate appearance must clear any pending value left by a refused
+  stroke.
 - **Greyscale ARGB cannot encode hue.** `ColorPanel` keeps an `HsvSelection`;
   panel-originated ARGB echoes must not reconstruct HSV, while external colors
   must. Do not key the selection state directly to the current ARGB.

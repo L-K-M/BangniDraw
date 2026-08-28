@@ -277,10 +277,10 @@ canvas; panels are side sheets on compact and medium widths and floating
 cards on expanded widths. All of that is decided by window size class, not
 device type — foldables and multi-window just work.
 
-Design language: a quiet studio. Neutral, low-saturation chrome in light
-and dark (follows the system), one accent taken from the icon (saffron on
-indigo), chunky tactile controls with haptic ticks, no decoration that
-competes with the picture.
+Design language: an expressive studio. The user chooses one of four curated
+light palettes — Saffron, Coral, Violet, or Teal — with subtly tinted chrome
+and chunky tactile controls. The canvas void stays neutral, system dark mode
+is ignored, and decoration never competes with the picture.
 
 ## 4. Key design decisions
 
@@ -342,8 +342,8 @@ competes with the picture.
    hover cursor for stylus.
 3. **Settings / About** (a sheet off the Studio) — handedness, stylus-only
    drawing, S Pen button action, pressure preset (Softer / Linear / Harder),
-   haptics, gallery mirror on/off, licenses (Mixbox CC BY-NC notice),
-   version.
+   theme color, haptics, gallery mirror on/off, licenses (Mixbox CC BY-NC
+   notice), version.
 
 ## 6. Tools — `docs/plan/04-tools.md`
 
@@ -449,6 +449,7 @@ acceptance tests per step: `docs/plan/12-roadmap.md`.
 | 10 | v1.0 | Settings/About (licenses), zh-Hans strings, README screenshots, release v1.0.0 | tagged release with APK |
 | 11 | Tracing reference | Photo Picker import into a private project asset; affine two-finger placement beneath paint; opacity, visibility, replace, reset, remove; never exported | reference survives reopen; export pixels are unchanged; no permission added |
 | 12 | Watercolor | proposal 0002: coarse transient wet state, Watercolor preset, colourless Water tool, GLES RMW passes, adaptive controls | wet-on-wet mixing and clear-water transport without tile seams; device acceptance pending |
+| 13 | Application themes | proposal 0003: fixed-light Saffron, Coral, Violet, and Teal palettes; persisted Settings choice; app-owned system-bar tone | choice applies immediately, survives restart, and ignores system dark mode |
 
 Post-v1 (each its own proposal in `docs/proposals/`): selections +
 transform, rulers/shape assist, symmetry, gradient fill, brush grains,

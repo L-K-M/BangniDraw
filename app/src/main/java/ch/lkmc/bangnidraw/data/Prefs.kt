@@ -2,16 +2,19 @@ package ch.lkmc.bangnidraw.data
 
 import android.content.Context
 import android.util.Log
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import ch.lkmc.bangnidraw.BuildConfig
+import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.CompositionGuideVisibility
@@ -32,6 +35,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
@@ -55,6 +59,10 @@ class Prefs @Inject constructor(
 ) {
 
     private val dataStore = PreferenceDataStoreFactory.create(
+        corruptionHandler = ReplaceFileCorruptionHandler { error ->
+            Log.w(TAG, PREFERENCE_CORRUPTION_MESSAGE, error)
+            emptyPreferences()
+        },
         produceFile = { context.preferencesDataStoreFile(STORE_NAME) },
     )
 
@@ -107,6 +115,27 @@ class Prefs @Inject constructor(
 
     suspend fun setGallerySync(enabled: Boolean) {
         dataStore.edit { it[KEY_GALLERY_SYNC] = enabled }
+    }
+
+    internal val appTheme: Flow<AppTheme> =
+        dataStore.data
+            .map { AppTheme.fromStored(it[KEY_APP_THEME]) }
+            .retryIoWithInitialFallback(
+                fallback = AppTheme.DEFAULT,
+                onFirstIoFailure = { error ->
+                    Log.w(TAG, THEME_READ_FAILURE_MESSAGE, error)
+                },
+                onRetriesExhausted = { error ->
+                    Log.w(TAG, THEME_READ_EXHAUSTED_MESSAGE, error)
+                },
+                pauseBeforeRetry = { attempt ->
+                    val multiplier = minOf(1L shl attempt.toInt(), MAX_BACKOFF_MULTIPLIER)
+                    delay(PREFERENCE_READ_RETRY_DELAY_MS * multiplier)
+                },
+            )
+
+    internal suspend fun setAppTheme(theme: AppTheme) {
+        dataStore.edit { it[KEY_APP_THEME] = theme.name }
     }
 
     internal val handedness: Flow<Hand> =
@@ -351,8 +380,15 @@ class Prefs @Inject constructor(
     private companion object {
         const val STORE_NAME = "bangni"
         const val TAG = "Prefs"
+        const val THEME_READ_FAILURE_MESSAGE = "theme read failed; retrying"
+        const val THEME_READ_EXHAUSTED_MESSAGE =
+            "theme read keeps failing; keeping the current theme"
+        const val PREFERENCE_CORRUPTION_MESSAGE = "preferences corrupted; resetting"
+        const val PREFERENCE_READ_RETRY_DELAY_MS = 1_000L
+        const val MAX_BACKOFF_MULTIPLIER = 16L
         val KEY_NEXT_SKETCH = intPreferencesKey("nextSketchNumber")
         val KEY_GALLERY_SYNC = booleanPreferencesKey("gallerySync")
+        val KEY_APP_THEME = stringPreferencesKey("appTheme")
         val KEY_HANDEDNESS = stringPreferencesKey("handedness")
         val KEY_TOUCH_DRAWING = stringPreferencesKey("touchDrawing")
         val KEY_HAPTICS = stringPreferencesKey("haptics")

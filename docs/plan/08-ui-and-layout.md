@@ -3,7 +3,7 @@
 **What this document covers.** The two screens (Studio, Canvas), every piece
 of chrome on them, how that chrome reshapes itself across window sizes, the
 behaviour rules that keep chrome from ever getting between the pen and the
-picture, the design language ("Quiet Studio"), the icon treatment, accessibility,
+picture, the design language ("Expressive Studio"), the icon treatment, accessibility,
 strings, and the Compose component list for `ui/`. It expands PLAN.md §3.4 and
 §5; it does not repeat the engine (`03-canvas-engine.md`), tool parameters
 (`04-tools.md`), gestures (`07-input-and-stylus.md`) or mixing math
@@ -144,9 +144,13 @@ COMPACT (phone portrait, 360 dp)      MEDIUM (600–840 dp)                EXPAN
   device · {free} free". Bytes = sum of project folder sizes, computed on IO on
   every Studio entry and cached in `StudioUiState`; free = `StatFs` of
   `filesDir`. It answers the only question that ever justifies deleting.
-- **Settings/About** is the gear in the top app bar; that screen is listed in
-  PLAN.md §5.3 and specified in `12-roadmap.md` step 10 — a plain `LazyColumn`
-  of preference rows, not designed further here.
+- **Settings/About** is the gear in the top app bar and a plain `LazyColumn`
+  of preference rows. Its first section is **Appearance**: **Theme color**
+  presents Saffron, Coral, Violet, and Teal as named radio rows, each with a
+  swatch and selection mark. Saffron is the default. The group exposes
+  `selectableGroup`/radio semantics, so neither meaning nor selection depends
+  on colour perception. Selection persists immediately and recolours every
+  screen; Android dark mode is not a choice or input.
 - **Empty state**: centred, no illustration: "No paintings yet." / "Tap + to
   start one. Everything you draw is saved as you go." The second line is the
   only place the app explains autosave, because the Canvas will never prompt.
@@ -211,7 +215,7 @@ EXPANDED, right-handed, RailMode.FULL, layer panel open (FLOATING)
 ├──────────────────────────────────────────────────────────────────┬──────┬────────┤
 │                                                                  │Layers│ ✎ pencil│
 │                                                                  │ 3/16 │ ✒ ink  │
-│                                                                  │  ＋  │ 🖌 brush│  ← active: saffron ring
+│                                                                  │  ＋  │ 🖌 brush│  ← active: theme ring
 │                                                                  │──────│ ⌇ air  │
 │                        (canvas, edge to edge,                    │▣ Line│ ▬ marker│
 │                         nothing persistent within                │  ◉ 100│────────│
@@ -285,9 +289,9 @@ three-finger taps (`07-input-and-stylus.md`) are their gesture twins.
   shipped translation (zh-Hans 不透明度 is five glyphs) and falls back to
   its icon + description when the text would clip at 200 % font scale
   (`01-product.md` A5).
-- **Active tool**: filled `accentContainer` (saffron at 20 % over surface)
-  plus a 2 dp saffron ring; a `stateDescription` of "selected" for TalkBack.
-  Never colour alone.
+- **Active tool**: filled `primaryContainer` plus a 2 dp `primary` ring;
+  a `stateDescription` of "selected" for TalkBack. The shape, fill, and
+  state description keep selection from depending on colour alone.
 - **Tap active again → settings sheet** (`Panel.BRUSH_SETTINGS`); tap another
   tool switches with a haptic tick and closes any open sheet.
 - **Eraser slot** highlights in a second way — a dashed ring — while the S
@@ -589,48 +593,77 @@ data class CanvasUiState(
    only if they take longer than 300 ms, then pop. No prompt, ever
    (decision 8).
 
-## 5. Design language — "Quiet Studio"
+## 5. Design language — "Expressive Studio"
 
-The picture is the only saturated thing on screen. Chrome is warm-gray
-paper and graphite; the icon's two colours appear only where the user can
-act (saffron) or has chosen (indigo). Controls are chunky and answer with a
-tick; motion is a short spring, never a flourish.
+Chrome carries enough colour to feel playful while the neutral canvas void
+keeps the painting visually stable. Four app-owned palettes tint the Studio,
+sheets, and controls; all use a light tone regardless of Android appearance.
+Controls stay chunky and tactile; motion is a short spring, never a flourish.
 
 ### 5.1 Tokens (`ui/theme/`)
 
-| Token | Light | Dark | Used for |
-| --- | --- | --- | --- |
-| `surface` | `#F5F2EE` | `#1C1A18` | Studio background, sheets |
-| `surfaceContainer` | `#EBE7E1` | `#26231F` | top strip, rail, dock, panels |
-| `surfaceContainerHigh` | `#E0DBD3` | `#312D28` | pressed states, dish wells |
-| `outline` (hairline) | `#CFC8BE` | `#3F3A33` | 1 dp borders, dividers |
-| `onSurface` | `#2B2724` | `#ECE7E0` | text, icons |
-| `onSurfaceVariant` | `#5F5952` | `#A69F95` | captions, relative times, disabled |
-| `accent` (saffron) | `#A87200` | `#FFB400` | active tool ring, slider thumbs, FAB, + tile, focused fields |
-| `accentContainer` | saffron @ 20 % | saffron @ 24 % | active tool fill |
-| `select` (indigo) | `#2A1FD0` | `#7A73FF` | selected layer, selected swatch, checked chips |
-| `selectContainer` | indigo @ 12 % | indigo @ 20 % | selected row background |
-| `error` | `#B3261E` | `#F2B8B5` | Delete button, failure toast |
-| `canvasVoid` | `#B8B2AA` | `#0F0E0D` | the area outside the paper when zoomed out |
+`AppTheme` is exactly `SAFFRON`, `CORAL`, `VIOLET`, or `TEAL`. `primary` marks
+actions, `primaryContainer` fills active tools, and `secondary` marks
+selection. Surfaces carry a restrained tint from the same palette.
 
-Saffron in light mode is darkened to `#A87200` because the icon's `#FFB400`
-(and even `#E0A000`, ≈ 1.9:1) cannot hold WCAG's 3:1 non-text contrast on a
-light surface; the icon's `#FFB400` is used as-is in dark. Computed ratios
-(WCAG relative luminance), to be copied into `Color.kt` comments:
+| AppTheme | `primary` / `onPrimary` | `primaryContainer` / `onPrimaryContainer` | `secondary` / `onSecondary` | `secondaryContainer` / `onSecondaryContainer` |
+| --- | --- | --- | --- | --- |
+| Saffron | `#925B00` / `#FFFFFF` | `#FFB300` / `#241A00` | `#5C50A4` / `#FFFFFF` | `#E6DFFF` / `#1A1048` |
+| Coral | `#A03045` / `#FFFFFF` | `#FF8F9E` / `#31000C` | `#326A78` / `#FFFFFF` | `#BCEAF5` / `#002027` |
+| Violet | `#6D45B5` / `#FFFFFF` | `#C6A6FF` / `#21004A` | `#A13A72` / `#FFFFFF` | `#FFD7E8` / `#3D0024` |
+| Teal | `#006B60` / `#FFFFFF` | `#58D7C3` / `#00201C` | `#765A00` / `#FFFFFF` | `#FFE083` / `#241A00` |
 
-| Pair | Light | Dark |
-| --- | --- | --- |
-| `accent` ring on `surfaceContainer` | 3.4:1 | 8.8:1 |
-| `onSurface` on `surfaceContainerHigh` (worst text pair) | 10.7:1 | ≥ 10:1 |
-| `onSurfaceVariant` on `surfaceContainerHigh` (worst caption pair) | 5.0:1 | 5.2:1 |
-| `onSurfaceVariant` on `surface` | 6.2:1 | ≥ 6:1 |
+| AppTheme | `background` / `onBackground` | `surface` / `onSurface` | `surfaceVariant` / `onSurfaceVariant` | `surfaceContainer` / `surfaceContainerHigh` | `outline` / `outlineVariant` |
+| --- | --- | --- | --- | --- | --- |
+| Saffron | `#FFF8EC` / `#241F18` | `#FFFBF5` / `#241F18` | `#F1E6D4` / `#554D42` | `#F8EFE1` / `#F1E6D4` | `#756D61` / `#CEC4B3` |
+| Coral | `#FFF5F5` / `#26191B` | `#FFF9F9` / `#26191B` | `#F4E1E3` / `#59474A` | `#F9EAEB` / `#F4E1E3` | `#79676A` / `#D3C1C3` |
+| Violet | `#FAF6FF` / `#211A29` | `#FDF9FF` / `#211A29` | `#EDE5F3` / `#504858` | `#F5EDF9` / `#EDE5F3` | `#716878` / `#CBC2D1` |
+| Teal | `#F2FBF8` / `#17211F` | `#F7FCFA` / `#17211F` | `#DAECE7` / `#41514D` | `#E7F3EF` / `#DAECE7` | `#62716D` / `#BCCBC7` |
+`surfaceContainerHigh` intentionally aliases `surfaceVariant`; components
+distinguish those roles through shape, placement, and interaction state rather
+than adding a fourth neutral tint.
 
-`onSurfaceVariant` is `#5F5952` rather than a lighter gray because `#6B655E`
-would sit at ≈ 4.2:1 on `surfaceContainerHigh`, under the 4.5:1 text floor.
-Both schemes are built by hand in `Color.kt` and passed to
-`MaterialTheme(colorScheme = …)`; dynamic colour is *off* — a wallpaper-tinted
-studio would fight the painting. Light/dark follows the system
-(`isSystemInDarkTheme()`); there is no in-app override in v1.
+All themes share `error = #B3261E`, `onError = #FFFFFF`, and
+`canvasVoid = #B8B2AA`. The canvas void is sent through the existing
+Compose-to-GL boundary and never changes with the selected palette.
+`BangniColorSchemeTest` separately checks shared error content and error text
+against every surface tier where it appears.
+
+| Checked pair | Saffron | Coral | Violet | Teal |
+| --- | ---: | ---: | ---: | ---: |
+| Lowest text-role pair | 5.65:1 | 6.05:1 | 6.24:1 | 6.42:1 |
+| Active rail icon/container | 9.57:1 | 8.52:1 | 8.85:1 | 9.75:1 |
+| `primary` / `surface` | 5.48:1 | 6.72:1 | 6.37:1 | 6.19:1 |
+| `secondary` / `surface` | 6.49:1 | 5.82:1 | 6.00:1 | 6.27:1 |
+| `primary` / `surfaceContainer` | 4.95:1 | 5.99:1 | 5.80:1 | 5.64:1 |
+| `secondary` / `surfaceContainer` | 5.87:1 | 5.19:1 | 5.46:1 | 5.71:1 |
+| `secondary` / `secondaryContainer` | 5.21:1 | 4.68:1 | 4.80:1 | 5.02:1 |
+| `outline` / `surface` | 4.95:1 | 5.09:1 | 5.10:1 | 4.94:1 |
+| `primary` / `primaryContainer` | 3.15:1 | 3.22:1 | 3.25:1 | 3.64:1 |
+
+Every text-role pair clears 4.5:1 and each active or boundary role clears
+3:1. `outlineVariant` is intentionally subtle at about 1.6:1; `outline`
+must be used whenever the boundary is the sole affordance.
+
+`ThemeColorPolicy` owns the palette-specific ARGB values in `engine/core`, so
+the decision remains JVM-testable and independent of Compose and DataStore.
+`engine/core` is the only Compose-free JVM module; GL itself consumes just the
+neutral `canvasVoid`, never the chrome roles. `Color.kt` constructs the
+complete `ColorScheme`. Tertiary, fixed, inverse, and
+`surfaceContainerLowest` through `surfaceContainerHighest` derive from the same
+palette; shared error and scrim roles remain app-owned. No Material baseline
+role may leak into chrome. `LocalAppTheme` carries the selection. The
+activity-scoped `AppThemeViewModel` observes `Prefs.appTheme`. Until it emits
+its first value, the root composes no navigation and leaves the fixed-light
+launch window visible.
+The first `IOException` is logged; before any value it emits Saffron once. I/O
+retries back off and keep the current selection, ending on it after five
+failed attempts; cancellation and non-I/O failures propagate.
+`CanvasAppearance` reaches `EngineSession.configure` before GL's bootstrap
+frame; a later effect applies theme and density changes. During a live stroke,
+that update waits for the commit or cancel scene so dirty front frames cannot
+mix old and new checkerboard cells. Dynamic colour, `isSystemInDarkTheme()`,
+and a System option are deliberately absent.
 
 | Token | Value |
 | --- | --- |
@@ -666,8 +699,8 @@ pattern) emits:
   smudge.
 - No legacy launcher PNGs: minSdk 29 always supports adaptive icons.
 
-The in-app About screen reuses the artwork; nowhere else in the UI shows the
-gradient — the icon is the one loud thing the app owns.
+The in-app About screen reuses the artwork. Elsewhere the UI uses only flat
+`AppTheme` roles; the launcher gradient is never reused as chrome.
 
 ## 6. Accessibility
 
@@ -682,8 +715,10 @@ gradient — the icon is the one loud thing the app owns.
   blob is `invisibleToUser` (decorative).
 - Panels announce on open (`liveRegion = Polite`: "Layers panel opened").
 - Minimum sizes as in §5.1; text contrast ≥ 4.5:1 and non-text (ring,
-  thumb) contrast ≥ 3:1 on every surface pair in the token table — the
-  computed ratios are in §5.1 and are recorded in `Color.kt` comments.
+  thumb) contrast ≥ 3:1 on every required surface pair. The ratios are in
+  §5.1; `ThemeColorPolicyTest` enforces the content, container, and
+  system-bar pairs, while `ToolRailColorPolicyTest` enforces rail
+  icon/container pairs.
 - **Reduced motion**: when the system's animator duration scale is 0 (to
   verify the exact check: `ValueAnimator.areAnimatorsEnabled()`), every
   spring becomes `snap()` and the reset-view spring becomes an instant
@@ -719,7 +754,7 @@ Matches PLAN.md §3's package layout; names here are the file names.
 | File | Responsibility |
 | --- | --- |
 | `ui/navigation/BangniNavHost.kt` | `StudioRoute` and `CanvasRoute(projectId)`; single `NavHost`; passes ids only (`02-architecture.md` §7) |
-| `ui/theme/Color.kt`, `Theme.kt`, `Type.kt`, `Shape.kt`, `Motion.kt` | §5.1 tokens; `BangniTheme {}`; `Motion.spring()`/`snap()` honouring reduced motion |
+| `ui/theme/AppThemeViewModel.kt`, `Color.kt`, `Theme.kt`, `Type.kt`, `Shape.kt`, `Motion.kt` | Root preference owner; §5.1 palette adapters; `BangniTheme {}`; reduced-motion-aware motion |
 | `ui/components/ChunkyIconButton.kt` | 48 dp (56 dp on EXPANDED) target / 40 dp visual icon button with active + dashed-ring states, tick haptic |
 | `ui/components/ThinSlider.kt` | 4 dp track in a 48 dp hit slab, vertical/horizontal, jump-then-drag, off-slab fine gain, detent haptics, optional preview slot |
 | `ui/components/PreviewBlob.kt` | the size/opacity blob shown while a `ThinSlider` drags |
@@ -751,7 +786,7 @@ Matches PLAN.md §3's package layout; names here are the file names.
 | `ui/canvas/FocusHandle.kt` | §3.6 |
 | `ui/canvas/HoverCursor.kt` | §3.8 |
 | `ui/canvas/FirstRunHint.kt` | §3.10 |
-| `ui/home/SettingsSheet.kt` | PLAN.md §5.3; a sheet from the Studio menu, not a route (`02-architecture.md` §7); preference rows over `Prefs`; About + licenses |
+| `ui/home/SettingsSheet.kt` | PLAN.md §5.3; a sheet from the Studio menu, not a route (`02-architecture.md` §7); §2's Appearance group, other preference rows over `Prefs`, About + licenses |
 
 Tests that belong to this document: `LayoutSpecTest` (mode per
 width/height/hand; the §1 height budgets; the 60 % clear-zone assertion;

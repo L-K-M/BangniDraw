@@ -48,6 +48,7 @@ internal fun CanvasSurface(
     canvas: CanvasSize,
     stack: LayerStack,
     paperColor: Int,
+    appearance: CanvasAppearance,
     tracingReference: TracingReference?,
     view: ViewTransform,
     canvasDescription: String,
@@ -138,7 +139,13 @@ internal fun CanvasSurface(
                     revisions = revisions,
                 )
                 sessionHolder[0] = session
-                session.configure(stack, paperColor, view, tracingReference)
+                session.configure(
+                    stack = stack,
+                    paperColor = paperColor,
+                    appearance = appearance,
+                    view = view,
+                    tracingReference = tracingReference,
+                )
                 appliedStack[0] = stack
                 appliedPaperColor[0] = paperColor
                 appliedTracingReference[0] = tracingReference

@@ -90,7 +90,7 @@ import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.ToolSliderSecondary
 import ch.lkmc.bangnidraw.engine.core.ToolButtonEmphasis
 import ch.lkmc.bangnidraw.engine.core.ToolSelection
-import ch.lkmc.bangnidraw.ui.theme.LocalThemeTone
+import ch.lkmc.bangnidraw.ui.theme.LocalAppTheme
 import ch.lkmc.bangnidraw.ui.theme.railButtonColors
 
 /** One adaptive control: full rail, grouped rail, short rail, or bottom dock. */
@@ -719,9 +719,9 @@ private fun ToolButton(
     val active = state != ToolButtonState.Inactive
     val selectedText = stringResource(R.string.cd_selected)
     val shape = MaterialTheme.shapes.medium
-    val temporaryColor = MaterialTheme.colorScheme.secondary
     val emphasis = if (active) ToolButtonEmphasis.ACTIVE else ToolButtonEmphasis.INACTIVE
-    val buttonColors = railButtonColors(LocalThemeTone.current, emphasis)
+    val buttonColors = railButtonColors(LocalAppTheme.current, emphasis)
+    val temporaryColor = buttonColors.icon
     val visual = minOf(TOOL_VISUAL, slot - TOOL_VISUAL_INSET)
     val border = if (active) {
         Modifier.border(ACTIVE_BORDER, MaterialTheme.colorScheme.primary, shape)

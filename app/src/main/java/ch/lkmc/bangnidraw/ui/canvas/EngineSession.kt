@@ -56,6 +56,14 @@ import java.util.concurrent.atomic.AtomicReference
 internal enum class LayerEditResult { APPLIED, REFUSED }
 internal enum class StrokeCancelMode { BUFFERED, READ_MODIFY_WRITE }
 
+/** Renderer chrome queued before bootstrap and reused for later theme changes. */
+internal data class CanvasAppearance(
+    val checkerPx: Float,
+    val checkerA: Int,
+    val checkerB: Int,
+    val canvasVoid: Int,
+)
+
 /**
  * The per-canvas façade the ViewModel and tools talk to
  * (`docs/plan/02-architecture.md` §4.3).
@@ -255,6 +263,9 @@ class EngineSession(
 
     @Volatile
     private var activeStrokeSpec: StrokeSpec? = null
+
+    /** Main-thread theme update retained until the live stroke owns no front frame. */
+    private var pendingCanvasAppearance: CanvasAppearance? = null
 
     /** GL-thread damage retained until a front or scene frame presents it. */
     private var pendingWetOverlayDirty = IntRect.EMPTY
@@ -660,12 +671,14 @@ class EngineSession(
     internal fun configure(
         stack: LayerStack,
         paperColor: Int,
+        appearance: CanvasAppearance,
         view: ViewTransform,
         tracingReference: TracingReference?,
     ) {
         glRenderer.execute {
             renderer.setStack(stack)
             renderer.setPaperColor(paperColor)
+            applyCanvasAppearance(appearance)
             renderer.setView(view)
             renderer.setTracingReference(tracingReference)
         }
@@ -751,13 +764,37 @@ class EngineSession(
         colorB: Int,
         canvasVoid: Int,
     ) {
-        glRenderer.execute {
-            renderer.checkerPx = checkerPx
-            renderer.checkerA = colorA
-            renderer.checkerB = colorB
-            renderer.canvasVoid = canvasVoid
+        val appearance = CanvasAppearance(
+            checkerPx = checkerPx,
+            checkerA = colorA,
+            checkerB = colorB,
+            canvasVoid = canvasVoid,
+        )
+        if (activeStrokeSpec != null) {
+            pendingCanvasAppearance = appearance
+            redraw()
+            return
         }
+
+        // A refused stroke may leave a deferred value; this newer choice wins.
+        pendingCanvasAppearance = null
+        glRenderer.execute { applyCanvasAppearance(appearance) }
         redraw()
+    }
+
+    /** GL-thread mutation paired with an initial or full scene frame. */
+    private fun applyCanvasAppearance(appearance: CanvasAppearance) {
+        renderer.checkerPx = appearance.checkerPx
+        renderer.checkerA = appearance.checkerA
+        renderer.checkerB = appearance.checkerB
+        renderer.canvasVoid = appearance.canvasVoid
+    }
+
+    private fun takePendingCanvasAppearance(): CanvasAppearance? {
+        val appearance = pendingCanvasAppearance
+        pendingCanvasAppearance = null
+
+        return appearance
     }
 
     fun sampleColor(
@@ -994,6 +1031,7 @@ class EngineSession(
         renderPolicy.finishStroke(StrokeFinish.COMMIT)
         activeStrokeRmw = false
         activeStrokeSpec = null
+        val deferredAppearance = takePendingCanvasAppearance()
         val thisRevision = revisions.incrementAndGet()
         val mergedListener = onStrokeMerged
         val notMergedListener = onStrokeNotMerged
@@ -1001,10 +1039,13 @@ class EngineSession(
             if (notMergedListener != null) notMergedListener()
         }
         if (!pendingStrokeFallback.compareAndSet(null, fallback)) {
+            pendingCanvasAppearance = deferredAppearance
             fallback()
             return
         }
         if (!isLive()) {
+            // Dead GL cannot apply the palette; keep it for recreation.
+            pendingCanvasAppearance = deferredAppearance
             completeStrokeWithoutMerge(fallback)
             return
         }
@@ -1013,6 +1054,7 @@ class EngineSession(
         // before the multi-buffered draw `commit()` schedules, so the layer
         // already owns the stroke by the time the committed frame is composed.
         glRenderer.execute {
+            deferredAppearance?.let(::applyCanvasAppearance)
             // §10.1's ordering rule, enforced where §10.2 says it must be:
             // stroke N+1's capture must not run until stroke N's readback has
             // been mapped into the mirror, or undoing N+1 would also revert N.
@@ -1276,15 +1318,19 @@ class EngineSession(
         val cancelledSpec = activeStrokeSpec
         activeStrokeRmw = false
         activeStrokeSpec = null
+        val deferredAppearance = takePendingCanvasAppearance()
         // Install the document-action barrier before an invalid surface can
         // synchronously deliver the restore callback.
         beforeCancel(mode)
 
         if (!isLive()) {
             if (cancelledSpec?.rmw != null) onRmwCancelled?.invoke(cancelledSpec, emptyList())
+            // Dead GL cannot apply the palette; keep it for recreation.
+            pendingCanvasAppearance = deferredAppearance
             return mode
         }
         glRenderer.execute {
+            deferredAppearance?.let(::applyCanvasAppearance)
             // Released, not stamped: §4 says a cancelled stroke leaves no
             // trace, but the slots still have to come back.
             drainPending(stamp = false, scope = PendingBatchDrainScope.EXHAUSTIVE)

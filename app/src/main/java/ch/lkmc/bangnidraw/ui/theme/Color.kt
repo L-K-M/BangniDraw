@@ -1,75 +1,97 @@
 package ch.lkmc.bangnidraw.ui.theme
 
+import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
+import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.CanvasVoidColorPolicy
-import ch.lkmc.bangnidraw.engine.core.ThemeTone
+import ch.lkmc.bangnidraw.engine.core.ThemeColorPolicy
 import ch.lkmc.bangnidraw.engine.core.ToolButtonEmphasis
 import ch.lkmc.bangnidraw.engine.core.ToolRailColorPolicy
 
-// A quiet studio (docs/plan/08-ui-and-layout.md "Design language"). The
-// chrome is neutral and low-saturation in both themes so nothing competes
-// with the picture; the one accent is the saffron of the icon's brush
-// stroke, the selection color its indigo ground. No ad-hoc Color(0x…) in
-// screens — everything comes from here.
+private val AppError = Color(0xFFB3261E)
+private val OnAppError = Color(0xFFFFFFFF)
+private val AppErrorContainer = Color(0xFFF9DEDC)
+private val OnAppErrorContainer = Color(0xFF410E0B)
 
-// Light: warm paper-white surfaces, near-black ink.
-val PaperLight = Color(0xFFF6F3EC)
-val PanelLight = Color(0xFFFFFFFF)
-private val LightInactiveRail = ToolRailColorPolicy.colors(
-    ThemeTone.LIGHT,
-    ToolButtonEmphasis.INACTIVE,
-)
-private val DarkInactiveRail = ToolRailColorPolicy.colors(
-    ThemeTone.DARK,
-    ToolButtonEmphasis.INACTIVE,
-)
-private val LightActiveRail = ToolRailColorPolicy.colors(
-    ThemeTone.LIGHT,
-    ToolButtonEmphasis.ACTIVE,
-)
-private val DarkActiveRail = ToolRailColorPolicy.colors(
-    ThemeTone.DARK,
-    ToolButtonEmphasis.ACTIVE,
-)
+/** Curated app palettes; painting colors remain independent document pixels. */
+internal fun bangniColorScheme(theme: AppTheme): ColorScheme {
+    val colors = ThemeColorPolicy.colors(theme)
 
-val PanelLightVariant = Color(LightInactiveRail.containerArgb)
-val InkLight = Color(LightInactiveRail.iconArgb)
-val InkLightDim = Color(0xFF6E6A60)
-
-// Dark: slate, not black — a black UI makes every painting look darker
-// than it will print.
-val PaperDark = Color(0xFF15161A)
-val PanelDark = Color(0xFF22242A)
-val PanelDarkVariant = Color(DarkInactiveRail.containerArgb)
-val InkDark = Color(DarkInactiveRail.iconArgb)
-val InkDarkDim = Color(0xFF9A978E)
-
-// Accents, from media-sources/icon.png.
-val Saffron = Color(LightActiveRail.containerArgb)
-val SaffronDeep = Color(DarkActiveRail.containerArgb)
-val Indigo = Color(0xFF2B2ED6)
-val IndigoSoft = Color(0xFF7D80FF)
-
-val OnAccent = Color(LightActiveRail.iconArgb)
+    return ColorScheme(
+        primary = Color(colors.primaryArgb),
+        onPrimary = Color(colors.onPrimaryArgb),
+        primaryContainer = Color(colors.primaryContainerArgb),
+        onPrimaryContainer = Color(colors.onPrimaryContainerArgb),
+        secondary = Color(colors.secondaryArgb),
+        onSecondary = Color(colors.onSecondaryArgb),
+        secondaryContainer = Color(colors.secondaryContainerArgb),
+        onSecondaryContainer = Color(colors.onSecondaryContainerArgb),
+        // The product has two accent families; tertiary intentionally reuses secondary.
+        tertiary = Color(colors.secondaryArgb),
+        onTertiary = Color(colors.onSecondaryArgb),
+        tertiaryContainer = Color(colors.secondaryContainerArgb),
+        onTertiaryContainer = Color(colors.onSecondaryContainerArgb),
+        error = AppError,
+        onError = OnAppError,
+        errorContainer = AppErrorContainer,
+        onErrorContainer = OnAppErrorContainer,
+        background = Color(colors.backgroundArgb),
+        onBackground = Color(colors.onBackgroundArgb),
+        surface = Color(colors.surfaceArgb),
+        onSurface = Color(colors.onSurfaceArgb),
+        surfaceVariant = Color(colors.surfaceVariantArgb),
+        onSurfaceVariant = Color(colors.onSurfaceVariantArgb),
+        // Bright and lowest share the base surface; elevation begins at containerLow.
+        surfaceDim = Color(colors.surfaceContainerHighArgb),
+        surfaceBright = Color(colors.surfaceArgb),
+        surfaceContainerLowest = Color(colors.surfaceArgb),
+        surfaceContainerLow = Color(colors.backgroundArgb),
+        surfaceContainer = Color(colors.surfaceContainerArgb),
+        surfaceContainerHigh = Color(colors.surfaceContainerHighArgb),
+        surfaceContainerHighest = Color(colors.surfaceVariantArgb),
+        outline = Color(colors.outlineArgb),
+        outlineVariant = Color(colors.outlineVariantArgb),
+        inverseSurface = Color(colors.onSurfaceArgb),
+        inverseOnSurface = Color(colors.surfaceArgb),
+        inversePrimary = Color(colors.primaryContainerArgb),
+        surfaceTint = Color(colors.primaryArgb),
+        scrim = Color.Black,
+        primaryFixed = Color(colors.primaryContainerArgb),
+        primaryFixedDim = Color(colors.primaryContainerArgb),
+        onPrimaryFixed = Color(colors.onPrimaryContainerArgb),
+        onPrimaryFixedVariant = Color(colors.onPrimaryContainerArgb),
+        secondaryFixed = Color(colors.secondaryContainerArgb),
+        secondaryFixedDim = Color(colors.secondaryContainerArgb),
+        onSecondaryFixed = Color(colors.onSecondaryContainerArgb),
+        onSecondaryFixedVariant = Color(colors.onSecondaryContainerArgb),
+        tertiaryFixed = Color(colors.secondaryContainerArgb),
+        tertiaryFixedDim = Color(colors.secondaryContainerArgb),
+        onTertiaryFixed = Color(colors.onSecondaryContainerArgb),
+        onTertiaryFixedVariant = Color(colors.onSecondaryContainerArgb),
+    )
+}
 
 internal data class RailButtonColors(val container: Color, val icon: Color)
 
-internal fun railButtonColors(tone: ThemeTone, emphasis: ToolButtonEmphasis): RailButtonColors {
-    val colors = ToolRailColorPolicy.colors(tone, emphasis)
+internal fun railButtonColors(
+    theme: AppTheme,
+    emphasis: ToolButtonEmphasis,
+): RailButtonColors {
+    val colors = ToolRailColorPolicy.colors(theme, emphasis)
+
     return RailButtonColors(
         container = Color(colors.containerArgb),
         icon = Color(colors.iconArgb),
     )
 }
 
-/** Compose wrapper over the pure theme policy; no colour decision lives here. */
-internal fun canvasVoidColor(tone: ThemeTone): Color = Color(CanvasVoidColorPolicy.argb(tone))
+internal fun canvasVoidColor(theme: AppTheme): Color =
+    Color(CanvasVoidColorPolicy.argb(theme))
 
-// The New Canvas dialog's paper swatches (docs/plan/08-ui-and-layout.md
-// §2.1): white, warm white, mid-gray, black; transparent is
-// Color.Transparent. The "+" custom-paper picker waits for the color
-// panel (roadmap step 7). Paper is a document property, so these become
-// ARGB ints at creation.
+internal fun themePreviewColor(theme: AppTheme): Color =
+    Color(ThemeColorPolicy.colors(theme).primaryContainerArgb)
+
+// These swatches become document pixels and never follow the app theme.
 val PaperSwatchWhite = Color(0xFFFFFFFF)
 val PaperSwatchWarm = Color(0xFFF8F1E3)
 val PaperSwatchGray = Color(0xFF9E9E9E)
@@ -78,7 +100,6 @@ val PaperSwatchBlack = Color(0xFF000000)
 /** The custom-paper swatch's opening tint: a cool paper blue no fixed swatch has. */
 val PaperSwatchCustomDefault = Color(0xFFDCE6EE)
 
-/** Compact painting palette; unlike chrome colors these become document pixels. */
 val DrawingSwatches = listOf(
     Color(0xFF111111),
     Color(0xFFFFFFFF),

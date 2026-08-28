@@ -321,8 +321,12 @@ class EngineSessionRenderContractTest {
     fun `canvas startup configures one scene before one redraw`() {
         val source = source(CANVAS_SURFACE_PATH)
         val factory = section(source, FACTORY_START, FACTORY_END)
+        val configure = section(factory, CONFIGURE_CALL, CONFIGURE_CALL_END)
 
         assertTrue(CONFIGURE_CALL in factory, "startup scene configuration is missing")
+        for (argument in CONFIGURE_ARGUMENTS) {
+            assertTrue(argument in configure, "startup configuration is missing $argument")
+        }
         assertFalse(SET_STACK_CALL in factory, "startup must not queue a stack redraw")
         assertFalse(SET_PAPER_CALL in factory, "startup must not queue a paper redraw")
         assertFalse(SET_VIEW_CALL in factory, "startup must not queue a view redraw")
@@ -496,7 +500,8 @@ class EngineSessionRenderContractTest {
         const val EXECUTE_CALL = "glRenderer.execute {"
         const val FRAME_SNAPSHOT_SCOPE = "PendingBatchDrainScope.FRAME_SNAPSHOT"
         const val EXHAUSTIVE_SCOPE = "PendingBatchDrainScope.EXHAUSTIVE"
-        const val CONFIGURE_CALL = "session.configure(stack, paperColor, view, tracingReference)"
+        const val CONFIGURE_CALL = "session.configure("
+        const val CONFIGURE_CALL_END = "onSession(session)"
         const val SET_STACK_CALL = "session.setStack(stack)"
         const val SET_PAPER_CALL = "session.setPaperColor(paperColor)"
         const val SET_VIEW_CALL = "session.setView(view)"
@@ -504,5 +509,12 @@ class EngineSessionRenderContractTest {
         const val RENDERER_PAPER_CALL = "renderer.setPaperColor(paperColor)"
         const val RENDERER_VIEW_CALL = "renderer.setView(view)"
         val REDRAW_CALL = Regex("""\bredraw\(\)""")
+        val CONFIGURE_ARGUMENTS = listOf(
+            "stack = stack",
+            "paperColor = paperColor",
+            "appearance = appearance",
+            "view = view",
+            "tracingReference = tracingReference",
+        )
     }
 }

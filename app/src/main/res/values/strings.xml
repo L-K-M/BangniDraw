@@ -351,6 +351,12 @@
 
     <!-- Settings/About. Mixbox rows are shown only when BuildConfig.MIXBOX. -->
     <string name="settings_title">Settings</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_theme_color">Theme color</string>
+    <string name="settings_theme_saffron">Saffron</string>
+    <string name="settings_theme_coral">Coral</string>
+    <string name="settings_theme_violet">Violet</string>
+    <string name="settings_theme_teal">Teal</string>
     <string name="settings_drawing">Drawing</string>
     <string name="settings_handedness">Drawing hand</string>
     <string name="settings_hand_right">Right</string>

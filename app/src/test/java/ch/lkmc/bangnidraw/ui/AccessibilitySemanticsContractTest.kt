@@ -33,7 +33,43 @@ class AccessibilitySemanticsContractTest {
 
         assertTrue(
             SELECTABLE_GROUP.findAll(source).count() >= SETTINGS_CHOICE_GROUPS,
-            "hand, pen button, eraser end, pressure, and mixer need separate groups",
+            "theme, hand, pen button, eraser end, pressure, and mixer need separate groups",
+        )
+    }
+
+    @Test
+    fun `settings themes are a named radio group`() {
+        val source = source(SETTINGS_PATH)
+        val appearance = sourceSection(
+            source,
+            SETTINGS_APPEARANCE_START,
+            SETTINGS_DRAWING_START,
+        )
+        val themeChoice = sourceSection(source, THEME_CHOICE_START, CHOICE_ROW_START)
+
+        assertTrue(
+            ".selectableGroup()" in appearance,
+            "theme choices need one selectable group",
+        )
+        assertTrue(
+            "AppTheme.entries.forEach" in appearance,
+            "every AppTheme must produce a Settings row",
+        )
+        assertTrue(
+            "when (theme)" in appearance,
+            "theme labels must stay exhaustive when AppTheme changes",
+        )
+
+        for (label in THEME_LABELS) {
+            assertTrue(label in appearance, "theme choice needs its visible name: $label")
+        }
+        assertTrue(
+            "role = Role.RadioButton" in themeChoice,
+            "theme choices need radio-button semantics",
+        )
+        assertTrue(
+            THEME_RADIO_DELEGATES_TO_ROW.containsMatchIn(themeChoice),
+            "the nested theme radio must delegate its click to the row",
         )
     }
 
@@ -76,6 +112,17 @@ class AccessibilitySemanticsContractTest {
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
 
+    private fun sourceSection(source: String, start: String, end: String): String {
+        val startIndex = source.indexOf(start)
+        if (startIndex < 0) fail("missing source marker: $start")
+
+        val contentStart = startIndex + start.length
+        val endIndex = source.indexOf(end, contentStart)
+        if (endIndex < contentStart) fail("missing source marker: $end")
+
+        return source.substring(contentStart, endIndex)
+    }
+
     private fun repositoryRoot(): File {
         val workingDirectory = File(
             requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),
@@ -98,12 +145,27 @@ class AccessibilitySemanticsContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasScreen.kt"
         const val TOP_STRIP_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/TopStrip.kt"
-        const val SETTINGS_CHOICE_GROUPS = 5
+        const val SETTINGS_CHOICE_GROUPS = 6
+        const val SETTINGS_APPEARANCE_START =
+            "item { SectionTitle(R.string.settings_appearance) }"
+        const val SETTINGS_DRAWING_START =
+            "item { SectionTitle(R.string.settings_drawing) }"
+        const val THEME_CHOICE_START = "private fun ThemeChoiceRow("
+        const val CHOICE_ROW_START = "private fun ChoiceRow("
         const val FILL_SLIDER_START = "\n    Slider("
         const val FILL_TOGGLE_START = "private fun FillToggle"
         val SELECTABLE_GROUP = Regex("""\.selectableGroup\(\)""")
+        val THEME_LABELS = listOf(
+            "R.string.settings_theme_saffron",
+            "R.string.settings_theme_coral",
+            "R.string.settings_theme_violet",
+            "R.string.settings_theme_teal",
+        )
         val SWITCH_DELEGATES_TO_ROW = Regex(
             """Switch\(\s*checked\s*=\s*checked,\s*onCheckedChange\s*=\s*null""",
+        )
+        val THEME_RADIO_DELEGATES_TO_ROW = Regex(
+            """RadioButton\(\s*selected\s*=\s*selected,\s*onClick\s*=\s*null""",
         )
         val NAMED_CLICK = Regex("""onClick\(\s*label\s*=\s*recentDismissLabel""")
         val NULL_SAFE_SCREEN_READER = Regex(

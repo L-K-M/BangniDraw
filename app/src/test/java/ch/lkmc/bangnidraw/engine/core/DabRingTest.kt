@@ -173,6 +173,29 @@ class DabRingTest {
     }
 
     @Test
+    fun `prediction leaves the final slot for real input`() {
+        val ring = DabRing(slots = 3, capacity = 4)
+        val firstPrediction = assertNotNull(ring.acquirePrediction())
+        val secondPrediction = assertNotNull(ring.acquirePrediction())
+
+        assertEquals(1, ring.freeSlots)
+        assertNull(
+            ring.acquirePrediction(),
+            "prediction must yield while only the real-input reserve remains",
+        )
+
+        val realInput = assertNotNull(
+            ring.acquire(),
+            "real input must still acquire the reserved final slot",
+        )
+        assertEquals(0, ring.freeSlots)
+
+        ring.release(firstPrediction)
+        ring.release(secondPrediction)
+        ring.release(realInput)
+    }
+
+    @Test
     fun `an acquired slot arrives clean`() {
         val ring = DabRing(slots = 1, capacity = 4)
         val first = assertNotNull(ring.acquire())

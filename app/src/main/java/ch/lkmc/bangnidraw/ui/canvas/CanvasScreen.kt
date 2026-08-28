@@ -705,7 +705,7 @@ private fun CanvasContent(
                     if (strokeState.readModifyWrite) return
                     val driver = strokeState.driver ?: return
                     val engine = strokeState.engine ?: return
-                    val batch = engine.acquireDabBatch() ?: return
+                    val batch = engine.acquirePredictionDabBatch() ?: return
                     // A tail is a guess, so a starved ring drops it without a
                     // second thought: the next frame brings another, and the
                     // real samples — which cannot be regenerated — keep the

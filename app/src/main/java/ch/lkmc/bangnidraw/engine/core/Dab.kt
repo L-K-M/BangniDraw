@@ -339,6 +339,11 @@ class DabRing(
     private val free = BooleanArray(slots) { true }
     private val nextStrokeId = AtomicLong(1L)
 
+    private enum class BatchPurpose {
+        REAL_INPUT,
+        PREDICTION,
+    }
+
     val slots: Int get() = batches.size
 
     /** How many slots are available right now. */
@@ -349,14 +354,30 @@ class DabRing(
      * The next free slot, cleared and ready, or `null` when every slot is
      * still held by the GL thread.
      */
+    fun acquire(): DabBatch? = acquire(BatchPurpose.REAL_INPUT)
+
+    /**
+     * A prediction slot, or `null` when borrowing it would consume the slot
+     * reserved for real digitizer input. Prediction can be regenerated next
+     * frame; a real sample cannot.
+     */
+    internal fun acquirePrediction(): DabBatch? = acquire(BatchPurpose.PREDICTION)
+
     @Synchronized
-    fun acquire(): DabBatch? {
+    private fun acquire(purpose: BatchPurpose): DabBatch? {
+        if (
+            purpose == BatchPurpose.PREDICTION &&
+            free.count { it } <= REAL_INPUT_RESERVED_SLOTS
+        ) {
+            return null
+        }
+
         for (i in batches.indices) {
-            if (free[i]) {
-                free[i] = false
-                batches[i].clear()
-                return batches[i]
-            }
+            if (!free[i]) continue
+
+            free[i] = false
+            batches[i].clear()
+            return batches[i]
         }
         return null
     }
@@ -399,3 +420,5 @@ class DabRing(
     /** A fresh stroke id. Monotonic, so a late batch can always be recognised. */
     fun newStrokeId(): Long = nextStrokeId.getAndIncrement()
 }
+
+private const val REAL_INPUT_RESERVED_SLOTS = 1

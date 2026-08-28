@@ -1771,3 +1771,12 @@ touchscreen hover too, not only a pen.
   action outcomes"), which adds `studio_share_failed` to both locales and
   repoints both share paths at it. Keeping the string change out of this
   PR's scope.
+
+## PR #106 — Paintbrush migration tuning (2026-08-28)
+
+- **R-106 ⏸️ Round 2, major: "`Log.w` can crash local JVM unit tests
+  exercising the fallback path."** Refuted:
+  `unitTests.isReturnDefaultValues = true` is already set
+  (`app/build.gradle.kts`), and the store's existing `Log.w` drop paths
+  run under the JVM suite today (the invalid-override test). The
+  fallback-path test is green locally and in CI.

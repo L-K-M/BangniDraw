@@ -211,7 +211,7 @@ class BrushPresetStoreTest {
             ),
         )
         File(root, "builtin.paintbrush.json").writeText(
-            """{"v":1,"id":"builtin.paintbrush","name":"My wash","size":31,"sizeMin":6,"sizeMax":300,"flow":0.26,"hardness":0.83,"spacing":0.11,"tip":{"type":"flat","aspect":0.5},"orientation":"Stylus","pressureSize":{"p0":0.2,"p1":0.4,"p2":0.8,"p3":1},"pressureFlow":{"p0":0.1,"p1":0.3,"p2":0.7,"p3":1},"tilt":{"sizeAtFlat":1.7,"opacityAtFlat":0.6,"elongate":true},"velocity":{"sizeAtFast":0.9,"opacityAtFast":0.5,"fastPxPerMs":2.5},"jitter":{"size":0.15,"position":0.25},"stabilizer":0.62,"mixing":true,"dilution":0.21}""",
+            """{"v":1,"id":"builtin.paintbrush","name":"My wash","size":31,"sizeMin":6,"sizeMax":300,"flow":0.26,"hardness":0.83,"spacing":0.11,"tip":{"type":"flat","aspect":0.5},"orientation":"Stylus","pressureSize":{"p0":0.2,"p1":0.4,"p2":0.8,"p3":1},"pressureOpacity":{"p0":0.1,"p1":0.2,"p2":0.3,"p3":0.4},"pressureFlow":{"p0":0.1,"p1":0.3,"p2":0.7,"p3":1},"tilt":{"sizeAtFlat":1.7,"opacityAtFlat":0.6,"elongate":true},"velocity":{"sizeAtFast":0.9,"opacityAtFast":0.5,"fastPxPerMs":2.5},"jitter":{"size":0.15,"position":0.25},"stabilizer":0.62,"opacity":0.5,"mixing":false,"eraseMode":true,"model":"ChineseInk","bufferMode":"Max","dilution":0.21}""",
         )
 
         val migrated = store.load().single()

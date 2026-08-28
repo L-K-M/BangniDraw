@@ -34,7 +34,7 @@ class TracingReferenceContractTest {
             Regex("ready\\s+!is\\s+UiState\\.Ready").containsMatchIn(viewModel),
         )
         assertTrue(
-            Regex("modifier\\s*=\\s*Modifier\\.weight\\(\\s*1f\\s*\\)")
+            Regex("modifier\\s*=\\s*Modifier\\s*\\.\\s*weight\\(\\s*1f\\s*\\)")
                 .findAll(panel).count() ==
                 REFERENCE_ACTION_COUNT,
         )

@@ -50,11 +50,12 @@ class AccessibleChoiceRowsContractTest {
             fun target() {
                 val text = "}"
                 // }
-                /* { */
+                /* outer /* } */ { */
+                val raw = RAW_QUOTES}RAW_QUOTES
                 keep()
             }
             fun next() = Unit
-        """.trimIndent()
+        """.trimIndent().replace("RAW_QUOTES", "\"\"\"")
 
         val block = bracedBlock(source, "fun target()")
 
@@ -81,9 +82,28 @@ class AccessibleChoiceRowsContractTest {
                     index = newline
                 }
                 source.startsWith("/*", index) -> {
-                    val end = source.indexOf("*/", index + 2)
+                    var end = index + 2
+                    var nesting = 1
+                    while (end < source.length && nesting > 0) {
+                        when {
+                            source.startsWith("/*", end) -> {
+                                nesting += 1
+                                end += 2
+                            }
+                            source.startsWith("*/", end) -> {
+                                nesting -= 1
+                                end += 2
+                            }
+                            else -> end += 1
+                        }
+                    }
+                    if (nesting > 0) break
+                    index = end - 1
+                }
+                source.startsWith("\"\"\"", index) -> {
+                    val end = source.indexOf("\"\"\"", index + 3)
                     if (end < 0) break
-                    index = end + 1
+                    index = end + 2
                 }
                 source[index] == '"' || source[index] == '\'' -> {
                     var close = index + 1

@@ -74,10 +74,10 @@ class CanvasResizeOwnershipContractTest {
 
         assertTrue("fbo.release()" in changed)
         assertTrue("readFbo.release()" in changed)
-        assertTrue(resize.indexOf("fbo.release()") in branchIndex until accum)
-        assertTrue(resize.indexOf("readFbo.release()") in branchIndex until accum)
-        assertTrue(resize.indexOf("fbo.release()") in branchIndex until scratch)
-        assertTrue(resize.indexOf("readFbo.release()") in branchIndex until scratch)
+
+        val firstEnsure = minOf(accum, scratch)
+        assertTrue(resize.indexOf("fbo.release()", branchIndex) in branchIndex until firstEnsure)
+        assertTrue(resize.indexOf("readFbo.release()", branchIndex) in branchIndex until firstEnsure)
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()

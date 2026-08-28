@@ -2054,3 +2054,8 @@ touchscreen hover too, not only a pen.
   their strict `<` boundaries, which is the only guard — the draw loop no
   longer filters empty bands — keeping degenerate rects away from
   `glScissor`.
+
+- **R-142 🟢 Round 3, minor: reword the rotation-guard comment to name the
+  case that returns.** Applied verbatim. The round-2 boundary assertion
+  was re-posted against the commit that already applied it; treated as a
+  stale anchor, not a new finding.

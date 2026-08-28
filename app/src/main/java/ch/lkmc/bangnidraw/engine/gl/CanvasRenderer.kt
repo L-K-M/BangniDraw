@@ -2055,9 +2055,11 @@ class CanvasRenderer(
             imageBounds.right <= canvas.width && imageBounds.bottom <= canvas.height
         ) return
 
-        // Axis-aligned view, or no exact bands exist to scissor. The ratio,
-        // not the raw coefficients, is the rotation: zoom cannot turn a
-        // rotated view into an aligned one or vice versa.
+        // A freely rotated view has no exact rect bands to scissor —
+        // axis-aligned rects cannot cut a rotated hole — so the pass returns
+        // and the reference stays clipped to the canvas. The ratio, not the
+        // raw coefficients, is the rotation; zoom cannot turn a rotated view
+        // into an aligned one or vice versa.
         val basisA = abs(screenTransform.a)
         val basisB = abs(screenTransform.b)
         if (minOf(basisA, basisB) >= AXIS_ALIGNED_EPS * maxOf(basisA, basisB)) return

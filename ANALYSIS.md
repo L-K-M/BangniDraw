@@ -4,14 +4,19 @@ Findings from the full-project review of 2026-08-27 (originally written down
 in `glm.md`), consolidated with the second-pass deep review of the same day
 (`ds.md`) and the third pass (`qwen.md`, merged here and removed), plus the
 fourth deep review of 2026-08-28 (`muse.md`, 8d638d3, 217 Kt files, 14-year-old
-lens). Every entry was verified in the source, not inferred from the docs;
+lens), the `hy3.md` review, and the fifth pass (`glm.md`, 2026-08-28,
+v1.1.0 @ `8d638d3`, focused on the post-#58 features: watercolor, Water tool,
+tracing references, Chinese ink, spray can, rail budget, composition guides).
+Every entry was verified in the source, not inferred from the docs;
 everything marked [fix-now] or **[do]** has landed (see the cleared list);
 what remains is shovel-ready work for a future LLM session, ordered
 small-to-large within each section.
 
 House rules for picking items up: read PLAN.md's relevant `docs/plan/` file
 first, write the failing test before the fix, keep decision logic in
-`engine/core`, and record what you learn in AGENTS.md.
+`engine/core`, and record what you learn in AGENTS.md. **Before picking any
+item, re-check the open-PR list — several backlog items below are currently
+in flight and must not be re-picked.**
 
 ## Implemented during this review session (2026-08-28) — in review
 
@@ -49,6 +54,51 @@ below); the PRs stay open until steady-state per `CLAUDE.md` (no blocking
 feedback in review, or two consecutive hybrid audits with no relevant findings,
 or two consecutive GLM timeouts). Do not re-implement #11 or #12 while #104
 and #105 are open — review them instead.
+
+## Implemented during the fifth pass (2026-08-28, glm.md) — in review
+
+Five more shovel-ready items, each its own branch and PR, each with CI green
+(`testDebugUnitTest lintDebug`), strings in both locales where user-visible,
+and a JVM test where anything pure is pinned. All were verified red-first
+where a test could express the failure. Do not re-pick these while their PRs
+are open.
+
+- PR #119 — **Redo long-press history readout** (`HistoryJournal.redoDepth`
+  + `UiState.redoSteps` + the undo button's `combinedClickable` shape mirrored
+  on redo; `canvas_redo_readout` plural, both locales). GLM round 1: round
+  ripple + `onLongClickLabel` applied to both buttons (undo shipped with the
+  same square ripple); the missing-other-locales finding refuted — the app
+  ships exactly two locale directories. glm.md §B.1.1.
+- PR #122 — **Notify when a stroke is refused because the document is busy**
+  (`noteStrokeRefused()` rides the `strokeLayerNotice` toast channel;
+  `canvas_busy` string; `StrokeRefusalContractTest`). GLM round 1 asked for a
+  behavioral test — declined with evidence (Hilt/`Context` constructor, JVM-
+  only suite rule, and the established source-contract pattern), but the
+  fragility half was applied: assertions scope to whole function bodies, not
+  fixed character windows. ANALYSIS #9 / glm.md §A.9.
+- PR #125 — **Keyboard shortcuts listed in Settings** (`CanvasShortcutCatalog`
+  in `engine/core`, cross-checked against `CanvasShortcuts.resolve` by
+  `CanvasShortcutCatalogTest` so the help cannot drift from behaviour;
+  Settings section with chord chips; nine strings, both locales). GLM round 1:
+  set-comparison test hardening applied. ANALYSIS #10 / glm.md §A.10.
+- PR #130 — **Brush preview buffer reuse** (`BrushPreview.RenderBuffer` +
+  ping-ponged `PreviewTarget`s: render mutates only the back bitmap, publish
+  is a main-thread swap, a `Mutex` serializes cancelled predecessors;
+  `BrushPreviewTest` pins reused-buffer ≡ fresh-render). GLM round 1 critical
+  (draw/render races) applied and strengthened beyond the suggestion. Clears
+  the second-pass preview-churn note. glm.md §B.2.5.
+- PR #131 — **Custom paper colour at creation** (sixth swatch + nested HSV
+  picker over `HsvChannel`, committing through the same
+  `onCreate(size, paperColor)` seam; `PaperSwatchCustomDefault` theme color;
+  `CustomPaperContractTest`). The stale "waits for step 7" comment is gone
+  with it. GLM round 1: tolerant contract + distinct preview label applied;
+  swatch-geometry finding refuted (`FlowRow` wraps; no count math exists).
+  ANALYSIS #8 / glm.md §A.8 + §B.1.3.
+
+Parallel-agent PRs that touch the same backlog (recorded so this list stays
+honest): #120 panel close affordance (shovel-ready #20 / larger idea),
+#111 pigment-wash rail glyph (glyph territory — see the dead-`PAINTBRUSH`
+note below), #117 transparent-paper hint (muse #15 adjacent).
 
 ## Implemented during review session (2026-08-27)
 
@@ -141,32 +191,41 @@ superseded to avoid duplicate review load.
   `lastReflected` + `syncSiblings` pattern). See `ds.md` §3.1.
 - Mixing dish slider position not durable — PR #104 (open, in review).
 - Clear layer destructive without confirmation — PR #105 (open, in review).
+- Pressure curve editor (#6) — landed in v1.1.0: `CurveEditor` ships in
+  `BrushSettingsSheet` for every pressure curve ("Draw pressure curves",
+  CHANGELOG 1.1.0).
+- Composition guides — landed via PR #98 (top-strip overflow toggle +
+  `Prefs.compositionGuideVisibility`).
+- Redo long-press readout — PR #119 (open, in review).
+- Stroke-refused feedback (#9) — PR #122 (open, in review).
+- Shortcuts discoverability (#10) — PR #125 (open, in review).
+- Brush preview buffer churn — PR #130 (open, in review).
+- Custom paper colour at creation (#8) — PR #131 (open, in review).
 
 ## Shovel-ready (remaining)
 
-Only #8 (custom paper colour) from the original list is still untouched —
-#6 (curve plot) is in flight as PR #77, #7 landed as PR #68 with #73 as its
-typed-input refinement, #11 and #12 are now in review as #104 and #105.
-Order below is small-to-large; #8 remains first among the untouched originals,
-then the third-pass additions, then the fourth-pass (`muse.md`) additions.
+**Every numbered original is now landed or in review** (#6 via v1.1.0's
+`CurveEditor` — the old "in flight as PR #77" line was stale; #7 via #68/#73;
+#8 → #131, #9 → #122, #10 → #125, #11 → #104, #12 → #105). What remains
+below is the third-pass list (annotated where in review), the fourth-pass
+(`muse.md`) additions, and the fifth-pass (`glm.md`) additions. Order is
+small-to-large within each block.
 
-8. **Custom paper colour at creation.** (`NewCanvasDialog` sixth swatch,
-   `onCreate` passes the colour through) — still the next original after #77
-   lands.
-
-Third-pass additions (from `qwen.md`, verified in source, none taken yet
-except #11/#12 now in review):
+Third-pass additions (from `qwen.md`, verified in source; #11/#12 are in
+review as #104/#105 — do not re-pick):
 
 9. **No feedback when a stroke is refused because the document is busy.**
    `beginStrokeTool` returns null while `CanvasActionGate` is busy; the pen
    moves, nothing lands, nothing is said. The `strokeLayerNotice` toast
    path already exists for locked layers — one more reason string closes
    the loop. (`CanvasViewModel.beginStrokeTool`, `CanvasScreen`.)
+   **→ in review as PR #122; do not re-pick.**
 10. **Keyboard shortcuts are undiscoverable.** `CanvasShortcuts` has a real
     table (Z/Y, brackets, B/E/S/G/I, Tab, L/C, Alt) and nothing in the UI
     mentions it; DeX/Chromebook users get zero hints. The table is data —
     a Shortcuts section in Settings or About is nearly free.
     (`ui/home/SettingsSheet.kt`, `engine/core/CanvasShortcut.kt`.)
+    **→ in review as PR #125; do not re-pick.**
 <!-- 11 and 12 are now PR #104 and #105 — see Implemented 2026-08-28 above. -->
 
 Fourth-pass additions (from `muse.md:1` + `muse.md:5`/`muse.md:6`, verified
@@ -204,6 +263,7 @@ in source, ordered small-to-large, no duplicates with above):
 20. **Panel close affordance absent on tablet.** Dismiss is scrim-tap or Back;
     side sheet reads as permanent furniture. Add X in header (~12 lines each:
     `ColorPanel`, `LayerPanel`, `BrushSettingsSheet`). (`ui/canvas/PanelHost.kt`.)
+    **→ in review as PR #120 (parallel agent); do not re-pick.**
 21. **Focus handle tiny and faint.** `FocusHandle.kt` 6×48 dp at 35 % opacity.
     Bump to 8×48, 55 % and add `semantics { onClick }` "Show controls".
 22. **Slider ledge mirrors visually but not for touch when left-handed.**
@@ -212,6 +272,38 @@ in source, ordered small-to-large, no duplicates with above):
     direction inverts. Remove the graphics-layer hack (keep sliders LTR) or
     mirror via value inversion (`1 - value`). (`ui/canvas/SliderLedge.kt`,
     `ui/canvas/ThinSlider.kt`.) Needs device verification before merging.
+
+Fifth-pass additions (from `glm.md`, verified in source, ordered small-to-large):
+
+23. **No blur-tool shortcut.** `CanvasShortcuts` maps S→smudge, W→water,
+    B/E/G/I… but blur has no key. Add one or record the omission as
+    deliberate beside the table — bundle with future shortcut work rather
+    than alone. (`engine/core/CanvasShortcut.kt`, and `CanvasShortcutCatalog`
+    once #125 lands.)
+24. **Water tool explains itself nowhere.** It re-wets and carries existing
+    paint — the most magical tool for a young painter — and its sheet is
+    three bare sliders. One `bodySmall` hint line under the title, the
+    pattern `TracingReferencePanel` and the eyedropper sheet already use.
+    (`ui/canvas/RmwSettingsSheet.kt` `WaterSettingsSheet`.)
+25. **`BrushToolGlyph.PAINTBRUSH` is unreachable.** Since 1.1.0 the
+    `builtin.paintbrush` preset carries `icon: "watercolor"` (it became the
+    Watercolor brush) and no shipped preset or code path sets
+    `icon: "paintbrush"` — verified across all `assets/brushes/*.json`. The
+    enum entry plus its Material `Brush` icon mapping in `ToolRail.kt:845`
+    is dead code reachable only from hand-authored user JSON. Delete it
+    (update the glyph policy test) or document it as user-JSON-only;
+    coordinate with #111's glyph work. XS.
+26. **Studio thumbnails `inSampleSize`** (carried second-pass note, still
+    open): decode to the cell size to halve the cache's byte footprint for
+    the same hit rate. (`ui/home/StudioViewModel.kt`.)
+27. **Watercolor CPU preview in BrushSettingsSheet.** The Watercolor brush —
+    one of the five core rail brushes — shows a hint string instead of a
+    preview (`BrushSettingsSheet` skips rendering for every
+    `watercolor != null` preset). A CPU approximation is feasible without
+    GL: a soft horizontal wash band through the existing `DabStamp`/
+    `Composite` CPU path with the behavior's falloff, a speckle pass for
+    granulation, a darker rim. M size, high kid-value, JVM-testable.
+    (`engine/core/BrushPreview.kt`, `ui/canvas/BrushSettingsSheet.kt`.)
 
 ## Larger ideas (need product judgment or a proposal doc)
 
@@ -248,6 +340,21 @@ scratchpad** higher — they make the tools feel owned and legible to a child.
 - **Canvas edge resistance (rubber-band overshoot on pan).** Pure
   `ViewTransform` policy; makes the canvas feel physical. Keep Meltorama
   math in sync if either side changes (AGENTS.md rule).
+- **Flip-view mirror check (M, proposal first).** The classic artist's
+  mistake-checker: mirror the *view* horizontally to instantly see skewed
+  faces and proportions (not equivalent to the existing rotate). Sketch: a
+  `mirrored` flag on `ViewTransform`, composed into the canvas matrix with
+  the X mapping flipped on input, a top-strip overflow toggle; purely a view
+  change — no document or journal impact, undo-free by construction. The
+  transform math must keep Meltorama parity rules in mind (AGENTS.md). Also
+  listed in the hy3 delight section below as "Mirror-check toggle" — same
+  idea, one entry. (glm.md §B.4.11.)
+- **Wet-shimmer overlay (M, proposal first).** Water dries over 12 s with
+  zero visual indication — a kid who paints, waits, and paints again gets
+  silently different behaviour. A very subtle glint on still-wet texels
+  (read the wet pages, render a low-alpha overlay quad) would make the
+  physics legible. Aesthetic risk (must not look like a bug), so proposal-
+  doc it. (glm.md §B.4.12.)
 - **Hue-milestone haptic on eyedropper drag.** The `HueMilestone` helper
   exists for the picker ring; tick when a dragged pick crosses a hue band.
 - **Brush-size by pen drag (two-finger hold).** Hold two fingers, drag the
@@ -321,8 +428,18 @@ scratchpad** higher — they make the tools feel owned and legible to a child.
   `muse.md#8.2`.
 - **Rainbow brush (XS).** Hue cycles with pressure/distance
   (`h = (h + step*d) % 360`); pure `DabGenerator` dynamics. From `muse.md#8.3`.
+  **Fifth-pass correction: the XS estimate is wrong — this is blocked, not
+  XS.** `09-color-and-mixing.md` §3.1 pins one colour per stroke: the stroke
+  buffer accumulates alpha coverage only and the merge applies a single
+  `u_color`, so per-dab hue cannot reach the merged layer without a buffer
+  + merge redesign. Do not attempt as a preset trick; the split-bristle
+  lanes of Chinese Ink show how deep "per-dab appearance" already reaches.
+  (glm.md §B.4.14.)
 - **Stamp brush: emoji/star/heart scattered (S).** Custom tip bitmap +
-  jitter, 8 stencils, no new engine. From `muse.md#8.4`.
+  jitter, 8 stencils, no new engine. From `muse.md#8.4`. **Fifth-pass note:
+  shapes need alpha-masked dab textures, which is exactly the blocked
+  grain/texture-loader path (CC0 provenance first — AGENTS.md rule); budget
+  it as blocked-on-"Brush grains", same as glm.md §B.4.13.**
 - **Shake-to-undo (XS).** `SensorManager` shake → `undo()`, haptic tick.
   From `muse.md#8.5`.
 - **Tilt-the-table ink drip (M, quirky, opt-in).** Tilt device → ink pools
@@ -353,7 +470,8 @@ scratchpad** higher — they make the tools feel owned and legible to a child.
   *(Fixed in `ColorPanel.kt:732` via `remember(state.dish.a, state.dish.b)` — muse.md#3.8.)*
 - **`BrushSettingsSheet` preview** allocates a bitmap per 50 ms debounce
   tick while sliders drag — bounded, but reusable bitmaps would remove the
-  GC churn.
+  GC churn. **→ in review as PR #130 (ping-ponged targets + `RenderBuffer`);
+  do not re-pick.**
 - **Studio thumbnails** decode at 512 px with no display-size sampling;
   the memory cache across scroll landed with PR #76, so what remains is
   optional `inSampleSize` decoding to the cell size (halves the cache's
@@ -402,6 +520,42 @@ scratchpad** higher — they make the tools feel owned and legible to a child.
   and rounded dock soften without betraying the palette. Recorded as
   larger-idea "Mascot empty state + ambient polish".
 
+## New observations from the fifth pass (glm.md, 2026-08-28, v1.1.0)
+
+- **Watercolor per-dab GPU cost is the top device-perf gate for 1.1.x.**
+  `WatercolorPass.stamp` executes, for *every dab*: a color-source region
+  copy (per-tile blits), a wet-source copy, a wet-update draw, a per-key wet
+  backup (two blits through scratch per touched tile), the tile-reservation
+  loops, then per-tile color draws and a per-tile wet blit write — roughly
+  6–12 FBO bind/draw/blit ops per dab, sequential by design (each dab reads
+  the previous dab's wet output, which is what makes water flow believable).
+  The core Watercolor preset has `spacing = 0.2`·radius: at the default 40 px
+  size that is a dab every 4 px of travel; a fast two-second stroke is
+  hundreds of dabs. Not a bug — the plan's "one direct RMW update per
+  accepted dab" is exactly what shipped — but no device has ever run it
+  (AGENTS.md records no device was available for v1.0.0 acceptance). **Measure
+  first.** If it misses the §2 frame budget on mid-range hardware, the
+  promising directions: (a) extend the `hasColorContent` gate to Water (it
+  currently only checks `waterLoad·flow > 0`), (b) coalesce the two source
+  copies, (c) raise the Water tool's effective spacing. Blind optimization
+  before a measurement violates the repo's own rules. (glm.md §B.2.4.)
+- **The `builtin.paintbrush` preset *is* the Watercolor brush now** (re-keyed
+  `icon: "watercolor"`, name `@string/preset_paintbrush` = "Watercolor"/
+  水彩笔 in 1.1.0). Nothing to fix; recorded so a future reader grepping for
+  a "paintbrush" preset is not surprised, and because it is why #25's glyph
+  entry is dead.
+- **The NewCanvasDialog comment claiming the custom-paper swatch "waits for
+  the color panel (roadmap step 7)" was stale** — step 7 shipped in v1.0.
+  Fixed with PR #131; the pattern to watch is comments naming a blocker
+  that shipped.
+- **The app's locale set is exactly two directories** (`values/`,
+  `values-b+zh+Hans/`; `values-night` carries no strings). GLM review rounds
+  repeatedly flag "missing other locales"; the standing refutation is this
+  line plus lint's MissingTranslation gate.
+- **Redo's long-press readout parity** was the model for PR #119: when an
+  interaction ships on one side of a pair (undo/redo, wells A/B, hard/soft
+  eraser), check its sibling before assuming the asymmetry is deliberate.
+
 ## Verified clean (do not re-litigate)
 
 Checked during the original review and found correct: the front-buffered drain
@@ -442,6 +596,26 @@ load/recovery/replay and `nextName` floor; `values` / `values-b+zh+Hans`
 completeness (new `layer_clear_*` in both); RMW ordering; and that
 `MixingDish.gradient` is now correctly remembered (`ColorPanel.kt:732`) so
 it no longer recomputes 9 Mixbox mixes per drag frame.
+
+The fifth pass (glm.md, 2026-08-28, v1.1.0) additionally verified, focused
+on the post-#58 features: **Watercolor reservation/rollback ordering**
+(`WatercolorPass` — pool exhaustion cannot half-apply a dab: reservations
+are made, verified bindable, then committed; rollback removes exactly the
+fresh slices); **`WatercolorEditPolicy`** coverage vs every `PixelOp` kind
+(`Copy → Keep` is right — duplicate does not destroy the source's wet
+layer; Flatten and UndoRedo nuke all); **wet tick-epoch rollover** (expired
+pages pruned and live pages re-encoded before the epoch advances, so modulo
+age cannot resurrect stale water); **`TracingReferencePolicy.normalizedSize`**
+extreme-aspect and byte-allowance clamps; **`ReferenceImageCodec`** (EXIF
+baked by `ImageDecoder` before the PNG write, tiles premultiplied,
+`streamTiles` refuses dimension-mismatched assets); **`RailSlotPolicy` +
+`LayoutSpec.paintSlotBudget`** (the budget equation matches the rail
+constants; the active preset keeps the last budgeted slot);
+**`InkBrushDynamics`** (malformed digitizer samples neutralized, axis wrap
+in (−π/2, π/2], stationary pressure steps hysteresis-gated); the
+**`CanvasActionGate`** phase machine and `beginStrokeTool`'s hover/tool-
+switcher ordering; and zh-Hans coverage of every new key. Prior passes'
+"verified clean" lists above remain in force.
 
 
 ---
@@ -526,7 +700,10 @@ implemented as open PRs against `main` (1.1.0); the rest are shovel-ready.
   journal entry).
 - Import image as a real editable/exportable/undoable layer (Photo Picker, no
   permission; decode into `TileStore` tiles of a new `Layer`).
-- Stamp / sticker tool (CC0 `ImageVector` silhouettes).
+- Stamp / sticker tool (CC0 `ImageVector` silhouettes) — note: vector
+  silhouettes dodge the texture-loader blocker in the muse entry above, but
+  provenance still must be recorded in AGENTS.md; see the blocked-on-grains
+  note under the muse stamp entry and glm.md §B.4.13.
 - Perspective / vanishing-point guide + optional snap (beyond `CompositionGuide.kt`).
 - Blend-mode visual gallery (live per-mode thumbnails in `LayerPanel.kt`).
 - Non-destructive adjust layer (Hue/Sat/Brightness).
@@ -535,15 +712,17 @@ implemented as open PRs against `main` (1.1.0); the rest are shovel-ready.
 - Pixel-grid snap + square guide + "pixel" canvas preset (`CompositionGuide.kt`
   + `CanvasPresets.kt`).
 
-**UX / aesthetics (restated from hy3.md; not yet landed)**
+**UX / aesthetics (restated from hy3.md; not yet landed unless noted)**
 - No visual feedback when a stroke is refused because the document is busy
   (`CanvasViewModel.beginStrokeTool` returns null while `CanvasActionGate` is
   busy) — reuse the `strokeLayerNotice` toast path.
+  **→ in review as PR #122.**
 - Keyboard shortcuts undiscoverable (`engine/core/CanvasShortcut.kt`); add a
-  Shortcuts section in Settings/About.
+  Shortcuts section in Settings/About. **→ in review as PR #125.**
 - Mixing-dish slider position not durable (`DishState.t` resets on recomposition);
-  persist beside the wells.
+  persist beside the wells. **→ in review as PR #104.**
 - Panel close affordance missing (close icon in panel headers).
+  **→ in review as PR #120.**
 - Shelf cards flat; a whisper of elevation + `primaryContainer` "New painting"
   cell adds polish (`StudioScreen`).
 - No display face for the app name / panel headers (CC0/OFL font; provenance in
@@ -554,7 +733,8 @@ implemented as open PRs against `main` (1.1.0); the rest are shovel-ready.
 - Daily draw prompt (offline `PromptBank`, "Surprise me" on `StudioScreen`).
 - Color name label (offline `ColorName.kt` under the HSV picker).
 - Shake-to-undo (accelerometer, debounced; triggers existing undo path).
-- Mirror-check toggle (one-click horizontal flip of the composited view).
+- Mirror-check toggle (one-click horizontal flip of the composited view)
+  — merged into the "Flip-view mirror check" larger idea above (glm.md §B.4.11).
 - Satisfying stroke sound/haptic (toggle, off by default; CC0 click on pen-up).
 - Custom app accent color (`Color.kt` + `Prefs.kt` via `MaterialTheme`).
 - "Made with 帮你Draw" share card + celebratory state (via `ShareCache`/`GalleryExporter`).

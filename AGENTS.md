@@ -602,15 +602,14 @@ and the contradiction is noted here.
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.
   User names are literal; never resolve arbitrary stored `@string/` values.
-- **The FULL rail does not list every paint preset.** Its paint slots are
-  capped by `LayoutSpec.paintSlotBudget`, solved from the window height so
-  the rail never grows past it; the active preset always keeps a slot
-  (`RailSlotPolicy`), and the overflow presets are reachable through the
-  settings sheet's chip row — the same path GROUPED/SHORT/DOCK already use.
-  The first five paint IDs in `BrushPresets.RAIL_ORDER` are the v1 core set;
-  additional brushes follow so they cannot displace a core slot until selected.
-  The `*_FULL_MIN_DP` thresholds stay sized for the v1 catalogue; they select
-  a mode, not a capacity.
+- **FULL-rail paint slots are durable assignments.** The ordered preset ids
+  live in `Prefs`; settings-sheet choices swap into the active slot, while
+  rail taps only activate a slot. `LayoutSpec.paintSlotBudget` caps how many
+  assignments fit the window. If resize hides the active slot,
+  `RailSlotPolicy` projects it into the last visible position without
+  mutating assignments. Unknown/deleted ids are dropped and new catalogue ids
+  append in `BrushPresets.RAIL_ORDER`. GROUPED/SHORT/DOCK show the active
+  assignment. The active index remains session-only.
 - **The seven specialty brush presets have no device feel pass.** Their JSON
   parsing, dynamics, grain modes, rail priority, glyph roles, and localization
   are pinned on the JVM; their physical feel still needs stylus testing.

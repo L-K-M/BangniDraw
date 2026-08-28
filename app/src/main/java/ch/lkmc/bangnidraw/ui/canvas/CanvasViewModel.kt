@@ -88,6 +88,7 @@ import ch.lkmc.bangnidraw.engine.core.MixingDish
 import ch.lkmc.bangnidraw.engine.core.Palette
 import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import ch.lkmc.bangnidraw.engine.core.PalettePolicy
+import ch.lkmc.bangnidraw.engine.core.PaintSlotAssignments
 import ch.lkmc.bangnidraw.engine.core.PaletteSwatchPickSession
 import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.PixelHistoryEntry
@@ -232,7 +233,7 @@ class CanvasViewModel @Inject constructor(
             val historyMaxSteps: Int = 0,
             val historyMaxBytes: Long = 0L,
             val brushPresets: List<BrushPreset>,
-            val paintBrushId: String,
+            val paintSlots: PaintSlotAssignments,
             val eraserBrushId: String,
             val toolSelection: ToolSelection,
             val color: ColorUiState,
@@ -277,7 +278,7 @@ class CanvasViewModel @Inject constructor(
 
     @Volatile
     private var brushPresets: List<BrushPreset> = listOf(BrushPresets.DEFAULT)
-    private var paintBrushId = BrushPresets.PENCIL_ID
+    private var paintSlots = PaintSlotAssignments.restore(listOf(BrushPresets.PENCIL_ID))
     private var eraserBrushId = BrushPresets.HARD_ERASER_ID
 
     private var penButtonAction = PenButtonAction.Eraser
@@ -528,8 +529,13 @@ class CanvasViewModel @Inject constructor(
             .getOrDefault(false)
         if (!hintShown) chrome = CanvasUiPolicy.showHint(chrome)
 
-        val loadedPresets = BrushPresets.railOrder(presetStore.load()).ifEmpty {
-            listOf(BrushPresets.DEFAULT)
+        val orderedPresets = BrushPresets.railOrder(presetStore.load())
+        // A damaged catalogue still needs one paint tool to open the canvas.
+        val loadedPresets = if (orderedPresets.any { !it.eraseMode }) {
+            orderedPresets
+        } else {
+            listOf(BrushPresets.DEFAULT) +
+                orderedPresets.filterNot { it.id == BrushPresets.DEFAULT.id }
         }
         val tunings = runCatching { prefs.brushTunings(loadedPresets.map { it.id }) }
             .onFailure { android.util.Log.w(TAG, "brush tuning could not be loaded", it) }
@@ -549,16 +555,19 @@ class CanvasViewModel @Inject constructor(
             }
         }
         userPalettes = paletteStore.load()
-        val default = brushPresets.firstOrNull { it.id == BrushPresets.PENCIL_ID }
-            ?: brushPresets.first()
-        paintBrushId = default.id
+        val paintPresetIds = paintCatalogueIds()
+        paintSlots = prefs.loadPaintSlots(paintPresetIds)
+        val default = brushPresets.first { it.id == paintSlots.activePresetId }
         eraserBrushId = brushPresets.firstOrNull { it.id == BrushPresets.HARD_ERASER_ID }?.id
             ?: brushPresets.firstOrNull { it.eraseMode }?.id
             ?: BrushPresets.HARD_ERASER_ID
         toolSwitcher.select(ToolKind.Brush(default))
 
         when (val decision = CanvasOpenPolicy.decide(store.load(projectId))) {
-            is CanvasOpenDecision.Open -> openLoaded(decision.project)
+            is CanvasOpenDecision.Open -> {
+                openLoaded(decision.project)
+                observePaintSlots(paintPresetIds)
+            }
             is CanvasOpenDecision.Reject -> _uiState.value = UiState.Failed(decision.message)
         }
     }
@@ -660,7 +669,7 @@ class CanvasViewModel @Inject constructor(
             historyMaxSteps = journalLimits.maxEntries,
             historyMaxBytes = journalLimits.maxBytes,
             brushPresets = brushPresets,
-            paintBrushId = paintBrushId,
+            paintSlots = paintSlots,
             eraserBrushId = eraserBrushId,
             toolSelection = toolSwitcher.selection.value,
             color = colorUiState(),
@@ -692,7 +701,7 @@ class CanvasViewModel @Inject constructor(
 
         _uiState.value = state.copy(
             brushPresets = brushPresets,
-            paintBrushId = paintBrushId,
+            paintSlots = paintSlots,
             eraserBrushId = eraserBrushId,
             toolSelection = toolSwitcher.selection.value,
             color = colorUiState(),
@@ -1097,31 +1106,75 @@ class CanvasViewModel @Inject constructor(
         return EncodedPainting(name, bytes)
     }
 
-    fun selectBrush(id: String) {
+    fun selectBrushPreset(id: String) {
         val preset = brushPresets.firstOrNull { it.id == id } ?: return
 
-        if (preset.eraseMode) eraserBrushId = id else paintBrushId = id
+        if (preset.eraseMode) {
+            eraserBrushId = id
+        } else {
+            val updated = prefs.assignPaintSlot(
+                cataloguePresetIds = paintCatalogueIds(),
+                activeIndex = paintSlots.activeIndex,
+                presetId = id,
+            )
+            paintSlots = updated
+        }
+
+        activateBrush(preset)
+    }
+
+    fun selectPaintSlot(index: Int) {
+        val presetId = paintSlots.presetIds.getOrNull(index) ?: return
+        val preset = brushPresets.firstOrNull { it.id == presetId } ?: return
+
+        paintSlots = paintSlots.activate(index)
+        activateBrush(preset)
+    }
+
+    internal fun selectPaintBrush() {
+        selectPaintSlot(paintSlots.activeIndex)
+    }
+
+    internal fun selectEraser() {
+        val preset = brushPresets.firstOrNull { it.id == eraserBrushId && it.eraseMode }
+            ?: resolveEraserPreset()
+        activateBrush(preset)
+    }
+
+    private fun activateBrush(preset: BrushPreset) {
         clearColorPick()
         toolSwitcher.select(ToolKind.Brush(preset))
         updateToolUi()
     }
 
-    internal fun selectPaintBrush() {
-        selectBrush(paintBrushId)
-    }
+    private fun paintCatalogueIds(): List<String> =
+        brushPresets.filterNot(BrushPreset::eraseMode).map(BrushPreset::id)
 
-    internal fun selectEraser() {
-        selectBrush(eraserBrushId)
+    /** Mirrors global assignments while preserving this canvas's active index. */
+    private fun observePaintSlots(cataloguePresetIds: List<String>) {
+        viewModelScope.launch {
+            prefs.paintSlotIds.collect { storedPresetIds ->
+                val updated = PaintSlotAssignments
+                    .restore(cataloguePresetIds, storedPresetIds)
+                    .activate(paintSlots.activeIndex)
+                if (updated.presetIds == paintSlots.presetIds) return@collect
+
+                paintSlots = updated
+                val preset = brushPresets.first { it.id == updated.activePresetId }
+                toolSwitcher.replaceBasePaintPreset(preset)
+                updateToolUi()
+            }
+        }
     }
 
     /**
      * The rail eraser slot's long-press: swap the rail eraser between the
-     * two shipped erasers. Session state like [selectBrush]; a preset set
+     * two shipped erasers. Session state like [selectBrushPreset]; a preset set
      * with fewer than two erasers has nothing to swap to.
      */
     internal fun toggleEraserPreset() {
         val next = EraserTogglePolicy.next(eraserBrushId, brushPresets) ?: return
-        selectBrush(next)
+        selectBrushPreset(next)
     }
 
     fun selectSmudge() {

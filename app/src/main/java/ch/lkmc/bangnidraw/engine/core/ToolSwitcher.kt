@@ -41,6 +41,16 @@ class ToolSwitcher(initial: ToolKind) {
         publish()
     }
 
+    /** Updates a paint base while temporary tools remain visible. */
+    internal fun replaceBasePaintPreset(preset: BrushPreset) {
+        require(!preset.eraseMode) { "the base paint preset cannot erase" }
+
+        val brush = base as? ToolKind.Brush ?: return
+        if (brush.preset.eraseMode) return
+
+        select(ToolKind.Brush(preset))
+    }
+
     fun pushTemporary(kind: ToolKind, reason: TemporaryReason) {
         val existing = temporary.indexOfFirst { it.reason == reason }
         if (existing >= 0) {

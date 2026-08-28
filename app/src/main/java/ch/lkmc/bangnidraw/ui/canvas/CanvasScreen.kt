@@ -1058,13 +1058,17 @@ private fun CanvasContent(
                 ToolRail(
                 layout = layout,
                 presets = state.brushPresets,
-                paintBrushId = state.paintBrushId,
+                paintSlots = state.paintSlots,
                 eraserBrushId = state.eraserBrushId,
                 selection = state.toolSelection,
                 hapticsMode = state.hapticsMode,
-                onBrushSelected = {
+                onPaintSlotSelected = {
                     viewModel.dismissPanel()
-                    viewModel.selectBrush(it)
+                    viewModel.selectPaintSlot(it)
+                },
+                onEraserSelected = {
+                    viewModel.dismissPanel()
+                    viewModel.selectEraser()
                 },
                 onSmudgeSelected = {
                     viewModel.dismissPanel()
@@ -1615,7 +1619,7 @@ private fun CanvasPanelContent(
                 paperColor = state.paperColor,
                 hapticsMode = state.hapticsMode,
                 mixerChoice = state.color.mixerChoice,
-                onPresetSelected = viewModel::selectBrush,
+                onPresetSelected = viewModel::selectBrushPreset,
                 onPresetChanged = viewModel::updateActiveBrush,
                 onPresetPersisted = viewModel::persistActiveBrush,
                 onReset = viewModel::resetActiveBrush,

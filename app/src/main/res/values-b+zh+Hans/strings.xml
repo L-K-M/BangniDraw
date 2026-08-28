@@ -59,6 +59,7 @@
     <string name="orientation_portrait">纵向</string>
     <string name="paper_label">纸张</string>
     <string name="paper_custom">自定义…</string>
+    <string name="paper_custom_confirm">确定</string>
     <string name="paper_white">白色纸张</string>
     <string name="paper_warm">暖白纸张</string>
     <string name="paper_gray">灰色纸张</string>

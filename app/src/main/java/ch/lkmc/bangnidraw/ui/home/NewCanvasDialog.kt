@@ -33,6 +33,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -496,7 +498,7 @@ private fun paperSwatchColors(): List<Color> = listOf(
 /**
  * The "+" paper swatch: opens the HSV picker (08 §2.1's custom-paper slot,
  * which waited for the colour panel's machinery — HsvChannel — to exist).
- * Unset it shows a dashed +; once picked it shows the colour.
+ * Unset it shows a plain +; once picked it shows the colour.
  */
 @Composable
 private fun CustomPaperSwatch(color: Int?, selected: Boolean, onSelect: () -> Unit) {
@@ -549,7 +551,11 @@ private fun PaperColorDialog(
     onConfirm: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var draft by rememberSaveable(initial) { mutableStateOf(HsvColor.fromArgb(initial)) }
+    // The draft rides rotation as raw h/s/v floats: HsvColor is not
+    // Bundle-savable, and an ARGB round-trip would collapse hue on greys.
+    var draft by rememberSaveable(initial, stateSaver = HSV_SAVER) {
+        mutableStateOf(HsvColor.fromArgb(initial))
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.paper_custom)) },
@@ -576,19 +582,17 @@ private fun PaperColorDialog(
                             HsvChannel.VALUE -> R.string.color_value
                         },
                     )
-                    val value = channel.read(draft)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(label, modifier = Modifier.width(PAPER_CHANNEL_LABEL))
+                    // Label above the slider: a fixed-width side label clips
+                    // "Saturation" at larger font scales and longer locales.
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(label, style = MaterialTheme.typography.labelMedium)
                         Slider(
-                            value = value,
+                            value = channel.read(draft),
                             onValueChange = { draft = channel.replace(draft, it) },
                             valueRange = channel.range,
                             steps = channel.steps,
                             modifier = Modifier
-                                .weight(1f)
+                                .fillMaxWidth()
                                 .semantics { contentDescription = label },
                         )
                     }
@@ -597,7 +601,7 @@ private fun PaperColorDialog(
         },
         confirmButton = {
             TextButton(onClick = { onConfirm(draft.toArgb() or OPAQUE_ALPHA) }) {
-                Text(stringResource(R.string.layer_confirm))
+                Text(stringResource(R.string.paper_custom_confirm))
             }
         },
         dismissButton = {
@@ -613,5 +617,10 @@ private const val DEFAULT_CUSTOM_EDGE = "2048"
 
 private val PAPER_PREVIEW_HEIGHT = 56.dp
 private val PREVIEW_RADIUS = 8.dp
-private val PAPER_CHANNEL_LABEL = 64.dp
 private const val OPAQUE_ALPHA = 0xFF000000.toInt()
+
+private val HSV_SAVER: Saver<HsvColor, Any> =
+    listSaver(
+        save = { listOf(it.h, it.s, it.v) },
+        restore = { HsvColor(it[0], it[1], it[2]) },
+    )

@@ -75,6 +75,7 @@
     <string name="paper_transparent">Transparent paper</string>
     <string name="paper_transparent_symbol" translatable="false">∅</string>
     <string name="paper_custom">Custom…</string>
+    <string name="paper_custom_confirm">OK</string>
     <string name="paper_custom_symbol" translatable="false">+</string>
 
     <!-- Canvas -->

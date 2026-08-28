@@ -25,6 +25,12 @@ class CustomPaperContractTest {
         assertTrue("or OPAQUE_ALPHA" in dialog)
         // The picker's confirm selects the colour for creation.
         assertTrue(Regex("paper\\s*=\\s*color").containsMatchIn(dialog))
+        // A custom colour equal to a fixed swatch must not read as double-selected.
+        assertTrue("paperSwatchColors().none" in dialog)
+        // The HSV draft survives rotation as raw channel floats (HsvColor is
+        // not Bundle-savable, and an ARGB round-trip collapses hue on greys).
+        assertTrue("listSaver(" in dialog)
+        assertTrue("rememberSaveable(initial)" !in dialog)
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()

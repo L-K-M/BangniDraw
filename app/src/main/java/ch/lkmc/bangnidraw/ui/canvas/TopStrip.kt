@@ -83,6 +83,7 @@ internal fun TopStrip(
     onExportJpeg: () -> Unit,
     onFocus: () -> Unit,
     onRename: () -> Unit,
+    onTracingReference: () -> Unit,
     guideVisibility: CompositionGuideVisibility,
     onToggleGuides: () -> Unit,
     onSettings: (() -> Unit)?,
@@ -114,6 +115,7 @@ internal fun TopStrip(
             onExportJpeg,
             onFocus,
             onRename,
+            onTracingReference,
             guideVisibility,
             onToggleGuides,
             onSettings,
@@ -234,6 +236,7 @@ private fun ToolCluster(
     onExportJpeg: () -> Unit,
     onFocus: () -> Unit,
     onRename: () -> Unit,
+    onTracingReference: () -> Unit,
     guideVisibility: CompositionGuideVisibility,
     onToggleGuides: () -> Unit,
     onSettings: (() -> Unit)?,
@@ -325,6 +328,7 @@ private fun ToolCluster(
             onExportJpeg,
             onFocus,
             onRename,
+            onTracingReference,
             guideVisibility,
             onToggleGuides,
             onSettings,
@@ -339,6 +343,7 @@ private fun OverflowMenu(
     onExportJpeg: () -> Unit,
     onFocus: () -> Unit,
     onRename: () -> Unit,
+    onTracingReference: () -> Unit,
     guideVisibility: CompositionGuideVisibility,
     onToggleGuides: () -> Unit,
     onSettings: (() -> Unit)?,
@@ -357,6 +362,7 @@ private fun OverflowMenu(
             OverflowItem(R.string.canvas_export_jpeg, onExportJpeg) { open = false }
             OverflowItem(R.string.canvas_focus, onFocus) { open = false }
             OverflowItem(R.string.studio_rename, onRename) { open = false }
+            OverflowItem(R.string.reference_image, onTracingReference) { open = false }
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.canvas_guides)) },
                 modifier = Modifier.semantics {

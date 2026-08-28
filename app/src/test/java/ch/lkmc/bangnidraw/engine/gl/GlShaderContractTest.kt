@@ -320,6 +320,24 @@ class GlShaderContractTest {
     }
 
     @Test
+    fun `the composite vertex accepts an affine image transform`() {
+        assertTrue("uniform vec4 u_screenBasis;" in Shaders.COMPOSITE_VERT)
+        assertTrue("uniform vec2 u_screenTranslation;" in Shaders.COMPOSITE_VERT)
+        assertTrue(
+            "u_screenBasis.x * a_canvas.x + u_screenBasis.y * a_canvas.y" in
+                Shaders.COMPOSITE_VERT,
+        )
+        assertTrue(
+            "u_screenBasis.z * a_canvas.x + u_screenBasis.w * a_canvas.y" in
+                Shaders.COMPOSITE_VERT,
+        )
+        assertTrue(
+            Shaders.COMPOSITE_VERT.split("u_screenTranslation").size - 1 >= 2,
+            "u_screenTranslation must be declared and applied",
+        )
+    }
+
+    @Test
     fun `no source declares a uniform the plan dropped`() {
         // u_viewport is in the §3.1 snippet and is NOT in the shader: the
         // projection is built on the JVM from the viewport, so the shader

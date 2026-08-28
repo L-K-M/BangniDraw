@@ -329,6 +329,7 @@ object MemoryBudget {
         val historyMaxSteps: Int,
         val historyMaxBytes: Long,
         val thumbnailCacheBytes: Long,
+        val transientImageBytes: Long, // maximum decoded RGBA8 import
         val poolArraySlices: Int,       // slices per texture array TilePool creates (≤ glMaxArrayLayers)
         val poolArrayCount: Int,        // how many arrays fit the budget
     )
@@ -347,6 +348,7 @@ object MemoryBudget {
         // (tiles are 256). Largest multiple of TILE_SIZE whose square, fully painted, fits
         // MIN_USEFUL_LAYERS + the stroke-buffer reserve in the tile budget.
         val perLayerLimit = gpu / (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)
+        val transientImageBytes = minOf(canvas.pixelBytes, perLayerLimit)
         var maxCanvasEdge = TILE_SIZE
         while (maxCanvasEdge + TILE_SIZE <= MAX_CANVAS_EDGE_V1 &&
                CanvasSize(maxCanvasEdge + TILE_SIZE, maxCanvasEdge + TILE_SIZE).layerBytesWorstCase <= perLayerLimit) {
@@ -361,7 +363,10 @@ object MemoryBudget {
             large -> THUMB_MIB_LARGE
             else -> THUMB_MIB_SMALL
         }).toLong() shl 20
-        return Result(gpu, maxLayers, maxCanvasEdge, historySteps, historyBytes, thumbBytes, slices, arrays)
+        return Result(
+            gpu, maxLayers, maxCanvasEdge, historySteps, historyBytes,
+            thumbBytes, transientImageBytes, slices, arrays,
+        )
     }
 }
 ```

@@ -12,7 +12,7 @@ import kotlin.math.min
  * [FitTransform] letterboxes the canvas into the viewport; [ViewTransform] is
  * the user's pan/zoom/rotate on top of it. Both are **similarities**, and
  * similarities compose, so the pair collapses to one similarity computed once
- * per frame and handed to the vertex shader as four floats:
+ * per frame and handed to the vertex shader as one affine transform:
  *
  * ```
  * fit(p)    = fs·p + o
@@ -21,13 +21,14 @@ import kotlin.math.min
  *   a' = a·fs,  b' = b·fs,  t' = view.apply(o)
  * ```
  *
- * Collapsing them is not a micro-optimization: the shader gets one `vec4`
- * instead of two transforms to apply per vertex, and — more importantly —
+ * Collapsing them is not a micro-optimization: the shader gets one transform
+ * instead of two to apply per vertex, and — more importantly —
  * there is exactly one implementation of "where does this canvas point
  * appear", so `CanvasTouchHandler` mapping a `MotionEvent` back to canvas
  * space and the compositor placing a tile quad cannot disagree.
  *
- * The four floats are `u_screen`'s components in that order.
+ * `CompositePass` expands these four values into the affine uniforms it shares
+ * with tracing references.
  */
 data class ScreenTransform(
     /** `s·cosθ·fs` — the [0,0] and [1,1] entry of the rotation-scale matrix. */
@@ -54,8 +55,8 @@ data class ScreenTransform(
      *
      * Scalar, and the single definition of this half of the transform: [apply]
      * delegates to it, [screenBoundsOf]'s corner walk calls it directly to stay
-     * allocation-free, and the shader is handed the same four floats as
-     * `u_screen`. Three inlined copies of `a·x − b·y + tx` would hold the
+     * allocation-free, and the shader is handed the same coefficients. Three
+     * inlined copies of `a·x − b·y + tx` would hold the
      * scissor rect and the geometry it clips together by coincidence — and a
      * scissor that disagrees with the draw clips content invisibly.
      */

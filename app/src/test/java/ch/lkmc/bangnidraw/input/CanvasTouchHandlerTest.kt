@@ -1,8 +1,9 @@
 package ch.lkmc.bangnidraw.input
 
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
-import ch.lkmc.bangnidraw.engine.core.GestureArbiter
 import ch.lkmc.bangnidraw.engine.core.FitTransform
+import ch.lkmc.bangnidraw.engine.core.GestureArbiter
+import ch.lkmc.bangnidraw.engine.core.NavigationTarget
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PressureCalibration
 import ch.lkmc.bangnidraw.engine.core.PressureCurve
@@ -47,6 +48,7 @@ class CanvasTouchHandlerTest {
         var samplesAtEnd = -1
         /** Every sample's timestamp, so the opening pair's dt is checkable. */
         val times = mutableListOf<Long>()
+        val referencePans = mutableListOf<Pair<Float, Float>>()
         /** Muted during the allocation gate's measured window, so the harness costs nothing. */
         var record = true
         override fun onViewChanged(view: ViewTransform) { this.view = view; if (record) events += "view" }
@@ -76,6 +78,16 @@ class CanvasTouchHandlerTest {
         }
         override fun onStrokeCancel() { events += "cancel" }
         override fun onNavigateActive(active: Boolean) { events += if (active) "nav+" else "nav-" }
+        override fun onReferenceGesture(
+            pivotX: Float,
+            pivotY: Float,
+            panX: Float,
+            panY: Float,
+            zoom: Float,
+            rotationDelta: Float,
+        ) {
+            referencePans += panX to panY
+        }
     }
 
     private fun ms(v: Long) = v * 1_000_000L
@@ -114,6 +126,40 @@ class CanvasTouchHandlerTest {
         h.handleMoveEnd(ms(30))
         assertTrue(host.events.contains("view"), "a two-finger drag must move the view")
         assertTrue(host.view.tx > 0f, "panning right must move the view right: ${host.view}")
+    }
+
+    @Test
+    fun `reference edit routes navigation without moving the canvas`() {
+        val host = Host()
+        val h = handler(host)
+        h.setViewport(CanvasSize(1_000, 1_000), width = 1_000, height = 1_000)
+        h.navigationTarget = NavigationTarget.TRACING_REFERENCE
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        h.handleDown(2, PointerTool.FINGER, 300f, 100f, ms(10))
+        h.handleMove(1, 150f, 100f, ms(30))
+        h.handleMove(2, 350f, 100f, ms(30))
+        h.handleMoveEnd(ms(30))
+
+        assertTrue(h.view.isIdentity)
+        assertEquals(50f, host.referencePans.single().first, 0.001f)
+        assertEquals(0f, host.referencePans.single().second, 0.001f)
+        assertTrue(
+            host.events.none { it.startsWith("begin") || it == "cancel" },
+            "reference navigation has no stroke to cancel: ${host.events}",
+        )
+    }
+
+    @Test
+    fun `one finger in reference edit emits no stroke lifecycle`() {
+        val host = Host()
+        val h = handler(host)
+        h.navigationTarget = NavigationTarget.TRACING_REFERENCE
+
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        h.handleTick(ms(GestureArbiter.PENDING_MS + 1L))
+        h.handleUp(1, ms(GestureArbiter.PENDING_MS + 2L))
+
+        assertTrue(host.events.none { it.startsWith("begin") || it == "end" || it == "cancel" })
     }
 
     @Test

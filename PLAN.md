@@ -25,8 +25,8 @@ with an S Pen (real paintings), and the UI reshapes itself between the two
 without ever becoming a different app.
 
 It is a **drawing app**, not a photo editor, not a vector tool, not a
-note-taking app. Images can come in as a layer or a reference (post-v1); the
-output is pictures.
+note-taking app. Images can be tracing references; paint-layer import is
+post-v1. The output is pictures.
 
 ### Principles
 
@@ -362,7 +362,7 @@ competes with the picture.
 | Blur | RMW | softens under the dab |
 | Fill | fill | bucket flood fill: tolerance, contiguous/global, sample current or all layers, expand by N px (no halos under line art), anti-aliased edge |
 | Eyedropper | pick | tap/long-press samples the composite (or current layer) |
-| Post-v1 | | lasso/rect selection + transform (move/scale/rotate), straight-line/shape assist, symmetry guide, gradient fill, watercolor/wet brushes, texture grains, image import as layer/reference, canvas crop/resize |
+| Post-v1 | | lasso/rect selection + transform (move/scale/rotate), straight-line/shape assist, symmetry guide, gradient fill, watercolor/wet brushes, texture grains, image import as layer, canvas crop/resize |
 
 Every brush exposes: size, opacity, flow, hardness, spacing, pressure
 curves (size / opacity / flow), tilt effect, velocity effect, jitter,
@@ -438,10 +438,11 @@ acceptance tests per step: `docs/plan/12-roadmap.md`.
 | 8 | Fill | bucket fill with tolerance / all-layers reference / expand / anti-alias | fill line art with no halos |
 | 9 | Adaptive UI polish | compact vs expanded layouts, handedness, focus mode, gesture shortcuts, haptics, hover cursor, first-run hint | usable one-handed on a phone; roomy on a tablet |
 | 10 | v1.0 | Settings/About (licenses), zh-Hans strings, README screenshots, release v1.0.0 | tagged release with APK |
+| 11 | Tracing reference | Photo Picker import into a private project asset; affine two-finger placement beneath paint; opacity, visibility, replace, reset, remove; never exported | reference survives reopen; export pixels are unchanged; no permission added |
 
 Post-v1 (each its own proposal in `docs/proposals/`): selections +
 transform, rulers/shape assist, symmetry, gradient fill, wet/watercolor
-brushes, brush grains, import image as layer/reference, canvas crop/resize,
+brushes, brush grains, import image as layer, canvas crop/resize,
 tile residency/eviction (lifts the layer cap), OpenRaster export,
 time-lapse recording.
 

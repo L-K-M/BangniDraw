@@ -6,9 +6,12 @@ import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.TileGrid
+import ch.lkmc.bangnidraw.engine.core.TracingReference
+import ch.lkmc.bangnidraw.engine.core.isSafeAssetName
 import ch.lkmc.bangnidraw.engine.core.isSafePathSegment
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -50,6 +53,7 @@ class ProjectStore internal constructor(
             val document: Document,
             val unreadableLayers: Int,
             val history: HistoryRecord,
+            val unreadableReference: Boolean = false,
         ) : LoadResult
 
         data class Failed(val reason: FailureReason) : LoadResult
@@ -101,6 +105,40 @@ class ProjectStore internal constructor(
 
     fun layerDir(id: String, layer: LayerId): File = File(layersDir(id), layer.value)
 
+    internal fun referenceFile(id: String, assetName: String): File {
+        require(isSafeAssetName(assetName)) { "reference asset must be a safe file name" }
+
+        return File(File(projectDir(id), REFERENCES_DIR), assetName)
+    }
+
+    /** Stages a normalized image without changing the committed metadata. */
+    @Throws(IOException::class)
+    internal fun writeReferenceAsset(id: String, assetName: String, bytes: ByteArray) {
+        writeReferenceAsset(id, assetName) { output -> output.write(bytes) }
+    }
+
+    /** Streams a normalized image into the same atomic project boundary. */
+    @Throws(IOException::class)
+    internal fun writeReferenceAsset(
+        id: String,
+        assetName: String,
+        write: (OutputStream) -> Unit,
+    ) {
+        val file = referenceFile(id, assetName)
+        val dir = file.parentFile ?: throw IOException("reference directory missing")
+        if (!dir.isDirectory && !dir.mkdirs()) throw IOException("could not create $dir")
+
+        AtomicFiles.write(file, write)
+    }
+
+    /** Removes a staged asset that metadata never adopted. */
+    internal fun discardReferenceAsset(id: String, assetName: String) {
+        val file = referenceFile(id, assetName)
+        file.delete()
+        val dir = file.parentFile ?: return
+        if (dir.list().isNullOrEmpty()) dir.delete()
+    }
+
     /** `true` when a folder with a `project.json` exists for [id]. */
     fun exists(id: String): Boolean =
         isValidId(id) && File(projectDir(id), ProjectFile.FILE_NAME).isFile
@@ -125,9 +163,15 @@ class ProjectStore internal constructor(
         val dir = projectDir(document.id)
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("could not create $dir")
         sweepTmp(dir)
+        val previousReference = committedReferenceName(dir)
         val bytes = json.encodeToString(ProjectFile.serializer(), document.toProjectFile(history))
             .toByteArray(Charsets.UTF_8)
         AtomicFiles.write(File(dir, ProjectFile.FILE_NAME), bytes)
+        deleteSupersededReferenceAsset(
+            dir = dir,
+            previousAssetName = previousReference,
+            currentAssetName = document.tracingReference?.assetName,
+        )
     }
 
     /**
@@ -239,6 +283,8 @@ class ProjectStore internal constructor(
             File(projectDir(sourceId), THUMB_NAME).takeIf { it.isFile }
                 ?.let { duplicateFileWriter.copy(it, File(stage, THUMB_NAME)) }
 
+            val copiedReference = copyReferenceAsset(sourceId, stage, source.tracingReference)
+
             val copy = source.copy(
                 id = newId,
                 title = titleTransform(source.title),
@@ -251,6 +297,7 @@ class ProjectStore internal constructor(
                 lastGallerySyncAt = 0L,
                 galleryModifiedAt = 0L,
                 galleryBytes = 0L,
+                tracingReference = copiedReference,
             )
             AtomicFiles.write(
                 File(stage, ProjectFile.FILE_NAME),
@@ -372,6 +419,9 @@ class ProjectStore internal constructor(
         val stacked = buildStack(id, file) ?: return LoadResult.Failed(FailureReason.UNREADABLE)
         val (stack, unreadableLayers) = stacked
 
+        val reference = loadReference(id, file.tracingReference)
+        val unreadableReference = file.tracingReference != null && reference == null
+
         val document = try {
             Document(
                 id = id,
@@ -381,6 +431,7 @@ class ProjectStore internal constructor(
                 dpi = if (file.dpi > 0) file.dpi else Document.DEFAULT_DPI,
                 paperColor = file.paperColor,
                 stack = stack,
+                tracingReference = reference,
                 historyCursor = file.history.cursor,
                 galleryUri = file.galleryUri,
                 lastGallerySyncAt = file.lastGallerySyncAt,
@@ -396,7 +447,16 @@ class ProjectStore internal constructor(
             Log.w(TAG, "project $id: invalid geometry", e)
             return LoadResult.Failed(FailureReason.UNREADABLE)
         }
-        return LoadResult.Loaded(document, unreadableLayers, file.history)
+        sweepReferenceAssets(
+            dir = dir,
+            retainedAssetName = file.tracingReference?.assetName?.takeIf(::isSafeAssetName),
+        )
+        return LoadResult.Loaded(
+            document = document,
+            unreadableLayers = unreadableLayers,
+            history = file.history,
+            unreadableReference = unreadableReference,
+        )
     }
 
     /** Refreshes sparse tile sets after journal replay introduces new layers. */
@@ -571,6 +631,112 @@ class ProjectStore internal constructor(
         File(dir, LAYERS_DIR).listFiles()?.forEach { layerDir ->
             if (layerDir.isDirectory) AtomicFiles.sweepTmp(layerDir)
         }
+        AtomicFiles.sweepTmp(File(dir, REFERENCES_DIR))
+    }
+
+    private fun loadReference(
+        id: String,
+        record: TracingReferenceRecord?,
+    ): TracingReference? {
+        if (record == null || !isSafeAssetName(record.assetName)) return null
+
+        return try {
+            val reference = record.toModel()
+            val asset = referenceFile(id, record.assetName)
+            if (!hasExpectedPngHeader(asset, reference)) return null
+
+            reference
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "project $id: invalid tracing reference", e)
+            null
+        }
+    }
+
+    private fun hasExpectedPngHeader(file: File, reference: TracingReference): Boolean {
+        if (!file.isFile || file.length() < PNG_HEADER_BYTES) return false
+        val header = try {
+            ByteArray(PNG_HEADER_BYTES).also { bytes ->
+                java.io.DataInputStream(file.inputStream()).use { it.readFully(bytes) }
+            }
+        } catch (_: IOException) {
+            return false
+        }
+        if (!header.copyOfRange(0, PNG_SIGNATURE.size).contentEquals(PNG_SIGNATURE)) return false
+        if (!header.copyOfRange(PNG_CHUNK_OFFSET, PNG_CHUNK_END).contentEquals(PNG_IHDR)) return false
+
+        return readBigEndianInt(header, PNG_WIDTH_OFFSET) == reference.imageWidth &&
+            readBigEndianInt(header, PNG_HEIGHT_OFFSET) == reference.imageHeight
+    }
+
+    private fun readBigEndianInt(bytes: ByteArray, offset: Int): Int =
+        ((bytes[offset].toInt() and 0xFF) shl 24) or
+            ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
+            ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
+            (bytes[offset + 3].toInt() and 0xFF)
+
+    private fun copyReferenceAsset(
+        sourceId: String,
+        stage: File,
+        record: TracingReferenceRecord?,
+    ): TracingReferenceRecord? {
+        if (record == null || !isSafeAssetName(record.assetName)) return null
+        val reference = try {
+            record.toModel()
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+        val source = referenceFile(sourceId, record.assetName)
+        if (!hasExpectedPngHeader(source, reference)) return null
+
+        val targetDir = File(stage, REFERENCES_DIR)
+        if (!targetDir.isDirectory && !targetDir.mkdirs()) {
+            throw IOException("could not create $targetDir")
+        }
+        duplicateFileWriter.copy(source, File(targetDir, record.assetName))
+
+        return record
+    }
+
+    private fun sweepReferenceAssets(dir: File, retainedAssetName: String?) {
+        val references = File(dir, REFERENCES_DIR)
+        val children = references.listFiles() ?: return
+        for (file in children) {
+            if (file.isFile && file.name == retainedAssetName) continue
+
+            file.deleteRecursively()
+        }
+        if (references.list().isNullOrEmpty()) references.delete()
+    }
+
+    private fun committedReferenceName(dir: File): String? {
+        val file = File(dir, ProjectFile.FILE_NAME)
+        if (!file.isFile) return null
+
+        val assetName = try {
+            json.decodeFromString(ProjectFile.serializer(), file.readText(Charsets.UTF_8))
+                .tracingReference
+                ?.assetName
+        } catch (_: SerializationException) {
+            return null
+        } catch (_: IOException) {
+            return null
+        } catch (_: IllegalArgumentException) {
+            return null
+        } ?: return null
+
+        return assetName.takeIf(::isSafeAssetName)
+    }
+
+    private fun deleteSupersededReferenceAsset(
+        dir: File,
+        previousAssetName: String?,
+        currentAssetName: String?,
+    ) {
+        if (previousAssetName == null || previousAssetName == currentAssetName) return
+
+        val references = File(dir, REFERENCES_DIR)
+        File(references, previousAssetName).deleteRecursively()
+        if (references.list().isNullOrEmpty()) references.delete()
     }
 
     private fun folderBytes(dir: File): Long =
@@ -594,9 +760,19 @@ class ProjectStore internal constructor(
 
         const val TAG = "ProjectStore"
         const val LAYERS_DIR = "layers"
+        private const val REFERENCES_DIR = "references"
         const val THUMB_NAME = "thumb.png"
         const val DELETING_SUFFIX = ".deleting"
         const val DUPLICATING_SUFFIX = ".duplicating"
+        private const val PNG_HEADER_BYTES = 24
+        private const val PNG_CHUNK_OFFSET = 12
+        private const val PNG_CHUNK_END = 16
+        private const val PNG_WIDTH_OFFSET = 16
+        private const val PNG_HEIGHT_OFFSET = 20
+        private val PNG_SIGNATURE = byteArrayOf(
+            0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        )
+        private val PNG_IHDR = byteArrayOf(0x49, 0x48, 0x44, 0x52)
 
         /**
          * §3's reader/writer settings. `ignoreUnknownKeys` is what lets an

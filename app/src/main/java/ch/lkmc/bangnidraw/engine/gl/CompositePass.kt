@@ -6,6 +6,7 @@ import ch.lkmc.bangnidraw.engine.core.FilterPolicy
 import ch.lkmc.bangnidraw.engine.core.IntRect
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import ch.lkmc.bangnidraw.engine.core.PreviewPlan
+import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.StrokeMode
@@ -162,6 +163,99 @@ class CompositePass(
         bufferTransform: FloatArray,
         dirtyRect: IntRect,
         backdrop: Int,
+    ): Int = drawTransformed(
+        textures = textures,
+        mode = mode,
+        opacity = opacity,
+        xx = screen.a,
+        xy = -screen.b,
+        yx = screen.b,
+        yy = screen.a,
+        tx = screen.tx,
+        ty = screen.ty,
+        effectiveScale = screen.effectiveScale,
+        sourcePerTargetX = screen.canvasPerScreen,
+        sourcePerTargetY = screen.canvasPerScreen,
+        projection = projection,
+        bufferTransform = bufferTransform,
+        dirtyRect = dirtyRect,
+        backdrop = backdrop,
+    )
+
+    /** Draws a reference after the canvas view without allocating a composed transform. */
+    internal fun drawReferenceToScreen(
+        textures: LayerTextures,
+        opacity: Float,
+        transform: ReferenceTransform,
+        screen: ScreenTransform,
+        projection: FloatArray,
+        bufferTransform: FloatArray,
+        dirtyRect: IntRect,
+    ): Int = drawTransformed(
+        textures = textures,
+        mode = BlendMode.NORMAL,
+        opacity = opacity,
+        xx = screen.a * transform.xx - screen.b * transform.yx,
+        xy = screen.a * transform.xy - screen.b * transform.yy,
+        yx = screen.b * transform.xx + screen.a * transform.yx,
+        yy = screen.b * transform.xy + screen.a * transform.yy,
+        tx = screen.screenX(transform.tx, transform.ty),
+        ty = screen.screenY(transform.tx, transform.ty),
+        effectiveScale = transform.minimumScale * screen.effectiveScale,
+        sourcePerTargetX = 1f / (transform.xScale * screen.effectiveScale),
+        sourcePerTargetY = 1f / (transform.yScale * screen.effectiveScale),
+        projection = projection,
+        bufferTransform = bufferTransform,
+        dirtyRect = dirtyRect,
+        backdrop = 0,
+    )
+
+    /** Draws into one canvas-tile target without allocating a translated transform. */
+    internal fun drawReferenceToTile(
+        textures: LayerTextures,
+        opacity: Float,
+        transform: ReferenceTransform,
+        tileLeft: Int,
+        tileTop: Int,
+        projection: FloatArray,
+        bufferTransform: FloatArray,
+        dirtyRect: IntRect,
+    ): Int = drawTransformed(
+        textures = textures,
+        mode = BlendMode.NORMAL,
+        opacity = opacity,
+        xx = transform.xx,
+        xy = transform.xy,
+        yx = transform.yx,
+        yy = transform.yy,
+        tx = transform.tx - tileLeft,
+        ty = transform.ty - tileTop,
+        effectiveScale = transform.minimumScale,
+        sourcePerTargetX = 1f / transform.xScale,
+        sourcePerTargetY = 1f / transform.yScale,
+        projection = projection,
+        bufferTransform = bufferTransform,
+        dirtyRect = dirtyRect,
+        backdrop = 0,
+    )
+
+    private fun drawTransformed(
+        textures: LayerTextures,
+        mode: BlendMode,
+        opacity: Float,
+        xx: Float,
+        xy: Float,
+        yx: Float,
+        yy: Float,
+        tx: Float,
+        ty: Float,
+        effectiveScale: Float,
+        sourcePerTargetX: Float,
+        sourcePerTargetY: Float,
+        projection: FloatArray,
+        bufferTransform: FloatArray,
+        dirtyRect: IntRect,
+        backdrop: Int,
     ): Int {
         if (opacity <= 0f || dirtyRect.isEmpty || textures.tileCount == 0) return 0
         ensureBuffers()
@@ -171,15 +265,15 @@ class CompositePass(
         if (!ensureCapacity(count)) return 0
 
         state.useProgram(program)
-        program.uniform4f("u_screen", screen.a, screen.b, screen.tx, screen.ty)
+        program.uniform4f("u_screenBasis", xx, xy, yx, yy)
+        program.uniform2f("u_screenTranslation", tx, ty)
         program.uniformMatrix4("u_projection", projection)
         program.uniformMatrix4("u_bufferTransform", bufferTransform)
         program.uniform1f("u_opacity", opacity)
         program.uniform1i("u_blend", mode.shaderId)
-        val taps = FilterPolicy.taps(screen.effectiveScale)
+        val taps = FilterPolicy.taps(effectiveScale)
         program.uniform1i("u_taps", taps)
-        val perScreen = screen.canvasPerScreen
-        program.uniform2f("u_canvasPerScreen", perScreen, perScreen)
+        program.uniform2f("u_canvasPerScreen", sourcePerTargetX, sourcePerTargetY)
         // Sampler units are constants, not state: the tiles are always unit 0
         // and the backdrop unit 1, so nothing has to track which is bound
         // where between passes.
@@ -196,7 +290,7 @@ class CompositePass(
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, backdrop)
         }
 
-        val filter = if (FilterPolicy.nearest(screen.effectiveScale)) {
+        val filter = if (FilterPolicy.nearest(effectiveScale)) {
             GLES30.GL_NEAREST
         } else {
             GLES30.GL_LINEAR

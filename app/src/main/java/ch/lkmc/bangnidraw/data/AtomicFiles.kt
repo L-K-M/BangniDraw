@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.data
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.OutputStream
 
 /**
  * tmp + rename in the same directory, the write pattern every file in a
@@ -30,17 +31,23 @@ internal object AtomicFiles {
      */
     @Throws(IOException::class)
     fun write(target: File, bytes: ByteArray) {
+        write(target) { out -> out.write(bytes) }
+    }
+
+    /** Streams a large payload without holding a second full copy in memory. */
+    @Throws(IOException::class)
+    fun write(target: File, write: (OutputStream) -> Unit) {
         val tmp = File(target.parentFile, target.name + TMP_SUFFIX)
         try {
             FileOutputStream(tmp).use { out ->
-                out.write(bytes)
+                write(out)
                 out.fd.sync()
             }
             if (!tmp.renameTo(target)) {
                 throw IOException("could not rename $tmp to $target")
             }
-        } catch (e: IOException) {
-            tmp.delete()
+        } catch (e: Throwable) {
+            runCatching { tmp.delete() }
             throw e
         }
     }

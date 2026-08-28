@@ -869,12 +869,9 @@ rework.
   dab-anchored, so overlapping dabs reinforce the same paper texture like
   real graphite. One extra sampler and two uniforms in the shader
   contract test.
-- **Import image as layer / reference.** Photo picker → decode → tiled
-  into a new layer through the same tile upload path as fill; a
-  *reference* is a non-layer overlay drawn by `CompositePass` above
-  everything with its own `ViewTransform`, never exported. Requires the
-  memory budget to count the imported bitmap (`MemoryBudget` gets a
-  "transient" bucket).
+- **Import image as layer.** Photo picker → decode → tiles on a new paint
+  layer through the same upload path as fill. Tracing references shipped in
+  roadmap step 11; they are separate private assets beneath every paint layer.
 
 Common thread: every future tool is either a `BrushPreset` field with a
 default, a `StrokeFilter` in the one slot v1 reserves, or a new `ToolKind`

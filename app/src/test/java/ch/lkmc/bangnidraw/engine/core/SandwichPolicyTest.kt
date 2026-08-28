@@ -24,6 +24,11 @@ class SandwichPolicyTest {
     private fun stale(op: Op) = SandwichPolicy.stale(op, activeIndex = a)
 
     @Test
+    fun `tracing reference invalidates only below`() {
+        assertEquals(SandwichPolicy.Stale.BELOW, stale(Op.TracingReference))
+    }
+
+    @Test
     fun `select stales both sides, because both memberships are relative to the active layer`() {
         assertEquals(Stale.BOTH, stale(Op.Select(0)))
         assertEquals(Stale.BOTH, stale(Op.Select(6)))
@@ -157,7 +162,8 @@ class SandwichPolicyTest {
         val covered = listOf(
             Op.Select(0), Op.SetCompositingProperty(0), Op.SetInertProperty,
             Op.Move(0, 1), Op.Add, Op.Duplicate(0), Op.Delete(0), Op.MergeDown(1),
-            Op.Clear(0), Op.Flatten, Op.PaperColor, Op.UndoRedo, Op.StrokeCommit,
+            Op.Clear(0), Op.Flatten, Op.PaperColor, Op.TracingReference, Op.UndoRedo,
+            Op.StrokeCommit,
             Op.PixelEdit(0),
         )
         val kinds = covered.map { it::class.simpleName }.toSet()

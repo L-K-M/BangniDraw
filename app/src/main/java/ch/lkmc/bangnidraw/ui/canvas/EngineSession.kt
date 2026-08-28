@@ -43,6 +43,7 @@ import ch.lkmc.bangnidraw.engine.core.StrokeFinish
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
+import ch.lkmc.bangnidraw.engine.core.TracingReference
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
 import java.nio.ByteBuffer
@@ -634,11 +635,17 @@ class EngineSession(
     // ---------------------------------------------------------------- façade
 
     /** Applies initial document state before scheduling one scene redraw. */
-    internal fun configure(stack: LayerStack, paperColor: Int, view: ViewTransform) {
+    internal fun configure(
+        stack: LayerStack,
+        paperColor: Int,
+        view: ViewTransform,
+        tracingReference: TracingReference?,
+    ) {
         glRenderer.execute {
             renderer.setStack(stack)
             renderer.setPaperColor(paperColor)
             renderer.setView(view)
+            renderer.setTracingReference(tracingReference)
         }
         redraw()
     }
@@ -658,6 +665,11 @@ class EngineSession(
 
     fun setStack(stack: LayerStack) {
         glRenderer.execute { renderer.setStack(stack) }
+        redraw()
+    }
+
+    fun setTracingReference(reference: TracingReference?) {
+        glRenderer.execute { renderer.setTracingReference(reference) }
         redraw()
     }
 
@@ -1090,6 +1102,17 @@ class EngineSession(
                 // redraws would composite from a stale sandwich.
                 renderer.invalidate(SandwichPolicy.Op.UndoRedo)
             }
+        }
+        redraw()
+    }
+
+    fun uploadReferenceTiles(
+        assetName: String,
+        tiles: List<Pair<TileKey, ByteArray>>,
+    ) {
+        if (tiles.isEmpty()) return
+        glRenderer.execute {
+            if (renderer.isReady) renderer.uploadReferenceTiles(assetName, tiles)
         }
         redraw()
     }

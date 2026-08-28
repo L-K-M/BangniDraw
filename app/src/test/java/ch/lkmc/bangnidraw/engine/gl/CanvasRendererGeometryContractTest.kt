@@ -29,6 +29,28 @@ class CanvasRendererGeometryContractTest {
     }
 
     @Test
+    fun `direct rendering keeps the tracing reference between paper and paint`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+        val composite = section(source, COMPOSITE_START, COMPOSITE_END)
+        val paper = composite.indexOf(PAPER_CALL)
+        val reference = composite.indexOf(REFERENCE_CALL)
+        val layers = composite.indexOf(LAYER_LOOP)
+
+        assertTrue(paper >= 0 && reference > paper && layers > reference)
+    }
+
+    @Test
+    fun `cached rendering adds the tracing reference above paper`() {
+        val source = File(repositoryRoot(), SANDWICH_CACHE_PATH).readText()
+        val build = section(source, CACHE_BUILD_START, CACHE_BUILD_END)
+        val paper = build.indexOf(CACHE_PAPER_CLEAR)
+        val reference = build.indexOf(CACHE_REFERENCE_CALL)
+        val layers = build.indexOf(CACHE_LAYER_LOOP)
+
+        assertTrue(paper >= 0 && reference > paper && layers > reference)
+    }
+
+    @Test
     fun `canvas void is cleared behind paper and owns a dedicated quad lifetime`() {
         val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
         val paper = section(source, PAPER_START, PAPER_END)
@@ -130,6 +152,8 @@ class CanvasRendererGeometryContractTest {
         const val APP_DIRECTORY = "app/src/main"
         const val CANVAS_RENDERER_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/CanvasRenderer.kt"
+        const val SANDWICH_CACHE_PATH =
+            "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/SandwichCache.kt"
         const val STROKE_FRAME_START = "fun drawStrokeFrame("
         const val STROKE_FRAME_END = "/**\n     * Hands one front-buffered frame"
         const val PRESENT_START = "private fun presentToWindow("
@@ -151,10 +175,20 @@ class CanvasRendererGeometryContractTest {
         const val Y_UP_BUFFER_PROJECTION = "Mat4.orthoYUp("
         const val Y_DOWN_BUFFER_PROJECTION = "Mat4.orthoYDown("
         const val PAPER_CALL = "drawPaper(screenTransform, bakedIntoBelow = useSandwich)"
+        const val REFERENCE_CALL = "drawTracingReference(pass, screenTransform, rect)"
+        const val LAYER_LOOP = "for (i in current.layers.indices)"
+        const val CACHE_BUILD_START = "private fun buildTile("
+        const val CACHE_BUILD_END = "private fun premultiplied("
+        const val CACHE_PAPER_CLEAR = "fbo.clear("
+        const val CACHE_REFERENCE_CALL = "drawBase?.invoke(key)"
+        const val CACHE_LAYER_LOOP = "for (i in indices)"
         val PAPER_SCREEN_UNIFORM = Regex(
-            """program\.uniform4f\(\s*"u_screen",\s*screenTransform\.a,\s*""" +
-                """screenTransform\.b,\s*screenTransform\.tx,\s*""" +
-                """screenTransform\.ty,?\s*\)""",
+            """program\.uniform4f\(\s*"u_screenBasis",\s*screenTransform\.a,\s*""" +
+                """-screenTransform\.b,\s*screenTransform\.b,\s*""" +
+                """screenTransform\.a,?\s*\).*""" +
+                """program\.uniform2f\("u_screenTranslation",\s*""" +
+                """screenTransform\.tx,\s*screenTransform\.ty,?\s*\)""",
+            RegexOption.DOT_MATCHES_ALL,
         )
         const val PAPER_CANVAS_QUAD_DRAW =
             "paperQuad.draw(canvas.width.toFloat(), canvas.height.toFloat())"

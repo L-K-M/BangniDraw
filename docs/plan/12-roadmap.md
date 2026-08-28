@@ -1,6 +1,6 @@
-# Roadmap — the ten PRs to v1.0, and what comes after
+# Roadmap — v1.0 and post-v1 work
 
-This document expands PLAN.md §10 (the ten PR-sized steps) into something an
+This document expands PLAN.md §10 into something an
 agent can execute one PR at a time: per step the goal, the files and classes
 it creates (package layout from PLAN.md §3 and `docs/plan/02-architecture.md`),
 what it depends on, the acceptance test on a device plus the JVM tests that
@@ -863,6 +863,27 @@ known issue.
 **Risks.** `versionName`/tag mismatch or a hand-made tag — `release.yml`
 gates on it; only the script cuts releases (PLAN.md §8).
 
+### Step 11 — Tracing reference image (M)
+
+**Goal.** Place a private photo beneath paint for tracing without changing
+artwork or exports. Accepted proposal: `docs/proposals/0001-tracing-reference.md`.
+
+**Creates.** Optional `TracingReference` document metadata, private normalized
+PNG assets, Photo Picker import, affine reference transforms, a cached render
+between paper and paint, and Canvas controls for opacity, visibility, replace,
+reset, and confirmed removal. The reference reserves one layer of the existing
+tile budget and never enters the painting journal.
+
+**Acceptance.** JVM: affine transform and budget policy, project round-trip and
+asset recovery, export exclusion, cache invalidation, and two-finger routing.
+CI: no manifest permission. Device: pick, transform, hide, reopen, replace,
+remove, EXIF rotation, export equality, and the eight-layer 120 Hz composite
+gate. Device checks remain required before a release claim.
+
+**Risks.** EXIF orientation applied twice or never, or a large decode crossing
+the transient memory cap — the device EXIF check and `MemoryBudget` gate both.
+Photo Picker needs no permission, so none may appear in the manifest.
+
 ## 4. Dependency graph and parallelism
 
 ```
@@ -911,7 +932,7 @@ Each item enters through a proposal (§6) and, once accepted, a row in PLAN.md
 | Gradient fill | `FillTool` variant: linear/radial gradient between two swatches, optionally mixed through `ColorMixer` (a pigment gradient), masked by the flood region. | S | 8 |
 | Wet / watercolor brushes | A per-layer water tile channel and a diffusion RMW pass ticked on a timer while wet; distinct from Chinese ink's per-dab load, with pigment via Mixbox latents; dries to the layer. The first brush needing a timer-driven pass. | L | 7 |
 | Brush grains | Tiling grain textures (CC0, provenance in AGENTS.md) sampled in `DabPass` in canvas space so the grain does not swim; preset field `grain` with scale and depth. | S | 5 |
-| Import image as layer / reference | Photo picker → decode → tiles on a new layer (scaled to the canvas) or a floating reference panel with its own pan/zoom that is not part of the document. | M | 6 |
+| Import image as layer | Photo picker → decode → tiles on a new paint layer, with a journaled insertion and normal export behavior. | M | 6 |
 | Canvas crop / resize | Document-space change journaled as a whole-document entry (all layers' before-tiles); crop by rect, resize by resampling on the GPU into a new tile set. | M | 3 |
 | Tile residency / eviction | `TilePool` becomes an LRU over slices with CPU mirrors for evicted tiles; lifts the layer cap from `MemoryBudget`; the readback handover already exists. | L | 3 |
 | OpenRaster export | `.ora` zip: `stack.xml` + one PNG per layer + `mergedimage.png` + thumbnail; blend modes map to the OpenRaster composite-op names. Import is a separate proposal. | S | 6 |

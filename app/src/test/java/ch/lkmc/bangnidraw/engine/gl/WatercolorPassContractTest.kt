@@ -122,12 +122,14 @@ class WatercolorPassContractTest {
         )
         val present = cancel.indexOf("restoreWetKey(backup, wetLayer.textures, key)")
         assertTrue(present >= 0, "expected a wet-restore call in the cancel path")
+        val elseBranch = cancel.indexOf("} else {", startIndex = present)
+        assertTrue(elseBranch > present, "the drop must live in the restore-failure else branch")
         val failureDrop = cancel.indexOf(
             "if (!wetLayer.textures.slice(key).isNone) wetLayer.textures.remove(key)",
-            startIndex = present,
+            startIndex = elseBranch,
         )
         assertTrue(
-            failureDrop > present,
+            failureDrop > elseBranch,
             "a restore that cannot run must drop the page, not keep gesture water",
         )
         val timeReset = cancel.indexOf(

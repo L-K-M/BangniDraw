@@ -186,16 +186,10 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
     }
 
     suspend fun setDishT(t: Float) {
+        if (t.isNaN()) return
         val clamped = t.coerceIn(0f, 1f)
+        if (clamped.isNaN()) return
         dataStore.edit { it[KEY_DISH_T] = clamped }
-    }
-
-    suspend fun setDish(dish: DishState) {
-        dataStore.edit {
-            it[KEY_DISH_A] = dish.a
-            it[KEY_DISH_B] = dish.b
-            it[KEY_DISH_T] = dish.t.coerceIn(0f, 1f)
-        }
     }
 
     val recentColors: Flow<List<Int>> =

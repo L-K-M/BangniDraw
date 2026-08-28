@@ -13,7 +13,7 @@ class DishStateTest {
     }
 
     @Test
-    fun `t is clamped to 0_1`() {
+    fun `t outside 0_1 and NaN are rejected`() {
         assertFailsWith<IllegalArgumentException> { DishState(a = 0, b = 0, t = -0.1f) }
         assertFailsWith<IllegalArgumentException> { DishState(a = 0, b = 0, t = 1.1f) }
         assertFailsWith<IllegalArgumentException> { DishState(a = 0, b = 0, t = Float.NaN) }

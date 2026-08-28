@@ -128,8 +128,9 @@ class WatercolorPassContractTest {
             "if (!wetLayer.textures.slice(key).isNone) wetLayer.textures.remove(key)",
             startIndex = elseBranch,
         )
+        val elseEnd = cancel.indexOf("}", startIndex = elseBranch + 1)
         assertTrue(
-            failureDrop > elseBranch,
+            failureDrop in elseBranch..elseEnd,
             "a restore that cannot run must drop the page, not keep gesture water",
         )
         val timeReset = cancel.indexOf(

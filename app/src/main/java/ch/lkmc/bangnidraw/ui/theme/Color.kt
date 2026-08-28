@@ -8,14 +8,10 @@ import ch.lkmc.bangnidraw.engine.core.ThemeColorPolicy
 import ch.lkmc.bangnidraw.engine.core.ToolButtonEmphasis
 import ch.lkmc.bangnidraw.engine.core.ToolRailColorPolicy
 
-private val AppError = Color(0xFFB3261E)
-private val OnAppError = Color(0xFFFFFFFF)
-private val AppErrorContainer = Color(0xFFF9DEDC)
-private val OnAppErrorContainer = Color(0xFF410E0B)
-
 /** Curated app palettes; painting colors remain independent document pixels. */
 internal fun bangniColorScheme(theme: AppTheme): ColorScheme {
     val colors = ThemeColorPolicy.colors(theme)
+    val errors = ThemeColorPolicy.errorColors(theme.tone)
 
     return ColorScheme(
         primary = Color(colors.primaryArgb),
@@ -31,10 +27,10 @@ internal fun bangniColorScheme(theme: AppTheme): ColorScheme {
         onTertiary = Color(colors.onSecondaryArgb),
         tertiaryContainer = Color(colors.secondaryContainerArgb),
         onTertiaryContainer = Color(colors.onSecondaryContainerArgb),
-        error = AppError,
-        onError = OnAppError,
-        errorContainer = AppErrorContainer,
-        onErrorContainer = OnAppErrorContainer,
+        error = Color(errors.errorArgb),
+        onError = Color(errors.onErrorArgb),
+        errorContainer = Color(errors.errorContainerArgb),
+        onErrorContainer = Color(errors.onErrorContainerArgb),
         background = Color(colors.backgroundArgb),
         onBackground = Color(colors.onBackgroundArgb),
         surface = Color(colors.surfaceArgb),

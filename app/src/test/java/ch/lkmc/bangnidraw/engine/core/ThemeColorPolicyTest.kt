@@ -7,6 +7,25 @@ import kotlin.test.assertTrue
 class ThemeColorPolicyTest {
 
     @Test
+    fun `every theme declares its tone`() {
+        val expected = mapOf(
+            AppTheme.SAFFRON to ThemeTone.LIGHT,
+            AppTheme.CORAL to ThemeTone.LIGHT,
+            AppTheme.VIOLET to ThemeTone.LIGHT,
+            AppTheme.TEAL to ThemeTone.LIGHT,
+            AppTheme.NINETIES to ThemeTone.LIGHT,
+            AppTheme.SYNTHWAVE to ThemeTone.DARK,
+            AppTheme.MIDNIGHT to ThemeTone.DARK,
+            AppTheme.FOREST to ThemeTone.DARK,
+        )
+
+        assertEquals(AppTheme.entries.toSet(), expected.keys)
+        for ((theme, tone) in expected) {
+            assertEquals(tone, theme.tone, "$theme declares the wrong tone")
+        }
+    }
+
+    @Test
     fun `every theme color is opaque`() {
         for (theme in AppTheme.entries) {
             val colors = ThemeColorPolicy.colors(theme)
@@ -148,9 +167,28 @@ class ThemeColorPolicyTest {
     }
 
     @Test
-    fun `system bar surfaces support dark icons`() {
+    fun `error roles pin the tone baselines`() {
+        val light = ThemeColorPolicy.errorColors(ThemeTone.LIGHT)
+        val dark = ThemeColorPolicy.errorColors(ThemeTone.DARK)
+
+        assertEquals(0xFFB3261E.toInt(), light.errorArgb)
+        assertEquals(0xFFFFFFFF.toInt(), light.onErrorArgb)
+        assertEquals(0xFFF9DEDC.toInt(), light.errorContainerArgb)
+        assertEquals(0xFF410E0B.toInt(), light.onErrorContainerArgb)
+        assertEquals(0xFFF2B8B5.toInt(), dark.errorArgb)
+        assertEquals(0xFF601410.toInt(), dark.onErrorArgb)
+        assertEquals(0xFF8C1D18.toInt(), dark.errorContainerArgb)
+        assertEquals(0xFFF9DEDC.toInt(), dark.onErrorContainerArgb)
+    }
+
+    @Test
+    fun `system bar surfaces support the tone's icons`() {
         for (theme in AppTheme.entries) {
             val colors = ThemeColorPolicy.colors(theme)
+            val iconArgb = when (theme.tone) {
+                ThemeTone.LIGHT -> DARK_SYSTEM_ICON_ARGB
+                ThemeTone.DARK -> LIGHT_SYSTEM_ICON_ARGB
+            }
             val surfaces = listOf(
                 "background" to colors.backgroundArgb,
                 "surface" to colors.surfaceArgb,
@@ -159,11 +197,39 @@ class ThemeColorPolicyTest {
             )
 
             for ((role, surface) in surfaces) {
-                val contrast = contrastRatio(DARK_SYSTEM_ICON_ARGB, surface)
+                val contrast = contrastRatio(iconArgb, surface)
 
+                val iconName = if (theme.tone == ThemeTone.LIGHT) "dark" else "light"
                 assertTrue(
                     contrast >= MIN_ICON_CONTRAST,
-                    "$theme $role cannot support dark system icons: $contrast:1",
+                    "$theme $role cannot support $iconName system icons: $contrast:1",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `error roles meet text contrast in every theme`() {
+        for (theme in AppTheme.entries) {
+            val colors = ThemeColorPolicy.colors(theme)
+            val errors = ThemeColorPolicy.errorColors(theme.tone)
+            val pairs = listOf(
+                "error/onError" to (errors.errorArgb to errors.onErrorArgb),
+                "errorContainer/onErrorContainer" to
+                    (errors.errorContainerArgb to errors.onErrorContainerArgb),
+                "error text/surface" to (errors.errorArgb to colors.surfaceArgb),
+                "error text/background" to (errors.errorArgb to colors.backgroundArgb),
+                "error text/surfaceContainer" to
+                    (errors.errorArgb to colors.surfaceContainerArgb),
+                "error text/surfaceContainerHigh" to
+                    (errors.errorArgb to colors.surfaceContainerHighArgb),
+            )
+
+            for ((role, pair) in pairs) {
+                val contrast = contrastRatio(pair.first, pair.second)
+                assertTrue(
+                    contrast >= MIN_TEXT_CONTRAST,
+                    "$theme $role contrast is $contrast:1",
                 )
             }
         }
@@ -171,6 +237,7 @@ class ThemeColorPolicyTest {
 
     private companion object {
         val DARK_SYSTEM_ICON_ARGB = 0xFF000000.toInt()
+        val LIGHT_SYSTEM_ICON_ARGB = 0xFFFFFFFF.toInt()
         const val MIN_TEXT_CONTRAST = 4.5
         const val MIN_ICON_CONTRAST = 3.0
         const val ALPHA_SHIFT = 24

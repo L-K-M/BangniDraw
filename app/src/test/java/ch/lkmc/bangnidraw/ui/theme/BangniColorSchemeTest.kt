@@ -12,9 +12,10 @@ import kotlin.test.assertTrue
 class BangniColorSchemeTest {
 
     @Test
-    fun `scheme derives every role from the selected palette`() {
+    fun `scheme derives every role from the selected palette and its tone`() {
         for (theme in AppTheme.entries) {
             val colors = ThemeColorPolicy.colors(theme)
+            val errors = ThemeColorPolicy.errorColors(theme.tone)
             val scheme = bangniColorScheme(theme)
             val expectedRoles = listOf(
                 "primary" to (Color(colors.primaryArgb) to scheme.primary),
@@ -35,11 +36,11 @@ class BangniColorSchemeTest {
                     (Color(colors.secondaryContainerArgb) to scheme.tertiaryContainer),
                 "onTertiaryContainer" to
                     (Color(colors.onSecondaryContainerArgb) to scheme.onTertiaryContainer),
-                "error" to (expectedError to scheme.error),
-                "onError" to (expectedOnError to scheme.onError),
-                "errorContainer" to (expectedErrorContainer to scheme.errorContainer),
+                "error" to (Color(errors.errorArgb) to scheme.error),
+                "onError" to (Color(errors.onErrorArgb) to scheme.onError),
+                "errorContainer" to (Color(errors.errorContainerArgb) to scheme.errorContainer),
                 "onErrorContainer" to
-                    (expectedOnErrorContainer to scheme.onErrorContainer),
+                    (Color(errors.onErrorContainerArgb) to scheme.onErrorContainer),
                 "background" to (Color(colors.backgroundArgb) to scheme.background),
                 "onBackground" to (Color(colors.onBackgroundArgb) to scheme.onBackground),
                 "surface" to (Color(colors.surfaceArgb) to scheme.surface),
@@ -146,7 +147,7 @@ class BangniColorSchemeTest {
     }
 
     @Test
-    fun `shared error roles meet text contrast`() {
+    fun `per-tone error roles meet text contrast`() {
         for (theme in AppTheme.entries) {
             val scheme = bangniColorScheme(theme)
             val pairs = listOf(
@@ -172,10 +173,6 @@ class BangniColorSchemeTest {
     }
 
     private companion object {
-        val expectedError = Color(0xFFB3261E)
-        val expectedOnError = Color(0xFFFFFFFF)
-        val expectedErrorContainer = Color(0xFFF9DEDC)
-        val expectedOnErrorContainer = Color(0xFF410E0B)
         const val FIXED_FILL_COUNT = 2
         const val MIN_TEXT_CONTRAST = 4.5
     }

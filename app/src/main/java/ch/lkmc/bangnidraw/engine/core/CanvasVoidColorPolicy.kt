@@ -2,7 +2,8 @@ package ch.lkmc.bangnidraw.engine.core
 
 /**
  * Theme-owned surround behind the transformed paper, independent of Compose and GL.
- * Fixed-light like every palette: the former dark-mode variant was removed on purpose.
+ * Two tones, neutral within each: light themes keep the original gray,
+ * dark themes get a dark gray; neither is palette-tinted.
  */
 internal object CanvasVoidColorPolicy {
 

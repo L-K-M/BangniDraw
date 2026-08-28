@@ -150,7 +150,7 @@ COMPACT (phone portrait, 360 dp)      MEDIUM (600–840 dp)                EXPAN
   swatch and selection mark. Saffron is the default. The group exposes
   `selectableGroup`/radio semantics, so neither meaning nor selection depends
   on colour perception. Selection persists immediately and recolours every
-  screen. The chooser offers only the four light-toned palettes; Android's
+  screen. The chooser offers the eight curated palettes; Android's
   dark mode is neither an option in it nor an input to it.
 - **Empty state**: centred, no illustration: "No paintings yet." / "Tap + to
   start one. Everything you draw is saved as you go." The second line is the
@@ -597,13 +597,17 @@ data class CanvasUiState(
 ## 5. Design language — "Expressive Studio"
 
 Chrome carries enough colour to feel playful while the neutral canvas void
-keeps the painting visually stable. Four app-owned palettes tint the Studio,
-sheets, and controls; all use a light tone regardless of Android appearance.
+keeps the painting visually stable. Eight app-owned palettes tint the Studio,
+sheets, and controls; each declares its own light or dark tone regardless of
+Android appearance.
 Controls stay chunky and tactile; motion is a short spring, never a flourish.
 
 ### 5.1 Tokens (`ui/theme/`)
 
-`AppTheme` is exactly `SAFFRON`, `CORAL`, `VIOLET`, or `TEAL`. `primary` marks
+`AppTheme` is exactly `SAFFRON`, `CORAL`, `VIOLET`, `TEAL`, `NINETIES`,
+`SYNTHWAVE`, `MIDNIGHT`, or `FOREST`, each with a `ThemeTone`: `SAFFRON`,
+`CORAL`, `VIOLET`, `TEAL`, and `NINETIES` are `LIGHT`; the other three are
+`DARK`. `primary` marks
 actions, `primaryContainer` fills active tools, and `secondary` marks
 selection. Surfaces carry a restrained tint from the same palette.
 
@@ -613,6 +617,10 @@ selection. Surfaces carry a restrained tint from the same palette.
 | Coral | `#A03045` / `#FFFFFF` | `#FF8F9E` / `#31000C` | `#326A78` / `#FFFFFF` | `#BCEAF5` / `#002027` |
 | Violet | `#6D45B5` / `#FFFFFF` | `#C6A6FF` / `#21004A` | `#A13A72` / `#FFFFFF` | `#FFD7E8` / `#3D0024` |
 | Teal | `#006B60` / `#FFFFFF` | `#58D7C3` / `#00201C` | `#765A00` / `#FFFFFF` | `#FFE083` / `#241A00` |
+| Nineties | `#C1276B` / `#FFFFFF` | `#FFD23F` / `#3D2C00` | `#00727B` / `#FFFFFF` | `#9EE8E0` / `#002F33` |
+| Synthwave | `#FF71CE` / `#3A0026` | `#6E1E5C` / `#FFD6EF` | `#01CDFE` / `#00303D` | `#0C4356` / `#BAEFFF` |
+| Midnight | `#A3BFFA` / `#0F1D3D` | `#324A75` / `#DEE6FF` | `#8FD4B4` / `#0E2F23` | `#234A3B` / `#D2F1DF` |
+| Forest | `#A2D47A` / `#17300B` | `#33511F` / `#DFF0C6` | `#E0B45E` / `#3A2705` | `#59431C` / `#F7E3B5` |
 
 | AppTheme | `background` / `onBackground` | `surface` / `onSurface` | `surfaceVariant` / `onSurfaceVariant` | `surfaceContainer` / `surfaceContainerHigh` | `outline` / `outlineVariant` |
 | --- | --- | --- | --- | --- | --- |
@@ -620,27 +628,33 @@ selection. Surfaces carry a restrained tint from the same palette.
 | Coral | `#FFF5F5` / `#26191B` | `#FFF9F9` / `#26191B` | `#F4E1E3` / `#59474A` | `#F9EAEB` / `#F4E1E3` | `#79676A` / `#D3C1C3` |
 | Violet | `#FAF6FF` / `#211A29` | `#FDF9FF` / `#211A29` | `#EDE5F3` / `#504858` | `#F5EDF9` / `#EDE5F3` | `#716878` / `#CBC2D1` |
 | Teal | `#F2FBF8` / `#17211F` | `#F7FCFA` / `#17211F` | `#DAECE7` / `#41514D` | `#E7F3EF` / `#DAECE7` | `#62716D` / `#BCCBC7` |
+| Nineties | `#FFF8EC` / `#2A1E33` | `#FFFCF5` / `#2A1E33` | `#F3E3F0` / `#584463` | `#F7EBD8` / `#F3E3F0` | `#78657F` / `#D3C3DA` |
+| Synthwave | `#120A2E` / `#EDE6FF` | `#1B0F3B` / `#EDE6FF` | `#33205C` / `#C9B4EC` | `#251548` / `#33205C` | `#9A86CC` / `#4A3575` |
+| Midnight | `#0F141D` / `#DFE4F2` | `#151B27` / `#DFE4F2` | `#273142` / `#B3BDD4` | `#1C2331` / `#273142` | `#8490A8` / `#3A4459` |
+| Forest | `#0F1710` / `#DEE8DC` | `#16201A` / `#DEE8DC` | `#28362B` / `#B6C7B4` | `#1D2A22` / `#28362B` | `#8A9C88` / `#3D4C3F` |
 `surfaceContainerHigh` intentionally aliases `surfaceVariant`; components
 distinguish those roles through shape, placement, and interaction state rather
 than adding a fourth neutral tint.
 
-All themes share `error = #B3261E`, `onError = #FFFFFF`, and
-`canvasVoid = #B8B2AA`. The canvas void is sent through the existing
-Compose-to-GL boundary and never changes with the selected palette.
-`BangniColorSchemeTest` separately checks shared error content and error text
+Error roles come in one set per tone (light: `error = #B3261E`,
+`onError = #FFFFFF`; dark: `error = #F2B8B5`, `onError = #601410`), and the
+canvas void is one neutral value per tone (`#B8B2AA` light, `#171717` dark).
+The canvas void is sent through the existing
+Compose-to-GL boundary and never changes between palettes of one tone.
+`BangniColorSchemeTest` separately checks error content and error text
 against every surface tier where it appears.
 
-| Checked pair | Saffron | Coral | Violet | Teal |
-| --- | ---: | ---: | ---: | ---: |
-| Lowest text-role pair | 5.65:1 | 6.05:1 | 6.24:1 | 6.42:1 |
-| Active rail icon/container | 9.57:1 | 8.52:1 | 8.85:1 | 9.75:1 |
-| `primary` / `surface` | 5.48:1 | 6.72:1 | 6.37:1 | 6.19:1 |
-| `secondary` / `surface` | 6.49:1 | 5.82:1 | 6.00:1 | 6.27:1 |
-| `primary` / `surfaceContainer` | 4.95:1 | 5.99:1 | 5.80:1 | 5.64:1 |
-| `secondary` / `surfaceContainer` | 5.87:1 | 5.19:1 | 5.46:1 | 5.71:1 |
-| `secondary` / `secondaryContainer` | 5.21:1 | 4.68:1 | 4.80:1 | 5.02:1 |
-| `outline` / `surface` | 4.95:1 | 5.09:1 | 5.10:1 | 4.94:1 |
-| `primary` / `primaryContainer` | 3.15:1 | 3.22:1 | 3.25:1 | 3.64:1 |
+| Checked pair | Saffron | Coral | Violet | Teal | Nineties | Synthwave | Midnight | Forest |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Lowest text-role pair | 5.65:1 | 6.05:1 | 6.24:1 | 6.42:1 | 5.57:1 | 7.04:1 | 6.95:1 | 7.15:1 |
+| Active rail icon/container | 9.57:1 | 8.52:1 | 8.85:1 | 9.75:1 | 9.33:1 | 8.05:1 | 7.11:1 | 7.45:1 |
+| `primary` / `surface` | 5.48:1 | 6.72:1 | 6.37:1 | 6.19:1 | 5.44:1 | 7.22:1 | 9.35:1 | 9.74:1 |
+| `secondary` / `surface` | 6.49:1 | 5.82:1 | 6.00:1 | 6.27:1 | 5.55:1 | 9.48:1 | 10.05:1 | 8.65:1 |
+| `primary` / `surfaceContainer` | 4.95:1 | 5.99:1 | 5.80:1 | 5.64:1 | 4.73:1 | 6.65:1 | 8.54:1 | 8.70:1 |
+| `secondary` / `surfaceContainer` | 5.87:1 | 5.19:1 | 5.46:1 | 5.71:1 | 4.83:1 | 8.73:1 | 9.18:1 | 7.72:1 |
+| `secondary` / `secondaryContainer` | 5.21:1 | 4.68:1 | 4.80:1 | 5.02:1 | 4.08:1 | 5.72:1 | 5.79:1 | 4.84:1 |
+| `outline` / `surface` | 4.95:1 | 5.09:1 | 5.10:1 | 4.94:1 | 5.17:1 | 5.65:1 | 5.37:1 | 5.73:1 |
+| `primary` / `primaryContainer` | 3.15:1 | 3.22:1 | 3.25:1 | 3.64:1 | 3.86:1 | 4.25:1 | 4.80:1 | 5.23:1 |
 
 Every text-role pair clears 4.5:1 and each active or boundary role clears
 3:1. `outlineVariant` is intentionally subtle at about 1.6:1; `outline`
@@ -652,11 +666,12 @@ the decision remains JVM-testable and independent of Compose and DataStore.
 neutral `canvasVoid`, never the chrome roles. `Color.kt` constructs the
 complete `ColorScheme`. Tertiary, fixed, inverse, and
 `surfaceContainerLowest` through `surfaceContainerHighest` derive from the same
-palette; shared error and scrim roles remain app-owned. No Material baseline
+palette; error and scrim roles are app-owned per tone. No Material baseline
 role may leak into chrome. `LocalAppTheme` carries the selection. The
 activity-scoped `AppThemeViewModel` observes `Prefs.appTheme`. Until it emits
 its first value, the root composes no navigation and leaves the fixed-light
-launch window visible.
+launch window visible; the resolved theme's tone then re-applies the
+system-bar appearance.
 The first `IOException` is logged; before any value it emits Saffron once. I/O
 retries back off and keep the current selection, ending on it after five
 failed attempts; cancellation and non-I/O failures propagate.

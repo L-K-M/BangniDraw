@@ -2023,9 +2023,32 @@ touchscreen hover too, not only a pen.
   calls around `classify`, which the JVM tests pin for both layouts plus
   the loud no-match failure; the probe cannot drift without a framework
   change no test here could anticipate anyway.
+
+## PR #150 — darker and louder themes (2026-08-28)
+
+- **R-137 🟢 Round 1, minor: bar icons flash light on Activity recreation
+  with a dark theme.** Applied. Cold starts still begin light (DataStore is
+  unreadable), but recreation now seeds the bar style from the retained
+  ViewModel's tone; the contract pins the seeding and the tone-to-style
+  wiring.
+
+- **R-138 ⏸️ Round 1, minor: dark palettes inherit light-baseline defaults
+  for unmapped M3 roles.** Refuted. `bangniColorScheme` calls the complete
+  `ColorScheme` constructor — no parameter is defaulted — which R-113
+  introduced and `scheme construction cannot inherit Material baseline roles`
+  plus `BangniColorSchemeTest`'s role-by-role mapping pin.
+
+- **R-139 🟢 Round 1, minor: error expectations came from the code under
+  test.** Applied. `ThemeColorPolicyTest` now pins the exact light/dark
+  Material error baselines as literals, so `BangniColorSchemeTest` is a pure
+  wiring test again.
+
+- **R-140 🟢 Round 1, info: stale "shared error" wording and the roadmap
+  graph.** Applied. 11-testing says per-tone error content; §4's graph gains
+  step 14 depending on 13.
 ## PR #153 — tracing references beyond the canvas (2026-08-29)
 
-- **R-137 ⛔ Round 1, major: gate `drawReferenceAcrossVoid` on `useSandwich`
+- **R-141 ⛔ Round 1, major: gate `drawReferenceAcrossVoid` on `useSandwich`
   or the void composites the reference twice in transitional states.**
   Refuted. `useSandwich` is defined two lines above as
   `readyCache != null`, so the suggested guard is a tautology; no state
@@ -2035,36 +2058,36 @@ touchscreen hover too, not only a pen.
   fallback (document the invariant beside the call) is applied as a
   comment.
 
-- **R-138 🟢 Round 1, minor: document the fractional-scale abutment
+- **R-142 🟢 Round 1, minor: document the fractional-scale abutment
   caveat on `rawScreenBoundsOf`.** Applied to the KDoc. At non-integer
   mapped edges `ceil` can leave a sub-pixel sliver of true void uncovered
   beside the canvas; accepted and documented rather than snipping band
   edges into the canvas, which would double-composite the border column
   over transparent paper.
 
-- **R-139 🟢 Round 1, minor: the four-band arithmetic is untested.**
+- **R-143 🟢 Round 1, minor: the four-band arithmetic is untested.**
   Applied. Extracted as `voidBandsAround(canvas, clip)` in
   `engine/core` with JVM tests for the suggested cases: covered clip,
   canvas past one edge, canvas inside the clip (disjoint, union equals
   clip minus canvas), and partial overlap.
 
-- **R-140 🟢 Round 1, minor: assert the exact magnified bounds rect.**
+- **R-144 🟢 Round 1, minor: assert the exact magnified bounds rect.**
   Applied; the loose inequalities are gone.
 
-- **R-141 🟢 Round 1, info: the absolute axis-alignment epsilon is
+- **R-145 🟢 Round 1, info: the absolute axis-alignment epsilon is
   zoom-dependent.** Applied as the relative form
   `min(|a|, |b|) >= AXIS_ALIGNED_EPS * max(|a|, |b|)`, which reads as the
   rotation's tangent and is invariant under zoom. The degenerate
   all-zero basis skips the pass, which is correct — nothing renders at
   scale zero.
 
-- **R-142 🟢 Round 2, minor: the canvas-equals-clip boundary case is
+- **R-146 🟢 Round 2, minor: the canvas-equals-clip boundary case is
   untested.** Applied. Exact equality walks all four band conditions on
   their strict `<` boundaries, which is the only guard — the draw loop no
   longer filters empty bands — keeping degenerate rects away from
   `glScissor`.
 
-- **R-143 🟢 Round 3, minor: reword the rotation-guard comment to name the
+- **R-147 🟢 Round 3, minor: reword the rotation-guard comment to name the
   case that returns.** Applied verbatim. The round-2 boundary assertion
   was re-posted against the commit that already applied it; treated as a
   stale anchor, not a new finding.

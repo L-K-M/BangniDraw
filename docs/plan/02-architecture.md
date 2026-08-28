@@ -47,7 +47,7 @@ otherwise; small sealed hierarchies share a file with their root.
 | Class | Responsibility |
 | --- | --- |
 | `Document` | Immutable value: `id`, `width`, `height`, `paperColor`, `LayerStack`, `historyCursor`, `galleryUri: String?`, timestamps. Serializable to `project.json`. |
-| `AppTheme`, `ThemeColorPolicy` | Persisted `SAFFRON`/`CORAL`/`VIOLET`/`TEAL` names and their pure opaque-ARGB role table, shared without a Compose or DataStore dependency; missing/unknown names resolve to `SAFFRON`. Renaming/removing a value silently resets affected users to `SAFFRON` unless a preference migration rewrites stored names first. |
+| `AppTheme`, `ThemeColorPolicy` | Persisted `SAFFRON`/`CORAL`/`VIOLET`/`TEAL`/`NINETIES`/`SYNTHWAVE`/`MIDNIGHT`/`FOREST` names and their pure opaque-ARGB role table plus per-tone error roles and canvas void, shared without a Compose or DataStore dependency; missing/unknown names resolve to `SAFFRON`. Renaming/removing a value silently resets affected users to `SAFFRON` unless a preference migration rewrites stored names first. |
 | `LayerStack`, `Layer`, `BlendMode` | Ordered list of `Layer` (id, name, opacity, blend, visible, alphaLock, locked) with pure operations (`add`, `delete`, `duplicate`, `move`, `mergeDown`, `flatten`, `clear`, `rename`, `set…`, `select`) each returning a `StackResult` — the new stack, the `PixelOp` for the GL thread and the `HistoryEntry` for the journal, or a `Refused(reason)`. Detail: docs/plan/05-layers.md §3. |
 | `TileGrid`, `TileKey` | Canvas rect ↔ set of 256×256 tile keys; `TileKey(tx, ty)` is an inline value class over a packed `Int` (docs/plan/03-canvas-engine.md §1) so hot paths never box. |
 | `ViewTransform`, `FitTransform` | Meltorama's similarity transform, ported verbatim with its tests (`gesture`, `invert`, `invertVector`, `rebase`, `lerp`). `FitTransform` maps canvas pixels to the fitted view box for a given viewport size. |
@@ -125,7 +125,7 @@ otherwise; small sealed hierarchies share a file with their root.
 
 | File | Responsibility |
 | --- | --- |
-| `ui/theme/AppThemeViewModel.kt`, `Color.kt`, `Theme.kt` | Activity-scoped preference owner and Compose adapters for §5.1's app-owned fixed-light palettes. |
+| `ui/theme/AppThemeViewModel.kt`, `Color.kt`, `Theme.kt` | Activity-scoped preference owner and Compose adapters for §5.1's app-owned palettes (five light, three dark). |
 | `ui/home/StudioScreen.kt`, `StudioViewModel.kt` | The shelf. `StudioUiState(paintings, storage, dialog, error)`. |
 | `ui/canvas/CanvasScreen.kt`, `CanvasViewModel.kt` | The editor scaffold and its single writer of `CanvasUiState`. |
 | `ui/canvas/CanvasSurface.kt` | `AndroidView { SurfaceView }`; creates the `EngineSession`, wires `CanvasTouchHandler`, reports viewport size changes. |

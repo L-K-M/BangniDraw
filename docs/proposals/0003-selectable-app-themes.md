@@ -1,6 +1,6 @@
 # 0003 — Selectable application themes
 
-- **Status:** Accepted — roadmap #13
+- **Status:** Accepted — roadmap #13; extended by proposal 0004
 - **Date:** 2026-08-28
 
 ## Problem

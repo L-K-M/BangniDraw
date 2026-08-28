@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
 class BangniColorSchemeTest {
 
     @Test
-    fun `scheme derives every role from the selected palette`() {
+    fun `scheme derives every role from the selected palette and its tone`() {
         for (theme in AppTheme.entries) {
             val colors = ThemeColorPolicy.colors(theme)
             val errors = ThemeColorPolicy.errorColors(theme.tone)

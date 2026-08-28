@@ -40,6 +40,7 @@
     <string name="save_to_gallery">导出为相册新图片</string>
     <string name="studio_saved_to_gallery">已添加到相册</string>
     <string name="studio_save_failed">无法添加到相册</string>
+    <string name="gallery_reference_suffix">（含参考图）</string>
 
     <string name="new_canvas_title">新画布</string>
     <string name="new_canvas_create">创建</string>
@@ -343,7 +344,7 @@
     <string name="settings_haptics">触觉反馈</string>
     <string name="settings_storage">存储</string>
     <string name="settings_gallery_sync">相册副本</string>
-    <string name="settings_gallery_sync_help">在相册中保留每张画的副本（Pictures/帮你Draw）。</string>
+    <string name="settings_gallery_sync_help">在相册（Pictures/帮你Draw）中保留每张画的副本。参考图可见时会额外保留一份包含它的副本。</string>
     <string name="settings_undo_limit">撤销历史</string>
     <string name="settings_undo_limit_value">最多 %1$d 步 · %2$d MB</string>
     <string name="settings_color">颜色</string>

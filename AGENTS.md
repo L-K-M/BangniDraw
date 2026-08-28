@@ -208,7 +208,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   status flipped so the reasoning isn't lost.
 - Tracing references are private project assets, not paint. They reserve one
   layer of tile budget, render in `SandwichCache.Below` above paper, and never
-  enter thumbnails, flatten, gallery sync, sharing, export, or painting undo.
+  enter thumbnails, sharing, export, or painting undo. Flattens omit them by
+  default; the gallery's reference variant is the one exception (its
+  deviation entry below).
   The cached reference base draws into tile-array FBOs, where logical y = 0
   must land in GL row zero; its tile projection is therefore `orthoYUp`.
   `orthoYDown` flips each 256 px strip even though the direct viewport path
@@ -566,6 +568,30 @@ and the contradiction is noted here.
   flatten brings §10.4's GL machinery), and the GL thread is never borrowed
   mid-gesture at all — the risk 06's timeout exists to hedge. Revisit when
   the flatten lands.
+
+- **The gallery keeps a second copy that includes the tracing image** — a
+  user-directed product change to proposal 0001's "gallery sync omits it".
+  While a reference is visible with opacity above zero (`ReferenceGalleryPolicy
+  .includes`, the same gate the renderer's draw applies), every gallery sync
+  also mirrors a *reference variant*: the painting flattened with the decoded
+  asset composited above paper and below every paint layer. `ReferenceComposite`
+  samples it (nearest/bilinear per `FilterPolicy`, premultiplied taps, no
+  supersampling — one offline pass, not a per-frame one), and `CpuFlatten`
+  composites it as a synthetic source-over layer, so opacity and blend math
+  take the same `Composite.tile` path paint layers take. The variant is its
+  own MediaStore row — `"<title>" + gallery_reference_suffix` — with its own
+  tamper bookkeeping (`referenceGallery*` in `project.json`, sharing
+  `lastGallerySyncAt` for the debounce). Reference-only edits move no pixel
+  revision, so `CanvasViewModel` counts `referenceEdits` for the due check
+  and `applyTracingReference` bumps `updatedAt` — otherwise the Studio's
+  on-disk staleness rule would never resync a transform change after reopen.
+  When the reference stops qualifying, the row is withdrawn: deleted only
+  while still ours and untampered (`GalleryExporter.withdraw`); an edit by
+  another app survives and the URI is forgotten, exactly as a REINSERT
+  forgets. A duplicate inherits neither gallery row, and the Studio's delete
+  dialog offers both. Privacy: the variant puts the reference photo into the
+  shared gallery automatically — the settings help string says so, and
+  share/export still never include it.
 
 - **Studio thumbnail identity includes the painting revision.** Checkpoints
   rewrite the same `thumb.png` path, so path-only Compose or image-cache keys

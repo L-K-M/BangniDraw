@@ -40,6 +40,14 @@ data class Document(
      */
     val galleryModifiedAt: Long = 0L,
     val galleryBytes: Long = 0L,
+    /**
+     * The reference variant's row state — the second gallery item kept while
+     * a tracing image is visible (AGENTS.md). Shares [lastGallerySyncAt]:
+     * the two rows are written by one sync, so one timestamp debounces both.
+     */
+    val referenceGalleryUri: String? = null,
+    val referenceGalleryModifiedAt: Long = 0L,
+    val referenceGalleryBytes: Long = 0L,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
 ) {

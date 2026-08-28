@@ -14,6 +14,7 @@ import ch.lkmc.bangnidraw.data.GalleryNames
 import ch.lkmc.bangnidraw.data.ImageEncode
 import ch.lkmc.bangnidraw.data.Prefs
 import ch.lkmc.bangnidraw.data.ProjectStore
+import ch.lkmc.bangnidraw.data.ReferenceImageCodec
 import ch.lkmc.bangnidraw.data.ShareCache
 import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
@@ -28,6 +29,7 @@ import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
 import ch.lkmc.bangnidraw.engine.core.PressurePreference
+import ch.lkmc.bangnidraw.engine.core.ReferenceGalleryPolicy
 import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
 import ch.lkmc.bangnidraw.ui.canvas.readDeviceMemory
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -62,6 +64,7 @@ class StudioViewModel @Inject constructor(
     private val store: ProjectStore,
     private val prefs: Prefs,
     private val exporter: GalleryExporter,
+    private val referenceImageCodec: ReferenceImageCodec,
     private val shareCache: ShareCache,
 ) : ViewModel() {
 
@@ -130,6 +133,7 @@ class StudioViewModel @Inject constructor(
         val thumbnail: File?,
         val bytes: Long,
         val galleryUri: String?,
+        val referenceGalleryUri: String?,
         val availability: PaintingAvailability,
     )
 
@@ -241,6 +245,7 @@ class StudioViewModel @Inject constructor(
                         thumbnail = it.thumbnail,
                         bytes = it.bytes,
                         galleryUri = it.galleryUri,
+                        referenceGalleryUri = it.referenceGalleryUri,
                         availability = when (it.availability) {
                             ProjectStore.ShelfAvailability.AVAILABLE ->
                                 PaintingAvailability.AVAILABLE
@@ -326,6 +331,8 @@ class StudioViewModel @Inject constructor(
      * 06 §9.3's Studio-open row: any painting edited since its last gallery
      * sync catches up in the background, one at a time, on the CPU path. A
      * running sweep is left to finish rather than restarted per refresh.
+     * The reference variant rides the same sweep — synced beside the
+     * painting, withdrawn when the image no longer qualifies.
      */
     private fun syncStale(listed: List<ProjectStore.Summary>) {
         if (staleSyncJob?.isActive == true) return
@@ -336,7 +343,7 @@ class StudioViewModel @Inject constructor(
             for (summary in stale) {
                 val doc = (store.load(summary.id) as? ProjectStore.LoadResult.Loaded)
                     ?.document ?: continue
-                val png = try {
+                val cleanPng = try {
                     val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
                     ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
                 } catch (e: Exception) {
@@ -351,17 +358,78 @@ class StudioViewModel @Inject constructor(
                         doc.title,
                         context.getString(R.string.studio_untitled),
                     ),
-                    png = png,
+                    png = cleanPng,
                 ) ?: continue
+                // The row was rewritten, so its state is recorded either way;
+                // the painting only counts as caught up once the variant
+                // settled too — a failed variant keeps the painting stale so
+                // the next sweep retries both (the rewrite is idempotent).
+                val variantSettled = syncReferenceVariant(doc)
                 store.updateGalleryFields(
                     doc.id,
                     galleryUri = outcome.galleryUri,
-                    lastGallerySyncAt = outcome.syncedAt,
+                    lastGallerySyncAt = if (variantSettled) outcome.syncedAt else doc.lastGallerySyncAt,
                     galleryModifiedAt = outcome.modifiedAt,
                     galleryBytes = outcome.bytes,
                 )
             }
         }
+    }
+
+    /**
+     * The sweep's second half: the variant row, or its withdrawal. False
+     * means "attempted and failed" — the painting must stay stale.
+     */
+    private suspend fun syncReferenceVariant(doc: Document): Boolean {
+        val reference = doc.tracingReference
+        if (ReferenceGalleryPolicy.includes(reference) && reference != null) {
+            val flat = referenceImageCodec.decodeFlatReference(doc.id, reference) ?: return false
+            val png = try {
+                val rgba = CpuFlatten.flatten(doc, flat) { store.layerDir(doc.id, it) }
+                ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                reportRenderFailure("reference variant render failed", e)
+                return false
+            }
+            val outcome = exporter.sync(
+                recordedUri = doc.referenceGalleryUri,
+                recordedModifiedAt = doc.referenceGalleryModifiedAt,
+                recordedBytes = doc.referenceGalleryBytes,
+                displayName = GalleryNames.withReferenceSuffix(
+                    GalleryNames.sanitizeDisplayName(
+                        doc.title,
+                        context.getString(R.string.studio_untitled),
+                    ),
+                    context.getString(R.string.gallery_reference_suffix),
+                ),
+                png = png,
+            ) ?: return false
+            store.updateReferenceGalleryFields(
+                doc.id,
+                referenceGalleryUri = outcome.galleryUri,
+                referenceGalleryModifiedAt = outcome.modifiedAt,
+                referenceGalleryBytes = outcome.bytes,
+            )
+            // A failed project.json write is the sibling path's exposure too
+            // (`updateGalleryFields`'s result is likewise not a gate here);
+            // it never strands the row, only its recorded baseline.
+            return true
+        }
+        if (doc.referenceGalleryUri == null) return true
+
+        exporter.withdraw(
+            recordedUri = doc.referenceGalleryUri,
+            recordedModifiedAt = doc.referenceGalleryModifiedAt,
+            recordedBytes = doc.referenceGalleryBytes,
+        )
+        store.updateReferenceGalleryFields(
+            doc.id,
+            referenceGalleryUri = null,
+            referenceGalleryModifiedAt = 0L,
+            referenceGalleryBytes = 0L,
+        )
+        return true
     }
 
     /**
@@ -482,9 +550,18 @@ class StudioViewModel @Inject constructor(
      * project folder was actually removed, for the toast: a silent failure
      * here reads as a working delete.
      */
-    fun delete(id: String, alsoGallery: Boolean, galleryUri: String?, onDone: (Boolean) -> Unit) {
+    fun delete(
+        id: String,
+        alsoGallery: Boolean,
+        galleryUri: String?,
+        referenceGalleryUri: String?,
+        onDone: (Boolean) -> Unit,
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
-            if (alsoGallery && galleryUri != null) exporter.delete(galleryUri)
+            if (alsoGallery) {
+                if (galleryUri != null) exporter.delete(galleryUri)
+                if (referenceGalleryUri != null) exporter.delete(referenceGalleryUri)
+            }
             val deleted = store.delete(id)
             evictThumbnails(id)
             refresh()

@@ -163,4 +163,77 @@ class CpuFlattenTest {
             ),
         )
     }
+
+    /** A full-canvas opaque reference image at 100 % opacity. */
+    private fun flatReference(
+        opacity: Float = 1f,
+        transform: ReferenceTransform = ReferenceTransform.IDENTITY,
+    ): CpuFlatten.FlatReference {
+        val reference = TracingReference(
+            assetName = "reference.png",
+            imageWidth = 512,
+            imageHeight = 512,
+            transform = transform,
+            opacity = opacity,
+        )
+        return CpuFlatten.FlatReference(reference, IntArray(512 * 512) { 0xFFFF0000.toInt() })
+    }
+
+    @Test
+    fun `a supplied reference composites above paper and below paint`() {
+        // Paint wins over the reference; the reference wins over the paper.
+        TileStore(layerDir(a)).write(TileKey(0, 0), tileOf(0x00, 0x00, 0xFF, 0xFF))
+        val doc = document(
+            layers = listOf(Layer(LayerProps(id = a, name = "n"), setOf(TileKey(0, 0)))),
+            paper = -1,
+        ).copy(tracingReference = flatReference().reference)
+
+        val out = CpuFlatten.flatten(doc, flatReference()) { layerDir(it) }
+        assertEquals(listOf(0x00, 0x00, 0xFF, 0xFF), pixelAt(out, 5, 5), "paint above")
+        assertEquals(listOf(0xFF, 0x00, 0x00, 0xFF), pixelAt(out, 300, 300), "reference above paper")
+    }
+
+    @Test
+    fun `reference opacity blends against the paper like any layer`() {
+        // 50 % opaque red over white paper is the same mid-tone the layer
+        // opacity test pins — through the synthetic layer, not a shortcut.
+        val doc = document(
+            layers = listOf(Layer(LayerProps(id = a, name = "n"))),
+            paper = -1,
+        ).copy(tracingReference = flatReference(opacity = 0.5f).reference)
+
+        val out = CpuFlatten.flatten(doc, flatReference(opacity = 0.5f)) { layerDir(it) }
+        val (r, g, b, alpha) = pixelAt(out, 200, 200)
+        assertEquals(0xFF, alpha)
+        assertEquals(0xFF, r)
+        for (c in listOf(g, b)) {
+            assertTrue(c in 0x7F..0x81, "half red over white, was $c")
+        }
+    }
+
+    @Test
+    fun `transparent paper keeps the reference's own alpha`() {
+        val doc = document(
+            layers = listOf(Layer(LayerProps(id = a, name = "n"))),
+            paper = 0x00000000,
+        ).copy(tracingReference = flatReference().reference)
+
+        val out = CpuFlatten.flatten(doc, flatReference()) { layerDir(it) }
+        assertEquals(listOf(0xFF, 0x00, 0x00, 0xFF), pixelAt(out, 10, 10))
+        // A reference smaller than the canvas leaves the rest transparent.
+        val small = TracingReference(
+            assetName = "reference.png",
+            imageWidth = 100,
+            imageHeight = 100,
+            transform = ReferenceTransform.IDENTITY,
+            opacity = 1f,
+        )
+        val smallDoc = doc.copy(tracingReference = small)
+        val smallOut = CpuFlatten.flatten(
+            smallDoc,
+            CpuFlatten.FlatReference(small, IntArray(100 * 100) { 0xFF00FF00.toInt() }),
+        ) { layerDir(it) }
+        assertEquals(listOf(0x00, 0xFF, 0x00, 0xFF), pixelAt(smallOut, 50, 50))
+        assertEquals(listOf(0, 0, 0, 0), pixelAt(smallOut, 300, 300), "no paper, no matting")
+    }
 }

@@ -11,11 +11,11 @@ class GalleryExporterContractTest {
     fun `recorded row probe contains lost provider access`() {
         val exporter = File(repositoryRoot(), EXPORTER_PATH).readText()
         val probe = exporter
-            .substringAfter("if (uri != null) {")
-            .substringBefore("var action = GallerySyncDecision.decide")
+            .substringAfter("private fun probeRow(")
+            .substringBefore("private fun sync(")
 
         assertTrue("catch (e: SecurityException)" in probe)
-        assertTrue("probeThrew = true" in probe)
+        assertTrue("threw = true" in probe)
     }
 
     private fun repositoryRoot(): File {

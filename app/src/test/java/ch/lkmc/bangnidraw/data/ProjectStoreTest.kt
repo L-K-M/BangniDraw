@@ -578,6 +578,53 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun `reference variant outcomes persist and withdraw`() {
+        val doc = document(id = "g-2").copy(tracingReference = TracingReference(
+            assetName = "reference-a.png",
+            imageWidth = 4,
+            imageHeight = 4,
+            transform = ReferenceTransform.IDENTITY,
+        ))
+        store.checkpoint(doc)
+        assertTrue(
+            store.updateReferenceGalleryFields(
+                "g-2",
+                referenceGalleryUri = "content://media/77",
+                referenceGalleryModifiedAt = 9,
+                referenceGalleryBytes = 1_000,
+            ),
+        )
+        val loaded = assertIs<ProjectStore.LoadResult.Loaded>(store.load("g-2"))
+        assertEquals("content://media/77", loaded.document.referenceGalleryUri)
+        assertEquals(9, loaded.document.referenceGalleryModifiedAt)
+        assertEquals(1_000L, loaded.document.referenceGalleryBytes)
+
+        // A withdrawal forgets the row without touching the painting's own.
+        store.updateGalleryFields(
+            "g-2",
+            galleryUri = "content://media/9",
+            lastGallerySyncAt = 3_000,
+            galleryModifiedAt = 3,
+            galleryBytes = 50,
+        )
+        assertTrue(
+            store.updateReferenceGalleryFields(
+                "g-2",
+                referenceGalleryUri = null,
+                referenceGalleryModifiedAt = 0,
+                referenceGalleryBytes = 0,
+            ),
+        )
+        val withdrawn = assertIs<ProjectStore.LoadResult.Loaded>(store.load("g-2")).document
+        assertNull(withdrawn.referenceGalleryUri)
+        assertEquals(0L, withdrawn.referenceGalleryModifiedAt)
+        assertEquals("content://media/9", withdrawn.galleryUri, "the painting's row survives")
+
+        val summary = store.list().single { it.id == "g-2" }
+        assertNull(summary.referenceGalleryUri)
+    }
+
+    @Test
     fun `rename of an unreadable painting is refused, not a rewrite`() {
         val dir = store.projectDir("r-2").also { it.mkdirs() }
         val file = File(dir, "project.json")
@@ -589,7 +636,11 @@ class ProjectStoreTest {
     @Test
     fun `duplicate copies tiles but not history and gets a fresh id, remapped layer ids and no gallery URI`() {
         // 06 §8, `docs/plan/11-testing.md` §5's exact case.
-        val doc = document(id = "src")
+        val doc = document(id = "src").copy(
+            referenceGalleryUri = "content://media/external/images/43",
+            referenceGalleryModifiedAt = 8L,
+            referenceGalleryBytes = 9L,
+        )
         store.checkpoint(doc, HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1, entries = 1))
         val srcTiles = TileStore(store.layerDir("src", LayerId("layer-b")))
         val pixels = ByteArray(TILE_BYTES) { 5 }
@@ -612,6 +663,7 @@ class ProjectStoreTest {
         assertEquals(9_000, copy.updatedAt)
         assertEquals(null, copy.galleryUri)
         assertEquals(0, copy.lastGallerySyncAt)
+        assertEquals(null, copy.referenceGalleryUri, "a duplicate owns neither gallery row")
         assertEquals(0, copy.historyCursor)
         assertEquals(HistoryRecord(), assertIs<ProjectStore.LoadResult.Loaded>(store.load(newId)).history)
         assertTrue(!File(store.projectDir(newId), "history").exists(), "history is not copied")

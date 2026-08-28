@@ -2,10 +2,14 @@ package ch.lkmc.bangnidraw.data
 
 import ch.lkmc.bangnidraw.engine.core.Composite
 import ch.lkmc.bangnidraw.engine.core.Document
+import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerId
+import ch.lkmc.bangnidraw.engine.core.LayerProps
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
+import ch.lkmc.bangnidraw.engine.core.ReferenceComposite
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.TileReader
+import ch.lkmc.bangnidraw.engine.core.TracingReference
 import java.io.File
 
 /**
@@ -20,6 +24,9 @@ import java.io.File
  * (06 §9.1). Alpha is kept when the paper is transparent: a user who chose
  * transparent paper wants a transparent PNG.
  *
+ * The default flatten omits the tracing reference, like every plan-era
+ * export; the gallery's reference variant passes one in (AGENTS.md).
+ *
  * Step 4 uses this for **every** flatten, on-canvas syncs included; 06 §9.1's
  * GL band flatten (`CanvasRenderer.flatten`, 03 §10.4) is deferred with the
  * same reasoning as the thumbnail's (AGENTS.md): at every trigger the tiles
@@ -30,30 +37,98 @@ import java.io.File
 internal object CpuFlatten {
 
     /**
-     * Flattens [document] from the tiles under [layerDirFor] into one
-     * `width × height × 4` RGBA buffer. Corrupt or missing tiles composite
-     * as transparent (the §4 rule); hidden layers are skipped (§9.1
-     * flattens what the user sees).
+     * A tracing reference rendered into a flatten: the model's placement
+     * plus the decoded asset as straight ARGB (`ReferenceImageCodec`'s
+     * decode). Dims must equal [TracingReference.imageWidth]/[imageHeight];
+     * a decode that cannot promise that returns null and no flatten sees a
+     * reference at all.
      */
-    fun flatten(document: Document, layerDirFor: (LayerId) -> File): ByteArray {
+    internal class FlatReference(
+        val reference: TracingReference,
+        val argb: IntArray,
+    )
+
+    /**
+     * Flattens [document] from the tiles under [layerDirFor] into one
+     * `width × height × 4` RGBA buffer — without [reference], which the
+     * default omits exactly as the plan's exports always have. With it, the
+     * reference joins as a synthetic source-over layer *above the paper and
+     * below every paint layer*, the render order
+     * `CompositePass.drawReferenceToTile` pins on the GPU.
+     *
+     * Corrupt or missing tiles composite as transparent (the §4 rule);
+     * hidden layers are skipped (§9.1 flattens what the user sees).
+     */
+    fun flatten(
+        document: Document,
+        reference: FlatReference? = null,
+        layerDirFor: (LayerId) -> File,
+    ): ByteArray {
         val width = document.width
         val height = document.height
         val out = ByteArray(width * height * 4)
         val visible = document.stack.layers.filter { it.props.visible }
         val stores = visible.associate { it.id to TileStore(layerDirFor(it.id)) }
 
+        // The reference is one more layer beneath the paint: `Composite.tile`
+        // blends it over the paper ground first, so opacity and blend math
+        // take the same code path every paint layer takes. Its id never
+        // names a directory — `stores` was built from `visible` above.
+        var referenceLayer: Layer? = null
+        var referenceTiles: ((TileKey) -> IntArray?)? = null
+        if (reference != null) {
+            val model = reference.reference
+            require(reference.argb.size == model.imageWidth * model.imageHeight) {
+                "reference pixels are ${reference.argb.size}, " +
+                    "expected ${model.imageWidth}×${model.imageHeight}"
+            }
+            val covered = HashSet<TileKey>()
+            for (tileY in 0 until document.grid.tilesY) {
+                for (tileX in 0 until document.grid.tilesX) {
+                    val key = TileKey(tileX, tileY)
+                    if (ReferenceComposite.coversTile(model, document.grid.tileRect(key))) {
+                        covered.add(key)
+                    }
+                }
+            }
+            referenceLayer = Layer(
+                props = LayerProps(
+                    id = REFERENCE_LAYER_ID,
+                    name = model.assetName,
+                    opacity = model.opacity,
+                ),
+                tiles = covered,
+            )
+            val source = ReferenceComposite.Source { x, y ->
+                reference.argb[y * model.imageWidth + x]
+            }
+            referenceTiles = { key ->
+                if (key in covered) {
+                    ReferenceComposite.tile(model, source, key.tx * TILE_SIZE, key.ty * TILE_SIZE)
+                } else {
+                    null
+                }
+            }
+        }
+        val layers = if (referenceLayer != null) listOf(referenceLayer) + visible else visible
+
         // One band of tile rows at a time (§9.3): at most one row of tiles
         // per layer is resident beside the output buffer.
         for (ty in 0 until document.grid.tilesY) {
             val band = HashMap<Pair<LayerId, TileKey>, IntArray>()
+            val referenceFor = referenceTiles
             val reader = TileReader { layer, key ->
-                band.getOrPut(layer to key) {
-                    readTileArgb(stores.getValue(layer), key) ?: EMPTY_TILE
-                }.takeIf { it !== EMPTY_TILE }
+                if (layer == REFERENCE_LAYER_ID) {
+                    referenceFor?.invoke(key)
+                } else {
+                    band.getOrPut(layer to key) {
+                        readTileArgb(stores.getValue(layer), key) ?: EMPTY_TILE
+                    }.takeIf { it !== EMPTY_TILE }
+                }
             }
             for (tx in 0 until document.grid.tilesX) {
                 val key = TileKey(tx, ty)
-                val pixels = Composite.tile(visible, key, document.paperColor, reader)
+                val pixels = Composite.tile(layers, key, document.paperColor, reader)
                 writeTile(out, width, height, key, pixels)
             }
         }
@@ -101,4 +176,7 @@ internal object CpuFlatten {
 
     /** Sentinel so the band cache remembers "read and found nothing". */
     private val EMPTY_TILE = IntArray(0)
+
+    /** Names the synthetic layer; never a directory — `stores` skips it. */
+    private val REFERENCE_LAYER_ID = LayerId("tracing-reference")
 }

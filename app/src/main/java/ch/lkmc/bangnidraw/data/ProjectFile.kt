@@ -47,6 +47,10 @@ internal data class ProjectFile(
     val lastGallerySyncAt: Long = 0L,
     val galleryModifiedAt: Long = 0L,
     val galleryBytes: Long = 0L,
+    /** The reference variant's row state; shares `lastGallerySyncAt`. */
+    val referenceGalleryUri: String? = null,
+    val referenceGalleryModifiedAt: Long = 0L,
+    val referenceGalleryBytes: Long = 0L,
     val view: ViewRecord? = null,
     val lastTool: ToolRecord? = null,
 ) {
@@ -132,6 +136,9 @@ internal fun Document.toProjectFile(
     lastGallerySyncAt = lastGallerySyncAt,
     galleryModifiedAt = galleryModifiedAt,
     galleryBytes = galleryBytes,
+    referenceGalleryUri = referenceGalleryUri,
+    referenceGalleryModifiedAt = referenceGalleryModifiedAt,
+    referenceGalleryBytes = referenceGalleryBytes,
 )
 
 internal fun TracingReference.toRecord(): TracingReferenceRecord = TracingReferenceRecord(

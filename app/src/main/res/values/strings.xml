@@ -46,6 +46,8 @@
     <string name="save_to_gallery">Export a new gallery image</string>
     <string name="studio_saved_to_gallery">Added to gallery</string>
     <string name="studio_save_failed">Couldn’t add to gallery</string>
+    <!-- Carries its own leading separator so locales choose spacing. -->
+    <string name="gallery_reference_suffix"> (with reference)</string>
 
     <!-- New Canvas dialog (08 §2.1) -->
     <string name="new_canvas_title">New painting</string>
@@ -378,7 +380,7 @@
     <string name="settings_haptics">Haptics</string>
     <string name="settings_storage">Storage</string>
     <string name="settings_gallery_sync">Gallery copies</string>
-    <string name="settings_gallery_sync_help">Keep a copy of every painting in the gallery (Pictures/帮你Draw).</string>
+    <string name="settings_gallery_sync_help">Keep a copy of every painting in the gallery (Pictures/帮你Draw). A painting with a visible tracing image keeps a second copy that includes it.</string>
     <string name="settings_undo_limit">Undo history</string>
     <string name="settings_undo_limit_value">Up to %1$d steps · %2$d MB</string>
     <string name="settings_color">Color</string>

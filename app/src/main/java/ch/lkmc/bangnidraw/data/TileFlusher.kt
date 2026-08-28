@@ -7,6 +7,7 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -14,7 +15,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -150,6 +150,10 @@ class TileFlusher(
      */
     private val queue = Channel<FlushJob>(capacity = 64)
 
+    private val workerLock = Any()
+    private var workerJob: Job? = null
+    private var workerFailure: Throwable? = null
+
     private val _storageFull = MutableStateFlow(false)
 
     /** §6.3's storage-full state, for the `err_storage_full` banner. */
@@ -170,9 +174,10 @@ class TileFlusher(
     fun hasMirrorRoom(): Boolean = _storageFull.value || pendingBytes < CPU_MIRROR_CAP_BYTES
 
     /**
-     * Accepts one readback tile into the mirror. Returns false — with the
-     * buffer already recycled — when [CpuTile.revision] is older than what
-     * this key has already seen (§10.1's out-of-order case, not an error).
+     * Accepts one readback tile into the mirror. Returns false, after recycling
+     * its buffer, exactly when this key already has an equal-or-newer revision
+     * (§10.1's duplicate/out-of-order case, not an error). The existing mirror
+     * therefore remains authoritative on every false return.
      *
      * Called on the GL thread; the lock covers map mutation only, never a
      * copy (§6.3). No flush is triggered: the tile belongs to its stroke's
@@ -183,7 +188,7 @@ class TileFlusher(
         val replaced: CpuTile?
         synchronized(lock) {
             val latest = latestRevision[mapKey]
-            if (latest != null && tile.revision < latest) {
+            if (latest != null && tile.revision <= latest) {
                 pool?.release(tile.pixels)
                 return false
             }
@@ -237,16 +242,73 @@ class TileFlusher(
 
     /**
      * Starts the worker: one coroutine, [io] expected to be
-     * `Dispatchers.IO.limitedParallelism(1)` (§6.3). Tests skip this and call
-     * [runQueued], so every assertion runs deterministically.
+     * `Dispatchers.IO.limitedParallelism(1)` (§6.3). Most tests call
+     * [runQueued] for determinism; close-drain lifecycle tests start a real
+     * worker. A flusher owns one single-use channel and therefore starts at
+     * most once.
      */
-    fun start(scope: CoroutineScope, io: CoroutineDispatcher): Job =
-        scope.launch(io) {
-            while (isActive) {
-                val job = queue.receive()
-                jobMutex.withLock { run(job) }
-            }
+    fun start(scope: CoroutineScope, io: CoroutineDispatcher): Job {
+        synchronized(workerLock) {
+            check(workerJob == null) { "TileFlusher worker already started" }
+
+            return scope.launch(io) {
+                var terminalFailure: Throwable? = null
+                // Closing preserves accepted writes: drain the accepted FIFO.
+                for (job in queue) {
+                    val failed = terminalFailure
+                    if (failed != null) {
+                        fail(job, failed)
+                        continue
+                    }
+
+                    try {
+                        jobMutex.withLock { run(job) }
+                    } catch (failure: CancellationException) {
+                        synchronized(workerLock) { workerFailure = failure }
+                        throw failure
+                    } catch (failure: Throwable) {
+                        // Keep servicing the channel with explicit failures so
+                        // no accepted Deferred can strand its caller.
+                        synchronized(workerLock) { workerFailure = failure }
+                        terminalFailure = failure
+                        fail(job, failure)
+                    }
+                }
+            }.also { workerJob = it }
         }
+    }
+
+    /**
+     * Stops accepting work, drains the accepted FIFO, then joins its worker.
+     *
+     * Call this after the Canvas's final checkpoint. Cancelling an
+     * application-scope worker would abandon queued writes. Expected storage
+     * failures are contained inside [run]. Unexpected failures are held for
+     * this close boundary, while lifecycle cancellation keeps its cancellation
+     * semantics.
+     */
+    suspend fun closeAndJoin() {
+        val worker = synchronized(workerLock) {
+            val running = checkNotNull(workerJob) {
+                "TileFlusher worker must start before close"
+            }
+            queue.close()
+            running
+        }
+
+        worker.join()
+        val failure = synchronized(workerLock) { workerFailure }
+        when {
+            failure is CancellationException -> throw failure
+            failure != null -> throw IllegalStateException(
+                WORKER_FAILED_MESSAGE,
+                failure,
+            )
+            worker.isCancelled -> throw CancellationException(
+                WORKER_CANCELLED_MESSAGE,
+            )
+        }
+    }
 
     /** Drains every job queued so far, inline — the tests' worker. */
     suspend fun runQueued() {
@@ -258,10 +320,9 @@ class TileFlusher(
 
     /**
      * Enqueues a [FlushJob.Checkpoint] and waits it out: on return every
-     * job enqueued before this call has run, in order, and the answer says
-     * whether the mirror drained (false = storage-full; `project.json` may
-     * still be written — metadata is not pixels — and the retry keeps the
-     * tiles).
+     * job enqueued before this call has finished, in order. False means
+     * storage-full or a failed worker, so `project.json` must not be committed;
+     * [closeAndJoin] reports the worker's cause.
      */
     suspend fun checkpointFlush(): Boolean {
         val job = FlushJob.Checkpoint()
@@ -270,6 +331,24 @@ class TileFlusher(
     }
 
     // --------------------------------------------------------------- worker
+
+    /** Completes every waitable result after an unexpected terminal failure. */
+    private fun fail(job: FlushJob, cause: Throwable) {
+        when (job) {
+            is FlushJob.WriteEntry -> {
+                job.result.complete(null)
+                job.completion.complete(StepResult.DEFERRED)
+            }
+            is FlushJob.WriteRedo -> job.result.complete(null)
+            is FlushJob.ResolveCurrent -> job.result.completeExceptionally(
+                IllegalStateException(WORKER_FAILED_MESSAGE, cause),
+            )
+            is FlushJob.Checkpoint -> job.done.complete(false)
+            is FlushJob.FlushKeys,
+            is FlushJob.DeleteLayerDir,
+            -> Unit
+        }
+    }
 
     private suspend fun run(job: FlushJob) {
         when (job) {
@@ -403,6 +482,8 @@ class TileFlusher(
     }
 
     private companion object {
+        const val WORKER_FAILED_MESSAGE = "TileFlusher worker failed before drain completed"
+        const val WORKER_CANCELLED_MESSAGE = "TileFlusher worker cancelled before drain completed"
         val EMPTY = ByteArray(0)
     }
 }

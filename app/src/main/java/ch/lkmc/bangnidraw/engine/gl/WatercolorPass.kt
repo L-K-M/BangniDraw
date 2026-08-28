@@ -10,12 +10,14 @@ import ch.lkmc.bangnidraw.engine.core.PoolExhausted
 import ch.lkmc.bangnidraw.engine.core.RmwMixing
 import ch.lkmc.bangnidraw.engine.core.RmwSpec
 import ch.lkmc.bangnidraw.engine.core.RmwTouchTracker
+import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.WatercolorBehavior
 import ch.lkmc.bangnidraw.engine.core.WatercolorDabBounds
 import ch.lkmc.bangnidraw.engine.core.WatercolorKernel
+import ch.lkmc.bangnidraw.engine.core.WatercolorOverlayKernel
 
 /** Ordered color and coarse wet-state updates for watercolor gestures. */
 internal class WatercolorPass(
@@ -24,6 +26,7 @@ internal class WatercolorPass(
     private val state: GlState,
     private val wetProgram: GlProgram,
     private val colorProgram: GlProgram,
+    private val overlayPass: WatercolorOverlayPass,
     private val colorMixProgram: GlProgram? = null,
     private val mixboxLut: Int = 0,
 ) {
@@ -70,7 +73,6 @@ internal class WatercolorPass(
         if (!spec.isWatercolor) return false
 
         finish()
-        pruneExpired(nowNanos)
         resetDryEpoch(nowNanos)
         activeLayer = layer
         wetLayers.getOrPut(layer) {
@@ -155,7 +157,28 @@ internal class WatercolorPass(
                 dirtyBottom = maxOf(dirtyBottom, dabBounds.outputBottom)
                 hasDirty = true
             }
-            writeWet(wetLayer, nowNanos)
+            // Wet-only dabs damage presentation without entering color history.
+            val wroteWet = writeWet(wetLayer, nowNanos)
+            if (wroteWet) {
+                val wetDirty = IntRect(
+                    left = dabBounds.wetOutputLeft * WatercolorKernel.CELL_SIZE,
+                    top = dabBounds.wetOutputTop * WatercolorKernel.CELL_SIZE,
+                    right = minOf(
+                        layer.grid.width,
+                        dabBounds.wetOutputRight * WatercolorKernel.CELL_SIZE,
+                    ),
+                    bottom = minOf(
+                        layer.grid.height,
+                        dabBounds.wetOutputBottom * WatercolorKernel.CELL_SIZE,
+                    ),
+                )
+                wetLayer.overlayDirty = wetLayer.overlayDirty.union(wetDirty)
+                dirtyLeft = minOf(dirtyLeft, wetDirty.left)
+                dirtyTop = minOf(dirtyTop, wetDirty.top)
+                dirtyRight = maxOf(dirtyRight, wetDirty.right)
+                dirtyBottom = maxOf(dirtyBottom, wetDirty.bottom)
+                hasDirty = true
+            }
             commitDabReservation()
         }
 
@@ -183,12 +206,72 @@ internal class WatercolorPass(
 
             if (restoreWetKey(backup, wetLayer.textures, key)) {
                 wetLayer.updatedAtNanos[keyIndex] = backedWetTimes[keyIndex]
+            } else {
+                // A restore that cannot run must not leave the gesture's
+                // water behind: drop the page, exactly like an absent one.
+                if (!wetLayer.textures.slice(key).isNone) wetLayer.textures.remove(key)
+                wetLayer.updatedAtNanos[keyIndex] = 0L
             }
         }
+        if (wetLayer.textures.tileCount == 0) wetLayer.overlayDirty = IntRect.EMPTY
         resetStroke()
     }
 
     fun finish() = resetStroke()
+
+    internal fun drawOverlay(
+        layer: LayerId,
+        screen: ScreenTransform,
+        projection: FloatArray,
+        bufferTransform: FloatArray,
+        canvasDirty: IntRect,
+        nowNanos: Long,
+        opacity: Float,
+    ): Int {
+        val wet = wetLayers[layer] ?: return 0
+
+        return overlayPass.draw(
+            textures = wet.textures,
+            screen = screen,
+            projection = projection,
+            bufferTransform = bufferTransform,
+            canvasDirty = canvasDirty,
+            nowTick = WatercolorKernel.tickAt(nowNanos),
+            opacity = opacity,
+        )
+    }
+
+    internal fun refreshOverlay(
+        visibleLayer: LayerId?,
+        nowNanos: Long,
+    ): WatercolorOverlayKernel.RefreshResult {
+        val visibleWetLayer = visibleLayer?.let { wetLayers[it] }
+        val visibleDirty = visibleWetLayer?.overlayDirty ?: IntRect.EMPTY
+        val before = wetTileCount()
+        pruneAndRebase(nowNanos)
+        if (visibleWetLayer?.textures?.tileCount == 0) {
+            visibleWetLayer.overlayDirty = IntRect.EMPTY
+        }
+
+        return WatercolorOverlayKernel.RefreshResult(
+            action = WatercolorOverlayKernel.refresh(before, wetTileCount()),
+            dirty = visibleDirty,
+        )
+    }
+
+    internal fun hasWetOverlay(): Boolean = wetTileCount() > 0
+
+    private fun wetTileCount(): Int {
+        var count = 0
+        for (layer in wetLayers.values) count += layer.textures.tileCount
+
+        return count
+    }
+
+    private fun pruneAndRebase(nowNanos: Long) {
+        resetDryEpoch(nowNanos)
+        pruneExpired(nowNanos)
+    }
 
     fun removeLayer(layer: LayerId) {
         if (activeLayer == layer) resetStroke()
@@ -222,6 +305,7 @@ internal class WatercolorPass(
         readFbo.release()
         drawFbo.release()
         quad.release()
+        overlayPass.release()
     }
 
     private fun renderWet(
@@ -539,8 +623,9 @@ internal class WatercolorPass(
         }
     }
 
-    private fun writeWet(layer: WetLayer, nowNanos: Long) {
+    private fun writeWet(layer: WetLayer, nowNanos: Long): Boolean {
         state.scissorOff()
+        var wroteAny = false
         val count = wetGrid.keysForBounds(
             dabBounds.wetOutputLeft,
             dabBounds.wetOutputTop,
@@ -578,11 +663,14 @@ internal class WatercolorPass(
                     key,
                 )
                 layer.updatedAtNanos[wetGrid.index(key)] = nowNanos
+                wroteAny = true
             }
         } finally {
             GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, 0)
             GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, 0)
         }
+
+        return wroteAny
     }
 
     private fun blitWetIntersection(
@@ -880,7 +968,7 @@ internal class WatercolorPass(
         }
     }
 
-    /** Expired transient pages return to the shared pool before a new gesture. */
+    /** The presentation clock reclaims expired pages after retaining their damage. */
     private fun pruneExpired(nowNanos: Long) {
         ensureWetKeyCapacity()
         val count = wetGrid.keysFor(wetBounds, wetKeys)
@@ -946,7 +1034,6 @@ internal class WatercolorPass(
         }
         if (previousEpoch == nextEpoch) return
 
-        pruneExpired(nowNanos)
         rebaseWetPages(nowNanos)
         lastTickEpoch = nextEpoch
     }
@@ -999,6 +1086,7 @@ internal class WatercolorPass(
     private class WetLayer(
         val textures: LayerTextures,
         val updatedAtNanos: LongArray,
+        var overlayDirty: IntRect = IntRect.EMPTY,
     )
 
     private enum class WetUpdateMode(

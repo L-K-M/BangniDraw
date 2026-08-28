@@ -85,4 +85,15 @@ class CanvasUiStateTest {
         assertEquals(FocusMode.FOCUSED, focused.focusMode)
         assertNull(focused.openPanel)
     }
+
+    @Test
+    fun `clear layer dialog is parked mid stroke like other layer dialogs`() {
+        val active = CanvasUiPolicy.onStrokeBegin(CanvasChromeState())
+        val parked = CanvasUiPolicy.requestDialog(active, CanvasDialog.ClearLayer(2))
+        assertNull(parked.dialog)
+        assertEquals(CanvasDialog.ClearLayer(2), parked.pendingDialog)
+        val ended = CanvasUiPolicy.onStrokeEnd(parked)
+        assertEquals(CanvasDialog.ClearLayer(2), ended.dialog)
+        assertNull(ended.pendingDialog)
+    }
 }

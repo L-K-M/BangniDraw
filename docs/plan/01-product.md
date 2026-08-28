@@ -191,8 +191,8 @@ done from the first composable.
 | --- | --- | --- |
 | A1 | Every interactive element has a **≥ 48 × 48 dp** touch target (T1) | Enforced as in T1 (constants test, Accessibility Scanner audit, `ui/components` primitives); no `Modifier.size` under 48 dp on a clickable |
 | A2 | Every control has a **TalkBack content description** naming the action and, for toggles/sliders, the state and value ("Opacity, 60 %", "Layer 3, hidden") | `contentDescription` / `stateDescription` on every icon-only control; Android lint's `ContentDescription` check covers View XML only, so for Compose the gate is a UI test asserting every icon-only node has a description plus an Accessibility Scanner pass; any Compose lint found for this must not be suppressed |
-| A3 | **No color-only state.** Active tool = filled shape + accent, not accent alone; hidden layer = eye icon + dimmed row; unsaved/dirty is never shown (H4). Lock and visibility use distinct glyphs | design review of `ui/components` |
-| A4 | Chrome text and icons meet **WCAG AA contrast (4.5:1 text, 3:1 icons)** against the chrome background in both light and dark; the accent (saffron) on indigo is checked as a pair | contrast check on `ui/theme` tokens |
+| A3 | **No color-only state.** Active tool = `primaryContainer` fill + `primary` ring, not colour alone; hidden layer = eye icon + dimmed row; unsaved/dirty is never shown (H4). Lock and visibility use distinct glyphs | design review of `ui/components` |
+| A4 | Chrome text and icons meet **WCAG AA contrast (4.5:1 text, 3:1 icons)** in every `AppTheme`; each accent is checked against every surface where it appears | table-driven `ThemeColorPolicyTest` and `ToolRailColorPolicyTest` checks |
 | A5 | **Text scales**: chrome uses `sp`, layouts survive 200 % font scale without clipping (labels may wrap or be replaced by icons + description) | run at largest system font size |
 | A6 | The canvas itself is a `SurfaceView` and cannot be described pixel by pixel; it exposes one node whose description states the painting's name, size, active tool and layer, and the gesture hint | required so TalkBack users can at least navigate around it |
 | A7 | **Haptics and animation are optional** (Settings); reduced-motion system setting disables panel slide animations | `Settings.Global.ANIMATOR_DURATION_SCALE` respected via the standard Compose path |
@@ -260,9 +260,9 @@ accessible.
 - **Icon**: `media-sources/icon.png` (1254 × 1254, saffron 帮 with a brush
   on an indigo→violet gradient) is the only source of truth; launcher
   assets are generated from it by `scripts/generate_icons.py` and never
-  hand-edited. The app's single accent color is taken from the icon's
-  yellow and the chrome's dark tone from its indigo (`08-ui-and-layout.md`
-  §5); no second brand color exists.
+  hand-edited. Saffron remains the default application theme; Coral, Violet,
+  and Teal are curated chrome alternatives (`08-ui-and-layout.md` §5), not
+  changes to the launcher artwork.
 - **Voice**: UI copy is short, plain, and never cute. Verbs on buttons
   ("Create", "Delete", "Duplicate"), nouns on panels ("Layers", "Color").
   No exclamation marks, no emoji, no "oops". Error text states what

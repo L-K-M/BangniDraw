@@ -15,14 +15,15 @@ import ch.lkmc.bangnidraw.data.ImageEncode
 import ch.lkmc.bangnidraw.data.Prefs
 import ch.lkmc.bangnidraw.data.ProjectStore
 import ch.lkmc.bangnidraw.data.ShareCache
+import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Document
-import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerStack
+import ch.lkmc.bangnidraw.engine.core.LatestPublicationGate
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
 import ch.lkmc.bangnidraw.engine.core.PenButtonAction
@@ -37,6 +38,7 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -111,14 +113,24 @@ class StudioViewModel @Inject constructor(
     }
 
     private var staleSyncJob: Job? = null
+    private val refreshLock = Any()
+    private val refreshPublications = LatestPublicationGate()
+    private var refreshJob: Job? = null
+
+    internal enum class PaintingAvailability {
+        AVAILABLE,
+        NEWER_VERSION,
+        UNREADABLE,
+    }
 
     internal data class Painting(
         val id: String,
-        val title: String,
-        val updatedAtMillis: Long,
+        val title: String?,
+        val updatedAtMillis: Long?,
         val thumbnail: File?,
         val bytes: Long,
         val galleryUri: String?,
+        val availability: PaintingAvailability,
     )
 
     internal data class UiState(
@@ -213,27 +225,56 @@ class StudioViewModel @Inject constructor(
 
     /** Re-lists the shelf — on first show and every return from the Canvas. */
     fun refresh() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val listed = store.list()
-            _uiState.update { current ->
-                current.copy(
-                    paintings = listed.map {
-                        Painting(
-                            id = it.id,
-                            title = it.title,
-                            updatedAtMillis = it.updatedAt,
-                            thumbnail = it.thumbnail,
-                            bytes = it.bytes,
-                            galleryUri = it.galleryUri,
+        // Mutation callbacks invoke refresh from IO too; keep generation
+        // issuance and job replacement in one order.
+        synchronized(refreshLock) {
+            val generation = refreshPublications.nextGeneration()
+            refreshJob?.cancel()
+            refreshJob = viewModelScope.launch(Dispatchers.IO) {
+                val listed = store.list()
+                coroutineContext.ensureActive()
+                val paintings = listed.map {
+                    Painting(
+                        id = it.id,
+                        title = it.title,
+                        updatedAtMillis = it.updatedAt,
+                        thumbnail = it.thumbnail,
+                        bytes = it.bytes,
+                        galleryUri = it.galleryUri,
+                        availability = when (it.availability) {
+                            ProjectStore.ShelfAvailability.AVAILABLE ->
+                                PaintingAvailability.AVAILABLE
+                            ProjectStore.ShelfAvailability.NEWER_VERSION ->
+                                PaintingAvailability.NEWER_VERSION
+                            ProjectStore.ShelfAvailability.UNREADABLE ->
+                                PaintingAvailability.UNREADABLE
+                        },
+                    )
+                }
+                val totalBytes = listed.sumOf { it.bytes }
+                val freeBytes = store.freeBytes()
+                coroutineContext.ensureActive()
+
+                refreshPublications.publishIfCurrent(generation) {
+                    _uiState.update { current ->
+                        current.copy(
+                            paintings = paintings,
+                            totalBytes = totalBytes,
+                            freeBytes = freeBytes,
+                            loaded = true,
                         )
-                    },
-                    totalBytes = listed.sumOf { it.bytes },
-                    freeBytes = store.freeBytes(),
-                    loaded = true,
-                )
+                    }
+
+                    // This only filters metadata and schedules a coroutine;
+                    // storage work never runs under the publication gate.
+                    syncStale(listed)
+                }
             }
-            syncStale(listed)
         }
+    }
+
+    internal fun setAppTheme(value: AppTheme) {
+        viewModelScope.launch { prefs.setAppTheme(value) }
     }
 
     internal fun setHandedness(value: Hand) {
@@ -288,9 +329,7 @@ class StudioViewModel @Inject constructor(
      */
     private fun syncStale(listed: List<ProjectStore.Summary>) {
         if (staleSyncJob?.isActive == true) return
-        val stale = listed.filter {
-            GallerySyncDecision.isStaleOnDisk(it.updatedAt, it.lastGallerySyncAt)
-        }
+        val stale = StudioGallerySyncPolicy.staleCandidates(listed)
         if (stale.isEmpty()) return
         staleSyncJob = viewModelScope.launch(Dispatchers.IO) {
             if (!prefs.gallerySync.first()) return@launch

@@ -1,10 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Mirrors ui/theme/Color.kt PaperLight/PaperDark; keep in sync by
-         hand (one use: the launch window background, so the first frame
-         doesn't flash a foreign color before Compose draws). -->
-    <color name="paper_light">#F6F3EC</color>
-    <color name="paper_dark">#15161A</color>
+    <!-- Default Saffron background shown before DataStore reaches Compose. -->
+    <color name="launch_background">#FFF8EC</color>
 
     <!-- Covers edges revealed when a launcher moves the opaque artwork. -->
     <color name="icon_indigo">#2B2ED6</color>

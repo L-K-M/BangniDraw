@@ -368,6 +368,15 @@
     <string name="settings_latency_overlay">Latency overlay</string>
     <string name="settings_about">About and licenses</string>
     <string name="settings_close">Close settings</string>
+    <string name="settings_shortcuts">Keyboard shortcuts</string>
+    <string name="settings_shortcuts_help">With a keyboard attached — DeX, Chromebook, tablet.</string>
+    <string name="shortcut_action_brush">Brush</string>
+    <string name="shortcut_action_size_down">Smaller brush</string>
+    <string name="shortcut_action_size_up">Larger brush</string>
+    <string name="shortcut_action_toggle_controls">Show or hide controls</string>
+    <string name="shortcut_action_toggle_layers">Layers panel</string>
+    <string name="shortcut_action_toggle_color">Color panel</string>
+    <string name="shortcut_action_eyedropper_hold">Eyedropper while held</string>
     <string name="about_title" translatable="false">帮你Draw %1$s</string>
     <string name="about_body">帮你Draw helps you draw: a simple, fast sketching and painting app for phones and tablets, made for the S Pen. Fully offline — no permissions or network access. Paintings leave only when you share them or keep gallery copies.\n\nBuilt almost entirely by LLM agents. Public domain (Unlicense).</string>
     <string name="about_autosave">Autosave runs after %1$d quiet seconds and never waits longer than %2$d seconds.</string>

@@ -10,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -63,6 +64,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -534,10 +536,19 @@ private fun PaintingCell(
                 Column {
                     Text(stringResource(R.string.studio_delete_body))
                     if (painting.galleryUri != null) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .toggleable(
+                                    value = deleteGalleryToo,
+                                    role = Role.Checkbox,
+                                    onValueChange = { deleteGalleryToo = it },
+                                ),
+                        ) {
                             Checkbox(
                                 checked = deleteGalleryToo,
-                                onCheckedChange = { deleteGalleryToo = it },
+                                onCheckedChange = null,
                             )
                             Text(
                                 stringResource(R.string.studio_delete_gallery_too),

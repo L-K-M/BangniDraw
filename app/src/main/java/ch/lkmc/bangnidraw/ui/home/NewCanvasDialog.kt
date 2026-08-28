@@ -137,29 +137,38 @@ fun NewCanvasDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                presets.forEachIndexed { index, preset ->
-                    PresetRow(
-                        preset = preset,
-                        selected = selected == index,
-                        orientation = orientation,
-                        onSelect = { if (preset.enabled) selected = index },
-                    )
-                }
+                Column(Modifier.selectableGroup()) {
+                    presets.forEachIndexed { index, preset ->
+                        PresetRow(
+                            preset = preset,
+                            selected = selected == index,
+                            orientation = orientation,
+                            onSelect = { if (preset.enabled) selected = index },
+                        )
+                    }
 
-                // Keep the choice and its inputs on separate lines so compact
-                // dialogs do not compress two editable values into scraps.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .selectable(selected = isCustom, onClick = { selected = presets.size }),
-                ) {
-                    RadioButton(selected = isCustom, onClick = { selected = presets.size })
-                    Text(
-                        stringResource(R.string.canvas_preset_custom),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f),
-                    )
+                    // Keep the choice and its inputs on separate lines so compact
+                    // dialogs do not compress two editable values into scraps.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = isCustom,
+                                role = Role.RadioButton,
+                                onClick = { selected = presets.size },
+                            ),
+                    ) {
+                        RadioButton(
+                            selected = isCustom,
+                            onClick = null,
+                        )
+                        Text(
+                            stringResource(R.string.canvas_preset_custom),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
                 CustomSizeFields(
                     width = customW,
@@ -350,9 +359,18 @@ private fun PresetRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .selectable(selected = selected, enabled = preset.enabled, onClick = onSelect),
+            .selectable(
+                selected = selected,
+                enabled = preset.enabled,
+                role = Role.RadioButton,
+                onClick = onSelect,
+            ),
     ) {
-        RadioButton(selected = selected, onClick = onSelect, enabled = preset.enabled)
+        RadioButton(
+            selected = selected,
+            onClick = null,
+            enabled = preset.enabled,
+        )
         Column(Modifier.weight(1f)) {
             Text(
                 presetName(preset.id),

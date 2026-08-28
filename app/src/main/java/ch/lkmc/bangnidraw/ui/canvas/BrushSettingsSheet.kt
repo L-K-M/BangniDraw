@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -45,6 +46,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
@@ -586,15 +588,20 @@ internal fun SettingSlider(
 internal fun ToggleRow(label: String, value: ToggleValue, onChanged: (ToggleValue) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = value.enabled,
+                role = Role.Switch,
+                onValueChange = {
+                    onChanged(if (it) ToggleValue.On else ToggleValue.Off)
+                },
+            ),
     ) {
         Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
         Switch(
             checked = value.enabled,
-            onCheckedChange = {
-                onChanged(if (it) ToggleValue.On else ToggleValue.Off)
-            },
-            modifier = Modifier.semantics { contentDescription = label },
+            onCheckedChange = null,
         )
     }
 }

@@ -160,6 +160,10 @@ class AccessibilitySemanticsContractTest {
             "R.string.settings_theme_coral",
             "R.string.settings_theme_violet",
             "R.string.settings_theme_teal",
+            "R.string.settings_theme_nineties",
+            "R.string.settings_theme_synthwave",
+            "R.string.settings_theme_midnight",
+            "R.string.settings_theme_forest",
         )
         val SWITCH_DELEGATES_TO_ROW = Regex(
             """Switch\(\s*checked\s*=\s*checked,\s*onCheckedChange\s*=\s*null""",

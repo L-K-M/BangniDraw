@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- Add a Settings option to pick one of four theme colors (Saffron, Coral,
-  Violet, or Teal). The app is now always light-themed and no longer follows
-  system dark mode.
+- Add a Settings option to pick one of eight theme colors: light Saffron,
+  Coral, Violet, Teal, and Nineties, or dark Synthwave, Midnight, and Forest.
+  The app no longer follows system dark mode; dark chrome is a chosen theme.
 
 ## 1.1.3 - 2026-08-28
 

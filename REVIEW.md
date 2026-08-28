@@ -2023,3 +2023,26 @@ touchscreen hover too, not only a pen.
   calls around `classify`, which the JVM tests pin for both layouts plus
   the loud no-match failure; the probe cannot drift without a framework
   change no test here could anticipate anyway.
+
+## PR #150 — darker and louder themes (2026-08-28)
+
+- **R-137 🟢 Round 1, minor: bar icons flash light on Activity recreation
+  with a dark theme.** Applied. Cold starts still begin light (DataStore is
+  unreadable), but recreation now seeds the bar style from the retained
+  ViewModel's tone; the contract pins the seeding and the tone-to-style
+  wiring.
+
+- **R-138 ⏸️ Round 1, minor: dark palettes inherit light-baseline defaults
+  for unmapped M3 roles.** Refuted. `bangniColorScheme` calls the complete
+  `ColorScheme` constructor — no parameter is defaulted — which R-113
+  introduced and `scheme construction cannot inherit Material baseline roles`
+  plus `BangniColorSchemeTest`'s role-by-role mapping pin.
+
+- **R-139 🟢 Round 1, minor: error expectations came from the code under
+  test.** Applied. `ThemeColorPolicyTest` now pins the exact light/dark
+  Material error baselines as literals, so `BangniColorSchemeTest` is a pure
+  wiring test again.
+
+- **R-140 🟢 Round 1, info: stale "shared error" wording and the roadmap
+  graph.** Applied. 11-testing says per-tone error content; §4's graph gains
+  step 14 depending on 13.

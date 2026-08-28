@@ -1,11 +1,21 @@
 package ch.lkmc.bangnidraw.engine.core
 
-/** App-owned fixed-light palettes. System and wallpaper colours never alter them. */
-internal enum class AppTheme {
-    SAFFRON,
-    CORAL,
-    VIOLET,
-    TEAL;
+/** Palette tone; drives system-bar icon appearance and the neutral canvas void. */
+internal enum class ThemeTone { LIGHT, DARK }
+
+/**
+ * App-owned palettes, light and dark. System and wallpaper colours never
+ * alter them; Android's dark mode is neither an option nor an input.
+ */
+internal enum class AppTheme(val tone: ThemeTone) {
+    SAFFRON(ThemeTone.LIGHT),
+    CORAL(ThemeTone.LIGHT),
+    VIOLET(ThemeTone.LIGHT),
+    TEAL(ThemeTone.LIGHT),
+    NINETIES(ThemeTone.LIGHT),
+    SYNTHWAVE(ThemeTone.DARK),
+    MIDNIGHT(ThemeTone.DARK),
+    FOREST(ThemeTone.DARK);
 
     companion object {
         val DEFAULT = SAFFRON
@@ -38,6 +48,14 @@ internal data class ThemeColors(
     val canvasVoidArgb: Int,
 )
 
+/** Tone-level error roles; dark surfaces need a lighter error than light ones. */
+internal data class ErrorColors(
+    val errorArgb: Int,
+    val onErrorArgb: Int,
+    val errorContainerArgb: Int,
+    val onErrorContainerArgb: Int,
+)
+
 internal object ThemeColorPolicy {
 
     fun colors(theme: AppTheme): ThemeColors = when (theme) {
@@ -45,10 +63,21 @@ internal object ThemeColorPolicy {
         AppTheme.CORAL -> CORAL_COLORS
         AppTheme.VIOLET -> VIOLET_COLORS
         AppTheme.TEAL -> TEAL_COLORS
+        AppTheme.NINETIES -> NINETIES_COLORS
+        AppTheme.SYNTHWAVE -> SYNTHWAVE_COLORS
+        AppTheme.MIDNIGHT -> MIDNIGHT_COLORS
+        AppTheme.FOREST -> FOREST_COLORS
+    }
+
+    /** Shared error roles per tone: Material's baseline, contrast-verified per palette. */
+    fun errorColors(tone: ThemeTone): ErrorColors = when (tone) {
+        ThemeTone.LIGHT -> LIGHT_ERROR_COLORS
+        ThemeTone.DARK -> DARK_ERROR_COLORS
     }
 
     private val ON_STRONG_ACCENT = 0xFFFFFFFF.toInt()
     private val NEUTRAL_CANVAS_VOID = 0xFFB8B2AA.toInt()
+    private val NEUTRAL_CANVAS_VOID_DARK = 0xFF171717.toInt()
     private val SAFFRON_ON_SURFACE = 0xFF241F18.toInt()
     private val SAFFRON_SURFACE_VARIANT = 0xFFF1E6D4.toInt()
     private val CORAL_ON_SURFACE = 0xFF26191B.toInt()
@@ -144,5 +173,107 @@ internal object ThemeColorPolicy {
         outlineArgb = 0xFF62716D.toInt(),
         outlineVariantArgb = 0xFFBCCBC7.toInt(),
         canvasVoidArgb = NEUTRAL_CANVAS_VOID,
+    )
+
+    private val NINETIES_COLORS = ThemeColors(
+        primaryArgb = 0xFFC1276B.toInt(),
+        onPrimaryArgb = ON_STRONG_ACCENT,
+        primaryContainerArgb = 0xFFFFD23F.toInt(),
+        onPrimaryContainerArgb = 0xFF3D2C00.toInt(),
+        secondaryArgb = 0xFF00727B.toInt(),
+        onSecondaryArgb = ON_STRONG_ACCENT,
+        secondaryContainerArgb = 0xFF9EE8E0.toInt(),
+        onSecondaryContainerArgb = 0xFF002F33.toInt(),
+        backgroundArgb = 0xFFFFF8EC.toInt(),
+        onBackgroundArgb = 0xFF2A1E33.toInt(),
+        surfaceArgb = 0xFFFFFCF5.toInt(),
+        onSurfaceArgb = 0xFF2A1E33.toInt(),
+        surfaceVariantArgb = 0xFFF3E3F0.toInt(),
+        onSurfaceVariantArgb = 0xFF584463.toInt(),
+        surfaceContainerArgb = 0xFFF7EBD8.toInt(),
+        surfaceContainerHighArgb = 0xFFF3E3F0.toInt(),
+        outlineArgb = 0xFF78657F.toInt(),
+        outlineVariantArgb = 0xFFD3C3DA.toInt(),
+        canvasVoidArgb = NEUTRAL_CANVAS_VOID,
+    )
+
+    private val SYNTHWAVE_COLORS = ThemeColors(
+        primaryArgb = 0xFFFF71CE.toInt(),
+        onPrimaryArgb = 0xFF3A0026.toInt(),
+        primaryContainerArgb = 0xFF6E1E5C.toInt(),
+        onPrimaryContainerArgb = 0xFFFFD6EF.toInt(),
+        secondaryArgb = 0xFF01CDFE.toInt(),
+        onSecondaryArgb = 0xFF00303D.toInt(),
+        secondaryContainerArgb = 0xFF0C4356.toInt(),
+        onSecondaryContainerArgb = 0xFFBAEFFF.toInt(),
+        backgroundArgb = 0xFF120A2E.toInt(),
+        onBackgroundArgb = 0xFFEDE6FF.toInt(),
+        surfaceArgb = 0xFF1B0F3B.toInt(),
+        onSurfaceArgb = 0xFFEDE6FF.toInt(),
+        surfaceVariantArgb = 0xFF33205C.toInt(),
+        onSurfaceVariantArgb = 0xFFC9B4EC.toInt(),
+        surfaceContainerArgb = 0xFF251548.toInt(),
+        surfaceContainerHighArgb = 0xFF33205C.toInt(),
+        outlineArgb = 0xFF9A86CC.toInt(),
+        outlineVariantArgb = 0xFF4A3575.toInt(),
+        canvasVoidArgb = NEUTRAL_CANVAS_VOID_DARK,
+    )
+
+    private val MIDNIGHT_COLORS = ThemeColors(
+        primaryArgb = 0xFFA3BFFA.toInt(),
+        onPrimaryArgb = 0xFF0F1D3D.toInt(),
+        primaryContainerArgb = 0xFF324A75.toInt(),
+        onPrimaryContainerArgb = 0xFFDEE6FF.toInt(),
+        secondaryArgb = 0xFF8FD4B4.toInt(),
+        onSecondaryArgb = 0xFF0E2F23.toInt(),
+        secondaryContainerArgb = 0xFF234A3B.toInt(),
+        onSecondaryContainerArgb = 0xFFD2F1DF.toInt(),
+        backgroundArgb = 0xFF0F141D.toInt(),
+        onBackgroundArgb = 0xFFDFE4F2.toInt(),
+        surfaceArgb = 0xFF151B27.toInt(),
+        onSurfaceArgb = 0xFFDFE4F2.toInt(),
+        surfaceVariantArgb = 0xFF273142.toInt(),
+        onSurfaceVariantArgb = 0xFFB3BDD4.toInt(),
+        surfaceContainerArgb = 0xFF1C2331.toInt(),
+        surfaceContainerHighArgb = 0xFF273142.toInt(),
+        outlineArgb = 0xFF8490A8.toInt(),
+        outlineVariantArgb = 0xFF3A4459.toInt(),
+        canvasVoidArgb = NEUTRAL_CANVAS_VOID_DARK,
+    )
+
+    private val FOREST_COLORS = ThemeColors(
+        primaryArgb = 0xFFA2D47A.toInt(),
+        onPrimaryArgb = 0xFF17300B.toInt(),
+        primaryContainerArgb = 0xFF33511F.toInt(),
+        onPrimaryContainerArgb = 0xFFDFF0C6.toInt(),
+        secondaryArgb = 0xFFE0B45E.toInt(),
+        onSecondaryArgb = 0xFF3A2705.toInt(),
+        secondaryContainerArgb = 0xFF59431C.toInt(),
+        onSecondaryContainerArgb = 0xFFF7E3B5.toInt(),
+        backgroundArgb = 0xFF0F1710.toInt(),
+        onBackgroundArgb = 0xFFDEE8DC.toInt(),
+        surfaceArgb = 0xFF16201A.toInt(),
+        onSurfaceArgb = 0xFFDEE8DC.toInt(),
+        surfaceVariantArgb = 0xFF28362B.toInt(),
+        onSurfaceVariantArgb = 0xFFB6C7B4.toInt(),
+        surfaceContainerArgb = 0xFF1D2A22.toInt(),
+        surfaceContainerHighArgb = 0xFF28362B.toInt(),
+        outlineArgb = 0xFF8A9C88.toInt(),
+        outlineVariantArgb = 0xFF3D4C3F.toInt(),
+        canvasVoidArgb = NEUTRAL_CANVAS_VOID_DARK,
+    )
+
+    private val LIGHT_ERROR_COLORS = ErrorColors(
+        errorArgb = 0xFFB3261E.toInt(),
+        onErrorArgb = 0xFFFFFFFF.toInt(),
+        errorContainerArgb = 0xFFF9DEDC.toInt(),
+        onErrorContainerArgb = 0xFF410E0B.toInt(),
+    )
+
+    private val DARK_ERROR_COLORS = ErrorColors(
+        errorArgb = 0xFFF2B8B5.toInt(),
+        onErrorArgb = 0xFF601410.toInt(),
+        errorContainerArgb = 0xFF8C1D18.toInt(),
+        onErrorContainerArgb = 0xFFF9DEDC.toInt(),
     )
 }

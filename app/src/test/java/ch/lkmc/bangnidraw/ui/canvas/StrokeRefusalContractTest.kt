@@ -81,6 +81,8 @@ class StrokeRefusalContractTest {
         const val NOTICE_REVISION = "strokeLayerNoticeRevision += 1"
 
         /** The next class member after the one under test, at member indent. */
-        val NEXT_MEMBER = Regex("""\n    (internal |suspend |private |protected )?fun """)
+        val NEXT_MEMBER = Regex(
+            """\n    ((public |internal |protected |private |open |override |final |suspend |inline )*)fun """,
+        )
     }
 }

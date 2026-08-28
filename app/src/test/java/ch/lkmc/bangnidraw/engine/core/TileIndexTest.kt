@@ -123,6 +123,21 @@ class TileIndexTest {
     }
 
     @Test
+    fun `visiblePages returns unique pages sampled inside the rect`() {
+        val index = TileIndex(grid)
+        index.put(TileKey(0, 0), SliceHandle.of(1, 0))
+        index.put(TileKey(1, 0), SliceHandle.of(0, 5))
+        index.put(TileKey(2, 0), SliceHandle.of(1, 9))
+        index.put(TileKey(0, 1), SliceHandle.of(2, 6))
+        val out = IntArray(grid.tileCount)
+        val count = index.visiblePages(
+            IntRect(0, 0, 768, 256), out, LongArray(grid.tileCount),
+        )
+
+        assertEquals(listOf(0, 1), out.copyOf(count).toList())
+    }
+
+    @Test
     fun `visibleKeys allocates nothing and reuses the caller's buffers`() {
         // The per-frame contract of `10-performance.md` §2.4. The buffers are
         // the caller's precisely so this can be true, and the test states it

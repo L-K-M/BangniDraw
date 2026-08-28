@@ -253,6 +253,7 @@ private fun CanvasContent(
     val recentScroll = rememberScrollState()
     val recentPaletteFocusRequester = remember { FocusRequester() }
     var historyReadout by remember { mutableIntStateOf(0) }
+    var historyReadoutRedo by remember { mutableStateOf(false) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
 
     // The stroke in flight. Plain vars, not Compose state: they change several
@@ -1058,13 +1059,17 @@ private fun CanvasContent(
                 ToolRail(
                 layout = layout,
                 presets = state.brushPresets,
-                paintBrushId = state.paintBrushId,
+                paintSlots = state.paintSlots,
                 eraserBrushId = state.eraserBrushId,
                 selection = state.toolSelection,
                 hapticsMode = state.hapticsMode,
-                onBrushSelected = {
+                onPaintSlotSelected = {
                     viewModel.dismissPanel()
-                    viewModel.selectBrush(it)
+                    viewModel.selectPaintSlot(it)
+                },
+                onEraserSelected = {
+                    viewModel.dismissPanel()
+                    viewModel.selectEraser()
                 },
                 onSmudgeSelected = {
                     viewModel.dismissPanel()
@@ -1121,7 +1126,14 @@ private fun CanvasContent(
                 onBack = { viewModel.handleBack(onBack) },
                 onUndo = viewModel::undo,
                 onRedo = viewModel::redo,
-                onUndoLongPress = { historyReadout++ },
+                onUndoLongPress = {
+                    historyReadoutRedo = false
+                    historyReadout++
+                },
+                onRedoLongPress = {
+                    historyReadoutRedo = true
+                    historyReadout++
+                },
                 onLayers = { viewModel.togglePanel(CanvasPanel.LAYERS) },
                 onColor = { viewModel.togglePanel(CanvasPanel.COLOR) },
                 onColorLongPress = {
@@ -1234,6 +1246,8 @@ private fun CanvasContent(
             // under the strip for a moment — the one place the history budget
             // is visible where undo is actually used. An incrementing token
             // rather than a boolean, so a repeat long-press restarts the timer.
+            // The redo button's long-press reuses the surface: it reports the
+            // redo depth instead (how many redo steps a tap would walk back).
             if (historyReadout > 0) {
                 LaunchedEffect(historyReadout) {
                     delay(HISTORY_READOUT_MS)
@@ -1249,13 +1263,21 @@ private fun CanvasContent(
                         .zIndex(CHROME_Z),
                 ) {
                     Text(
-                        text = pluralStringResource(
-                            R.plurals.canvas_history_readout,
-                            state.historySteps,
-                            state.historySteps,
-                            Formatter.formatShortFileSize(context, state.historyBytes),
-                            Formatter.formatShortFileSize(context, state.historyMaxBytes),
-                        ),
+                        text = if (historyReadoutRedo) {
+                            pluralStringResource(
+                                R.plurals.canvas_redo_readout,
+                                state.redoSteps,
+                                state.redoSteps,
+                            )
+                        } else {
+                            pluralStringResource(
+                                R.plurals.canvas_history_readout,
+                                state.historySteps,
+                                state.historySteps,
+                                Formatter.formatShortFileSize(context, state.historyBytes),
+                                Formatter.formatShortFileSize(context, state.historyMaxBytes),
+                            )
+                        },
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     )
@@ -1572,7 +1594,6 @@ private fun CanvasPanelContent(
             onDuplicate = viewModel::duplicateLayer,
             onMove = viewModel::moveLayer,
             onMergeDown = viewModel::mergeLayerDown,
-            onClear = viewModel::clearLayer,
             onRequestDialog = viewModel::requestDialog,
             onOpacityPreview = viewModel::previewLayerOpacity,
             onOpacityFinished = viewModel::finishLayerOpacity,
@@ -1604,7 +1625,9 @@ private fun CanvasPanelContent(
                 viewModel.dismissPanel()
                 viewModel.selectDishEyedropper(it)
             },
+            onDishTChanged = viewModel::setDishT,
             onTextInputFocus = onTextInputFocus,
+            onDismiss = viewModel::dismissPanel,
             hapticsMode = state.hapticsMode,
         )
         CanvasPanel.BRUSH_SETTINGS -> when (val kind = state.toolSelection.kind) {
@@ -1615,35 +1638,42 @@ private fun CanvasPanelContent(
                 paperColor = state.paperColor,
                 hapticsMode = state.hapticsMode,
                 mixerChoice = state.color.mixerChoice,
-                onPresetSelected = viewModel::selectBrush,
+                onPresetSelected = viewModel::selectBrushPreset,
                 onPresetChanged = viewModel::updateActiveBrush,
                 onPresetPersisted = viewModel::persistActiveBrush,
                 onReset = viewModel::resetActiveBrush,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Smudge -> SmudgeSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateSmudgeParams,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Water -> WaterSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateWaterParams,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Blur -> BlurSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateBlurParams,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Eyedropper -> EyedropperSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateEyedropperParams,
+                onDismiss = viewModel::dismissPanel,
             )
             is ToolKind.Fill -> FillSettingsSheet(
                 active = state.fillParams,
                 onChanged = viewModel::updateFillParams,
+                onDismiss = viewModel::dismissPanel,
             )
         }
         CanvasPanel.FILL_SETTINGS -> FillSettingsSheet(
             active = state.fillParams,
             onChanged = viewModel::updateFillParams,
+            onDismiss = viewModel::dismissPanel,
         )
         CanvasPanel.REFERENCE -> state.tracingReference?.let { reference ->
             TracingReferencePanel(
@@ -1794,6 +1824,15 @@ private fun CanvasDialogHost(
             onConfirm = {
                 viewModel.dismissDialog()
                 viewModel.mergeLayerDown(dialog.index)
+            },
+            onDismiss = viewModel::dismissDialog,
+        )
+        is CanvasDialog.ClearLayer -> ConfirmationDialog(
+            title = stringResource(R.string.layer_clear_title),
+            body = stringResource(R.string.layer_clear_body),
+            onConfirm = {
+                viewModel.dismissDialog()
+                viewModel.clearLayer(dialog.index)
             },
             onDismiss = viewModel::dismissDialog,
         )

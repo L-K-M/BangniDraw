@@ -44,6 +44,18 @@ class TracingReferenceContractTest {
         assertTrue("dismissPanel()" in removeReference)
     }
 
+    @Test
+    fun `failed reference decode preserves the committed asset`() {
+        val viewModel = File(repositoryRoot(), VIEW_MODEL_PATH).readText()
+        val streamReference = viewModel
+            .substringAfter("private suspend fun streamTracingReference(")
+            .substringBefore("private companion object")
+
+        assertFalse("applyTracingReference(null)" in streamReference)
+        assertFalse("dismissPanel()" in streamReference)
+        assertTrue("showReferenceNotice(R.string.err_reference_unreadable)" in streamReference)
+    }
+
     private fun repositoryRoot(): File {
         val workingDirectory = File(
             requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),

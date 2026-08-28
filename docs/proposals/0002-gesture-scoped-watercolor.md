@@ -101,6 +101,11 @@ and colour fields once. There is no background pass and no pen-up settling.
   specialty and Chinese Ink strokes. Watercolor itself requires the Standard
   brush model because its direct path does not consume tuft or bristle state.
 - Water is layer-local. Switching tools or layers keeps it alive.
+- Live wet cells on the active layer show a faint blue sheen that fades over
+  time with their stored amount: half a water unit lasts about 12 seconds,
+  one unit about 24 seconds, and both full reservoirs at most 48 seconds.
+  The renderer overlay never enters document pixels, thumbnails, exports,
+  or history.
 - The full rail exposes Water directly. Compact layouts show Brush, Eraser,
   Smudge, Water, Fill, and More; More contains Blur and Eyedropper.
 - Watercolor settings expose Water, Spread, Granulation, and Edge darkening.
@@ -127,15 +132,25 @@ physical slices from the shared `TilePool`; one slice therefore covers
 
 The G/B tick is a lazy age stamp, not a step counter. Each processed batch
 samples the renderer's monotonic clock, quantized to 100 ms. Sampling a cell
-multiplies its water and saturation by
-`clamp(1 - ageTicks / 120, 0, 1)`, giving a 12 second lifetime.
+removes a fixed volume from the combined surface and absorbed reservoirs:
+
+`remaining = max(R + A - ageTicks / 240, 0)`
+
+R and A retain their ratio while scaling to `remaining`. Thus absorption
+does not change total drying time. Half a water unit lasts about 12 seconds,
+one unit about 24 seconds, and the maximum R+A value of two lasts 48 seconds.
 
 Each physical wet page also carries a full-width monotonic
-`updatedAtNanos`. At the next wet gesture, pages untouched for 12 seconds are
-released to the shared pool. A 16-bit tick wraps after about 109 minutes; an
-epoch change first prunes expired pages, then age-only re-encodes live wet
-pages and the active backup at the new tick. The epoch advances only after a
-complete rebase, so wrapped values cannot be treated as fresh.
+`updatedAtNanos`. The presentation refresh releases pages untouched for
+48 seconds after retaining their final dirty region. Wet texels stay
+GPU-authoritative, so this conservative deadline applies to every page;
+lighter cells may fade before their page's 10 Hz refresh stops. A 16-bit tick
+wraps after about 109 minutes; an epoch change age-only re-encodes wet pages
+and the active backup before the same refresh prunes expired pages. The epoch
+advances only after a complete rebase, so wrapped values cannot appear fresh.
+
+While wet tiles exist, a 100 ms presentation clock redraws the fading sheen.
+It only presents the lazy timestamp state; it performs no diffusion or settling.
 
 This is time-aware but not frame-rate deterministic. Batches processed at
 different times can see different remaining wetness, and more accepted dabs
@@ -217,8 +232,8 @@ disabled, as for other RMW tools.
 
 A zero-flow dab is ignored. Water with zero effective water is also ignored.
 Blank Water over transparent colour updates wet state only: it allocates no
-colour tile, reports no colour dirtiness, and creates no history entry. Later
-pigment can still react to that wet state.
+colour tile and creates no history entry. It reports presentation damage so
+the wet sheen appears. Later pigment can still react to that wet state.
 
 ### History and lifecycle
 
@@ -263,8 +278,8 @@ overwrite colour.
 
 JVM tests cover:
 
-- tick encoding, negative monotonic origins, wrap, 12 second expiry, and page
-  reclamation;
+- tick encoding, negative monotonic origins, wrap, amount-based evaporation,
+  48 second maximum expiry, and page reclamation;
 - bounded wet diffusion, source bloom, absorption, and paper anchoring;
 - premultiplied colour flow, clear-water non-creation, Mixbox deposition,
   granulation, rim deposition, and alpha lock;
@@ -272,6 +287,7 @@ JVM tests cover:
 - wet backup/cancel and edit invalidation;
 - blank-Water history semantics, preset migration, tool policies, memory
   caps, and CPU/GL shader contracts.
+- wet-overlay cue math, coarse-grid geometry, composition order, and expiry.
 
 Manual device acceptance remains pending. It must cover wet-on-wet colour
 mixing, dry-colour transport, four-tile seams, cancel and undo, layer
@@ -282,7 +298,10 @@ TalkBack, and GL errors on the lowest supported device class.
 
 - Watercolor interaction fits GLES 3.0 without a new dependency, permission,
   source import, or asset.
-- Idle canvases consume no frames and never change pixels after pen-up.
+- Unallocated dry canvases consume no frames. A wet page refreshes its cue at
+  10 Hz for up to 48 seconds, with one retry after a failed presentation.
+  Low-volume cells may fade before that conservative deadline. The overlay
+  never changes document pixels.
 - Wetness is intentionally transient. Undo, reopen, and context loss resume
   from dry persisted colour.
 - Quarter-resolution water and one diffusion step per dab are visible

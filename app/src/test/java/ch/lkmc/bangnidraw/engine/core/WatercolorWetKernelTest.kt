@@ -18,6 +18,23 @@ class WatercolorWetKernelTest {
     }
 
     @Test
+    fun `lazy age removes a fixed amount across both reservoirs`() {
+        val result = WatercolorWetKernel.step(
+            center = cell(surfaceWater = 0.75f, saturation = 0.25f),
+            neighbors = dryNeighbors(),
+            parameters = parameters(
+                spread = 0f,
+                flowMask = 0f,
+                nowTick = WatercolorKernel.FULL_LOAD_DRY_TICKS / 2,
+                mode = WatercolorWetKernel.Mode.AGE_ONLY,
+            ),
+        )
+
+        assertEquals(0.375f, result.surfaceWater, EPSILON)
+        assertEquals(0.125f, result.saturation, EPSILON)
+    }
+
+    @Test
     fun `lazy age decays water and saturation across tick wrap`() {
         val result = WatercolorWetKernel.step(
             center = cell(surfaceWater = 0.8f, updatedTick = 65_534, saturation = 0.6f),
@@ -28,10 +45,11 @@ class WatercolorWetKernelTest {
                 nowTick = 1,
             ),
         )
-        val retention = 1f - 3f / WatercolorKernel.DRY_TICKS
+        val totalWater = 0.8f + 0.6f
+        val scale = (totalWater - 3f / WatercolorKernel.FULL_LOAD_DRY_TICKS) / totalWater
 
-        assertEquals(0.8f * retention, result.surfaceWater, EPSILON)
-        assertEquals(0.6f * retention, result.saturation, EPSILON)
+        assertEquals(0.8f * scale, result.surfaceWater, EPSILON)
+        assertEquals(0.6f * scale, result.saturation, EPSILON)
         assertEquals(1, WatercolorWetKernel.decodeTick(result.tickHigh, result.tickLow))
     }
 
@@ -112,15 +130,17 @@ class WatercolorWetKernelTest {
             parameters = parameters(
                 waterLoad = 1f,
                 paperRelief = 0f,
-                nowTick = WatercolorKernel.DRY_TICKS / 2,
+                nowTick = WatercolorKernel.FULL_LOAD_DRY_TICKS / 2,
                 mode = WatercolorWetKernel.Mode.AGE_ONLY,
             ),
         )
+        val totalWater = 0.8f + 0.6f
+        val scale = (totalWater - 0.5f) / totalWater
 
-        assertEquals(0.4f, result.surfaceWater, EPSILON)
-        assertEquals(0.3f, result.saturation, EPSILON)
+        assertEquals(0.8f * scale, result.surfaceWater, EPSILON)
+        assertEquals(0.6f * scale, result.saturation, EPSILON)
         assertEquals(
-            WatercolorKernel.DRY_TICKS / 2,
+            WatercolorKernel.FULL_LOAD_DRY_TICKS / 2,
             WatercolorWetKernel.decodeTick(result.tickHigh, result.tickLow),
         )
     }
@@ -143,12 +163,13 @@ class WatercolorWetKernelTest {
                 mode = WatercolorWetKernel.Mode.EPOCH_REBASE,
             ),
         )
-        val retention = 1f - 3f / WatercolorKernel.DRY_TICKS
+        val totalWater = 0.8f + 0.6f
+        val scale = (totalWater - 3f / WatercolorKernel.FULL_LOAD_DRY_TICKS) / totalWater
 
         assertEquals(0f, stale.surfaceWater, EPSILON)
         assertEquals(0f, stale.saturation, EPSILON)
-        assertEquals(0.8f * retention, recent.surfaceWater, EPSILON)
-        assertEquals(0.6f * retention, recent.saturation, EPSILON)
+        assertEquals(0.8f * scale, recent.surfaceWater, EPSILON)
+        assertEquals(0.6f * scale, recent.saturation, EPSILON)
     }
 
     @Test

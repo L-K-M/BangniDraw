@@ -55,7 +55,8 @@ internal object WatercolorShaders {
         #define TICK_CHANNEL_MAX ${WatercolorKernel.CHANNEL_MAX}
         #define TICK_RADIX ${WatercolorKernel.TICK_RADIX}
         #define TICK_MODULUS ${WatercolorKernel.TICK_MODULUS}
-        #define DRY_TICKS ${WatercolorKernel.DRY_TICKS}
+        #define FULL_LOAD_DRY_TICKS ${WatercolorKernel.FULL_LOAD_DRY_TICKS}
+        #define MAX_DRY_TICKS ${WatercolorKernel.MAX_DRY_TICKS}
         uniform sampler2D u_before;
         uniform vec2 u_wetOrigin;
         uniform vec2 u_wetTexel;
@@ -93,15 +94,23 @@ internal object WatercolorShaders {
             return vec2(high, low) / float(TICK_CHANNEL_MAX);
         }
 
-        float ageFactor(vec4 state) {
+        vec2 ageWater(vec4 state) {
             float updatedTick = decodeTick(state);
             float age = u_epochRollover && updatedTick <= u_nowTick
-                ? float(DRY_TICKS)
+                ? float(MAX_DRY_TICKS)
                 : mod(
                     u_nowTick - updatedTick + float(TICK_MODULUS),
                     float(TICK_MODULUS)
                 );
-            return clamp(1.0 - age / float(DRY_TICKS), 0.0, 1.0);
+            vec2 water = state.ra;
+            float total = water.x + water.y;
+            if (total <= 0.0) return vec2(0.0);
+
+            float remaining = max(
+                total - age / float(FULL_LOAD_DRY_TICKS),
+                0.0
+            );
+            return water * (remaining / total);
         }
 
         vec4 sampleState(vec2 uv) {
@@ -110,7 +119,7 @@ internal object WatercolorShaders {
 
         float sampleWet(vec2 uv) {
             vec4 state = sampleState(uv);
-            return state.r * ageFactor(state);
+            return ageWater(state).x;
         }
 
         float wetCoverageMask(vec2 canvas, vec4 dab, vec2 tip) {
@@ -136,10 +145,10 @@ internal object WatercolorShaders {
             vec2 wetUv = v_uv * u_wetScale;
             vec4 previous = sampleState(wetUv);
             vec2 stamp = encodeTick(u_nowTick);
+            vec2 agedPrevious = ageWater(previous);
             if (u_ageOnly) {
-                float age = ageFactor(previous);
                 o_color = vec4(
-                    previous.r * age, stamp.x, stamp.y, previous.a * age
+                    agedPrevious.x, stamp.x, stamp.y, agedPrevious.y
                 );
                 return;
             }
@@ -168,7 +177,7 @@ internal object WatercolorShaders {
             float diffusion = 4.0 * MAX_WATER_DIFFUSION * u_spread * flowMask;
             float wet = clamp(center + diffusion * (average - center), 0.0, 1.0);
 
-            float saturation = previous.a * ageFactor(previous);
+            float saturation = agedPrevious.y;
             float paperPocket = 1.0 - proceduralPaper(canvas);
             float paperCapacity = PAPER_CAPACITY_MIN + PAPER_CAPACITY_RANGE * paperPocket;
             float paperAbsorption = PAPER_ABSORPTION_MIN + PAPER_ABSORPTION_RANGE * paperPocket;
@@ -257,6 +266,22 @@ internal object WatercolorShaders {
             return texture(u_before, uv);
         }
 
+        float paperMobility(vec2 canvas) {
+            return mix(
+                1.0,
+                PAPER_MOBILITY_MIN + PAPER_MOBILITY_RANGE * proceduralPaper(canvas),
+                u_granulation
+            );
+        }
+
+        float pigmentDeposit(vec2 canvas) {
+            float dabMask = waterMask(canvas, u_dab, u_tip);
+            float radius = waterDistance(canvas, u_dab, u_tip) / max(u_dab.z, 1.0);
+            float rim = smoothstep(RIM_INNER_RADIUS, RIM_OUTER_RADIUS, radius) * dabMask;
+            return clamp(u_strength * dabMask * paperMobility(canvas) *
+                (1.0 + RIM_DEPOSIT_GAIN * u_edgeDarkening * rim), 0.0, 1.0);
+        }
+
         vec4 mixPigment(vec4 center, vec4 average, float t) {
             float alpha = mix(center.a, average.a, t);
             if (alpha <= ${SmudgeKernel.ALPHA_EPSILON}) return vec4(0.0);
@@ -305,7 +330,7 @@ internal object WatercolorShaders {
             float spreadPx = min(u_dab.z * u_spread * SPREAD_RADIUS_FRACTION, float(MAX_WATER_SPREAD_PX));
             float flowRadius = u_dab.z + spreadPx;
             float flowMask = waterMask(canvas, vec4(u_dab.xy, flowRadius, u_dab.w), u_tip);
-            float paper = mix(1.0, PAPER_MOBILITY_MIN + PAPER_MOBILITY_RANGE * proceduralPaper(canvas), u_granulation);
+            float paper = paperMobility(canvas);
             float t = min(${WatercolorKernel.MAX_DIFFUSION},
                 (wetState.r + wetState.a * ABSORBED_FLOW_WEIGHT) * u_spread * flowMask * paper);
             vec4 flowed = mixPigment(center, average, t);
@@ -316,14 +341,13 @@ internal object WatercolorShaders {
                 flowed = vec4(straight * center.a, center.a);
             }
 
-            float dabMask = waterMask(canvas, u_dab, u_tip);
-            float normalizedRadius = waterDistance(canvas, u_dab, u_tip) / max(u_dab.z, 1.0);
-            float rim = smoothstep(RIM_INNER_RADIUS, RIM_OUTER_RADIUS, normalizedRadius) * dabMask;
-            float deposit = clamp(
-                u_strength * dabMask * paper * (1.0 + RIM_DEPOSIT_GAIN * u_edgeDarkening * rim),
-                0.0,
-                1.0
-            );
+            float neighborDeposit = (
+                pigmentDeposit(canvas + vec2(1.0, 0.0)) +
+                pigmentDeposit(canvas - vec2(1.0, 0.0)) +
+                pigmentDeposit(canvas + vec2(0.0, 1.0)) +
+                pigmentDeposit(canvas - vec2(0.0, 1.0))
+            ) * 0.25;
+            float deposit = mix(pigmentDeposit(canvas), neighborDeposit, t);
             vec4 result = u_depositMode == PIGMENT_DEPOSIT
                 ? depositPigment(flowed, deposit) : flowed;
             float alpha = clamp(result.a, 0.0, 1.0);

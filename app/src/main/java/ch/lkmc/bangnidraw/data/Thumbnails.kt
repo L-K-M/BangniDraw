@@ -85,9 +85,11 @@ internal object Thumbnails {
                 val store = TileStore(layerDirFor(layer.id))
                 for (key in layer.tiles) {
                     val pixels = (store.read(key) as? TileStore.Read.Pixels)?.pixels ?: continue
-                    // Both sides are premultiplied ARGB_8888, so the copy is
-                    // byte-for-byte (03 §2.4).
-                    tile.copyPixelsFromBuffer(ByteBuffer.wrap(pixels))
+                    // Tiles are GL-order RGBA; Bitmap's packed ARGB bytes use
+                    // the device's native channel order.
+                    PixelChannelOrder.withArgb8888Bytes(pixels) { bitmapPixels ->
+                        tile.copyPixelsFromBuffer(ByteBuffer.wrap(bitmapPixels))
+                    }
                     val rect = document.grid.tileRect(key)
                     val src = Rect(0, 0, rect.width, rect.height)
                     val dst = RectF(

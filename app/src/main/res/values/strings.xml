@@ -74,6 +74,7 @@
     <string name="paper_black">Black paper</string>
     <string name="paper_transparent">Transparent paper</string>
     <string name="paper_transparent_symbol" translatable="false">∅</string>
+    <string name="paper_transparent_hint">Exports with a see-through background. JPEG fills it white; PNG keeps it transparent.</string>
 
     <!-- Canvas -->
     <string name="canvas_back">Back to the Studio</string>
@@ -88,12 +89,18 @@
     <string name="panel_blur_opened">Blur settings opened</string>
     <string name="panel_water_opened">Water settings opened</string>
     <string name="panel_eyedropper_opened">Eyedropper settings opened</string>
+    <string name="panel_close">Close panel</string>
     <string name="canvas_undo">Undo</string>
     <string name="canvas_redo">Redo</string>
+    <string name="cd_history_readout">Show history details</string>
     <string name="canvas_more">More actions</string>
     <plurals name="canvas_history_readout">
         <item quantity="one">Undo history: %1$d step · %2$s of %3$s</item>
         <item quantity="other">Undo history: %1$d steps · %2$s of %3$s</item>
+    </plurals>
+    <plurals name="canvas_redo_readout">
+        <item quantity="one">Redo: %1$d step</item>
+        <item quantity="other">Redo: %1$d steps</item>
     </plurals>
     <string name="cd_unavailable">Unavailable</string>
     <string name="canvas_export_png">Export PNG</string>
@@ -282,6 +289,8 @@
     <string name="layer_rename_hint">Layer name</string>
     <string name="layer_merge_title">Merge these layers?</string>
     <string name="layer_merge_body">Their blend modes will be baked into a Normal layer.</string>
+    <string name="layer_clear_title">Clear this layer?</string>
+    <string name="layer_clear_body">The layer’s pixels will be removed. You can undo this.</string>
     <plurals name="layer_flatten_title">
         <item quantity="one">Flatten %1$d layer?</item>
         <item quantity="other">Flatten %1$d layers?</item>
@@ -293,6 +302,7 @@
     </plurals>
     <string name="layer_only">Can’t delete the only layer — clear it instead.</string>
     <string name="layer_locked">Layer is locked.</string>
+    <string name="canvas_busy">Hold on — the last change is still settling.</string>
     <string name="layer_hidden">Layer is hidden. Your stroke is still added.</string>
     <string name="layer_hidden_partner">Show both layers to merge.</string>
     <string name="layer_no_below">There is no layer below.</string>

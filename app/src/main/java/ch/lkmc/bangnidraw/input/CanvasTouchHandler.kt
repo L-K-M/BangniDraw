@@ -546,6 +546,19 @@ class CanvasTouchHandler(
         navIds[1] = NO_POINTER
     }
 
+    /**
+     * API 33 palm rejection marks a lift with [MotionEvent.FLAG_CANCELED]
+     * instead of sending [MotionEvent.ACTION_CANCEL]. Both must roll back the
+     * whole stroke before the lifting sample can reach the document.
+     */
+    internal fun handlePlatformCancellation(flags: Int, apiLevel: Int, timeNs: Long): Boolean {
+        if (apiLevel < Build.VERSION_CODES.TIRAMISU) return false
+        if (flags and MotionEvent.FLAG_CANCELED == 0) return false
+
+        handleCancel(timeNs)
+        return true
+    }
+
     /** Drives the pending window and the long press when no event arrives. */
     internal fun handleTick(timeNs: Long) = arbiter.tick(timeNs, decisions)
 
@@ -944,9 +957,11 @@ class CanvasTouchHandler(
      */
     override fun onTouch(v: View?, event: MotionEvent?): Boolean {
         val e = event ?: return false
+        val timeNs = e.eventTime * 1_000_000L
+        if (handlePlatformCancellation(e.flags, Build.VERSION.SDK_INT, timeNs)) return true
+
         val index = e.actionIndex
         val id = e.getPointerId(index)
-        val timeNs = e.eventTime * 1_000_000L
         // §8: one predictor per surface, recreated with it. `v` is the
         // SurfaceView the session draws into, so building it from here means
         // nothing has to be plumbed through the composable that owns both.

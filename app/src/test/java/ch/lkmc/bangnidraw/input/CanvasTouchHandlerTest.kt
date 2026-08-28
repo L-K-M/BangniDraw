@@ -1,5 +1,7 @@
 package ch.lkmc.bangnidraw.input
 
+import android.os.Build
+import android.view.MotionEvent
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.GestureArbiter
@@ -191,6 +193,25 @@ class CanvasTouchHandlerTest {
 
         h.handleCancel(ms(50))
         assertTrue(host.events.contains("nav-"), "cancel must end navigation for the host: ${host.events}")
+    }
+
+    @Test
+    fun `a platform-cancelled lift cancels instead of ending the stroke`() {
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(7, PointerTool.STYLUS, 100f, 100f, ms(0))
+        host.events.clear()
+
+        assertTrue(
+            h.handlePlatformCancellation(
+                MotionEvent.FLAG_CANCELED,
+                Build.VERSION_CODES.TIRAMISU,
+                ms(1),
+            ),
+        )
+        h.handleUp(7, ms(2))
+
+        assertEquals(listOf("cancel"), host.events)
     }
 
     @Test

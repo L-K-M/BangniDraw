@@ -101,6 +101,27 @@ class CanvasRendererGeometryContractTest {
     }
 
     @Test
+    fun `cached rendering shows the reference beyond the canvas over the void`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+        val composite = section(source, COMPOSITE_START, COMPOSITE_END)
+
+        val paper = composite.indexOf(PAPER_CALL)
+        val voidReference = composite.indexOf(REFERENCE_VOID_CALL)
+        val below = composite.indexOf(BELOW_CACHE_DRAW)
+
+        assertTrue(paper >= 0, "the compositor must draw its paper")
+        assertTrue(
+            voidReference > paper,
+            "the void pass must follow the void clear inside the paper draw",
+        )
+        assertTrue(
+            voidReference in 0 until below,
+            "the void pass must draw before the below cache so baked tiles stay " +
+                "the only in-canvas copy of the reference",
+        )
+    }
+
+    @Test
     fun `cached tracing reference writes source top into tile row zero`() {
         val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
 
@@ -283,6 +304,8 @@ class CanvasRendererGeometryContractTest {
             "private val referenceTileProjection = Mat4.orthoYDown("
         const val PAPER_CALL = "drawPaper(screenTransform, bakedIntoBelow = useSandwich)"
         const val REFERENCE_CALL = "drawTracingReference(pass, screenTransform, rect)"
+        const val REFERENCE_VOID_CALL = "drawReferenceAcrossVoid("
+        const val BELOW_CACHE_DRAW = "readyCache.below, BlendMode.NORMAL"
         const val LAYER_LOOP = "for (i in current.layers.indices)"
         const val ACTIVE_LAYER_CALL =
             "drawLayer(pass, current.activeIndex, current, screenTransform, rect, previewSpec)"

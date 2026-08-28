@@ -209,7 +209,15 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - Tracing references are private project assets, not paint. They reserve one
   layer of tile budget, render in `SandwichCache.Below` above paper, and never
   enter thumbnails, flatten, gallery sync, sharing, export, or painting undo.
-  The cached reference base draws into tile-array FBOs, where logical y = 0
+  The reference is **not canvas-bounded**: enlarged or dragged past the canvas
+  border it keeps drawing over the void (`drawReferenceAcrossVoid`), matching
+  the direct composite that has never clipped it. The void pass scissorses
+  four rect bands around the canvas instead of drawing unclipped, because an
+  unclipped draw would composite the reference a second time inside the
+  canvas wherever Below is transparent (transparent paper), and rect bands
+  cannot cut a rotated hole — a freely rotated view keeps the clip while
+  snapped right angles stay exact. Do not "simplify" the bands away without
+  solving the transparent-paper double draw. The cached reference base draws into tile-array FBOs, where logical y = 0
   must land in GL row zero; its tile projection is therefore `orthoYUp`.
   `orthoYDown` flips each 256 px strip even though the direct viewport path
   looks correct.

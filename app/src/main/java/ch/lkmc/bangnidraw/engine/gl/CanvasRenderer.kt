@@ -51,6 +51,7 @@ import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
 import ch.lkmc.bangnidraw.engine.core.WatercolorOverlayKernel
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxLut
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxShaderSource
+import kotlin.math.abs
 
 /**
  * Frame orchestration: the GL-thread half of a canvas
@@ -1643,6 +1644,7 @@ class CanvasRenderer(
         drawPaper(screenTransform, bakedIntoBelow = useSandwich)
 
         if (readyCache != null) {
+            drawReferenceAcrossVoid(pass, screenTransform, accumScissor)
             pass.draw(
                 readyCache.below, BlendMode.NORMAL, 1f, screenTransform, projection, identity,
                 rect, scratch.texture,
@@ -2011,6 +2013,115 @@ class CanvasRenderer(
         )
     }
 
+    /**
+     * Draws the reference over the canvas void, beyond the canvas border.
+     *
+     * `SandwichCache.Below` bakes the reference into canvas tiles, so a
+     * reference enlarged past the canvas border would visibly stop growing —
+     * nothing outside the paper exists to show it, while the direct composite
+     * (no sandwich) draws it unclipped and the two paths disagree. This pass
+     * draws the same tiles over the void, scissored to the four bands around
+     * the canvas, which keeps the baked tiles the only in-canvas copy: an
+     * unclipped full draw would composite the reference twice inside the
+     * canvas wherever Below is transparent (transparent paper).
+     *
+     * Freely rotated views keep the clip: the canvas is not axis-aligned on
+     * screen there, and rect scissor bands cannot cut a rotated hole. Right
+     * angles — the snapped default — are axis-aligned by construction.
+     */
+    private fun drawReferenceAcrossVoid(
+        pass: CompositePass,
+        screenTransform: ScreenTransform,
+        accumScissor: IntRect?,
+    ) {
+        val reference = tracingReference ?: return
+        if (reference.visibility != ReferenceVisibility.VISIBLE || reference.opacity <= 0f) return
+        val textures = referenceTextures?.layer ?: return
+
+        // Fitted inside the canvas: Below's bake already owns every pixel.
+        val imageBounds = reference.transform.imageCanvasBounds(
+            reference.imageWidth,
+            reference.imageHeight,
+        )
+        if (imageBounds.isEmpty) return
+        if (
+            imageBounds.left >= 0 && imageBounds.top >= 0 &&
+            imageBounds.right <= canvas.width && imageBounds.bottom <= canvas.height
+        ) return
+
+        // Axis-aligned view, or no exact bands exist to scissor.
+        if (
+            abs(screenTransform.a) >= AXIS_ALIGNED_EPS &&
+            abs(screenTransform.b) >= AXIS_ALIGNED_EPS
+        ) return
+
+        val canvasScreen = screenTransform.rawScreenBoundsOf(fullCanvasRect)
+        if (canvasScreen.isEmpty) return
+
+        // The whole viewport selects the tiles: the visible reference beyond
+        // the border is exactly what the canvas-clipped selection would drop.
+        val destination = screenTransform.rawCanvasBoundsOf(viewportWidth, viewportHeight)
+        val sourceRect = reference.transform.sourceBoundsOf(
+            destination = destination,
+            sourceWidth = reference.imageWidth,
+            sourceHeight = reference.imageHeight,
+        )
+        if (sourceRect.isEmpty) return
+
+        val clipLeft = accumScissor?.left ?: 0
+        val clipTop = accumScissor?.top ?: 0
+        val clipRight = accumScissor?.right ?: viewportWidth
+        val clipBottom = accumScissor?.bottom ?: viewportHeight
+
+        // The four window-px bands around the canvas: the side bands span the
+        // clip's full height, the top/bottom bands sit between them, so the
+        // four rects tile the void without overlapping the canvas or each
+        // other. Front frames pass their damage rect as the clip.
+        //
+        //   ┌─────────────────┐
+        //   │       top       │
+        //   ├───┬─────────┬───┤
+        //   │ L │ canvas  │ R │
+        //   ├───┴─────────┴───┤
+        //   │      bottom     │
+        //   └─────────────────┘
+        val midLeft = maxOf(canvasScreen.left, clipLeft)
+        val midRight = minOf(canvasScreen.right, clipRight)
+        val bands = arrayOf(
+            IntRect(clipLeft, clipTop, minOf(canvasScreen.left, clipRight), clipBottom),
+            IntRect(maxOf(canvasScreen.right, clipLeft), clipTop, clipRight, clipBottom),
+            IntRect(midLeft, clipTop, midRight, minOf(canvasScreen.top, clipBottom)),
+            IntRect(midLeft, maxOf(canvasScreen.bottom, clipTop), midRight, clipBottom),
+        )
+        for (band in bands) {
+            if (band.isEmpty) continue
+
+            // Accum is viewport-oriented and y-down; glScissor reads from bottom.
+            state.scissor(band.left, accum.height - band.bottom, band.width, band.height)
+            pass.drawReferenceToScreen(
+                textures = textures,
+                opacity = reference.opacity,
+                transform = reference.transform,
+                screen = screenTransform,
+                projection = projection,
+                bufferTransform = identity,
+                dirtyRect = sourceRect,
+            )
+        }
+
+        // The frame's own scissor owns every later draw in this composite.
+        if (accumScissor == null) {
+            state.scissorOff()
+        } else {
+            state.scissor(
+                accumScissor.left,
+                accum.height - accumScissor.bottom,
+                accumScissor.right - accumScissor.left,
+                accumScissor.bottom - accumScissor.top,
+            )
+        }
+    }
+
     /** Reports every reference page [drawTracingReferenceTile] may sample. */
     private fun sampleTracingReferencePages(
         key: TileKey,
@@ -2273,5 +2384,12 @@ class CanvasRenderer(
         const val CHANNEL_MASK = 0xFF
         const val CHANNEL_MAX = 255f
         const val FULL_OPACITY = 1f
+
+        /**
+         * A screen-basis coefficient below this reads as zero: the view sits
+         * at a right angle (or within ~0.006° of one), so the canvas is
+         * axis-aligned on screen and rect scissor bands cut around it exactly.
+         */
+        const val AXIS_ALIGNED_EPS = 1e-4f
     }
 }

@@ -272,6 +272,27 @@ class ScreenTransformTest {
     }
 
     @Test
+    fun `raw screen bounds keep the exact transformed rect without inflation`() {
+        val screen = ScreenTransform(a = 2f, b = 0f, tx = 10f, ty = 20f)
+
+        assertEquals(IntRect(10, 20, 30, 60), screen.rawScreenBoundsOf(IntRect(0, 0, 10, 20)))
+        assertEquals(IntRect.EMPTY, screen.rawScreenBoundsOf(IntRect.EMPTY))
+
+        // Unclamped on purpose: the caller folds these into band arithmetic
+        // around the canvas, and clamping here would swallow the bands whole.
+        val off = screen.rawScreenBoundsOf(IntRect(-100, -100, -90, -90))
+        assertEquals(IntRect(-190, -180, -170, -160), off)
+    }
+
+    @Test
+    fun `raw canvas bounds invert the viewport without clamping to the canvas`() {
+        val screen = ScreenTransform(a = 0.5f, b = 0f, tx = -100f, ty = -100f)
+
+        assertEquals(IntRect(200, 200, 2200, 1800), screen.rawCanvasBoundsOf(1000, 800))
+        assertEquals(IntRect.EMPTY, screen.rawCanvasBoundsOf(0, 800))
+    }
+
+    @Test
     fun `the filter policy follows the zoom table`() {
         // docs/plan/03-canvas-engine.md §3.4, boundaries included: the table's
         // rows are half-open upward, so 4.0 is nearest and 0.5 is one tap.

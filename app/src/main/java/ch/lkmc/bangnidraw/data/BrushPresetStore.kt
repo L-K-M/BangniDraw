@@ -4,6 +4,8 @@ import android.util.Log
 import ch.lkmc.bangnidraw.engine.core.BrushModel
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
+import ch.lkmc.bangnidraw.engine.core.BufferMode
+import ch.lkmc.bangnidraw.engine.core.Curve
 import ch.lkmc.bangnidraw.engine.core.isSafePathSegment
 import java.io.File
 import java.io.IOException
@@ -105,18 +107,39 @@ class BrushPresetStore internal constructor(
         }
     }
 
-    /** Old paintbrush overrides predate watercolor and must not mask its replacement. */
+    /**
+     * Old paintbrush overrides predate watercolor and must not mask its
+     * replacement. Like the calligraphy upgrade, the user's file keeps every
+     * tuned field; the graft only adds the wet behaviour and forces the fields
+     * its invariants require.
+     */
     private fun migrateLegacyOverride(
         preset: BrushPreset,
         current: BrushPreset?,
     ): BrushPreset {
         if (preset.id != BrushPresets.PAINTBRUSH_ID) return preset
         if (preset.watercolor != null) return preset
-        if (current?.watercolor == null) return preset
+        val replacement = current ?: return preset
+        val behavior = replacement.watercolor ?: return preset
 
-        return current
-            .withSize(preset.size)
-            .copy(flow = preset.flow)
+        return try {
+            preset.copy(
+                watercolor = behavior,
+                icon = replacement.icon,
+                eraseMode = false,
+                model = BrushModel.Standard,
+                mixing = true,
+                opacity = 1f,
+                pressureOpacity = Curve.One,
+                bufferMode = BufferMode.Accumulate,
+            )
+        } catch (e: IllegalArgumentException) {
+            // Any invariant the user's file cannot satisfy — today the size
+            // window the wet pass cannot serve (1960 < sizeMax <= 2048) —
+            // adopts the replacement with size and flow instead, and says so.
+            Log.w(TAG, "paintbrush override rejected the watercolor graft; adopting replacement", e)
+            replacement.withSize(preset.size).copy(flow = preset.flow)
+        }
     }
 
     private fun persistMigration(file: File, preset: BrushPreset) {

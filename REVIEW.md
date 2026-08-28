@@ -1772,6 +1772,26 @@ touchscreen hover too, not only a pen.
   repoints both share paths at it. Keeping the string change out of this
   PR's scope.
 
+## PR #106 — Paintbrush migration tuning (2026-08-28)
+
+- **R-106 ⏸️ Round 2, major: "`Log.w` can crash local JVM unit tests
+  exercising the fallback path."** Refuted:
+  `unitTests.isReturnDefaultValues = true` is already set
+  (`app/build.gradle.kts`), and the store's existing `Log.w` drop paths
+  run under the JVM suite today (the invalid-override test). The
+  fallback-path test is green locally and in CI.
+
+- **R-107 ⏸️ Round 3, minor: the fallback graft re-enters the
+  validating constructor with unguarded user input and can throw,
+  discarding the user's file.** Refuted: `withSize` clamps into the
+  replacement's own window (`value.coerceIn(sizeMin, sizeMax)`,
+  BrushPreset.kt), `flow` arrives 0..1 from the already-validated user
+  preset, and every other field comes from the valid replacement — the
+  fallback expression cannot throw. The PR's own test
+  (`an unmigratable size window adopts the replacement instead`)
+  exercises exactly the claimed scenario (size 1500 outside the
+  replacement's 4..400 window) and passes with the clamped 400.
+
 ## PR #136 — durable paint slots (2026-08-28)
 
 - **R-105 ⏸️ Round 1, minor: catch `assignPaintSlot` invariant failures in
@@ -1917,3 +1937,4 @@ touchscreen hover too, not only a pen.
   order; configure-argument markers drop trailing commas; comment stripping
   keeps string and char literals; the dark-mode scan covers all of
   `app/src/main`.
+>>>>>>> origin/main

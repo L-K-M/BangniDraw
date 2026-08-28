@@ -711,4 +711,26 @@ class ProjectStoreTest {
         // An id that cannot address a folder is refused, not removed.
         assertFalse(store.delete("../../evil"))
     }
+
+    @Test
+    fun `failed delete staging preserves the live project`() {
+        val id = "preserve"
+        store.checkpoint(document(id = id))
+        val marker = File(store.projectDir(id), "marker")
+        marker.writeText("recoverable")
+        val refusingStore = ProjectStore(
+            root = root,
+            duplicateFileWriter = DuplicateFileWriter { source, target ->
+                source.copyTo(target)
+            },
+            projectDirectoryMover = ProjectDirectoryMover { _, _ -> false },
+        )
+
+        assertFalse(refusingStore.delete(id))
+        assertEquals("recoverable", marker.readText())
+        assertIs<ProjectStore.LoadResult.Loaded>(refusingStore.load(id))
+        assertTrue(
+            root.listFiles().orEmpty().none { it.name.endsWith(".deleting") },
+        )
+    }
 }

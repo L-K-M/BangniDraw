@@ -69,7 +69,7 @@ class HoverCursorPolicyTest {
             HoverCursorSpec(6f, HoverRing.Solid, crosshair = false, ink = false),
             HoverCursorPolicy.resolve(
                 PointerTool.STYLUS,
-                ToolKind.Water(WaterParams(size = 8f)),
+                ToolKind.Water(WaterParams(size = 8f, spread = 0.65f)),
                 eraser,
                 canvasToScreenScale = 0.5f,
             ),
@@ -92,7 +92,7 @@ class HoverCursorPolicyTest {
         )
 
         assertEquals(400f, dry!!.diameterPx)
-        // 400 px of radius would want 200 px of spread; the pass caps it at 32.
+        // A 200 px radius wants 100 px of spread; the shared cap holds it at 32.
         assertEquals(464f, wet!!.diameterPx)
     }
 

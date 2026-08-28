@@ -181,9 +181,7 @@ data class WatercolorDabPlan(
                 "watercolor diameter exceeds the GLES scratch bound"
             }
 
-            val spreadPx = ceil(radius * spread * SPREAD_RADIUS_FRACTION)
-                .toInt()
-                .coerceAtMost(MAX_SPREAD_PX)
+            val spreadPx = spreadPx(radius, spread)
             val dab = IntRect.forDab(x, y, radius)
             val output = dab.inflate(spreadPx).clip(0, 0, grid.width, grid.height)
             if (output.isEmpty) {
@@ -203,6 +201,11 @@ data class WatercolorDabPlan(
 
             return WatercolorDabPlan(output, source, wetOutput, wetSource)
         }
+
+        /** Spread inflation in canvas px for a dab of this radius. */
+        fun spreadPx(radius: Float, spread: Float): Int = ceil(
+            radius * spread * SPREAD_RADIUS_FRACTION,
+        ).toInt().coerceIn(0, MAX_SPREAD_PX)
 
         private fun ceilDiv(value: Int, divisor: Int): Int = (value + divisor - 1) / divisor
     }

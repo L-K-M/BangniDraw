@@ -600,13 +600,28 @@ private fun CanvasContent(
                     }
 
                     val driver = strokeState.driver ?: return
-                    val batch = engine.acquireDabBatch() ?: return
-                    val emitted = if (driver.isActive) {
-                        driver.sample(x, y, pressure, tilt, orientation, timeNs, strokeState.source, batch)
+                    var batch = engine.acquireDabBatch() ?: return
+                    var emitted = if (driver.isActive) {
+                        driver.sample(
+                            x, y, pressure, tilt, orientation, timeNs, strokeState.source, batch,
+                        )
                     } else {
-                        driver.begin(x, y, pressure, tilt, orientation, timeNs, strokeState.source, batch)
+                        driver.begin(
+                            x, y, pressure, tilt, orientation, timeNs, strokeState.source, batch,
+                        )
                     }
-                    if (emitted == 0) engine.releaseDabBatch(batch) else engine.stampDabs(batch)
+
+                    while (true) {
+                        if (emitted == 0) {
+                            engine.releaseDabBatch(batch)
+                        } else {
+                            engine.stampDabs(batch)
+                        }
+                        if (!driver.hasPendingDabs) return
+
+                        batch = engine.acquireDabBatch() ?: return
+                        emitted = driver.resumeDabs(batch)
+                    }
                 }
 
                 override fun onStrokeEnd(pointerId: Int) {
@@ -655,12 +670,19 @@ private fun CanvasContent(
                         viewModel.endStrokeTool(reason, StrokeEndDisposition.COMPLETE)
                         return
                     }
-                    val batch = engine.acquireDabBatch()
-                    if (batch != null) {
-                        if (driver.end(batch) == 0) engine.releaseDabBatch(batch)
-                        else engine.stampDabs(batch)
-                    } else {
-                        driver.cancel()
+                    while (driver.isActive) {
+                        val batch = engine.acquireDabBatch()
+                        if (batch == null) {
+                            driver.cancel()
+                            break
+                        }
+
+                        val emitted = driver.end(batch)
+                        if (emitted == 0) {
+                            engine.releaseDabBatch(batch)
+                        } else {
+                            engine.stampDabs(batch)
+                        }
                     }
                     engine.endStroke(driver.opacityCeiling) {
                         viewModel.onStrokeCommitted(colorUsage, strokeColor)

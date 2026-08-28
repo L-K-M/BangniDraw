@@ -103,6 +103,11 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - `DabBounds` and `WatercolorDabBounds` own dab-edge arithmetic. Live
   `DabBatch`, `DabPass`, and `WatercolorPass` paths retain primitive edges;
   do not rebuild `IntRect` or tile-scissor objects per dab.
+- `DabGenerator` retains one in-flight segment when a batch fills. Publish
+  each full batch and resume that segment before advancing again.
+  `StrokeDriver.end` stays active until both the segment and stabilizer
+  catch-up finish. An exactly full resumed batch may retain the current input
+  as the next pending segment; fullness does not mean the input was dropped.
 - Sandwich tile passes must ping-pong into a pool page distinct from both
   sampled pages. `Below` supports every blend mode; `Above` is unavailable
   when a visible non-Normal layer breaks source-over associativity. Grouping

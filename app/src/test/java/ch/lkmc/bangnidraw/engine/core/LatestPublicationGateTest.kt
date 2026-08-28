@@ -13,21 +13,21 @@ class LatestPublicationGateTest {
         val delayed = gate.nextGeneration()
         val latest = gate.nextGeneration()
         val shelf = mutableListOf<String>()
-        val followUpWork = mutableListOf<String>()
+        val scheduledSyncs = mutableListOf<String>()
 
         assertTrue(
             gate.publishIfCurrent(latest) {
                 shelf += "latest"
-                followUpWork += "latest"
+                scheduledSyncs += "latest"
             },
         )
         assertFalse(
             gate.publishIfCurrent(delayed) {
                 shelf += "delayed"
-                followUpWork += "delayed"
+                scheduledSyncs += "delayed"
             },
         )
         assertEquals(listOf("latest"), shelf)
-        assertEquals(listOf("latest"), followUpWork)
+        assertEquals(listOf("latest"), scheduledSyncs)
     }
 }

@@ -250,6 +250,8 @@ class StudioViewModel @Inject constructor(
                         )
                     }
 
+                    // This only filters metadata and schedules a coroutine;
+                    // storage work never runs under the publication gate.
                     syncStale(listed)
                 }
             }

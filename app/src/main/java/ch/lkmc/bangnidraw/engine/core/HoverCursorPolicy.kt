@@ -1,5 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
+import kotlin.math.ceil
+
 internal enum class HoverRing {
     Solid,
     Dashed,
@@ -29,7 +31,14 @@ internal object HoverCursorPolicy {
         }
 
         if (pointer != PointerTool.ERASER && active is ToolKind.Water) {
-            val diameter = (active.params.size * canvasToScreenScale).coerceAtLeast(0f)
+            // The ring previews the wet bloom, not just the tip: the flow mask
+            // reaches radius + spread, mirroring WatercolorDabBounds.set.
+            val params = active.params
+            val radius = params.size * 0.5f
+            val spreadPx = ceil(
+                radius * params.spread * WatercolorDabPlan.SPREAD_RADIUS_FRACTION,
+            ).toInt().coerceAtMost(WatercolorDabPlan.MAX_SPREAD_PX)
+            val diameter = ((params.size + 2f * spreadPx) * canvasToScreenScale).coerceAtLeast(0f)
             return HoverCursorSpec(
                 diameterPx = diameter,
                 ring = HoverRing.Solid,

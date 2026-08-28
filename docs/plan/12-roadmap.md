@@ -907,7 +907,7 @@ cancel/undo, context loss, TalkBack, and GL errors remain pending.
 approximations. Device evidence, not a larger untimed solver, decides any
 follow-up.
 
-### Step 13 — Selectable application themes (S)
+### Step 13 — Selectable application themes (S, **landed on main** — PRs #141/#148, 2026-08-28, CI green)
 
 **Goal.** Let the user choose expressive application chrome without allowing
 the system or wallpaper to recolour the studio.
@@ -925,7 +925,8 @@ light tone; the canvas void stays neutral.
 contrast for every palette. Contract tests pin the Settings radio group and
 the preference-to-theme boundary. Device: every choice applies immediately
 across Studio and Canvas, survives restart, and remains selected after Android
-dark mode changes.
+dark mode changes. **The device check has not been run — no device has ever
+been available.**
 
 **Risk.** The launch window cannot read DataStore, while rendering navigation
 before it emits would flash Saffron on an existing non-default install. The

@@ -341,7 +341,12 @@ class CanvasViewModel @Inject constructor(
 
     private val pool = TileBufferPool()
 
-    /** Shared with every [EngineSession] of this screen — see its KDoc. */
+    /**
+     * Shared with every [EngineSession] of this screen. Each transaction that
+     * can change a tile takes a fresh value before emitting any readback, fill,
+     * restore, or structural result. A repeated key at the same revision is
+     * therefore a byte-identical duplicate; changed bytes have a newer value.
+     */
     val revisions = AtomicInteger(0)
 
     private val flusher = TileFlusher(

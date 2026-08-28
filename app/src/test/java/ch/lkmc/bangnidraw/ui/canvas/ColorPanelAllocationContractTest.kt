@@ -64,6 +64,8 @@ class ColorPanelAllocationContractTest {
         assertEquals(160.dp, pickerSizeFor(160.dp, 400.dp))
         assertEquals(280.dp, pickerSizeFor(320.dp, 320.dp))
         assertEquals(220.dp, pickerSizeFor(220.dp, 600.dp))
+        // Height as the smaller constraint, not only width.
+        assertEquals(220.dp, pickerSizeFor(600.dp, 220.dp))
     }
 
     @Test

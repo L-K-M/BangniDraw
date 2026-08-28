@@ -27,7 +27,11 @@ class ToolIconContractTest {
         // the historical droplet collision with the Water tool.
         val brushIcons = Regex("BrushToolGlyph\\.\\w+ -> (.+)")
             .findAll(rail).map { it.groupValues[1].trim() }.toList()
+        assertFalse(brushIcons.isEmpty(), "expected BrushToolGlyph icon mappings in rail")
         assertEquals(brushIcons.size, brushIcons.distinct().size)
+        // Brush-vs-tool collisions were the original bug; no brush glyph may
+        // reuse the Water tool's droplet, not just PIGMENT_WASH.
+        assertFalse("Icons.Filled.WaterDrop" in brushIcons, "brush glyph reuses the Water tool's droplet")
         assertFalse("if (preset.eraseMode) stringResource(R.string.tool_eraser)" in rail)
         assertFalse("DeleteSweep" in rail)
         assertFalse("Icons.Filled.Highlight" in rail)

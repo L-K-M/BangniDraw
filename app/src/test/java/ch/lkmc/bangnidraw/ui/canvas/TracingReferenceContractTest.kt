@@ -54,6 +54,7 @@ class TracingReferenceContractTest {
         assertTrue(headerIndex < scrollIndex, "header must stay outside the scroll container")
         assertTrue(scrollIndex < doneIndex, "Done must follow the scroll container")
         assertTrue(PINNED_DONE_ROW_PATTERN.containsMatchIn(panel))
+        assertTrue(SCROLL_WEIGHT_PATTERN.containsMatchIn(panel))
         assertTrue(FILL_HEIGHT_PATTERN.containsMatchIn(panel))
     }
 
@@ -91,6 +92,9 @@ class TracingReferenceContractTest {
         val DONE_PATTERN = Regex("""R\.string\.reference_done""")
         val PINNED_DONE_ROW_PATTERN = Regex(
             """(?m)^ {8}Row\(\s*\n {12}horizontalArrangement\s*=\s*Arrangement\.End""",
+        )
+        val SCROLL_WEIGHT_PATTERN = Regex(
+            """\.weight\s*\(\s*1f\s*\)\s*\.verticalScroll""",
         )
         val FILL_HEIGHT_PATTERN = Regex("""\.fillMaxHeight\s*\(\s*\)\s*\.padding""")
     }

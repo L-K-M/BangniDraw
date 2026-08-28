@@ -192,6 +192,11 @@ class DabRingTest {
 
         ring.release(firstPrediction)
         ring.release(secondPrediction)
+        val resumedPrediction = assertNotNull(
+            ring.acquirePrediction(),
+            "prediction should resume once more than the reserve is free",
+        )
+        ring.release(resumedPrediction)
         ring.release(realInput)
     }
 

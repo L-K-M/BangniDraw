@@ -348,18 +348,21 @@ class DabRing(
 
     /** How many slots are available right now. */
     @get:Synchronized
-    val freeSlots: Int get() = free.count { it }
+    val freeSlots: Int get() = countFreeSlotsLocked()
+
+    private fun countFreeSlotsLocked(): Int = free.count { it }
 
     /**
      * The next free slot, cleared and ready, or `null` when every slot is
-     * still held by the GL thread.
+     * already checked out.
      */
     fun acquire(): DabBatch? = acquire(BatchPurpose.REAL_INPUT)
 
     /**
      * A prediction slot, or `null` when borrowing it would consume the slot
      * reserved for real digitizer input. Prediction can be regenerated next
-     * frame; a real sample cannot.
+     * frame; a real sample cannot. A ring at or below the reserve size never
+     * admits prediction: the tail yields first by design.
      */
     internal fun acquirePrediction(): DabBatch? = acquire(BatchPurpose.PREDICTION)
 
@@ -367,7 +370,7 @@ class DabRing(
     private fun acquire(purpose: BatchPurpose): DabBatch? {
         if (
             purpose == BatchPurpose.PREDICTION &&
-            free.count { it } <= REAL_INPUT_RESERVED_SLOTS
+            countFreeSlotsLocked() <= REAL_INPUT_RESERVED_SLOTS
         ) {
             return null
         }

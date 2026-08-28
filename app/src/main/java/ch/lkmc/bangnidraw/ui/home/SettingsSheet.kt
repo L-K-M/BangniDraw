@@ -406,8 +406,8 @@ private fun ShortcutRow(action: Int, key: String) {
     }
 }
 
-/** One displayed row: a label and its key cap(s). */
-private data class ShortcutRowSpec(val label: Int, val keys: String)
+/** One displayed row: a label and its key cap(s). Internal for the test. */
+internal data class ShortcutRowSpec(val label: Int, val keys: String)
 
 private object SizeRowGroup
 private object HoldEyedropperRowGroup
@@ -435,7 +435,7 @@ private fun shortcutLabel(shortcut: CanvasShortcut): Int = when (shortcut) {
  * The legend as rows: the size pair and the eyedropper hold pair share one
  * row each (the legend lists them consecutively, so grouping is order-local).
  */
-private fun shortcutRows(): List<ShortcutRowSpec> = buildList {
+internal fun shortcutRows(): List<ShortcutRowSpec> = buildList {
     var group: Any? = null
     for (entry in ShortcutLegend.entries) {
         val rowGroup: Any = when (entry.shortcut) {
@@ -444,8 +444,17 @@ private fun shortcutRows(): List<ShortcutRowSpec> = buildList {
             else -> entry.shortcut
         }
         if (rowGroup == group) {
+            // The hold pair is one key in two phases: a cap the row already
+            // shows is not appended again.
+            val label = ShortcutLegend.keyLabel(entry)
             val last = removeAt(lastIndex)
-            add(last.copy(keys = last.keys + KEY_PAIR_GAP + ShortcutLegend.keyLabel(entry)))
+            add(
+                if (label in last.keys.split(KEY_PAIR_GAP)) {
+                    last
+                } else {
+                    last.copy(keys = last.keys + KEY_PAIR_GAP + label)
+                },
+            )
             continue
         }
         add(ShortcutRowSpec(shortcutLabel(entry.shortcut), ShortcutLegend.keyLabel(entry)))
@@ -509,7 +518,7 @@ private fun AboutDialog(onDismiss: () -> Unit) {
 private val SETTINGS_MAX_HEIGHT = 640.dp
 private val MIN_TARGET = 48.dp
 private val SHORTCUT_ROW_MIN = 28.dp
-private const val KEY_PAIR_GAP = "  "
+internal const val KEY_PAIR_GAP = "  "
 private val ABOUT_ICON_SIZE = 96.dp
 private const val BYTES_PER_MIB = 1024L * 1024L
 private const val MILLIS_PER_SECOND = 1_000L

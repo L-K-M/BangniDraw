@@ -487,6 +487,12 @@ and the contradiction is noted here.
   nothing extra. The API levels either overload arrived at — 30 for the `int`
   one, 21 for the `MotionEvent` one — are read out of the SDK's own
   `data/api-versions.xml`, not assumed.
+- **Finger clock transitions need a real scheduler.** `GestureArbiter.tick`
+  describes the 120 ms draw and 500 ms long-press transitions, but a stationary
+  finger emits no `ACTION_MOVE` to drive it. `CanvasTouchHandler` owns one
+  absolute, view-posted deadline and synchronizes it after every arbiter
+  transition; lift, cancel, chords, and handler reset must disarm it. A quick
+  touch-drawing tap resolves as Draw + End from its buffered pending sample.
 - **§8.1's step 5 is not a separate pass — the tail is drawn *by* §7.5's
   preview.** The plan lists "draw the predicted tail on top, restricted to the
   same rect" as a fifth step after the composite, which reads as a second draw.

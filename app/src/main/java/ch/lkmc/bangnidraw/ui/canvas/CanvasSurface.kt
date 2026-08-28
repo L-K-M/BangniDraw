@@ -76,6 +76,9 @@ internal fun CanvasSurface(
     val budget = remember(canvas) { MemoryBudget.compute(readDeviceMemory(context), canvas) }
     val sessionHolder = remember { arrayOfNulls<EngineSession>(1) }
     val surfaceHolder = remember { arrayOfNulls<SurfaceView>(1) }
+    val touchHandlerHolder = remember {
+        arrayOfNulls<ch.lkmc.bangnidraw.input.CanvasTouchHandler>(1)
+    }
     val appliedStack = remember { arrayOfNulls<LayerStack>(1) }
     val appliedPaperColor = remember { arrayOfNulls<Int>(1) }
     val appliedTracingReference = remember { arrayOfNulls<TracingReference>(1) }
@@ -144,6 +147,14 @@ internal fun CanvasSurface(
             }
         },
         update = { surface ->
+            // A replacement owns different buffered state; roll back the old
+            // gesture first.
+            val previousTouchHandler = touchHandlerHolder[0]
+            if (previousTouchHandler !== touchHandler) {
+                previousTouchHandler?.reset()
+                touchHandlerHolder[0] = touchHandler
+            }
+
             // Attached here, not in `factory`: `factory` runs once per view
             // instance, but CanvasScreen builds the handler with
             // `remember(density, view0)`, so a density or window change makes a
@@ -190,6 +201,8 @@ internal fun CanvasSurface(
 
     DisposableEffect(Unit) {
         onDispose {
+            touchHandlerHolder[0]?.dispose()
+            touchHandlerHolder[0] = null
             onSession(null)
             sessionHolder[0]?.release()
             sessionHolder[0] = null

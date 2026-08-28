@@ -26,10 +26,11 @@ class CanvasCheckpointContractTest {
         if (success < 0) fail("missing $THUMBNAIL_WRITTEN after thumbnail write")
         val clear = checkpoint.indexOf(CLEAR_THUMBNAIL_DIRTY, write)
         if (clear < 0) fail("missing $CLEAR_THUMBNAIL_DIRTY after thumbnail write")
+        val guardedStatement = checkpoint.substring(success).substringBefore('\n')
 
         assertTrue(
-            clear >= success,
-            "dirty flag must not clear before the success check",
+            clear >= success && CLEAR_THUMBNAIL_DIRTY in guardedStatement,
+            "thumbDirty must clear only inside the WRITTEN branch",
         )
     }
 

@@ -377,7 +377,7 @@ They are part of the suite under the §11 rule (every pure class gets a
 | `PreferenceFlowRecoveryTest` | `retryIoWithInitialFallback`, used by `Prefs.appTheme` | initial `IOException` emits `SAFFRON` once and retries with backoff; a persistent failure ends on the last value after five attempts; a later I/O failure never replaces a loaded theme; cancellation and non-I/O failures propagate |
 | `BangniColorSchemeTest` | Compose adaptation of `ThemeColorPolicy` (08 §5.1) | every Material role is app-owned; tertiary, fixed, inverse, and every surface-container tier derive from the selected palette; per-tone error content and used-surface pairs ≥ 4.5:1 |
 
-`ThemeContractTest` pins the app-owned light system bars and launch theme,
+`ThemeContractTest` pins the app-owned, tone-aware system bars and the fixed-light launch theme,
 `android:forceDarkAllowed = false`, every qualified night-resource directory,
 corrupted-preference reset, the root loading gate, and the behavior-tested
 recovery wiring. `CanvasAppearanceContractTest` pins both the initial GL

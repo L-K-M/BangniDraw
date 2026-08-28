@@ -109,20 +109,28 @@ class WatercolorPassContractTest {
     @Test
     fun `a failed wet restore drops the page instead of keeping gesture water`() {
         val cancel = source()
-            .substringAfter("    /** Keeps pre-gesture wetness while dropping newly added water. */")
-            .substringBefore("    fun finish()")
+            .substringAfter(
+                "    /** Keeps pre-gesture wetness while dropping newly added water. */",
+                missingDelimiterValue = "",
+            )
+            .substringBefore("    fun finish()", missingDelimiterValue = "")
+            .replace(Regex("\\s+"), " ")
 
         val present = cancel.indexOf("restoreWetKey(backup, wetLayer.textures, key)")
+        assertTrue(present >= 0, "expected a wet-restore call in the cancel path")
         val failureDrop = cancel.indexOf(
             "if (!wetLayer.textures.slice(key).isNone) wetLayer.textures.remove(key)",
             startIndex = present,
         )
-
-        assertTrue(present >= 0)
         assertTrue(
             failureDrop > present,
             "a restore that cannot run must drop the page, not keep gesture water",
         )
+        val timeReset = cancel.indexOf(
+            "wetLayer.updatedAtNanos[keyIndex] = 0L",
+            startIndex = failureDrop,
+        )
+        assertTrue(timeReset > failureDrop, "a dropped page must also reset its wet timestamp")
     }
 
     @Test

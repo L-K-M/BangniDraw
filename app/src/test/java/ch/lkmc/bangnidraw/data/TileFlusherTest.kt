@@ -16,6 +16,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -62,6 +66,29 @@ class TileFlusherTest {
         flusher.enqueue(job)
         flusher.runQueued()
         return job.done.await()
+    }
+
+    @Test
+    fun `closing drains queued jobs and joins the worker`() = runBlocking {
+        val queued = List(EXPECTED_QUEUE_CAPACITY) {
+            TileFlusher.FlushJob.Checkpoint()
+        }
+        queued.forEach { job ->
+            assertTrue(flusher.enqueueNow(job))
+        }
+
+        val scope = CoroutineScope(SupervisorJob())
+        try {
+            val worker = flusher.start(scope, Dispatchers.Default)
+
+            flusher.closeAndJoin()
+
+            assertTrue(worker.isCompleted)
+            queued.forEach { job -> assertTrue(job.done.await()) }
+            assertFalse(flusher.enqueueNow(TileFlusher.FlushJob.Checkpoint()))
+        } finally {
+            scope.cancel()
+        }
     }
 
     @Test

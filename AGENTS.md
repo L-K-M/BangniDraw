@@ -582,6 +582,12 @@ and the contradiction is noted here.
   A direct disk read can race a pending sparse-tile removal or replacement.
   `ResolveCurrent` is the ordering barrier before the captured before-image is
   restored.
+- **`TileFlusher` shutdown is a FIFO drain, not cancellation.** Canvas
+  teardown takes the checkpoint mutex, runs one final leave checkpoint, closes
+  the flusher's channel, and joins its application-scope worker. Closing the
+  channel lets the receive loop finish every accepted job before it exits;
+  cancelling the worker can strand tile buffers and a coroutine per opened
+  painting.
 - **RMW before-images are captured in memory on first tile touch.** Before
   commit, those pixels may exist only on the GPU, so the open stroke cannot
   use the plan's disk journal literally. Pen-up persists the ordinary history

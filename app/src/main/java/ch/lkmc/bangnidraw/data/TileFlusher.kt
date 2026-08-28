@@ -14,7 +14,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -150,6 +149,9 @@ class TileFlusher(
      */
     private val queue = Channel<FlushJob>(capacity = 64)
 
+    private val workerLock = Any()
+    private var workerJob: Job? = null
+
     private val _storageFull = MutableStateFlow(false)
 
     /** §6.3's storage-full state, for the `err_storage_full` banner. */
@@ -240,13 +242,37 @@ class TileFlusher(
      * `Dispatchers.IO.limitedParallelism(1)` (§6.3). Tests skip this and call
      * [runQueued], so every assertion runs deterministically.
      */
-    fun start(scope: CoroutineScope, io: CoroutineDispatcher): Job =
-        scope.launch(io) {
-            while (isActive) {
-                val job = queue.receive()
-                jobMutex.withLock { run(job) }
-            }
+    fun start(scope: CoroutineScope, io: CoroutineDispatcher): Job {
+        synchronized(workerLock) {
+            check(workerJob == null) { "TileFlusher worker already started" }
+
+            return scope.launch(io) {
+                // Closing preserves accepted writes: receive until the FIFO is empty.
+                for (job in queue) {
+                    jobMutex.withLock { run(job) }
+                }
+            }.also { workerJob = it }
         }
+    }
+
+    /**
+     * Stops accepting work, drains the accepted FIFO, then joins its worker.
+     *
+     * Call this after the Canvas's final checkpoint. Cancelling an
+     * application-scope worker would abandon queued writes and retain this
+     * flusher for the rest of the process.
+     */
+    suspend fun closeAndJoin() {
+        val worker = synchronized(workerLock) {
+            val running = checkNotNull(workerJob) {
+                "TileFlusher worker must start before close"
+            }
+            queue.close()
+            running
+        }
+
+        worker.join()
+    }
 
     /** Drains every job queued so far, inline — the tests' worker. */
     suspend fun runQueued() {

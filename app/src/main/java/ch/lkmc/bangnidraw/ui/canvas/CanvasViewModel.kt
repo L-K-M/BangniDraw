@@ -439,6 +439,7 @@ class CanvasViewModel @Inject constructor(
     private var session: EngineSession? = null
 
     private val checkpointMutex = Mutex()
+    private var checkpointsClosed = false
 
     init {
         viewModelScope.launch(Dispatchers.IO) { open() }
@@ -2742,7 +2743,7 @@ class CanvasViewModel @Inject constructor(
         session?.onRmwCancelled = null
         session = null
         appScope.launch {
-            withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
+            withContext(NonCancellable) { checkpointAndCloseFlusher() }
         }
     }
 
@@ -2768,59 +2769,81 @@ class CanvasViewModel @Inject constructor(
     }
 
     private suspend fun checkpoint(trigger: GallerySyncDecision.Trigger) {
-        val doc = document ?: return
         checkpointMutex.withLock {
-            if (!dirty && store.exists(doc.id)) return
-            // §5.6's order: (readbacks land) → queued jobs and tiles flushed
-            // → project.json last, the commit point → only then the files a
-            // truncation or pruning dropped.
-            if (awaitReadbacks() == TileFlusher.ReadbackResult.PENDING) return
-            flusher.checkpointFlush()
-            val now = System.currentTimeMillis()
-            val folded = fold(document ?: return, now)
-            document = folded
-            val (record, deletes) = withContext(Dispatchers.Main) {
-                val j = journal
-                val snapshot = if (j == null) {
-                    HistoryRecord(cursor = folded.historyCursor)
-                } else {
-                    HistoryRecord(
-                        cursor = j.cursor,
-                        nextSeq = nextSeq.get(),
-                        oldestSeq = j.entries.firstOrNull()?.seq ?: nextSeq.get(),
-                        entries = j.stats().entries,
-                        bytes = j.stats().bytes,
-                    )
-                }
-                snapshot to ArrayList(pendingDeletes)
-            }
+            if (checkpointsClosed) return
+
+            checkpointLocked(trigger)
+        }
+    }
+
+    /** Makes the final checkpoint and worker close atomic to other callers. */
+    private suspend fun checkpointAndCloseFlusher() {
+        checkpointMutex.withLock {
+            if (checkpointsClosed) return
+
             try {
-                store.checkpoint(folded, record)
-                dirty = false
-                contentDirty = false
-                dirtySinceMs = null
-                // Now — and only now — the dropped entries' files (§5.6).
-                if (deletes.isNotEmpty()) {
-                    historyStore?.delete(deletes)
-                    withContext(Dispatchers.Main) { pendingDeletes.removeAll(deletes.toSet()) }
-                }
-                // The thumbnail follows the checkpoint (06 §6.4): the tiles
-                // it reads are on disk by the flush above, and only when
-                // pixels actually changed — never per stroke.
-                if (thumbDirty) {
-                    thumbDirty = false
-                    Thumbnails.write(
-                        folded,
-                        layerDirFor = { store.layerDir(folded.id, it) },
-                        target = File(store.projectDir(folded.id), "thumb.png"),
-                    )
-                }
-                maybeSyncGallery(folded, trigger, now)
-            } catch (_: java.io.IOException) {
-                // Same family as a failed tile write: the storage-full state
-                // and its retry-on-next-checkpoint own this. `dirty` stays
-                // true, so the next trigger tries again.
+                checkpointLocked(GallerySyncDecision.Trigger.LEAVE)
+            } finally {
+                checkpointsClosed = true
+                flusher.closeAndJoin()
             }
+        }
+    }
+
+    /** Runs only while [checkpointMutex] excludes other checkpoint callers. */
+    private suspend fun checkpointLocked(trigger: GallerySyncDecision.Trigger) {
+        val doc = document ?: return
+
+        if (!dirty && store.exists(doc.id)) return
+        // §5.6's order: (readbacks land) → queued jobs and tiles flushed
+        // → project.json last, the commit point → only then the files a
+        // truncation or pruning dropped.
+        if (awaitReadbacks() == TileFlusher.ReadbackResult.PENDING) return
+        flusher.checkpointFlush()
+        val now = System.currentTimeMillis()
+        val folded = fold(document ?: return, now)
+        document = folded
+        val (record, deletes) = withContext(Dispatchers.Main) {
+            val j = journal
+            val snapshot = if (j == null) {
+                HistoryRecord(cursor = folded.historyCursor)
+            } else {
+                HistoryRecord(
+                    cursor = j.cursor,
+                    nextSeq = nextSeq.get(),
+                    oldestSeq = j.entries.firstOrNull()?.seq ?: nextSeq.get(),
+                    entries = j.stats().entries,
+                    bytes = j.stats().bytes,
+                )
+            }
+            snapshot to ArrayList(pendingDeletes)
+        }
+        try {
+            store.checkpoint(folded, record)
+            dirty = false
+            contentDirty = false
+            dirtySinceMs = null
+            // Now — and only now — the dropped entries' files (§5.6).
+            if (deletes.isNotEmpty()) {
+                historyStore?.delete(deletes)
+                withContext(Dispatchers.Main) { pendingDeletes.removeAll(deletes.toSet()) }
+            }
+            // The thumbnail follows the checkpoint (06 §6.4): the tiles
+            // it reads are on disk by the flush above, and only when
+            // pixels actually changed — never per stroke.
+            if (thumbDirty) {
+                thumbDirty = false
+                Thumbnails.write(
+                    folded,
+                    layerDirFor = { store.layerDir(folded.id, it) },
+                    target = File(store.projectDir(folded.id), "thumb.png"),
+                )
+            }
+            maybeSyncGallery(folded, trigger, now)
+        } catch (_: java.io.IOException) {
+            // Same family as a failed tile write: the storage-full state
+            // and its retry-on-next-checkpoint own this. `dirty` stays
+            // true, so the next trigger tries again.
         }
     }
 

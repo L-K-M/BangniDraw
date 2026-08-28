@@ -90,8 +90,39 @@ class CanvasTouchHandlerTest {
         }
     }
 
+    private class DeadlineScheduler : GestureDeadlineScheduler {
+        private var deadlineNs = Long.MAX_VALUE
+        private var callback: Runnable? = null
+
+        val scheduled: Boolean
+            get() = callback != null
+
+        override fun scheduleAt(deadlineNs: Long, callback: Runnable) {
+            this.deadlineNs = deadlineNs
+            this.callback = callback
+        }
+
+        override fun cancel(callback: Runnable) {
+            if (this.callback !== callback) return
+
+            this.callback = null
+            deadlineNs = Long.MAX_VALUE
+        }
+
+        fun advanceTo(timeNs: Long) {
+            if (timeNs < deadlineNs) return
+            val due = callback ?: return
+
+            callback = null
+            deadlineNs = Long.MAX_VALUE
+            due.run()
+        }
+    }
+
     private fun ms(v: Long) = v * 1_000_000L
     private fun handler(host: Host) = CanvasTouchHandler(density = 2f, host = host)
+    private fun handler(host: Host, scheduler: GestureDeadlineScheduler) =
+        CanvasTouchHandler(density = 2f, host = host, deadlineScheduler = scheduler)
 
     @Test
     fun `viewport changes preserve the source point at center`() {
@@ -812,6 +843,121 @@ class CanvasTouchHandlerTest {
             host.times[1] > host.times[0],
             "the opening segment must have a positive duration: ${host.times}",
         )
+    }
+
+    @Test
+    fun `a stationary finger resolves without a move event`() {
+        val host = Host()
+        val scheduler = DeadlineScheduler()
+        val h = handler(host, scheduler)
+
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        assertTrue(scheduler.scheduled, "finger down must arm the pending deadline")
+
+        scheduler.advanceTo(ms(GestureArbiter.PENDING_MS - 1))
+        assertEquals(emptyList(), host.events)
+
+        scheduler.advanceTo(ms(GestureArbiter.PENDING_MS))
+        assertEquals(listOf("begin(FINGER)"), host.events)
+        assertEquals(listOf(100f to 100f), host.samples)
+        assertTrue(!scheduler.scheduled, "resolved strokes have no gesture deadline")
+    }
+
+    @Test
+    fun `a stationary stylus-only finger reaches long press`() {
+        val host = Host()
+        val scheduler = DeadlineScheduler()
+        val h = handler(host, scheduler)
+        h.stylusOnly = true
+
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        scheduler.advanceTo(ms(GestureArbiter.LONG_PRESS_MS - 1))
+        assertEquals(emptyList(), host.events)
+
+        scheduler.advanceTo(ms(GestureArbiter.LONG_PRESS_MS))
+        assertEquals(listOf("pick"), host.events)
+        assertTrue(!scheduler.scheduled, "a long press fires once")
+    }
+
+    @Test
+    fun `a quick finger lift draws one sample and cancels its deadline`() {
+        val host = Host()
+        val scheduler = DeadlineScheduler()
+        val h = handler(host, scheduler)
+
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        h.handleUp(1, ms(GestureArbiter.PENDING_MS - 1))
+
+        assertEquals(listOf("begin(FINGER)", "end"), host.events)
+        assertEquals(1, host.samplesAtEnd)
+        assertTrue(!scheduler.scheduled, "lift must cancel the pending deadline")
+
+        scheduler.advanceTo(ms(GestureArbiter.PENDING_MS))
+        assertEquals(listOf("begin(FINGER)", "end"), host.events)
+    }
+
+    @Test
+    fun `a second finger disarms the pending draw deadline`() {
+        val host = Host()
+        val scheduler = DeadlineScheduler()
+        val h = handler(host, scheduler)
+
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        h.handleDown(2, PointerTool.FINGER, 300f, 100f, ms(10))
+
+        assertTrue(!scheduler.scheduled, "navigation must disarm the draw deadline")
+        scheduler.advanceTo(ms(GestureArbiter.PENDING_MS))
+        assertTrue(host.events.none { it.startsWith("begin") })
+    }
+
+    @Test
+    fun `cancel reset and dispose disarm stationary finger deadlines`() {
+        val cancelHost = Host()
+        val cancelScheduler = DeadlineScheduler()
+        val cancelled = handler(cancelHost, cancelScheduler)
+        cancelled.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        cancelled.handleCancel(ms(10))
+
+        assertTrue(!cancelScheduler.scheduled, "cancel must disarm the deadline")
+        cancelScheduler.advanceTo(ms(GestureArbiter.PENDING_MS))
+        assertTrue(cancelHost.events.isEmpty())
+
+        val resetHost = Host()
+        val resetScheduler = DeadlineScheduler()
+        val reset = handler(resetHost, resetScheduler)
+        reset.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        reset.reset()
+
+        assertTrue(!resetScheduler.scheduled, "reset must disarm the deadline")
+        resetScheduler.advanceTo(ms(GestureArbiter.PENDING_MS))
+        assertTrue(resetHost.events.isEmpty())
+
+        val disposeHost = Host()
+        val disposeScheduler = DeadlineScheduler()
+        val disposed = handler(disposeHost, disposeScheduler)
+        disposed.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        disposed.dispose()
+
+        assertTrue(!disposeScheduler.scheduled, "dispose must disarm the deadline")
+        disposeScheduler.advanceTo(ms(GestureArbiter.PENDING_MS))
+        assertTrue(disposeHost.events.isEmpty())
+    }
+
+    @Test
+    fun `replacement rolls back a live stroke while surface disposal stays silent`() {
+        val replacementHost = Host()
+        val replacement = handler(replacementHost)
+        replacement.handleDown(1, PointerTool.STYLUS, 100f, 100f, ms(0))
+        replacement.reset()
+
+        assertEquals(listOf("begin(STYLUS)", "cancel"), replacementHost.events)
+
+        val disposalHost = Host()
+        val disposal = handler(disposalHost)
+        disposal.handleDown(1, PointerTool.STYLUS, 100f, 100f, ms(0))
+        disposal.dispose()
+
+        assertEquals(listOf("begin(STYLUS)"), disposalHost.events)
     }
 
     private companion object {

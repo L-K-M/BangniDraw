@@ -256,7 +256,7 @@ class GestureArbiter(
         if (state != State.FINGER_PENDING) return
         val slot = firstActive()
         if (slot < 0) return
-        val heldMs = (timeNs - downNs[slot]) / 1_000_000L
+        val heldMs = (timeNs - downNs[slot]) / NANOS_PER_MILLISECOND
         if (!longPressFired && !movedPast[slot] && heldMs >= LONG_PRESS_MS) {
             longPressFired = true
             out.onLongPressPick(curX[slot], curY[slot])
@@ -271,11 +271,37 @@ class GestureArbiter(
         if (!stylusOnly && heldMs >= PENDING_MS) beginFingerDraw(ids[slot], out)
     }
 
+    /** The next clock transition, or [NO_DEADLINE_NS] when events own progress. */
+    internal fun nextDeadlineNs(): Long {
+        if (state != State.FINGER_PENDING) return NO_DEADLINE_NS
+        val slot = firstActive()
+        if (slot < 0) return NO_DEADLINE_NS
+
+        val delayMs = if (stylusOnly) {
+            if (longPressFired) return NO_DEADLINE_NS
+            LONG_PRESS_MS
+        } else {
+            PENDING_MS
+        }
+
+        return downNs[slot] + delayMs * NANOS_PER_MILLISECOND
+    }
+
     fun up(pointerId: Int, timeNs: Long, out: GestureListener) {
         val slot = indexOf(pointerId)
         if (slot < 0) return
         val wasIgnored = ignored[slot]
         if (!wasIgnored) noteLift(slot, timeNs)
+
+        // A finger can lift before the pending clock resolves. That is still
+        // a drawing gesture: begin from its pending sample, then let the ordinary
+        // FINGER_DRAW lift path end the one-dab stroke.
+        if (!wasIgnored && state == State.FINGER_PENDING && !stylusOnly &&
+            tapPossible && participatingCount() == 1
+        ) {
+            beginFingerDraw(pointerId, out)
+        }
+
         remove(slot)
 
         // What THIS pointer's lift means, if it was participating.
@@ -356,7 +382,7 @@ class GestureArbiter(
      * apart both get the full window.
      */
     private fun noteLift(slot: Int, timeNs: Long) {
-        if ((timeNs - downNs[slot]) / 1_000_000L > TAP_MS) tapPossible = false
+        if ((timeNs - downNs[slot]) / NANOS_PER_MILLISECOND > TAP_MS) tapPossible = false
         if (movedPast[slot]) tapPossible = false
     }
 
@@ -438,6 +464,11 @@ class GestureArbiter(
 
         /** Up within this of its own down, and under the slop, is a tap. */
         const val TAP_MS = 200L
+
+        /** Sentinel returned when no clock transition is pending. */
+        internal const val NO_DEADLINE_NS = -1L
+
+        private const val NANOS_PER_MILLISECOND = 1_000_000L
 
         /** Android's standard touch-slop order of magnitude. */
         const val TAP_SLOP_DP = 8f

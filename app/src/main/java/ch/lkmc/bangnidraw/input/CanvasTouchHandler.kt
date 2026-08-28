@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.input
 
 import android.os.Build
+import android.os.SystemClock
 import android.view.Choreographer
 import android.view.InputDevice
 import android.view.MotionEvent
@@ -106,6 +107,35 @@ interface CanvasInputHost {
     fun onStrokePredicted(samples: StrokeInputBatch) {}
 }
 
+/** Main-thread deadline driver, abstracted so stationary gestures stay JVM-testable. */
+internal interface GestureDeadlineScheduler {
+    fun scheduleAt(deadlineNs: Long, callback: Runnable)
+    fun cancel(callback: Runnable)
+}
+
+private class ViewGestureDeadlineScheduler(
+    private val view: View,
+) : GestureDeadlineScheduler {
+
+    override fun scheduleAt(deadlineNs: Long, callback: Runnable) {
+        val nowNs = SystemClock.uptimeMillis() * NANOS_PER_MILLISECOND
+        val remainingNs = deadlineNs - nowNs
+        val delayMs = if (remainingNs <= 0L) {
+            0L
+        } else {
+            (remainingNs + NANOS_PER_MILLISECOND - 1L) / NANOS_PER_MILLISECOND
+        }
+
+        view.postDelayed(callback, delayMs)
+    }
+
+    override fun cancel(callback: Runnable) {
+        view.removeCallbacks(callback)
+    }
+}
+
+private const val NANOS_PER_MILLISECOND = 1_000_000L
+
 /**
  * The **only** code that touches `MotionEvent`
  * (`docs/plan/07-input-and-stylus.md` §2, `02-architecture.md` §2.6).
@@ -133,6 +163,29 @@ class CanvasTouchHandler(
     private val snap = RotationSnap()
     private val step = NavigationStep()
 
+    /** One retained callback; touch events only reschedule its absolute deadline. */
+    private var deadlineScheduler: GestureDeadlineScheduler? = null
+    private var deadlineSchedulerInjected = false
+    private var deadlineView: View? = null
+    private var scheduledDeadlineNs = GestureArbiter.NO_DEADLINE_NS
+    private val gestureDeadlineCallback = Runnable {
+        val deadlineNs = scheduledDeadlineNs
+        if (deadlineNs == GestureArbiter.NO_DEADLINE_NS) return@Runnable
+
+        scheduledDeadlineNs = GestureArbiter.NO_DEADLINE_NS
+        arbiter.tick(deadlineNs, decisions)
+        syncGestureDeadline()
+    }
+
+    internal constructor(
+        density: Float,
+        host: CanvasInputHost,
+        deadlineScheduler: GestureDeadlineScheduler,
+    ) : this(density, host) {
+        this.deadlineScheduler = deadlineScheduler
+        deadlineSchedulerInjected = true
+    }
+
     var view: ViewTransform = ViewTransform()
         private set
 
@@ -150,7 +203,10 @@ class CanvasTouchHandler(
 
     var stylusOnly: Boolean
         get() = arbiter.stylusOnly
-        set(value) { arbiter.stylusOnly = value }
+        set(value) {
+            arbiter.stylusOnly = value
+            syncGestureDeadline()
+        }
 
     /** Device pressure normalization selected in Settings. */
     var pressureCurve: PressureCurve = PressureCurve.of()
@@ -329,6 +385,69 @@ class CanvasTouchHandler(
         screen = fit?.let { ScreenTransform.of(it, view) }
     }
 
+    private fun attachGestureDeadlineScheduler(view: View?) {
+        if (deadlineSchedulerInjected || view == null || view === deadlineView) return
+
+        cancelGestureDeadline()
+        deadlineView = view
+        deadlineScheduler = ViewGestureDeadlineScheduler(view)
+        syncGestureDeadline()
+    }
+
+    private fun syncGestureDeadline() {
+        val nextDeadlineNs = arbiter.nextDeadlineNs()
+        if (nextDeadlineNs == scheduledDeadlineNs) return
+
+        cancelGestureDeadline()
+        if (nextDeadlineNs == GestureArbiter.NO_DEADLINE_NS) return
+        val scheduler = deadlineScheduler ?: return
+
+        scheduledDeadlineNs = nextDeadlineNs
+        scheduler.scheduleAt(nextDeadlineNs, gestureDeadlineCallback)
+    }
+
+    private fun cancelGestureDeadline() {
+        if (scheduledDeadlineNs == GestureArbiter.NO_DEADLINE_NS) return
+
+        deadlineScheduler?.cancel(gestureDeadlineCallback)
+        scheduledDeadlineNs = GestureArbiter.NO_DEADLINE_NS
+    }
+
+    /** Replacing a handler rolls any live gesture back through its host. */
+    internal fun reset() {
+        arbiter.cancel(decisions)
+        clearHandlerState()
+    }
+
+    /** Surface teardown is silent because session detachment owns the rollback. */
+    internal fun dispose() {
+        arbiter.reset()
+        clearHandlerState()
+    }
+
+    private fun clearHandlerState() {
+        cancelGestureDeadline()
+        navigating = false
+        pendingMove = false
+        strokeLive = false
+        drawingId = NO_POINTER
+        drawingSource = null
+        stylusPointerId = NO_POINTER
+        stylus.reset()
+        stopPredicting()
+
+        if (hoverFramePosted) {
+            hoverFramePosted = false
+            Choreographer.getInstance().removeFrameCallback(hoverFrameCallback)
+        }
+
+        for (i in trackIds.indices) trackIds[i] = NO_POINTER
+        navIds[0] = NO_POINTER
+        navIds[1] = NO_POINTER
+        predictor = null
+        predictorView = null
+    }
+
     // ------------------------------------------------------- primitive path
 
     internal fun handleDown(
@@ -348,6 +467,7 @@ class CanvasTouchHandler(
         }
         track(pointerId, x, y, pressure, tilt, orientation, timeNs)
         arbiter.down(pointerId, tool, x, y, timeNs, decisions)
+        syncGestureDeadline()
         if (navigating) captureNavPointers()
     }
 
@@ -376,6 +496,7 @@ class CanvasTouchHandler(
         // sample the stroke would otherwise lose; the live sample below then
         // adds the current one, so the opening segment survives.
         arbiter.move(pointerId, x, y, timeNs, decisions)
+        syncGestureDeadline()
         track(pointerId, x, y, pressure, tilt, orientation, timeNs)
         pendingMove = true
         if (strokeLive && pointerId == drawingId) {
@@ -479,12 +600,14 @@ class CanvasTouchHandler(
     /** Applies one navigation step from every pointer's position in this event. */
     internal fun handleMoveEnd(timeNs: Long) {
         arbiter.tick(timeNs, decisions)
+        syncGestureDeadline()
         if (pendingMove && navigating) applyNavigation()
         pendingMove = false
     }
 
     internal fun handleUp(pointerId: Int, timeNs: Long) {
         arbiter.up(pointerId, timeNs, decisions)
+        syncGestureDeadline()
         // Only the pen's own lift ends the pen's contact. Keyed on the pointer
         // id because a palm resting on the glass is a real pointer that lifts
         // like any other: ending stylus contact on *any* up started the hover
@@ -527,6 +650,7 @@ class CanvasTouchHandler(
 
     internal fun handleCancel(timeNs: Long) {
         arbiter.cancel(decisions)
+        syncGestureDeadline()
         navigating = false
         pendingMove = false
         // Belt and braces: the arbiter's own `CancelStroke` already stops the
@@ -547,7 +671,10 @@ class CanvasTouchHandler(
     }
 
     /** Drives the pending window and the long press when no event arrives. */
-    internal fun handleTick(timeNs: Long) = arbiter.tick(timeNs, decisions)
+    internal fun handleTick(timeNs: Long) {
+        arbiter.tick(timeNs, decisions)
+        syncGestureDeadline()
+    }
 
     private fun applyNavigation() {
         val a = navIds[0]
@@ -924,9 +1051,9 @@ class CanvasTouchHandler(
                 },
             ),
             timeNs = if (current) {
-                e.eventTime * 1_000_000L
+                e.eventTime * NANOS_PER_MILLISECOND
             } else {
-                e.getHistoricalEventTime(history) * 1_000_000L
+                e.getHistoricalEventTime(history) * NANOS_PER_MILLISECOND
             },
             source = predictedSource,
             predicted = true,
@@ -946,7 +1073,8 @@ class CanvasTouchHandler(
         val e = event ?: return false
         val index = e.actionIndex
         val id = e.getPointerId(index)
-        val timeNs = e.eventTime * 1_000_000L
+        val timeNs = e.eventTime * NANOS_PER_MILLISECOND
+        attachGestureDeadlineScheduler(v)
         // §8: one predictor per surface, recreated with it. `v` is the
         // SurfaceView the session draws into, so building it from here means
         // nothing has to be plumbed through the composable that owns both.
@@ -971,7 +1099,7 @@ class CanvasTouchHandler(
 
             MotionEvent.ACTION_MOVE -> {
                 for (h in 0 until e.historySize) {
-                    val hNs = e.getHistoricalEventTime(h) * 1_000_000L
+                    val hNs = e.getHistoricalEventTime(h) * NANOS_PER_MILLISECOND
                     for (p in 0 until e.pointerCount) {
                         // Axes read at index `p`, the same pointer handleMove
                         // is given. For ACTION_MOVE the action's pointer-index
@@ -1042,7 +1170,7 @@ class CanvasTouchHandler(
 
     override fun onHover(v: View?, event: MotionEvent?): Boolean {
         val e = event ?: return false
-        val timeNs = e.eventTime * 1_000_000L
+        val timeNs = e.eventTime * NANOS_PER_MILLISECOND
         attachPredictor(v)
         // §8 records hover too: hover history improves the first predicted
         // samples after contact, which is the moment the tail is least accurate

@@ -87,19 +87,26 @@ class ProjectStore internal constructor(
         NEWER_VERSION,
     }
 
+    enum class ShelfAvailability {
+        AVAILABLE,
+        NEWER_VERSION,
+        UNREADABLE,
+    }
+
     /** One shelf row (06 §7). */
     data class Summary(
         val id: String,
-        val title: String,
-        val updatedAt: Long,
-        val width: Int,
-        val height: Int,
-        val layerCount: Int,
+        val title: String?,
+        val updatedAt: Long?,
+        val width: Int?,
+        val height: Int?,
+        val layerCount: Int?,
         val thumbnail: File?,
         val bytes: Long,
         val galleryUri: String?,
-        /** For §9.3's Studio-open staleness rule; 0 = never synced. */
-        val lastGallerySyncAt: Long = 0L,
+        /** For §9.3's staleness rule; null = unavailable, 0 = never synced. */
+        val lastGallerySyncAt: Long? = null,
+        val availability: ShelfAvailability = ShelfAvailability.AVAILABLE,
     )
 
     /** True when [id] may name a project folder; checked before any path. */
@@ -556,9 +563,9 @@ class ProjectStore internal constructor(
     /**
      * The shelf, newest first by the document's own `updatedAt` — not file
      * mtime, which moves on checkpoints that only saved view state (06 §7).
-     * A folder without a decodable `project.json` is skipped but not deleted
-     * (mid-save, mid-delete, or corrupt — a support question, not an
-     * eviction); `*.deleting` leftovers are swept.
+     * A folder without `project.json` is skipped. An unreadable or newer file
+     * remains as an unavailable row without fabricated metadata, so retained
+     * bytes never look deleted. `*.deleting` leftovers are swept.
      */
     fun list(): List<Summary> {
         val children = root.listFiles() ?: return emptyList()
@@ -578,20 +585,23 @@ class ProjectStore internal constructor(
             val file = try {
                 json.decodeFromString(ProjectFile.serializer(), jsonFile.readText(Charsets.UTF_8))
             } catch (e: SerializationException) {
-                Log.w(TAG, "project ${dir.name}: unreadable project.json, skipped", e)
+                Log.w(TAG, "project ${dir.name}: unreadable project.json, listed unavailable", e)
+                out += unavailableSummary(dir)
                 continue
             } catch (e: IOException) {
-                Log.w(TAG, "project ${dir.name}: unreadable project.json, skipped", e)
+                Log.w(TAG, "project ${dir.name}: unreadable project.json, listed unavailable", e)
+                out += unavailableSummary(dir)
                 continue
             } catch (e: IllegalArgumentException) {
-                Log.w(TAG, "project ${dir.name}: unreadable project.json, skipped", e)
+                Log.w(TAG, "project ${dir.name}: unreadable project.json, listed unavailable", e)
+                out += unavailableSummary(dir)
                 continue
             }
-            if (file.formatVersion > ProjectFile.FORMAT_VERSION) {
-                // Listed greyed-out with an explanation once the Studio grid
-                // exists (06 §13, roadmap 3c); skipped until then.
-                Log.w(TAG, "project ${dir.name}: newer format ${file.formatVersion}, skipped")
-                continue
+            val availability = if (file.formatVersion > ProjectFile.FORMAT_VERSION) {
+                Log.w(TAG, "project ${dir.name}: newer format ${file.formatVersion}, unavailable")
+                ShelfAvailability.NEWER_VERSION
+            } else {
+                ShelfAvailability.AVAILABLE
             }
             out += Summary(
                 id = dir.name,
@@ -604,11 +614,29 @@ class ProjectStore internal constructor(
                 bytes = folderBytes(dir),
                 galleryUri = file.galleryUri,
                 lastGallerySyncAt = file.lastGallerySyncAt,
+                availability = availability,
             )
         }
-        out.sortByDescending { it.updatedAt }
+        out.sortWith(
+            compareByDescending<Summary> { it.updatedAt ?: Long.MIN_VALUE }.thenBy { it.id },
+        )
         return out
     }
+
+    private fun unavailableSummary(dir: File): Summary = Summary(
+        id = dir.name,
+        title = null,
+        updatedAt = null,
+        width = null,
+        height = null,
+        layerCount = null,
+        thumbnail = File(dir, THUMB_NAME).takeIf { it.isFile },
+        bytes = folderBytes(dir),
+        // Malformed metadata has no trustworthy public URI. Never guess at a
+        // Gallery item by title or id: either may identify another image.
+        galleryUri = null,
+        availability = ShelfAvailability.UNREADABLE,
+    )
 
     /**
      * Deletes one painting: rename to `<uuid>.deleting` first — atomic within

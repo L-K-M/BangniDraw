@@ -13,6 +13,10 @@
     <string name="studio_about">关于</string>
     <string name="studio_settings">设置</string>
     <string name="studio_untitled">草图</string>
+    <string name="studio_painting_unavailable">无法打开的画作</string>
+    <string name="studio_painting_unavailable_badge">无法打开</string>
+    <string name="studio_painting_unreadable">无法读取这张画的信息。</string>
+    <string name="studio_painting_actions">画作操作</string>
     <plurals name="studio_storage">
         <item quantity="other">%1$d 张画 · 占用 %2$s · 可用 %3$s</item>
     </plurals>

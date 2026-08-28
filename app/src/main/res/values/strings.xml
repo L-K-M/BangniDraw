@@ -15,6 +15,10 @@
          Prefs.nextSketchNumber (06 §10). Also the display fallback for a
          painting whose stored title is empty. -->
     <string name="studio_untitled">Sketch</string>
+    <string name="studio_painting_unavailable">Unavailable painting</string>
+    <string name="studio_painting_unavailable_badge">Unavailable</string>
+    <string name="studio_painting_unreadable">This painting’s information could not be read.</string>
+    <string name="studio_painting_actions">Painting actions</string>
     <!-- {count} paintings · {bytes} on device · {free} free (08 §2). -->
     <plurals name="studio_storage">
         <item quantity="one">%1$d painting · %2$s on device · %3$s free</item>

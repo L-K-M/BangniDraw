@@ -72,6 +72,9 @@ internal object Thumbnails {
                 canvas.drawColor(document.paperColor)
             }
             val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+            // Tiles are GL-order RGBA; the bitmap's byte order is probed —
+            // modern devices match GL, older ones swap.
+            val layout = BitmapLayoutProbe.layout
             val scaleX = tw.toFloat() / document.width
             val scaleY = th.toFloat() / document.height
             var warnedBlend = false
@@ -85,9 +88,7 @@ internal object Thumbnails {
                 val store = TileStore(layerDirFor(layer.id))
                 for (key in layer.tiles) {
                     val pixels = (store.read(key) as? TileStore.Read.Pixels)?.pixels ?: continue
-                    // Tiles are GL-order RGBA; Bitmap's packed ARGB bytes use
-                    // the device's native channel order.
-                    PixelChannelOrder.withArgb8888Bytes(pixels) { bitmapPixels ->
+                    PixelChannelOrder.withArgb8888Bytes(pixels, layout) { bitmapPixels ->
                         tile.copyPixelsFromBuffer(ByteBuffer.wrap(bitmapPixels))
                     }
                     val rect = document.grid.tileRect(key)

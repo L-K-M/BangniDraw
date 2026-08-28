@@ -15,9 +15,9 @@ import java.io.File
  * read from disk, one band of tile rows resident at a time.
  *
  * Output is premultiplied RGBA8, row-major, top-left origin — 03 §2.4's one
- * pixel format — so an `ARGB_8888` bitmap consumes it byte-for-byte through
- * `copyPixelsFromBuffer` and `Bitmap.compress` writes straight alpha itself
- * (06 §9.1). Alpha is kept when the paper is transparent: a user who chose
+ * pixel format — so an `ARGB_8888` bitmap consumes it through
+ * `copyPixelsFromBuffer` after `PixelChannelOrder`'s device-probed reorder,
+ * and `Bitmap.compress` writes straight alpha itself (06 §9.1). Alpha is kept when the paper is transparent: a user who chose
  * transparent paper wants a transparent PNG.
  *
  * Step 4 uses this for **every** flatten, on-canvas syncs included; 06 §9.1's

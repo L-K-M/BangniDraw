@@ -15,6 +15,8 @@ import java.io.File
 import java.io.IOException
 import java.nio.ByteBuffer
 
+internal enum class ThumbnailWriteResult { WRITTEN, FAILED }
+
 /**
  * `thumb.png` — the Studio's picture of a painting
  * (`docs/plan/06-document-and-persistence.md` §6.4): longest side
@@ -52,10 +54,15 @@ internal object Thumbnails {
 
     /**
      * Composites [document]'s flushed tiles into `thumb.png` at [target],
-     * atomically. Failures are logged, never thrown: a stale thumbnail of
-     * the right painting still identifies it (06 §6.4, Meltorama's rule).
+     * atomically. Failures are logged and reported so the checkpoint retains
+     * its retry flag; a stale thumbnail of the right painting still identifies
+     * it until that retry succeeds (06 §6.4, Meltorama's rule).
      */
-    fun write(document: Document, layerDirFor: (LayerId) -> File, target: File) {
+    fun write(
+        document: Document,
+        layerDirFor: (LayerId) -> File,
+        target: File,
+    ): ThumbnailWriteResult {
         val (tw, th) = thumbSize(document.width, document.height)
         val thumb = Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888)
         val tile = Bitmap.createBitmap(TILE_SIZE, TILE_SIZE, Bitmap.Config.ARGB_8888)
@@ -95,10 +102,15 @@ internal object Thumbnails {
                 }
             }
             val out = ByteArrayOutputStream(64 * 1024)
-            thumb.compress(Bitmap.CompressFormat.PNG, 100, out)
+            if (!thumb.compress(Bitmap.CompressFormat.PNG, 100, out)) {
+                Log.w(TAG, "thumbnail PNG encode failed; keeping the previous one")
+                return ThumbnailWriteResult.FAILED
+            }
             AtomicFiles.write(target, out.toByteArray())
+            return ThumbnailWriteResult.WRITTEN
         } catch (e: IOException) {
             Log.w(TAG, "thumbnail write failed; keeping the previous one", e)
+            return ThumbnailWriteResult.FAILED
         } finally {
             tile.recycle()
             thumb.recycle()

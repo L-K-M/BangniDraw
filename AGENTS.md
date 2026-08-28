@@ -91,6 +91,12 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - The CPU reference implementations in `engine/core` (`Composite`, the
   mixing formula, dab falloff) and the GLSL must stay trivially close; when
   one changes, change both, and let the unit tests pin the semantics.
+- `TileFlusher.checkpointFlush()` is the pixel-to-metadata commit barrier.
+  A `false` result must not write `project.json`, clear dirty state, or let a
+  leave navigate; the pending mirror still holds newer pixels that disk does
+  not. The checkpoint's no-op path must also admit outstanding thumbnail and
+  history-delete maintenance, and a retry flag clears only after its work
+  succeeds.
 - GL and tile storage use RGBA bytes; Android `ARGB_8888` bitmap buffers use
   native-order packed ARGB. Route bitmap copies through `PixelChannelOrder`;
   a byte-for-byte RGBA copy swaps red and blue on little-endian devices.

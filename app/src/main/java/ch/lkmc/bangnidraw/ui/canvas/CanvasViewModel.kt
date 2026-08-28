@@ -11,6 +11,8 @@ import androidx.navigation.toRoute
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.data.ApplicationScope
 import ch.lkmc.bangnidraw.data.BrushPresetStore
+import ch.lkmc.bangnidraw.data.CheckpointBarrier
+import ch.lkmc.bangnidraw.data.CheckpointResult
 import ch.lkmc.bangnidraw.data.CpuFlatten
 import ch.lkmc.bangnidraw.data.CpuTile
 import ch.lkmc.bangnidraw.data.GalleryExporter
@@ -30,6 +32,7 @@ import ch.lkmc.bangnidraw.data.ShareCache
 import ch.lkmc.bangnidraw.data.TileBufferPool
 import ch.lkmc.bangnidraw.data.TileFlusher
 import ch.lkmc.bangnidraw.data.TileStore
+import ch.lkmc.bangnidraw.data.ThumbnailWriteResult
 import ch.lkmc.bangnidraw.data.Thumbnails
 import ch.lkmc.bangnidraw.data.applyTuning
 import ch.lkmc.bangnidraw.data.highestDefaultNameIn
@@ -2732,7 +2735,14 @@ class CanvasViewModel @Inject constructor(
             var handedOff = false
             var flushed = false
             try {
-                withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
+                val checkpointResult = withContext(NonCancellable) {
+                    checkpoint(GallerySyncDecision.Trigger.LEAVE)
+                }
+                if (checkpointResult == CheckpointResult.DEFERRED) {
+                    withContext(Dispatchers.Main) { noteLeaveFailure() }
+                    return@launch
+                }
+
                 flushed = true
                 withContext(Dispatchers.Main) { afterWrite() }
                 handedOff = true
@@ -2866,59 +2876,77 @@ class CanvasViewModel @Inject constructor(
         }
     }
 
-    private suspend fun checkpoint(trigger: GallerySyncDecision.Trigger) {
-        val doc = document ?: return
-        checkpointMutex.withLock {
-            if (!dirty && store.exists(doc.id)) return
+    private suspend fun checkpoint(
+        trigger: GallerySyncDecision.Trigger,
+    ): CheckpointResult {
+        val doc = document ?: return CheckpointResult.COMMITTED
+        return checkpointMutex.withLock {
+            if (!dirty && !thumbDirty) {
+                val deletesOutstanding = withContext(Dispatchers.Main) {
+                    pendingDeletes.isNotEmpty()
+                }
+                if (!deletesOutstanding && store.exists(doc.id)) {
+                    return@withLock CheckpointResult.COMMITTED
+                }
+            }
+
             // §5.6's order: (readbacks land) → queued jobs and tiles flushed
             // → project.json last, the commit point → only then the files a
             // truncation or pruning dropped.
-            if (awaitReadbacks() == TileFlusher.ReadbackResult.PENDING) return
-            flusher.checkpointFlush()
-            val now = System.currentTimeMillis()
-            val folded = fold(document ?: return, now)
-            document = folded
-            val (record, deletes) = withContext(Dispatchers.Main) {
-                val j = journal
-                val snapshot = if (j == null) {
-                    HistoryRecord(cursor = folded.historyCursor)
-                } else {
-                    HistoryRecord(
-                        cursor = j.cursor,
-                        nextSeq = nextSeq.get(),
-                        oldestSeq = j.entries.firstOrNull()?.seq ?: nextSeq.get(),
-                        entries = j.stats().entries,
-                        bytes = j.stats().bytes,
-                    )
-                }
-                snapshot to ArrayList(pendingDeletes)
-            }
+            var projectCommitted = false
             try {
-                store.checkpoint(folded, record)
-                dirty = false
-                contentDirty = false
-                dirtySinceMs = null
-                // Now — and only now — the dropped entries' files (§5.6).
-                if (deletes.isNotEmpty()) {
-                    historyStore?.delete(deletes)
-                    withContext(Dispatchers.Main) { pendingDeletes.removeAll(deletes.toSet()) }
+                CheckpointBarrier.commitWhenFlushed(
+                    awaitReadbacks = ::awaitReadbacks,
+                    flushTiles = flusher::checkpointFlush,
+                ) {
+                    val now = System.currentTimeMillis()
+                    val folded = fold(document ?: doc, now)
+                    document = folded
+                    val (record, deletes) = withContext(Dispatchers.Main) {
+                        val j = journal
+                        val snapshot = if (j == null) {
+                            HistoryRecord(cursor = folded.historyCursor)
+                        } else {
+                            HistoryRecord(
+                                cursor = j.cursor,
+                                nextSeq = nextSeq.get(),
+                                oldestSeq = j.entries.firstOrNull()?.seq ?: nextSeq.get(),
+                                entries = j.stats().entries,
+                                bytes = j.stats().bytes,
+                            )
+                        }
+                        snapshot to ArrayList(pendingDeletes)
+                    }
+                    store.checkpoint(folded, record)
+                    projectCommitted = true
+                    dirty = false
+                    contentDirty = false
+                    dirtySinceMs = null
+                    // Now — and only now — the dropped entries' files (§5.6).
+                    if (deletes.isNotEmpty()) {
+                        historyStore?.delete(deletes)
+                        withContext(Dispatchers.Main) {
+                            pendingDeletes.removeAll(deletes.toSet())
+                        }
+                    }
+                    // The thumbnail follows the checkpoint (06 §6.4): the tiles
+                    // it reads are on disk by the flush above, and only when
+                    // pixels actually changed — never per stroke.
+                    if (thumbDirty) {
+                        val result = Thumbnails.write(
+                            folded,
+                            layerDirFor = { store.layerDir(folded.id, it) },
+                            target = File(store.projectDir(folded.id), "thumb.png"),
+                        )
+                        if (result == ThumbnailWriteResult.WRITTEN) thumbDirty = false
+                    }
+                    maybeSyncGallery(folded, trigger, now)
                 }
-                // The thumbnail follows the checkpoint (06 §6.4): the tiles
-                // it reads are on disk by the flush above, and only when
-                // pixels actually changed — never per stroke.
-                if (thumbDirty) {
-                    thumbDirty = false
-                    Thumbnails.write(
-                        folded,
-                        layerDirFor = { store.layerDir(folded.id, it) },
-                        target = File(store.projectDir(folded.id), "thumb.png"),
-                    )
-                }
-                maybeSyncGallery(folded, trigger, now)
             } catch (_: java.io.IOException) {
-                // Same family as a failed tile write: the storage-full state
-                // and its retry-on-next-checkpoint own this. `dirty` stays
-                // true, so the next trigger tries again.
+                // The project commit is the save boundary. A failure before
+                // it keeps dirty state for the next checkpoint; thumbnail or
+                // gallery work after it may fail without trapping the user.
+                if (projectCommitted) CheckpointResult.COMMITTED else CheckpointResult.DEFERRED
             }
         }
     }

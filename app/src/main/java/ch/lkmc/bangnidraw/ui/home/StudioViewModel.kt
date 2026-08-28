@@ -112,13 +112,20 @@ class StudioViewModel @Inject constructor(
 
     private var staleSyncJob: Job? = null
 
+    internal enum class PaintingAvailability {
+        AVAILABLE,
+        NEWER_VERSION,
+        UNREADABLE,
+    }
+
     internal data class Painting(
         val id: String,
-        val title: String,
-        val updatedAtMillis: Long,
+        val title: String?,
+        val updatedAtMillis: Long?,
         val thumbnail: File?,
         val bytes: Long,
         val galleryUri: String?,
+        val availability: PaintingAvailability,
     )
 
     internal data class UiState(
@@ -225,6 +232,14 @@ class StudioViewModel @Inject constructor(
                             thumbnail = it.thumbnail,
                             bytes = it.bytes,
                             galleryUri = it.galleryUri,
+                            availability = when (it.availability) {
+                                ProjectStore.ShelfAvailability.AVAILABLE ->
+                                    PaintingAvailability.AVAILABLE
+                                ProjectStore.ShelfAvailability.NEWER_VERSION ->
+                                    PaintingAvailability.NEWER_VERSION
+                                ProjectStore.ShelfAvailability.UNREADABLE ->
+                                    PaintingAvailability.UNREADABLE
+                            },
                         )
                     },
                     totalBytes = listed.sumOf { it.bytes },
@@ -288,8 +303,13 @@ class StudioViewModel @Inject constructor(
      */
     private fun syncStale(listed: List<ProjectStore.Summary>) {
         if (staleSyncJob?.isActive == true) return
-        val stale = listed.filter {
-            GallerySyncDecision.isStaleOnDisk(it.updatedAt, it.lastGallerySyncAt)
+        val stale = listed.filter { summary ->
+            if (summary.availability != ProjectStore.ShelfAvailability.AVAILABLE) return@filter false
+
+            val updatedAt = summary.updatedAt ?: return@filter false
+            val lastSyncAt = summary.lastGallerySyncAt ?: return@filter false
+
+            GallerySyncDecision.isStaleOnDisk(updatedAt, lastSyncAt)
         }
         if (stale.isEmpty()) return
         staleSyncJob = viewModelScope.launch(Dispatchers.IO) {

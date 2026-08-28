@@ -4,8 +4,8 @@
 decision 9 ("tools are presets over one engine"): the `Tool`/`ToolKind`
 model, the `BrushPreset` data class with every parameter and its meaning,
 the built-in presets with their actual values, the `DabGenerator`
-and `Stabilizer` math, and the three non-brush tools (smudge/blur, fill,
-eyedropper) plus the eraser's S Pen bindings. It expands PLAN.md; where the
+and `Stabilizer` math, and the four non-brush tool groups (smudge/blur, Water,
+fill, eyedropper) plus the eraser's S Pen bindings. It expands PLAN.md; where the
 engine plumbing (stroke buffer, `DabPass`, ping-pong RMW, tiles, readback)
 is *how pixels move*, this document is *what numbers we feed it*. The
 pipeline itself is `docs/plan/03-canvas-engine.md`; color math is
@@ -562,7 +562,7 @@ sets the colour pass to transport-only.
 
 Both tools execute one wet and optional colour update per accepted non-zero
 dab. They never run a frame timer or a pen-up settle pass. Wet state lasts
-12 seconds by lazy monotonic age and is transient; proposal 0001 owns the
+12 seconds by lazy monotonic age and is transient; proposal 0002 owns the
 engine and lifecycle details.
 
 ## 6. Smudge and Blur

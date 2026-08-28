@@ -889,7 +889,7 @@ Photo Picker needs no permission, so none may appear in the manifest.
 **Goal.** Add layer-local wet pigment and a colourless Water tool without a
 continuous solver.
 
-**Creates.** Proposal 0001's pure wet/colour kernels, quarter-resolution
+**Creates.** Proposal 0002's pure wet/colour kernels, quarter-resolution
 sparse wet grids, `WatercolorPass` GLES 3.0 fragment passes, transient
 cancel/expiry lifecycle, Watercolor preset migration, Water tool, adaptive
 rail placement, controls, glyphs, shortcuts, English/zh-Hans strings, and

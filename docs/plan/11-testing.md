@@ -525,7 +525,7 @@ checklist with ticks; a failing row blocks the merge.
 | G4 | Share: the share sheet gets a PNG named after the painting | 4 |
 | L1 | 8 layers on a 4096² canvas on an 8 GB tablet: drag-reorder, merge down, blend modes visibly correct, no jank while drawing | 6 |
 | L2 | On the 4 GB tablet the cap is smaller and is *shown*, not hit as a crash | 6 |
-| M1 | Watercolor over dry paint: blue over yellow gives green; the dish gives the same green | 11 |
+| M1 | Watercolor over dry paint: blue over yellow gives green; the dish gives the same green | 12 |
 | M2 | Smudge drags color; blur softens; neither leaves seams at tile borders | 7 |
 | F1 | Fill inside line art with expand 2: no halo under the lines | 8 |
 | U1 | Rotate the device mid-stroke: the stroke is committed or rolled back, never duplicated; the view keeps its centre | 9 |

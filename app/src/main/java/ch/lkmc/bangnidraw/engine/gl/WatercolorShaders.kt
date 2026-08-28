@@ -7,7 +7,7 @@ import ch.lkmc.bangnidraw.engine.core.TipShape
 import ch.lkmc.bangnidraw.engine.core.WatercolorKernel
 import ch.lkmc.bangnidraw.engine.core.WatercolorDabPlan
 
-/** GLES 3.0 fragment passes for proposal 0001's coarse wet medium. */
+/** GLES 3.0 fragment passes for proposal 0002's coarse wet medium. */
 internal object WatercolorShaders {
 
     private val mask = """

@@ -913,7 +913,7 @@ deposits full-resolution colour. The source is a private 2-D texture, so
 the pass can write the original pool slice without a feedback loop. Wet
 state uses shared-pool `LayerTextures`; scratch textures stay outside the
 pool. There is no background or pen-up pass. Proposal
-`docs/proposals/0001-gesture-scoped-watercolor.md` owns the equations,
+`docs/proposals/0002-gesture-scoped-watercolor.md` owns the equations,
 clock, bounds, history, and lifecycle.
 
 ## 8. The front-buffered path

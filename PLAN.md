@@ -447,7 +447,7 @@ acceptance tests per step: `docs/plan/12-roadmap.md`.
 | 9 | Adaptive UI polish | compact vs expanded layouts, handedness, focus mode, gesture shortcuts, haptics, hover cursor, first-run hint | usable one-handed on a phone; roomy on a tablet |
 | 10 | v1.0 | Settings/About (licenses), zh-Hans strings, README screenshots, release v1.0.0 | tagged release with APK |
 | 11 | Tracing reference | Photo Picker import into a private project asset; affine two-finger placement beneath paint; opacity, visibility, replace, reset, remove; never exported | reference survives reopen; export pixels are unchanged; no permission added |
-| 12 | Watercolor | proposal 0001: coarse transient wet state, Watercolor preset, colourless Water tool, GLES RMW passes, adaptive controls | wet-on-wet mixing and clear-water transport without tile seams; device acceptance pending |
+| 12 | Watercolor | proposal 0002: coarse transient wet state, Watercolor preset, colourless Water tool, GLES RMW passes, adaptive controls | wet-on-wet mixing and clear-water transport without tile seams; device acceptance pending |
 
 Post-v1 (each its own proposal in `docs/proposals/`): selections +
 transform, rulers/shape assist, symmetry, gradient fill, brush grains,

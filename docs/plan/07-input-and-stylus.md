@@ -498,7 +498,7 @@ them, and every shortcut is a duplicate of a button.
 | --- | --- |
 | Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y | undo / redo / redo |
 | `[` / `]` | brush size −/+ one slider step |
-| `B` / `E` / `S` / `G` / `I` | brush (last brush preset) / eraser / smudge / fill / eyedropper |
+| `B` / `E` / `S` / `W` / `G` / `I` | brush (last brush preset) / eraser / smudge / Water / fill / eyedropper |
 | `Alt` held | eyedropper while held (mirrors the side-button behavior) |
 | `0` | reset view |
 | `Tab` | toggle focus mode |

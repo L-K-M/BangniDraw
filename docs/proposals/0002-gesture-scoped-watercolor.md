@@ -1,6 +1,6 @@
-# 0001 — Gesture-scoped watercolor
+# 0002 — Gesture-scoped watercolor
 
-- **Status:** Accepted — roadmap #11
+- **Status:** Accepted — roadmap #12
 - **Date:** 2026-08-27
 
 ## Problem

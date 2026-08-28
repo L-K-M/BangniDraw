@@ -2,28 +2,29 @@ package ch.lkmc.bangnidraw.ui.home
 
 import java.io.File
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Pins the Settings sheet's keyboard-shortcuts section: the canvas shortcut
- * table (engine/core/CanvasShortcut.kt) is discoverable somewhere in the UI,
- * and a row added to the table without a row here fails this test's count.
+ * Pins the Settings sheet's shortcut section as a *view* of the engine's
+ * legend: the rows render from `ShortcutLegend`, so the advertised table
+ * cannot drift from the dispatcher (`CanvasShortcutLegendTest` replays the
+ * legend through `CanvasShortcuts.resolve`).
  */
 class ShortcutSectionContractTest {
 
     @Test
-    fun `the settings sheet lists the canvas shortcut table`() {
-        val sheet = source(SETTINGS_SHEET_PATH)
+    fun `the settings sheet renders the engine's legend`() {
+        val sheet = source(SETTINGS_SHEET_PATH).replace(WHITESPACE, " ")
 
         assertTrue("R.string.settings_shortcuts" in sheet)
-        assertEquals(SHORTCUT_ROWS, SHORTCUT_ROW.findAll(sheet).count())
-        // Spot-check the anchors of the table: undo, the bracket size pair,
-        // and the hold-Alt eyedropper.
-        assertTrue("ShortcutRow(R.string.canvas_undo, \"Ctrl+Z\")" in sheet)
-        assertTrue("ShortcutRow(R.string.brush_size, \"[   ]\")" in sheet)
-        assertTrue("ShortcutRow(R.string.shortcut_hold_eyedropper, \"Alt\")" in sheet)
+        assertTrue("ShortcutLegend.entries" in sheet)
+        assertTrue("ShortcutLegend.keyLabel(entry)" in sheet)
+        // No hand-typed key caps: a binding label copied by hand is how the
+        // table first contradicted the dispatcher.
+        assertFalse("\"Ctrl+Z\"" in sheet)
+        assertFalse("\"Alt\"" in sheet)
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
@@ -44,8 +45,6 @@ class ShortcutSectionContractTest {
         const val APP_DIRECTORY = "app/src/main"
         const val SETTINGS_SHEET_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/home/SettingsSheet.kt"
-
-        val SHORTCUT_ROW = Regex("ShortcutRow\\(R\\.string\\.")
-        const val SHORTCUT_ROWS = 14
+        val WHITESPACE = Regex("\\s+")
     }
 }

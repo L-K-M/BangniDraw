@@ -48,6 +48,8 @@ import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.AutosavePolicy
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
+import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
+import ch.lkmc.bangnidraw.engine.core.ShortcutLegend
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.MixerChoice
@@ -254,26 +256,16 @@ internal fun SettingsSheet(
 
             item { SectionTitle(R.string.settings_shortcuts) }
             item {
-                // The canvas keyboard table (engine/core/CanvasShortcut.kt),
-                // listed so DeX and keyboard-cover users can discover it.
+                // The canvas keyboard table, rendered from the engine's own
+                // legend (engine/core/CanvasShortcut.kt) so the help cannot
+                // silently contradict the dispatcher.
                 Column(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.padding(horizontal = 24.dp),
                 ) {
-                    ShortcutRow(R.string.canvas_undo, "Ctrl+Z")
-                    ShortcutRow(R.string.canvas_redo, "Ctrl+Shift+Z")
-                    ShortcutRow(R.string.brush_size, "[   ]")
-                    ShortcutRow(R.string.shortcut_brush, "B")
-                    ShortcutRow(R.string.tool_eraser, "E")
-                    ShortcutRow(R.string.tool_smudge, "S")
-                    ShortcutRow(R.string.tool_water, "W")
-                    ShortcutRow(R.string.tool_fill, "G")
-                    ShortcutRow(R.string.tool_eyedropper, "I")
-                    ShortcutRow(R.string.shortcut_hold_eyedropper, "Alt")
-                    ShortcutRow(R.string.canvas_reset_view, "0")
-                    ShortcutRow(R.string.canvas_focus, "Tab")
-                    ShortcutRow(R.string.layers_title, "L")
-                    ShortcutRow(R.string.color_panel, "C")
+                    for (row in shortcutRows()) {
+                        ShortcutRow(row.label, row.keys)
+                    }
                 }
             }
             item {
@@ -414,6 +406,53 @@ private fun ShortcutRow(action: Int, key: String) {
     }
 }
 
+/** One displayed row: a label and its key cap(s). */
+private data class ShortcutRowSpec(val label: Int, val keys: String)
+
+private object SizeRowGroup
+private object HoldEyedropperRowGroup
+
+private fun shortcutLabel(shortcut: CanvasShortcut): Int = when (shortcut) {
+    CanvasShortcut.UNDO -> R.string.canvas_undo
+    CanvasShortcut.REDO -> R.string.canvas_redo
+    CanvasShortcut.SIZE_DOWN, CanvasShortcut.SIZE_UP -> R.string.brush_size
+    CanvasShortcut.BRUSH -> R.string.shortcut_brush
+    CanvasShortcut.ERASER -> R.string.tool_eraser
+    CanvasShortcut.SMUDGE -> R.string.tool_smudge
+    CanvasShortcut.WATER -> R.string.tool_water
+    CanvasShortcut.FILL -> R.string.tool_fill
+    CanvasShortcut.EYEDROPPER -> R.string.tool_eyedropper
+    CanvasShortcut.BEGIN_EYEDROPPER,
+    CanvasShortcut.END_EYEDROPPER,
+    -> R.string.shortcut_hold_eyedropper
+    CanvasShortcut.RESET_VIEW -> R.string.canvas_reset_view
+    CanvasShortcut.TOGGLE_FOCUS -> R.string.canvas_focus
+    CanvasShortcut.TOGGLE_LAYERS -> R.string.layers_title
+    CanvasShortcut.TOGGLE_COLOR -> R.string.color_panel
+}
+
+/**
+ * The legend as rows: the size pair and the eyedropper hold pair share one
+ * row each (the legend lists them consecutively, so grouping is order-local).
+ */
+private fun shortcutRows(): List<ShortcutRowSpec> = buildList {
+    var group: Any? = null
+    for (entry in ShortcutLegend.entries) {
+        val rowGroup: Any = when (entry.shortcut) {
+            CanvasShortcut.SIZE_DOWN, CanvasShortcut.SIZE_UP -> SizeRowGroup
+            CanvasShortcut.BEGIN_EYEDROPPER, CanvasShortcut.END_EYEDROPPER -> HoldEyedropperRowGroup
+            else -> entry.shortcut
+        }
+        if (rowGroup == group) {
+            val last = removeAt(lastIndex)
+            add(last.copy(keys = last.keys + KEY_PAIR_GAP + ShortcutLegend.keyLabel(entry)))
+            continue
+        }
+        add(ShortcutRowSpec(shortcutLabel(entry.shortcut), ShortcutLegend.keyLabel(entry)))
+        group = rowGroup
+    }
+}
+
 @Composable
 private fun AboutDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
@@ -470,6 +509,7 @@ private fun AboutDialog(onDismiss: () -> Unit) {
 private val SETTINGS_MAX_HEIGHT = 640.dp
 private val MIN_TARGET = 48.dp
 private val SHORTCUT_ROW_MIN = 28.dp
+private const val KEY_PAIR_GAP = "  "
 private val ABOUT_ICON_SIZE = 96.dp
 private const val BYTES_PER_MIB = 1024L * 1024L
 private const val MILLIS_PER_SECOND = 1_000L

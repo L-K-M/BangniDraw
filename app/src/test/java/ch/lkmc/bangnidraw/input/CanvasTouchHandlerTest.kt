@@ -305,6 +305,27 @@ class CanvasTouchHandlerTest {
     }
 
     @Test
+    fun `a flagged lift below Tiramisu falls back to a normal stroke end`() {
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(7, PointerTool.STYLUS, 100f, 100f, ms(0))
+        host.events.clear()
+
+        assertFalse(
+            h.handlePlatformCancellation(
+                pointerId = 7,
+                action = MotionEvent.ACTION_UP,
+                flags = MotionEvent.FLAG_CANCELED,
+                apiLevel = Build.VERSION_CODES.S,
+                timeNs = ms(1),
+            ),
+        )
+        h.handleUp(7, ms(2))
+
+        assertEquals(listOf("end"), host.events)
+    }
+
+    @Test
     fun `a pinch zooms about the point between the fingers`() {
         val host = Host()
         val h = handler(host)

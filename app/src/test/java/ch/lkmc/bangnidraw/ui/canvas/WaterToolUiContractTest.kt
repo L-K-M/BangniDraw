@@ -108,6 +108,28 @@ class WaterToolUiContractTest {
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
 
+    @Test
+    fun `water preserves the last specialty brush route`() {
+        val viewModel = source(CANVAS_VIEW_MODEL_PATH)
+        val selection = viewModel
+            .substringAfter("fun selectBrush(id: String)")
+            .substringBefore("internal fun toggleEraserPreset")
+        val water = viewModel
+            .substringAfter("internal fun selectWater()")
+            .substringBefore("fun selectBlur()")
+        val rail = source(TOOL_RAIL_PATH)
+
+        assertTrue(
+            "if (preset.eraseMode) eraserBrushId = id else paintBrushId = id" in selection,
+        )
+        assertTrue("selectBrush(paintBrushId)" in selection)
+        assertTrue("toolSwitcher.select(ToolKind.Water(waterParams))" in water)
+        assertTrue("paintBrushId" !in water)
+        assertTrue(
+            "val currentPaint = paints.firstOrNull { it.id == paintBrushId }" in rail,
+        )
+    }
+
     private fun repositoryRoot(): File {
         val workingDirectory = File(
             requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),

@@ -115,6 +115,63 @@ class WatercolorColorKernelTest {
     }
 
     @Test
+    fun `clear water transports a Chinese ink stroke pixel`() {
+        val dab = Dab(
+            x = 0f,
+            y = 0f,
+            radius = 12f,
+            flow = 0.7f,
+            hardness = 0.9f,
+            angle = 0f,
+            aspect = 0.58f,
+            seed = 0.42f,
+            wetness = 1f,
+            bristleAlong = 17f,
+            bristleAcross = 3f,
+        )
+        val stroke = DabStamp.contribution(
+            px = 0f,
+            py = 0f,
+            dab = dab,
+            colorRgb = floatArrayOf(0.1f, 0.35f, 0.8f),
+            brushModel = BrushModel.ChineseInk,
+        )
+        val painted = StrokeMerge.merge(
+            layer = Rgba.TRANSPARENT,
+            stroke = stroke,
+            spec = StrokeSpec(
+                layerId = LayerId("calligraphy"),
+                mode = StrokeMode.PAINT,
+                opacity = 1f,
+                brushModel = BrushModel.ChineseInk,
+            ),
+        )
+
+        val moved = WatercolorColorKernel.evaluate(
+            center = Rgba.TRANSPARENT,
+            neighbors = Neighbors(
+                north = painted,
+                east = Rgba.TRANSPARENT,
+                south = Rgba.TRANSPARENT,
+                west = Rgba.TRANSPARENT,
+            ),
+            parameters = parameters(
+                surfaceWater = 1f,
+                spread = 1f,
+                flowMask = 1f,
+                depositMode = DepositMode.CLEAR_WATER,
+            ),
+        )
+
+        assertTrue(painted.a > 0f)
+        assertTrue(moved.a > 0f)
+        assertTrue(moved.isPremultiplied())
+        assertEquals(painted.r / painted.a, moved.r / moved.a, EPSILON)
+        assertEquals(painted.g / painted.a, moved.g / moved.a, EPSILON)
+        assertEquals(painted.b / painted.a, moved.b / moved.a, EPSILON)
+    }
+
+    @Test
     fun `paper relief and rim scale pigment deposition`() {
         val roughPaper = WatercolorColorKernel.evaluate(
             center = Rgba.TRANSPARENT,

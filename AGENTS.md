@@ -690,9 +690,12 @@ and the contradiction is noted here.
   transparency changes wet state but creates no colour tile or history
   entry. `TileContentIndex` tracks alpha occupancy in 4×4 blocks; `UNKNOWN`
   is conservatively occupied, so Water never skips pigment it has not
-  classified. Wet grids and their one-gesture backup share `TilePool`; ordinary
-  stroke and wet-backup reserves are mutually exclusive. The budget is
-  `N·colour + N·wet + max(colour reserve, wet reserve)`.
+  classified. Water transports committed premultiplied pixels from every
+  brush model, including Chinese Ink. A preset cannot combine
+  `WatercolorBehavior` with `BrushModel.ChineseInk`: direct RMW bypasses the
+  tuft/bristle path. Wet grids and their one-gesture backup share `TilePool`;
+  ordinary stroke and wet-backup reserves are mutually exclusive. The budget
+  is `N·colour + N·wet + max(colour reserve, wet reserve)`.
 
 ## CI/CD
 

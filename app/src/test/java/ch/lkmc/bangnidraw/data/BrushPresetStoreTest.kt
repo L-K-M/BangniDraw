@@ -77,6 +77,14 @@ class BrushPresetStoreTest {
             BrushModel.ChineseInk,
             presets.single { it.id == BrushPresets.CALLIGRAPHY_ID }.model,
         )
+        assertEquals(
+            listOf(BrushPresets.PAINTBRUSH_ID),
+            presets.filter { it.watercolor != null }.map { it.id },
+        )
+        assertEquals(
+            listOf(BrushPresets.CALLIGRAPHY_ID),
+            presets.filter { it.model == BrushModel.ChineseInk }.map { it.id },
+        )
         for (id in listOf("builtin.charcoal", "builtin.soft_pastel", "builtin.dry_brush")) {
             assertEquals(GrainMode.Procedural, presets.single { it.id == id }.grainMode, id)
         }
@@ -108,7 +116,7 @@ class BrushPresetStoreTest {
             mixing = true,
             dilution = 0.19f,
             grain = "paper-fine",
-            model = BrushModel.ChineseInk,
+            model = BrushModel.Standard,
             bufferMode = BufferMode.Accumulate,
             watercolor = WatercolorBehavior(
                 waterLoad = 0.7f,

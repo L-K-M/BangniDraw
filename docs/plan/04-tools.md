@@ -548,12 +548,14 @@ pencil gets `"grain": "paper-fine"` and the position jitter drops to 0.05.
 `WatercolorBehavior(waterLoad, spread, granulation, edgeDarkening)` is
 defaulted and serializable. A non-null value selects the direct RMW path.
 Watercolor presets must use mixing, `Accumulate`, opacity 1, and
-`pressureOpacity = Curve.One`. The settings sheet hides stroke opacity and
-pressure opacity, which direct RMW cannot honour, and exposes Water, Spread,
-Granulation, and Edge darkening.
+`pressureOpacity = Curve.One`, and must keep `BrushModel.Standard`; the direct
+path cannot consume Chinese Ink tuft or bristle state. The settings sheet
+hides stroke opacity and pressure opacity, which direct RMW cannot honour,
+and exposes Water, Spread, Granulation, and Edge darkening.
 
 The transient wet grid is separate from `Dab.wetness`, which remains only
-Chinese-ink tuft load and never drives diffusion.
+Chinese-ink tuft load and never drives diffusion. Water consumes the committed
+premultiplied layer pixels, so it transports paint from every brush model.
 
 `WaterParams` defaults to size 72 (8–400), hardness 0.2, spacing 0.18,
 water 0.75, spread 0.65, and linear pressure-to-water. Its sheet exposes

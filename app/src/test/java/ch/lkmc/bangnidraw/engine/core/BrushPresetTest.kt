@@ -137,6 +137,19 @@ class BrushPresetTest {
     }
 
     @Test
+    fun `watercolor and Chinese ink models are exclusive`() {
+        val watercolor = preset().copy(
+            mixing = true,
+            bufferMode = BufferMode.Accumulate,
+            watercolor = WatercolorBehavior(),
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            watercolor.copy(model = BrushModel.ChineseInk)
+        }
+    }
+
+    @Test
     fun `an unknown field is ignored and a missing one takes the default`() {
         // Forward compatibility (`04` §5.1): an old build must open a preset
         // written by a new one, and a hand-edited file may omit anything it

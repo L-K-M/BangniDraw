@@ -282,6 +282,10 @@ data class BrushPreset(
         require(watercolor == null || !eraseMode) {
             "preset $id: watercolor cannot erase"
         }
+        // Watercolor bypasses DabPass, so it cannot honor stateful tuft or bristle fields.
+        require(watercolor == null || model == BrushModel.Standard) {
+            "preset $id: watercolor requires the Standard brush model"
+        }
         require(watercolor == null || mixing) {
             "preset $id: watercolor requires pigment mixing"
         }

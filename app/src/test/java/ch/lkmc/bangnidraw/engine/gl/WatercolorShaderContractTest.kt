@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.engine.gl
 import ch.lkmc.bangnidraw.engine.core.DabStamp
 import ch.lkmc.bangnidraw.engine.core.WatercolorKernel
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class WatercolorShaderContractTest {
@@ -69,6 +70,19 @@ class WatercolorShaderContractTest {
         assertTrue("uniform int u_depositMode;" in body)
         assertTrue("uniform bool u_alphaLock;" in body)
         assertTrue("proceduralPaper" in body)
+    }
+
+    @Test
+    fun `clear water transports finished brush pixels without model state`() {
+        val body = Shaders.WATERCOLOR_COLOR.fragment
+
+        assertTrue("vec4 center = sampleColor(canvas);" in body)
+        assertTrue("? depositPigment(flowed, deposit) : flowed;" in body)
+        assertTrue("rgb = min(rgb, vec3(alpha));" in body)
+        assertFalse("u_brushModel" in body)
+        assertFalse("i_wetness" in body)
+        assertFalse("i_bristleAlong" in body)
+        assertFalse("i_bristleAcross" in body)
     }
 
     @Test

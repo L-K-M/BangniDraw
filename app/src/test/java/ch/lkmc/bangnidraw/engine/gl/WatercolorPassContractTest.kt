@@ -1,7 +1,11 @@
 package ch.lkmc.bangnidraw.engine.gl
 
+import ch.lkmc.bangnidraw.engine.core.BrushModel
+import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
+import ch.lkmc.bangnidraw.engine.core.WaterParams
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -53,6 +57,23 @@ class WatercolorPassContractTest {
         assertFalse("stroke.opacity" in source)
         assertTrue("if (batch.flow[index] <= 0f) continue" in source)
         assertTrue("program.uniform2f(\"u_tip\", batch.angle[index], batch.aspect[index])" in source)
+    }
+
+    @Test
+    fun `wet medium survives brush and layer switches without specialty dab state`() {
+        assertEquals(BrushModel.Standard, RmwDabPreset.water(WaterParams()).model)
+        val source = source()
+        val begin = source.substringAfter("fun begin(").substringBefore("fun stamp(")
+        val stamp = source.substringAfter("fun stamp(").substringBefore("fun cancel()")
+
+        assertTrue("private val wetLayers = LinkedHashMap<LayerId, WetLayer>()" in source)
+        assertTrue("finish()" in begin)
+        assertTrue("wetLayers.getOrPut(layer)" in begin)
+        assertFalse("dryAll()" in begin)
+        assertFalse("stroke.brushModel" in stamp)
+        assertFalse("batch.wetness" in stamp)
+        assertFalse("batch.bristleAlong" in stamp)
+        assertFalse("batch.bristleAcross" in stamp)
     }
 
     @Test

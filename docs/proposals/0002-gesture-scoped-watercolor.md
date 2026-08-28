@@ -97,6 +97,9 @@ and colour fields once. There is no background pass and no pen-up settling.
   selected pigment and water, then mixes with nearby colour.
 - **Water** is a colourless droplet tool. It wets, dilutes, and carries
   existing pigment without changing the selected colour.
+- Water transports committed premultiplied pixels from every brush, including
+  specialty and Chinese Ink strokes. Watercolor itself requires the Standard
+  brush model because its direct path does not consume tuft or bristle state.
 - Water is layer-local. Switching tools or layers keeps it alive.
 - The full rail exposes Water directly. Compact layouts show Brush, Eraser,
   Smudge, Water, Fill, and More; More contains Blur and Eyedropper.

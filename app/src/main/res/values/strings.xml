@@ -73,6 +73,7 @@
     <string name="paper_gray">Gray paper</string>
     <string name="paper_black">Black paper</string>
     <string name="paper_transparent">Transparent paper</string>
+    <string name="paper_custom">Custom paper</string>
     <string name="paper_transparent_symbol" translatable="false">∅</string>
 
     <!-- Canvas -->

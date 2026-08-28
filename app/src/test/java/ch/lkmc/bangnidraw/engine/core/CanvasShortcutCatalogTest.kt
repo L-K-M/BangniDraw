@@ -28,9 +28,10 @@ class CanvasShortcutCatalogTest {
         val expected = CanvasShortcut.entries.toSet() - CanvasShortcut.END_EYEDROPPER
         val listed = CanvasShortcutCatalog.rows.map { it.action }
         assertEquals(expected, listed.toSet(), "the catalog must list every shortcut and nothing else")
+        val repeats = listed.groupingBy { it }.eachCount().filterValues { it > 1 }
         assertEquals(
-            expected.size,
-            listed.distinct().size,
+            mapOf(CanvasShortcut.REDO to 2),
+            repeats,
             "only redo's two chords may repeat an action",
         )
     }

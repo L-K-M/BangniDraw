@@ -293,6 +293,79 @@ class ScreenTransformTest {
     }
 
     @Test
+    fun `void bands disappear when the canvas covers the whole clip`() {
+        assertEquals(
+            emptyList(),
+            voidBandsAround(IntRect(-10, -10, 30, 30), IntRect(0, 0, 20, 20)),
+        )
+        assertEquals(emptyList(), voidBandsAround(IntRect(0, 0, 20, 20), IntRect.EMPTY))
+    }
+
+    @Test
+    fun `a canvas past one clip edge leaves that whole side as one band`() {
+        // Canvas entirely left of the clip: only the right band remains, and
+        // it is the full clip — the top/bottom bands sit strictly between the
+        // canvas's x extent, which no longer intersects the clip.
+        assertEquals(
+            listOf(IntRect(0, 0, 20, 20)),
+            voidBandsAround(IntRect(-30, -5, 0, 25), IntRect(0, 0, 20, 20)),
+        )
+    }
+
+    @Test
+    fun `a canvas inside the clip yields four disjoint bands covering the void`() {
+        val clip = IntRect(0, 0, 100, 80)
+        val canvas = IntRect(20, 10, 60, 50)
+        val bands = voidBandsAround(canvas, clip)
+
+        assertEquals(
+            listOf(
+                IntRect(0, 0, 20, 80),
+                IntRect(60, 0, 100, 80),
+                IntRect(20, 0, 60, 10),
+                IntRect(20, 50, 60, 80),
+            ),
+            bands,
+        )
+
+        // Disjoint, and their union is exactly the clip minus the canvas.
+        val bandArea = bands.sumOf { it.width.toLong() * it.height.toLong() }
+        assertEquals(100L * 80 - 40L * 40, bandArea)
+        for (i in bands.indices) {
+            for (j in i + 1 until bands.size) {
+                val a = bands[i]
+                val b = bands[j]
+                assertTrue(
+                    minOf(a.right, b.right) <= maxOf(a.left, b.left) ||
+                        minOf(a.bottom, b.bottom) <= maxOf(a.top, b.top),
+                    "bands $a and $b overlap",
+                )
+            }
+        }
+        for (band in bands) {
+            assertTrue(
+                band.right <= canvas.left || band.left >= canvas.right ||
+                    band.bottom <= canvas.top || band.top >= canvas.bottom,
+                "band $band cuts into the canvas $canvas",
+            )
+        }
+    }
+
+    @Test
+    fun `a partially overlapping canvas still bands the covered remainder`() {
+        // Canvas's top-left quadrant covers the clip's bottom-right quadrant.
+        val bands = voidBandsAround(IntRect(-50, -50, 50, 50), IntRect(0, 0, 100, 100))
+
+        assertEquals(
+            listOf(
+                IntRect(50, 0, 100, 100),
+                IntRect(0, 50, 50, 100),
+            ),
+            bands,
+        )
+    }
+
+    @Test
     fun `the filter policy follows the zoom table`() {
         // docs/plan/03-canvas-engine.md §3.4, boundaries included: the table's
         // rows are half-open upward, so 4.0 is nearest and 0.5 is one tap.

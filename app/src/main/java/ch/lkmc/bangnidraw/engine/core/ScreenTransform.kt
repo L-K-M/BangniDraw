@@ -213,7 +213,10 @@ data class ScreenTransform(
      * viewport clamp are right for damage rectangles and wrong for geometry
      * that must abut another rect exactly. The void band around the canvas
      * uses this: an inflated box would eat a pixel of the canvas edge, and a
-     * clamped one would swallow bands that lie partly off-screen.
+     * clamped one would swallow bands that lie partly off-screen. Abutment
+     * is pixel-exact only when mapped edges land on integer screen
+     * coordinates; at a fractional scale `ceil` can leave a sub-pixel sliver
+     * of true void uncovered beside the canvas edge.
      */
     fun rawScreenBoundsOf(rect: IntRect): IntRect {
         if (rect.isEmpty) return IntRect.EMPTY
@@ -292,4 +295,59 @@ data class ScreenTransform(
             )
         }
     }
+}
+
+/**
+ * The window-px rect bands of [clip] that lie outside [canvas], in the order
+ * left, right, top, bottom.
+ *
+ * The side bands span the clip's full height; the top and bottom bands sit
+ * strictly between the canvas's x extent, so the returned rects tile the void
+ * without overlapping the canvas or each other:
+ *
+ * ```
+ *   ┌─────────────────┐
+ *   │       top       │
+ *   ├───┬─────────┬───┤
+ *   │ L │ canvas  │ R │
+ *   ├───┴─────────┴───┤
+ *   │      bottom     │
+ *   └─────────────────┘
+ * ```
+ *
+ * Pure so the four clamps that make "disjoint and complete" true stay
+ * testable — the renderer turns each band into one scissored draw.
+ */
+fun voidBandsAround(canvas: IntRect, clip: IntRect): List<IntRect> {
+    if (canvas.isEmpty || clip.isEmpty) return emptyList()
+
+    val bands = ArrayList<IntRect>(4)
+
+    val leftEnd = minOf(canvas.left, clip.right)
+    if (clip.left < leftEnd) {
+        bands += IntRect(clip.left, clip.top, leftEnd, clip.bottom)
+    }
+
+    val rightStart = maxOf(canvas.right, clip.left)
+    if (rightStart < clip.right) {
+        bands += IntRect(rightStart, clip.top, clip.right, clip.bottom)
+    }
+
+    // Top and bottom live strictly inside the canvas's x overlap with the
+    // clip; without that, a canvas past one edge would re-emit full bands.
+    val midLeft = maxOf(canvas.left, clip.left)
+    val midRight = minOf(canvas.right, clip.right)
+    if (midLeft < midRight) {
+        val topEnd = minOf(canvas.top, clip.bottom)
+        if (clip.top < topEnd) {
+            bands += IntRect(midLeft, clip.top, midRight, topEnd)
+        }
+
+        val bottomStart = maxOf(canvas.bottom, clip.top)
+        if (bottomStart < clip.bottom) {
+            bands += IntRect(midLeft, bottomStart, midRight, clip.bottom)
+        }
+    }
+
+    return bands
 }

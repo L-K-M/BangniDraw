@@ -49,6 +49,7 @@ import ch.lkmc.bangnidraw.engine.core.ViewportResizePolicy
 import ch.lkmc.bangnidraw.engine.core.ViewportResizeState
 import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
 import ch.lkmc.bangnidraw.engine.core.WatercolorOverlayKernel
+import ch.lkmc.bangnidraw.engine.core.voidBandsAround
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxLut
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxShaderSource
 import kotlin.math.abs
@@ -1644,6 +1645,11 @@ class CanvasRenderer(
         drawPaper(screenTransform, bakedIntoBelow = useSandwich)
 
         if (readyCache != null) {
+            // readyCache != null IS useSandwich, and Below always carries the
+            // baked reference in that state: belowIsCacheable accepts every
+            // blend mode, and rebuild never skips the base draw. The direct
+            // branch below is therefore the only other compositor of the
+            // reference — never a second one running beside the bake.
             drawReferenceAcrossVoid(pass, screenTransform, accumScissor)
             pass.draw(
                 readyCache.below, BlendMode.NORMAL, 1f, screenTransform, projection, identity,
@@ -2049,11 +2055,12 @@ class CanvasRenderer(
             imageBounds.right <= canvas.width && imageBounds.bottom <= canvas.height
         ) return
 
-        // Axis-aligned view, or no exact bands exist to scissor.
-        if (
-            abs(screenTransform.a) >= AXIS_ALIGNED_EPS &&
-            abs(screenTransform.b) >= AXIS_ALIGNED_EPS
-        ) return
+        // Axis-aligned view, or no exact bands exist to scissor. The ratio,
+        // not the raw coefficients, is the rotation: zoom cannot turn a
+        // rotated view into an aligned one or vice versa.
+        val basisA = abs(screenTransform.a)
+        val basisB = abs(screenTransform.b)
+        if (minOf(basisA, basisB) >= AXIS_ALIGNED_EPS * maxOf(basisA, basisB)) return
 
         val canvasScreen = screenTransform.rawScreenBoundsOf(fullCanvasRect)
         if (canvasScreen.isEmpty) return
@@ -2068,34 +2075,12 @@ class CanvasRenderer(
         )
         if (sourceRect.isEmpty) return
 
-        val clipLeft = accumScissor?.left ?: 0
-        val clipTop = accumScissor?.top ?: 0
-        val clipRight = accumScissor?.right ?: viewportWidth
-        val clipBottom = accumScissor?.bottom ?: viewportHeight
+        val clip = accumScissor ?: IntRect(0, 0, viewportWidth, viewportHeight)
 
-        // The four window-px bands around the canvas: the side bands span the
-        // clip's full height, the top/bottom bands sit between them, so the
-        // four rects tile the void without overlapping the canvas or each
-        // other. Front frames pass their damage rect as the clip.
-        //
-        //   ┌─────────────────┐
-        //   │       top       │
-        //   ├───┬─────────┬───┤
-        //   │ L │ canvas  │ R │
-        //   ├───┴─────────┴───┤
-        //   │      bottom     │
-        //   └─────────────────┘
-        val midLeft = maxOf(canvasScreen.left, clipLeft)
-        val midRight = minOf(canvasScreen.right, clipRight)
-        val bands = arrayOf(
-            IntRect(clipLeft, clipTop, minOf(canvasScreen.left, clipRight), clipBottom),
-            IntRect(maxOf(canvasScreen.right, clipLeft), clipTop, clipRight, clipBottom),
-            IntRect(midLeft, clipTop, midRight, minOf(canvasScreen.top, clipBottom)),
-            IntRect(midLeft, maxOf(canvasScreen.bottom, clipTop), midRight, clipBottom),
-        )
-        for (band in bands) {
-            if (band.isEmpty) continue
-
+        // The four window-px bands around the canvas, already intersected
+        // with the frame's clip — a front frame's damage rect arrives as the
+        // clip so the void redraw never leaves its scissor.
+        for (band in voidBandsAround(canvasScreen, clip)) {
             // Accum is viewport-oriented and y-down; glScissor reads from bottom.
             state.scissor(band.left, accum.height - band.bottom, band.width, band.height)
             pass.drawReferenceToScreen(
@@ -2386,9 +2371,11 @@ class CanvasRenderer(
         const val FULL_OPACITY = 1f
 
         /**
-         * A screen-basis coefficient below this reads as zero: the view sits
-         * at a right angle (or within ~0.006° of one), so the canvas is
-         * axis-aligned on screen and rect scissor bands cut around it exactly.
+         * The axis-alignment test as a ratio of the screen basis's two
+         * coefficients: below it the view reads as a right angle (or within
+         * ~0.006° of one), so the canvas is axis-aligned on screen and rect
+         * scissor bands cut around it exactly. A ratio rather than raw
+         * magnitudes so zoom cannot stretch a rotated view past the guard.
          */
         const val AXIS_ALIGNED_EPS = 1e-4f
     }

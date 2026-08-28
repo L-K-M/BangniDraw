@@ -2013,3 +2013,38 @@ touchscreen hover too, not only a pen.
   Refuted. The class lives in `engine/core` and tests the stored enums there
   (`Hand`, `TouchDrawingMode`, `AppTheme`, …); `data/Prefs` only persists
   them. The tree entry mirrors the real package.
+
+## PR #153 — tracing references beyond the canvas (2026-08-29)
+
+- **R-136 ⛔ Round 1, major: gate `drawReferenceAcrossVoid` on `useSandwich`
+  or the void composites the reference twice in transitional states.**
+  Refuted. `useSandwich` is defined two lines above as
+  `readyCache != null`, so the suggested guard is a tautology; no state
+  exists where the branch runs without Below, and `belowIsCacheable`
+  accepts every blend mode while `rebuild` never skips the base draw —
+  Below always carries the baked reference there. The reviewer's own
+  fallback (document the invariant beside the call) is applied as a
+  comment.
+
+- **R-137 🟢 Round 1, minor: document the fractional-scale abutment
+  caveat on `rawScreenBoundsOf`.** Applied to the KDoc. At non-integer
+  mapped edges `ceil` can leave a sub-pixel sliver of true void uncovered
+  beside the canvas; accepted and documented rather than snipping band
+  edges into the canvas, which would double-composite the border column
+  over transparent paper.
+
+- **R-138 🟢 Round 1, minor: the four-band arithmetic is untested.**
+  Applied. Extracted as `voidBandsAround(canvas, clip)` in
+  `engine/core` with JVM tests for the suggested cases: covered clip,
+  canvas past one edge, canvas inside the clip (disjoint, union equals
+  clip minus canvas), and partial overlap.
+
+- **R-139 🟢 Round 1, minor: assert the exact magnified bounds rect.**
+  Applied; the loose inequalities are gone.
+
+- **R-140 🟢 Round 1, info: the absolute axis-alignment epsilon is
+  zoom-dependent.** Applied as the relative form
+  `min(|a|, |b|) >= AXIS_ALIGNED_EPS * max(|a|, |b|)`, which reads as the
+  rotation's tangent and is invariant under zoom. The degenerate
+  all-zero basis skips the pass, which is correct — nothing renders at
+  scale zero.

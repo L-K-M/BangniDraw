@@ -95,12 +95,8 @@ class TracingReferenceTest {
             zoom = 2f,
             rotationDelta = 0f,
         )
-        val bounds = magnified.imageCanvasBounds(1_000, 500)
 
-        assertTrue(bounds.left < 0, "left $bounds must escape the canvas")
-        assertTrue(bounds.top < 500, "top $bounds must escape the canvas")
-        assertTrue(bounds.right > 2_000, "right $bounds must escape the canvas")
-        assertTrue(bounds.bottom > 1_500, "bottom $bounds must escape the canvas")
+        assertEquals(IntRect(-1_000, 0, 3_000, 2_000), magnified.imageCanvasBounds(1_000, 500))
 
         assertEquals(IntRect.EMPTY, ReferenceTransform.IDENTITY.imageCanvasBounds(0, 100))
     }

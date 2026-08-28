@@ -181,6 +181,7 @@ class StrokeDriverTest {
             emitted += driver.resumeDabs(batch)
         }
 
+        val beforePenUp = emitted
         var passes = 0
         while (driver.isActive && passes < 64) {
             batch = DabBatch(capacity = 2)
@@ -189,8 +190,33 @@ class StrokeDriverTest {
         }
 
         assertTrue(!driver.isActive, "pen-up must finish after bounded resumptions")
-        assertTrue(emitted > 2, "the test must overflow its pen-up batch")
+        assertTrue(emitted - beforePenUp > 2, "the test must overflow its pen-up batch")
     }
+
+    @Test
+    fun `samples are ignored while pen-up catch-up is paused`() {
+        val driver = driver(spacing = 0.5f, stabilizer = 1f)
+        driver.begin(
+            0f, 0f, 1f, 0f, 0f, 0L, StrokeSource.STYLUS, DabBatch(capacity = 2),
+        )
+        driver.sample(
+            100f, 0f, 1f, 0f, 0f, 8_000_000L,
+            StrokeSource.STYLUS, DabBatch(capacity = 2),
+        )
+        while (driver.hasPendingDabs) driver.resumeDabs(DabBatch(capacity = 2))
+
+        driver.end(DabBatch(capacity = 2))
+        assertTrue(driver.isActive, "the tiny batch must pause pen-up catch-up")
+
+        val stray = DabBatch(capacity = 4096)
+        val emitted = driver.sample(
+            1_000f, 0f, 1f, 0f, 0f, 16_000_000L, StrokeSource.STYLUS, stray,
+        )
+
+        assertEquals(0, emitted, "pen-up owns the driver until catch-up completes")
+        assertEquals(0, stray.count, "a late move must not add a backtracking segment")
+    }
+
 
     @Test
     fun `an exact resume retains the current sample as the next segment`() {
@@ -401,6 +427,25 @@ class StrokeDriverTest {
             )
         }
     }
+
+    @Test
+    fun `prediction waits for pending real dabs to drain`() {
+        val driver = driver(spacing = 0.5f, stabilizer = 0f)
+        driver.begin(
+            0f, 0f, 1f, 0f, 0f, 0L, StrokeSource.STYLUS, DabBatch(capacity = 1),
+        )
+        driver.sample(
+            100f, 0f, 1f, 0f, 0f, 8_000_000L,
+            StrokeSource.STYLUS, DabBatch(capacity = 1),
+        )
+        assertTrue(driver.hasPendingDabs)
+
+        val tail = batch()
+        assertEquals(0, driver.predict(samples(100f, 120f, 0f, 8_000_000L, 3), tail))
+        assertEquals(0, tail.count)
+        assertEquals(-1, tail.predictedFrom, "a skipped prediction must leave the batch real")
+    }
+
 
     @Test
     fun `the tail is exactly the dabs the real samples would produce`() {

@@ -7,6 +7,7 @@ import kotlin.math.PI
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 
@@ -846,6 +847,21 @@ class DabGeneratorTest {
         }
     }
 
+
+    @Test
+    fun `advancing before a pending segment is drained fails fast`() {
+        val generator = DabGenerator(plain, seed = 1L)
+        generator.begin(sample(0f, 0f), DabBatch(capacity = 1))
+        generator.advance(sample(100f, 0f, timeMs = 8), DabBatch(capacity = 1))
+        assertTrue(generator.hasPendingSegment)
+
+        val error = assertFailsWith<IllegalStateException> {
+            generator.advance(sample(200f, 0f, timeMs = 16), DabBatch())
+        }
+
+        assertTrue(error.message.orEmpty().contains("resume the pending segment"))
+    }
+
     @Test
     fun `a split segment is bit-identical across tiny batches`() {
         val brush = requireNotNull(builtIns["builtin.calligraphy"])
@@ -885,6 +901,7 @@ class DabGeneratorTest {
         }
 
         assertTrue(referenceBatch.count > 7, "the reference must overflow a tiny batch")
+        assertTrue(!referenceGenerator.hasPendingSegment, "the reference batch must not truncate")
         assertEquals(referenceBatch.toList(), split)
     }
 

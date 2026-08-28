@@ -73,6 +73,9 @@ class Stabilizer internal constructor(
     private var finishIndex = 0
     private var finishPending = false
 
+    /** True while [finishUntil] owns the original pen-up interpolation frame. */
+    internal val isFinishPending: Boolean get() = finishPending
+
     /**
      * Retunes for a new zoom or a new preset mid-stroke without moving the
      * output — the smoothing changes, the brush does not jump.

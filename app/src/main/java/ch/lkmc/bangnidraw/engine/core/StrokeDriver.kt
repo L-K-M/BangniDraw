@@ -117,6 +117,7 @@ class StrokeDriver(
         if (!isActive) return 0
         var emitted = generator.resume(out)
         if (generator.hasPendingSegment) return emitted
+        if (stabilizer.isFinishPending) return emitted
 
         raw.set(x, y, pressure, tilt, orientation, timeNs, source, predicted = false)
         if (!stabilizer.push(raw, smoothed)) return emitted
@@ -132,6 +133,10 @@ class StrokeDriver(
      * §4: the smoothed point lags the pen, so a stroke that simply stopped
      * would end short of where the user lifted — visibly, on every stroke. The
      * flush walks the remaining distance at the current spacing.
+     *
+     * A full [out] pauses this operation. Call [end] again with a fresh batch
+     * until [isActive] becomes false; do not interleave [sample] calls while
+     * catch-up is paused.
      */
     fun end(out: DabBatch): Int {
         if (!isActive) return 0

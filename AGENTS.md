@@ -97,9 +97,13 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   not. The checkpoint's no-op path must also admit outstanding thumbnail and
   history-delete maintenance, and a retry flag clears only after its work
   succeeds.
-- GL and tile storage use RGBA bytes; Android `ARGB_8888` bitmap buffers use
-  native-order packed ARGB. Route bitmap copies through `PixelChannelOrder`;
-  a byte-for-byte RGBA copy swaps red and blue on little-endian devices.
+- GL and tile storage use RGBA bytes. An `ARGB_8888` bitmap's memory order
+  is **probed per device** (`BitmapLayoutProbe`): modern Skia (API ~30+)
+  stores R,G,B,A exactly like GL, older port-configured builds store
+  B,G,R,A. Route bitmap copies through `PixelChannelOrder` with the probed
+  layout — never assume either order, and never trust a version threshold
+  over the measurement. (v1.1.4 assumed BGRA unconditionally and swapped
+  red/blue in thumbnails and exports on every current device.)
 - `DabBounds` and `WatercolorDabBounds` own dab-edge arithmetic. Live
   `DabBatch`, `DabPass`, and `WatercolorPass` paths retain primitive edges;
   do not rebuild `IntRect` or tile-scissor objects per dab.

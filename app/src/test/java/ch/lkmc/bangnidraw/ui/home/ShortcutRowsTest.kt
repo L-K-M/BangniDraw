@@ -17,7 +17,7 @@ class ShortcutRowsTest {
 
         val size = rows.filter { it.label == R.string.brush_size }
         assertEquals(1, size.size)
-        assertEquals("[  ]", size.single().keys)
+        assertEquals("[" + KEY_PAIR_GAP + "]", size.single().keys)
 
         val hold = rows.filter { it.label == R.string.shortcut_hold_eyedropper }
         assertEquals(1, hold.size)

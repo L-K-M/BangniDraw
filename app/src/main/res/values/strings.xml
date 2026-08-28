@@ -89,6 +89,7 @@
     <string name="panel_blur_opened">Blur settings opened</string>
     <string name="panel_water_opened">Water settings opened</string>
     <string name="panel_eyedropper_opened">Eyedropper settings opened</string>
+    <string name="panel_close">Close panel</string>
     <string name="canvas_undo">Undo</string>
     <string name="canvas_redo">Redo</string>
     <string name="cd_history_readout">Show history details</string>

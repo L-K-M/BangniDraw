@@ -105,6 +105,7 @@ internal fun ColorPanel(
     onPickDishWell: (DishWell) -> Unit,
     onDishTChanged: (Float) -> Unit,
     onTextInputFocus: (TextInputFocus) -> Unit,
+    onDismiss: () -> Unit,
     hapticsMode: HapticsMode,
 ) {
     var selection by remember {
@@ -161,7 +162,10 @@ internal fun ColorPanel(
                 .verticalScroll(scroll)
                 .padding(horizontal = PANEL_PADDING, vertical = 8.dp),
         ) {
-            Text(stringResource(R.string.color_panel), style = MaterialTheme.typography.headlineSmall)
+            PanelHeader(
+                title = stringResource(R.string.color_panel),
+                onClose = onDismiss,
+            )
             HsvRingSquare(
                 hsv = hsv,
                 hapticsMode = hapticsMode,

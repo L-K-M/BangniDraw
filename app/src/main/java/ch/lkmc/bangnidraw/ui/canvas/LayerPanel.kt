@@ -210,6 +210,7 @@ internal fun LayerPanel(
                     onAdd = onAdd,
                     onMenuChange = { headerMenu = it },
                     onFlatten = { onRequestDialog(CanvasDialog.FlattenLayers) },
+                    onClose = onDismiss,
                 )
 
                 LazyColumn(
@@ -375,6 +376,7 @@ private fun LayerPanelHeader(
     onAdd: () -> Unit,
     onMenuChange: (Boolean) -> Unit,
     onFlatten: () -> Unit,
+    onClose: () -> Unit,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -414,6 +416,9 @@ private fun LayerPanelHeader(
                 )
             }
         }
+        // A visible way out: the scrim tap that also dismisses is invisible
+        // to a first-time user (08 §4.1 keeps both).
+        PanelCloseButton(onClose)
     }
 }
 

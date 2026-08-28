@@ -238,7 +238,10 @@ internal fun LayerPanel(
                                 onOpacityFinished()
                                 opacityLayer = null
                                 onSelect(index)
-                                if (compact) onDismiss()
+                                // Keep the panel open after selecting so the
+                                // user can still reach opacity/blend on a phone
+                                // (tablet already behaves this way). Dismiss via
+                                // scrim or Back when done.
                                 if (hapticsMode == HapticsMode.ENABLED) {
                                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                                 }

@@ -1973,3 +1973,30 @@ touchscreen hover too, not only a pen.
   order; configure-argument markers drop trailing commas; comment stripping
   keeps string and char literals; the dark-mode scan covers all of
   `app/src/main`.
+
+- **R-129 🟢 Round 4, minor: a reconfigure can inherit a stale deferred
+  appearance.** Applied test-first. `configure` now clears
+  `pendingCanvasAppearance` before queueing the newer full appearance, and
+  the contract pins it.
+
+- **R-130 🟢 Round 4, minor: dedup theme emissions, clamp the backoff shift,
+  strip XML comments in contracts.** Applied. `distinctUntilChanged` ends the
+  theme flow so unrelated preference writes do not recompose the app; the
+  backoff exponent is capped at 4 (the 16× multiplier's match); XML contract
+  loads ignore `<!-- -->` comments; StudioViewModel is forbidden from even
+  reading `prefs.appTheme`.
+
+- **R-131 ⏸️ Round 4: the round-2/3 items were flagged again verbatim
+  (tertiary roles, container pairs, system-bar invariant, engine/core move,
+  density-only gating, fallback provider, 08:718 pair enumeration).**
+  Declined as already applied or already adjudicated — see R-116, R-118,
+  R-122, R-124, R-125. The hybrid audit keeps re-reading unchanged code.
+
+- **R-132 ⏸️ Round 4, minor: record per-palette computed ratios in `Color.kt`
+  comments.** Declined. The ratios live in 08 §5.1's table and are enforced
+  by `ThemeColorPolicyTest`; duplicating computed numbers into source
+  comments invites drift.
+
+- **R-133 ⏸️ Round 4, minor: AGENTS.md should demand deleting leftover
+  night resources.** Declined. The rule already says add none, and the
+  contract rejects every night-qualified directory, which covers leftovers.

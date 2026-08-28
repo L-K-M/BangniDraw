@@ -50,7 +50,10 @@ Android resource themes cannot read DataStore before Compose starts. The
 launch window therefore uses the fixed light Saffron background, with no
 night-qualified override, instead of briefly following an unrelated system
 mode. That window remains visible while Compose withholds navigation until the
-asynchronous preference read emits. The first `IOException` is logged; before
+asynchronous preference read emits, so returning Coral, Violet, or Teal users
+see the Saffron launch window briefly at every cold start; that tradeoff is
+accepted over mirroring the selection into a synchronous store. The first
+`IOException` is logged; before
 any value it also emits Saffron once. I/O failures retry with capped
 exponential backoff — five attempts, then the flow ends on its last value —
 and never replace an already-visible selection. A corrupt preference file

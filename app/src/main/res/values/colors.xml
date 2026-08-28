@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Default Saffron background shown before DataStore reaches Compose. -->
+    <!-- Mirrors ThemeColorPolicy.colors(AppTheme.SAFFRON).backgroundArgb —
+         keep in sync by hand: the launch window cannot read DataStore. -->
     <color name="launch_background">#FFF8EC</color>
 
     <!-- Covers edges revealed when a launcher moves the opaque artwork. -->

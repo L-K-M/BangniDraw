@@ -675,6 +675,9 @@ class EngineSession(
         view: ViewTransform,
         tracingReference: TracingReference?,
     ) {
+        // A full configure supersedes any deferred appearance; drop it so a
+        // later stroke cannot re-apply stale colors over this newer set.
+        pendingCanvasAppearance = null
         glRenderer.execute {
             renderer.setStack(stack)
             renderer.setPaperColor(paperColor)

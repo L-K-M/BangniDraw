@@ -122,6 +122,7 @@ import ch.lkmc.bangnidraw.data.GalleryExportOutcome
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasDialog
+import ch.lkmc.bangnidraw.engine.core.CanvasOverlayClearance
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
 import ch.lkmc.bangnidraw.engine.core.ColorText
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
@@ -1359,76 +1360,70 @@ private fun CanvasContent(
                 }
             }
 
-            val resetBottomPadding = when (layout.railMode) {
-                RailMode.DOCK -> DOCK_CHROME_HEIGHT.dp
-                RailMode.SHORT -> LEDGE_CHROME_HEIGHT.dp
-                RailMode.GROUPED, RailMode.FULL -> RESET_EDGE_PADDING.dp
-            }
-            ResetViewPill(
-                view = view,
-                density = density.density,
-                strokeActivity = state.chrome.strokeActivity,
-                onReset = resetView,
-                onActualSize = actualSizeView,
+            val overlayBottomPadding =
+                CanvasOverlayClearance.bottomPaddingDp(layout.railMode).dp
+
+            // §6.3's storage-full banner persists until the next successful write.
+            val storageFull by viewModel.storageFull.collectAsStateWithLifecycle()
+            val fillProgress = state.fillProgress
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(BOTTOM_OVERLAY_GAP),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = resetBottomPadding),
-            )
-
-            // §6.3's storage-full banner: persistent while the state holds,
-            // gone with the first successful write.
-            val storageFull by viewModel.storageFull.collectAsStateWithLifecycle()
-            if (storageFull) {
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .semantics { liveRegion = LiveRegionMode.Assertive }
-                        .padding(16.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.err_storage_full),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                }
-            }
-
-            // The card must clear whatever chrome owns the bottom edge — the
-            // dock mode's rail sits 56 dp tall there, and the card composed
-            // after it would otherwise cover the dock's top half mid-fill.
-            val fillCardBottomPadding = when (layout.railMode) {
-                RailMode.DOCK -> DOCK_CHROME_HEIGHT.dp
-                RailMode.SHORT -> LEDGE_CHROME_HEIGHT.dp
-                RailMode.GROUPED, RailMode.FULL -> RESET_EDGE_PADDING.dp
-            }
-            val fillProgress = state.fillProgress
-            if (fillProgress != null) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = MaterialTheme.shapes.medium,
-                    tonalElevation = 3.dp,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = fillCardBottomPadding)
-                        .width(FILL_PROGRESS_WIDTH.dp),
-                ) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = overlayBottomPadding),
+            ) {
+                if (storageFull) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.semantics {
+                            liveRegion = LiveRegionMode.Assertive
+                        },
+                    ) {
                         Text(
-                            stringResource(R.string.fill_progress, (fillProgress * 100).toInt()),
-                            style = MaterialTheme.typography.labelMedium,
+                            text = stringResource(R.string.err_storage_full),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         )
-                        LinearProgressIndicator(
-                            progress = { fillProgress },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        TextButton(
-                            onClick = viewModel::cancelFill,
-                            modifier = Modifier.align(Alignment.End),
-                        ) {
-                            Text(stringResource(R.string.fill_cancel))
+                    }
+                }
+
+                ResetViewPill(
+                    view = view,
+                    density = density.density,
+                    strokeActivity = state.chrome.strokeActivity,
+                    onReset = resetView,
+                    onActualSize = actualSizeView,
+                )
+
+                if (fillProgress != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shape = MaterialTheme.shapes.medium,
+                        tonalElevation = 3.dp,
+                        modifier = Modifier.width(FILL_PROGRESS_WIDTH.dp),
+                    ) {
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(
+                                stringResource(
+                                    R.string.fill_progress,
+                                    (fillProgress * 100).toInt(),
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                            LinearProgressIndicator(
+                                progress = { fillProgress },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            TextButton(
+                                onClick = viewModel::cancelFill,
+                                modifier = Modifier.align(Alignment.End),
+                            ) {
+                                Text(stringResource(R.string.fill_cancel))
+                            }
                         }
                     }
                 }
@@ -1478,7 +1473,7 @@ private fun CanvasContent(
                 val ledgeModifier = when (layout.railMode) {
                     RailMode.DOCK -> Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = DOCK_HEIGHT.dp)
+                        .padding(bottom = CanvasOverlayClearance.DOCK_HEIGHT_DP.dp)
                         .fillMaxWidth()
                     RailMode.SHORT -> Modifier
                         .align(
@@ -2037,13 +2032,11 @@ private fun toolName(tool: ToolKind): String = when (tool) {
     is ToolKind.Eyedropper -> stringResource(R.string.tool_eyedropper)
 }
 
+private val BOTTOM_OVERLAY_GAP = 8.dp
+
 /** 8 dp squares, per `03-canvas-engine.md` §3.2 step 1. */
 private const val CHECKER_DP = 8
 private const val FILL_PROGRESS_WIDTH = 240
-private const val DOCK_HEIGHT = 56
-private const val DOCK_CHROME_HEIGHT = 120
-private const val LEDGE_CHROME_HEIGHT = 64
-private const val RESET_EDGE_PADDING = 16
 private const val EXCLUSION_GAP_DP = 16
 private const val CHROME_Z = 2f
 private const val HINT_Z = 3f

@@ -510,11 +510,11 @@ class EngineSessionRenderContractTest {
         const val RENDERER_VIEW_CALL = "renderer.setView(view)"
         val REDRAW_CALL = Regex("""\bredraw\(\)""")
         val CONFIGURE_ARGUMENTS = listOf(
-            "stack = stack,",
-            "paperColor = paperColor,",
-            "appearance = appearance,",
-            "view = view,",
-            "tracingReference = tracingReference,",
+            "stack = stack",
+            "paperColor = paperColor",
+            "appearance = appearance",
+            "view = view",
+            "tracingReference = tracingReference",
         )
     }
 }

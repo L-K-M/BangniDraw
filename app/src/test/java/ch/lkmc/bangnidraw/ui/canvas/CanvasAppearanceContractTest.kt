@@ -64,9 +64,13 @@ class CanvasAppearanceContractTest {
             "an active stroke must defer both appearance mutation and redraw",
         )
 
+        val guardMatch = ACTIVE_APPEARANCE_GUARD.find(update)
+            ?: fail("an active stroke must defer appearance mutation")
+        val immediateMatch = IMMEDIATE_APPEARANCE_SUPERSEDES_DEFERRED.find(update)
+            ?: fail("an immediate appearance must supersede any deferred value")
         assertTrue(
-            IMMEDIATE_APPEARANCE_SUPERSEDES_DEFERRED.containsMatchIn(update),
-            "an immediate appearance must supersede any refused stroke's deferred value",
+            guardMatch.range.first < immediateMatch.range.first,
+            "the active-stroke guard must run before the immediate apply",
         )
 
         val boundaries = listOf(

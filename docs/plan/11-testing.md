@@ -61,7 +61,9 @@ timelines of samples and never see a `MotionEvent`.
 
 ```
 app/src/test/java/ch/lkmc/bangnidraw/
-  engine/core/      one XxxTest.kt per class listed in PLAN.md §3 (incl. GestureArbiterTest.kt)
+  engine/core/      one XxxTest.kt per class listed in PLAN.md §3 (incl. GestureArbiterTest.kt,
+                    ThemeColorPolicyTest.kt, ToolRailColorPolicyTest.kt,
+                    CanvasVoidColorPolicyTest.kt)
   engine/gl/        GlShaderContractTest.kt, GlslDeclarationOrderTest.kt
   engine/mixbox/    MixboxMixerTest.kt
   tools/            FillToolTest.kt, BrushPresetTest.kt (JSON presets load and validate)

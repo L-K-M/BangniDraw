@@ -693,7 +693,8 @@ comment updated:
 The allowlists include the entire DataStore file and legacy shared
 preferences, so every setting — including `AppTheme` — survives backup
 restore and device transfer. Painting folders also survive plain restarts,
-but excluded from the allowlists they do not transfer.
+but they are excluded from the allowlists, so they do not transfer to a new
+device.
 
 `files/projects/` holds the user's paintings and their entire undo history;
 the app's painting-data promise is that no painting leaves the device except

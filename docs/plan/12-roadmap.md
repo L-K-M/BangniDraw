@@ -965,8 +965,8 @@ until the asynchronous read emits, and a read failure falls back to Saffron.
 | 10 | 11, 12, and 13 |
 
 Step 13 goes first and on the UI agent: it is small, touches the same
-Settings/Studio/Canvas chrome as 11 and 12, and its contrast tests should see
-their final surface set.
+Settings/Studio/Canvas chrome as 11 and 12, and its contrast tests must be
+extended to any surfaces that 11 and 12 later introduce.
 
 Two agents is the practical maximum: one on the persistence spine (3 → 4/6, then 8 once 5 is in)
 and one on the tool spine (5 → 7). Both branch from `main`, and the second

@@ -129,7 +129,8 @@ class Prefs @Inject constructor(
                     Log.w(TAG, THEME_READ_EXHAUSTED_MESSAGE, error)
                 },
                 pauseBeforeRetry = { attempt ->
-                    delay(PREFERENCE_READ_RETRY_DELAY_MS shl attempt.toInt())
+                    val multiplier = minOf(1L shl attempt.toInt(), MAX_BACKOFF_MULTIPLIER)
+                    delay(PREFERENCE_READ_RETRY_DELAY_MS * multiplier)
                 },
             )
 
@@ -384,6 +385,7 @@ class Prefs @Inject constructor(
             "theme read keeps failing; keeping the current theme"
         const val PREFERENCE_CORRUPTION_MESSAGE = "preferences corrupted; resetting"
         const val PREFERENCE_READ_RETRY_DELAY_MS = 1_000L
+        const val MAX_BACKOFF_MULTIPLIER = 16L
         val KEY_NEXT_SKETCH = intPreferencesKey("nextSketchNumber")
         val KEY_GALLERY_SYNC = booleanPreferencesKey("gallerySync")
         val KEY_APP_THEME = stringPreferencesKey("appTheme")

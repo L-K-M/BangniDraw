@@ -174,12 +174,11 @@ class ThemeContractTest {
         return file.readText()
     }
 
-    /** Substring contracts must not match comments. */
+    /** Substring contracts must not match comments, but keep string literals. */
     private fun strippedKotlin(path: String): String = stripComments(source(path))
 
-    private fun stripComments(text: String): String = text
-        .replace(BLOCK_COMMENT, "")
-        .replace(LINE_COMMENT, "")
+    private fun stripComments(text: String): String = TOKEN_OR_COMMENT
+        .replace(text) { if (it.value.startsWith("/")) "" else it.value }
 
     private fun colorResource(source: String, name: String): Int {
         val resource = Regex(
@@ -225,7 +224,7 @@ class ThemeContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/theme/Color.kt"
         const val COLOR_RESOURCES_PATH = "app/src/main/res/values/colors.xml"
         const val RESOURCE_ROOT_PATH = "app/src/main/res"
-        const val MAIN_SOURCES_PATH = "app/src/main/java"
+        const val MAIN_SOURCES_PATH = "app/src/main"
         const val KOTLIN_EXTENSION = "kt"
         const val NIGHT_QUALIFIER = "night"
         const val LAUNCH_BACKGROUND_RESOURCE = "launch_background"
@@ -245,7 +244,9 @@ class ThemeContractTest {
         val THEME_LOADING_GATE = Regex(
             """state\.appTheme\s*\?:\s*return@setContent""",
         )
-        val BLOCK_COMMENT = Regex("""/\*[\s\S]*?\*/""")
-        val LINE_COMMENT = Regex("""//[^\r\n]*""")
+        // Strings and char literals survive; only comment tokens are removed.
+        val TOKEN_OR_COMMENT = Regex(
+            """"{3}[\s\S]*?"{3}|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])+'|/\*[\s\S]*?\*/|//[^\r\n]*""",
+        )
     }
 }

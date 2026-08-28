@@ -1889,3 +1889,31 @@ touchscreen hover too, not only a pen.
   appearance.** Applied test-first. All three early returns in
   `endStroke`/`cancelStroke` restore the deferred value for the next change
   or session recreation; the contract counts them.
+
+- **R-124 ⏸️ Round 3: tertiary mapping, container/inverse contrast pairs,
+  the system-bar light invariant, and the 02 §7 launch gate re-flagged.**
+  Declined: each is already present at the reviewed SHA, in the suggested
+  form or a broader one (the system-bar test covers four surfaces, not just
+  background). The rebase rewrote SHAs, so the delta window re-audited
+  unchanged code.
+
+- **R-125 ⏸️ Round 3, minor: make the retry fallback a provider latched to a
+  shared `loadedTheme`.** Declined. A contract pins the activity-scoped
+  ViewModel as the only `Prefs.appTheme` collector, and activity-scoped
+  ViewModels survive recreation; a second collector cannot observe a flash.
+  The latch would add cross-collector mutable state to `Prefs` for a case the
+  architecture forbids.
+
+- **R-126 ⏸️ Round 3, re-flagged: move `ThemeColorPolicy` out of
+  `engine/core`.** Still declined per R-118.
+
+- **R-127 ⏸️ Round 3, re-flagged: gate only density changes on stroke
+  commit.** Still refuted per R-122; the checkerboard pair is
+  palette-derived.
+
+- **R-128 🟢 Round 3, minor: backoff cap, guard ordering, marker robustness,
+  string-safe comment stripping.** Applied. The retry backoff caps its
+  multiplier at 16; the appearance contract pins guard-before-immediate
+  order; configure-argument markers drop trailing commas; comment stripping
+  keeps string and char literals; the dark-mode scan covers all of
+  `app/src/main`.

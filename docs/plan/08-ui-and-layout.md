@@ -716,8 +716,9 @@ The in-app About screen reuses the artwork. Elsewhere the UI uses only flat
 - Panels announce on open (`liveRegion = Polite`: "Layers panel opened").
 - Minimum sizes as in §5.1; text contrast ≥ 4.5:1 and non-text (ring,
   thumb) contrast ≥ 3:1 on every required surface pair. The ratios are in
-  §5.1; `ThemeColorPolicyTest` enforces content and outline pairs, while
-  `ToolRailColorPolicyTest` enforces rail icon/container pairs.
+  §5.1; `ThemeColorPolicyTest` enforces the content, container, and
+  system-bar pairs, while `ToolRailColorPolicyTest` enforces rail
+  icon/container pairs.
 - **Reduced motion**: when the system's animator duration scale is 0 (to
   verify the exact check: `ValueAnimator.areAnimatorsEnabled()`), every
   spring becomes `snap()` and the reset-view spring becomes an instant

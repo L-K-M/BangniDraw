@@ -67,8 +67,8 @@ internal fun canvasVoidColor(tone: ThemeTone): Color = Color(CanvasVoidColorPoli
 
 // The New Canvas dialog's paper swatches (docs/plan/08-ui-and-layout.md
 // §2.1): white, warm white, mid-gray, black; transparent is
-// Color.Transparent. The "+" custom-paper picker waits for the color
-// panel (roadmap step 7). Paper is a document property, so these become
+// Color.Transparent; the "+" swatch opens the dialog's HSV picker for a
+// custom colour. Paper is a document property, so these become
 // ARGB ints at creation.
 val PaperSwatchWhite = Color(0xFFFFFFFF)
 val PaperSwatchWarm = Color(0xFFF8F1E3)

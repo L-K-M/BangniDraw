@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -24,6 +25,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
@@ -55,6 +58,8 @@ import ch.lkmc.bangnidraw.engine.core.CanvasPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.CustomSizeResult
 import ch.lkmc.bangnidraw.engine.core.CustomSizeFieldArrangement
+import ch.lkmc.bangnidraw.engine.core.HsvChannel
+import ch.lkmc.bangnidraw.engine.core.HsvColor
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.NewCanvasDefaultsPolicy
 import ch.lkmc.bangnidraw.engine.core.NewCanvasLayoutPolicy
@@ -72,8 +77,8 @@ import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWhite
  * Every decision it renders comes from the pure canvas and layout policies,
  * so this composable only lays the answers out.
  *
- * The "+" custom-paper swatch waits for the color panel (roadmap step 7);
- * the swatch row here is 08 §2.1's fixed five.
+ * The "+" custom-paper swatch opens the HSV picker; the five fixed swatches
+ * are 08 §2.1's.
  */
 @Composable
 fun NewCanvasDialog(
@@ -115,6 +120,9 @@ fun NewCanvasDialog(
         mutableStateOf<CanvasOrientation?>(null)
     }
     var paper by rememberSaveable { mutableIntStateOf(PaperSwatchWhite.toArgb()) }
+    // The "+" swatch's colour: unset until the picker confirms one.
+    var customPaper by rememberSaveable { mutableStateOf<Int?>(null) }
+    var pickingPaper by rememberSaveable { mutableStateOf(false) }
     val orientation = orientationOverride ?: defaults.orientation
 
     val isCustom = selected == presets.size
@@ -235,6 +243,14 @@ fun NewCanvasDialog(
                             onSelect = { paper = color.toArgb() },
                         )
                     }
+                    // The custom ring only shows when no fixed swatch carries
+                    // the same colour — otherwise both would read as selected.
+                    CustomPaperSwatch(
+                        color = customPaper,
+                        selected = customPaper != null && paper == customPaper &&
+                            paperSwatchColors().none { it.toArgb() == paper },
+                        onSelect = { pickingPaper = true },
+                    )
                 }
             }
         },
@@ -253,6 +269,18 @@ fun NewCanvasDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.new_canvas_cancel)) }
         },
     )
+
+    if (pickingPaper) {
+        PaperColorDialog(
+            initial = customPaper ?: PaperSwatchWhite.toArgb(),
+            onConfirm = { color ->
+                customPaper = color
+                paper = color
+                pickingPaper = false
+            },
+            onDismiss = { pickingPaper = false },
+        )
+    }
 }
 
 @Composable
@@ -446,13 +474,144 @@ private fun refusalText(reason: SizeRefusal, budget: MemoryBudget.Result): Strin
 }
 
 @Composable
-private fun paperSwatches(): List<Pair<Color, String>> = listOf(
-    PaperSwatchWhite to stringResource(R.string.paper_white),
-    PaperSwatchWarm to stringResource(R.string.paper_warm),
-    PaperSwatchGray to stringResource(R.string.paper_gray),
-    PaperSwatchBlack to stringResource(R.string.paper_black),
-    Color.Transparent to stringResource(R.string.paper_transparent),
+private fun paperSwatches(): List<Pair<Color, String>> =
+    paperSwatchColors().zip(
+        listOf(
+            stringResource(R.string.paper_white),
+            stringResource(R.string.paper_warm),
+            stringResource(R.string.paper_gray),
+            stringResource(R.string.paper_black),
+            stringResource(R.string.paper_transparent),
+        ),
+    )
+
+private fun paperSwatchColors(): List<Color> = listOf(
+    PaperSwatchWhite,
+    PaperSwatchWarm,
+    PaperSwatchGray,
+    PaperSwatchBlack,
+    Color.Transparent,
 )
+
+/**
+ * The "+" paper swatch: opens the HSV picker (08 §2.1's custom-paper slot,
+ * which waited for the colour panel's machinery — HsvChannel — to exist).
+ * Unset it shows a dashed +; once picked it shows the colour.
+ */
+@Composable
+private fun CustomPaperSwatch(color: Int?, selected: Boolean, onSelect: () -> Unit) {
+    val label = stringResource(R.string.paper_custom)
+    val border = if (selected) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.outlineVariant
+    Box(
+        modifier = Modifier
+            .size(NewCanvasLayoutPolicy.PAPER_TARGET_DP.dp)
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = onSelect,
+            )
+            .semantics(mergeDescendants = true) { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(NewCanvasLayoutPolicy.PAPER_VISUAL_DP.dp)
+                .border(if (selected) 2.dp else 1.dp, border, CircleShape)
+                .then(
+                    if (color != null) {
+                        Modifier.background(Color(color), CircleShape)
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            if (color == null) {
+                Text(
+                    text = stringResource(R.string.paper_custom_symbol),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The custom paper picker: three channel sliders and a live swatch, the
+ * colour panel's HSV model in miniature. Paper is opaque, so the alpha is
+ * pinned and no field shows it.
+ */
+@Composable
+private fun PaperColorDialog(
+    initial: Int,
+    onConfirm: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var draft by rememberSaveable(initial) { mutableStateOf(HsvColor.fromArgb(initial)) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.paper_custom)) },
+        text = {
+            Column {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(PAPER_PREVIEW_HEIGHT)
+                        .clip(RoundedCornerShape(PREVIEW_RADIUS))
+                        .background(Color(draft.toArgb()))
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant,
+                            RoundedCornerShape(PREVIEW_RADIUS),
+                        ),
+                )
+                Spacer(Modifier.height(12.dp))
+                for (channel in HsvChannel.entries) {
+                    val label = stringResource(
+                        when (channel) {
+                            HsvChannel.HUE -> R.string.color_hue
+                            HsvChannel.SATURATION -> R.string.color_saturation
+                            HsvChannel.VALUE -> R.string.color_value
+                        },
+                    )
+                    val value = channel.read(draft)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(label, modifier = Modifier.width(PAPER_CHANNEL_LABEL))
+                        Slider(
+                            value = value,
+                            onValueChange = { draft = channel.replace(draft, it) },
+                            valueRange = channel.range,
+                            steps = channel.steps,
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics { contentDescription = label },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(draft.toArgb() or OPAQUE_ALPHA) }) {
+                Text(stringResource(R.string.layer_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.new_canvas_cancel))
+            }
+        },
+    )
+}
 
 /** The Custom row's starting point when no custom size was created yet. */
 private const val DEFAULT_CUSTOM_EDGE = "2048"
+
+private val PAPER_PREVIEW_HEIGHT = 56.dp
+private val PREVIEW_RADIUS = 8.dp
+private val PAPER_CHANNEL_LABEL = 64.dp
+private const val OPAQUE_ALPHA = 0xFF000000.toInt()

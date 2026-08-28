@@ -1,6 +1,5 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -69,22 +68,7 @@ class CanvasNavigationContractTest {
         )
     }
 
-    private fun source(path: String): String = File(repositoryRoot(), path).readText()
-
-    private fun repositoryRoot(): File {
-        val workingDirectory = File(
-            requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),
-        ).canonicalFile
-
-        return generateSequence(workingDirectory) { it.parentFile }
-            .firstOrNull { File(it, ROOT_MARKER).isFile && File(it, APP_DIRECTORY).isDirectory }
-            ?: fail("cannot locate repository root from $workingDirectory")
-    }
-
     private companion object {
-        const val USER_DIRECTORY_PROPERTY = "user.dir"
-        const val ROOT_MARKER = "settings.gradle.kts"
-        const val APP_DIRECTORY = "app/src/main"
         const val CANVAS_SCREEN_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasScreen.kt"
         const val CANVAS_VIEW_MODEL_PATH =
@@ -106,4 +90,6 @@ class CanvasNavigationContractTest {
         val HANDLE_BACK = Regex("""viewModel\.handleBack\(onBack\)""")
         val REQUEST_LEAVE = Regex("""viewModel\.requestLeave\(""")
     }
+
+    private fun source(path: String): String = ContractTestSources.read(path)
 }

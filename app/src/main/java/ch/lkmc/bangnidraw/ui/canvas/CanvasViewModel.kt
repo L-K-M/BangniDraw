@@ -32,6 +32,7 @@ import ch.lkmc.bangnidraw.data.ShareCache
 import ch.lkmc.bangnidraw.data.TileBufferPool
 import ch.lkmc.bangnidraw.data.TileFlusher
 import ch.lkmc.bangnidraw.data.TileStore
+import ch.lkmc.bangnidraw.data.ThumbnailWriteResult
 import ch.lkmc.bangnidraw.data.Thumbnails
 import ch.lkmc.bangnidraw.data.applyTuning
 import ch.lkmc.bangnidraw.data.highestDefaultNameIn
@@ -2781,11 +2782,13 @@ class CanvasViewModel @Inject constructor(
     ): CheckpointResult {
         val doc = document ?: return CheckpointResult.COMMITTED
         return checkpointMutex.withLock {
-            val deletesOutstanding = withContext(Dispatchers.Main) {
-                pendingDeletes.isNotEmpty()
-            }
-            if (!dirty && !thumbDirty && !deletesOutstanding && store.exists(doc.id)) {
-                return@withLock CheckpointResult.COMMITTED
+            if (!dirty && !thumbDirty) {
+                val deletesOutstanding = withContext(Dispatchers.Main) {
+                    pendingDeletes.isNotEmpty()
+                }
+                if (!deletesOutstanding && store.exists(doc.id)) {
+                    return@withLock CheckpointResult.COMMITTED
+                }
             }
 
             // §5.6's order: (readbacks land) → queued jobs and tiles flushed
@@ -2831,12 +2834,12 @@ class CanvasViewModel @Inject constructor(
                     // it reads are on disk by the flush above, and only when
                     // pixels actually changed — never per stroke.
                     if (thumbDirty) {
-                        Thumbnails.write(
+                        val result = Thumbnails.write(
                             folded,
                             layerDirFor = { store.layerDir(folded.id, it) },
                             target = File(store.projectDir(folded.id), "thumb.png"),
                         )
-                        thumbDirty = false
+                        if (result == ThumbnailWriteResult.WRITTEN) thumbDirty = false
                     }
                     maybeSyncGallery(folded, trigger, now)
                 }

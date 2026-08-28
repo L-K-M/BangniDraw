@@ -1,6 +1,5 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -16,6 +15,19 @@ class CanvasCheckpointContractTest {
         if (clear < 0) fail("missing $CLEAR_THUMBNAIL_DIRTY")
 
         assertTrue(write < clear, "$CLEAR_THUMBNAIL_DIRTY must follow $THUMBNAIL_WRITE")
+    }
+
+    @Test
+    fun `thumbnail clears only for a successful write result`() {
+        val checkpoint = checkpointSource()
+        val write = checkpoint.indexOf(THUMBNAIL_WRITE)
+        if (write < 0) fail("missing $THUMBNAIL_WRITE")
+        val success = checkpoint.indexOf(THUMBNAIL_WRITTEN, write)
+        if (success < 0) fail("missing $THUMBNAIL_WRITTEN after thumbnail write")
+        val clear = checkpoint.indexOf(CLEAR_THUMBNAIL_DIRTY, success)
+        if (clear < 0) fail("missing $CLEAR_THUMBNAIL_DIRTY after successful write")
+
+        assertTrue(success < clear)
     }
 
     @Test
@@ -39,30 +51,18 @@ class CanvasCheckpointContractTest {
         return viewModel.substring(start, end)
     }
 
-    private fun source(path: String): String = File(repositoryRoot(), path).readText()
-
-    private fun repositoryRoot(): File {
-        val workingDirectory = File(
-            requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),
-        ).canonicalFile
-
-        return generateSequence(workingDirectory) { it.parentFile }
-            .firstOrNull { File(it, ROOT_MARKER).isFile && File(it, APP_DIRECTORY).isDirectory }
-            ?: fail("cannot locate repository root from $workingDirectory")
-    }
-
     private companion object {
-        const val USER_DIRECTORY_PROPERTY = "user.dir"
-        const val ROOT_MARKER = "settings.gradle.kts"
-        const val APP_DIRECTORY = "app/src/main"
         const val CANVAS_VIEW_MODEL_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasViewModel.kt"
         const val CHECKPOINT_START = "private suspend fun checkpoint("
         const val CHECKPOINT_END = "private suspend fun maybeSyncGallery("
         const val COMMIT_BARRIER = "CheckpointBarrier.commitWhenFlushed("
         const val THUMBNAIL_WRITE = "Thumbnails.write("
+        const val THUMBNAIL_WRITTEN = "ThumbnailWriteResult.WRITTEN"
         const val CLEAR_THUMBNAIL_DIRTY = "thumbDirty = false"
         const val THUMBNAIL_DIRTY = "thumbDirty"
         const val PENDING_DELETES = "pendingDeletes"
     }
+
+    private fun source(path: String): String = ContractTestSources.read(path)
 }

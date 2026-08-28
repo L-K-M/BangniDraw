@@ -687,9 +687,9 @@ and the contradiction is noted here.
   stale water. Wet state is not persisted or journaled: cancel restores
   touched wet pages, undo/redo/reopen/context loss start dry, and destructive
   pixel edits clear affected wet layers. Blank Water over an absent tile
-  or index-empty blocks changes wet state but creates no colour tile or
-  history entry; over a resident tile that the index has not classified,
-  `UNKNOWN` conservatively
+  or blocks `TileContentIndex` has classified empty changes wet state but
+  creates no colour tile or history entry; over a resident tile that the
+  index has not classified, `UNKNOWN` conservatively
   forces the colour path, so the gesture allocates a slice and journals a
   no-op entry whose all-zero after-image folds away at the next checkpoint —
   transient bookkeeping, never a persisted tile. `TileContentIndex` tracks

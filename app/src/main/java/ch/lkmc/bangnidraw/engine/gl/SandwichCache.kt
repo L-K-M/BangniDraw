@@ -48,8 +48,26 @@ class SandwichCache(
     private val pass = TileCompositePass(program, state, pool)
     private val excludedPages = IntArray(2)
 
-    /** Reused tile-key scratch so [rebuild]/[invalidateTiles] stay allocation-free on the GL thread. */
+    /**
+     * Reused tile-key scratch for [rebuild]. Separate from [invalidateScratch]
+     * so a path reachable from [buildTile] that re-enters [invalidateTiles]
+     * cannot corrupt the in-flight loop below.
+     */
     private var keyScratch = IntArray(0)
+
+    /** Reused tile-key scratch for [invalidateTiles]; never touches [keyScratch]. */
+    private var invalidateScratch = IntArray(0)
+
+    /**
+     * Grows [keyScratch] to full grid capacity and fills it with the keys
+     * intersecting [rect]; returns how many were written. Contract:
+     * [TileGrid.keysFor] never emits more keys than [TileGrid.tileCount] for any
+     * rect, so the buffer is never over-run.
+     */
+    private fun fillKeys(rect: IntRect): Int {
+        if (keyScratch.size < grid.tileCount) keyScratch = IntArray(grid.tileCount)
+        return grid.keysFor(rect, keyScratch)
+    }
 
     /** A whole half needs rebuilding; individual tiles are rebuilt as they are drawn. */
     private var belowStale = true
@@ -110,11 +128,11 @@ class SandwichCache(
      * every visible one.
      */
     fun invalidateTiles(rect: IntRect, below: Boolean, above: Boolean) {
-        if (keyScratch.size < grid.tileCount) keyScratch = IntArray(grid.tileCount)
-        val count = grid.keysFor(rect, keyScratch)
+        if (invalidateScratch.size < grid.tileCount) invalidateScratch = IntArray(grid.tileCount)
+        val count = grid.keysFor(rect, invalidateScratch)
         for (i in 0 until count) {
-            if (below) belowBuilt.remove(keyScratch[i])
-            if (above) aboveBuilt.remove(keyScratch[i])
+            if (below) belowBuilt.remove(invalidateScratch[i])
+            if (above) aboveBuilt.remove(invalidateScratch[i])
         }
         if (below) belowStale = true
         if (above) aboveStale = true
@@ -154,8 +172,7 @@ class SandwichCache(
         val abovePending = aboveStale && aboveAvailable
         if (!belowPending && !abovePending) return
         val activeIndex = stack.activeIndex
-        if (keyScratch.size < grid.tileCount) keyScratch = IntArray(grid.tileCount)
-        val count = grid.keysFor(rect, keyScratch)
+        val count = fillKeys(rect)
         for (i in 0 until count) {
             val key = TileKey(keyScratch[i])
             if (belowPending && key.packed !in belowBuilt) {

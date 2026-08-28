@@ -66,6 +66,12 @@ class StrokeDriver(
     /** How the preset's dabs land in the buffer (§7.2). */
     val bufferMode: BufferMode get() = preset.bufferMode
 
+    /** A prior sample still has dabs waiting for another ring batch. */
+    val hasPendingDabs: Boolean get() = generator.hasPendingSegment
+
+    /** Continues that sample without advancing its dynamics or jitter twice. */
+    fun resumeDabs(out: DabBatch): Int = generator.resume(out)
+
     /** Re-tunes the stabilizer for a new zoom — §4's leash is in canvas px. */
     fun setZoom(zoom: Float) = stabilizer.retune(zoom = zoom)
 
@@ -109,9 +115,14 @@ class StrokeDriver(
         out: DabBatch,
     ): Int {
         if (!isActive) return 0
+        var emitted = generator.resume(out)
+        if (generator.hasPendingSegment) return emitted
+
         raw.set(x, y, pressure, tilt, orientation, timeNs, source, predicted = false)
-        if (!stabilizer.push(raw, smoothed)) return 0
-        return generator.advance(smoothed, out)
+        if (!stabilizer.push(raw, smoothed)) return emitted
+
+        emitted += generator.advance(smoothed, out)
+        return emitted
     }
 
     /**
@@ -124,11 +135,25 @@ class StrokeDriver(
      */
     fun end(out: DabBatch): Int {
         if (!isActive) return 0
-        isActive = false
-        var emitted = 0
-        stabilizer.finish(generator.currentStep(), smoothed) { s ->
-            emitted += generator.advance(s, out)
+
+        // Finish the accepted sample first. Returning even when it completes
+        // gives the stabilizer catch-up a fresh batch on the next call.
+        if (generator.hasPendingSegment) {
+            return generator.resume(out)
         }
+
+        var emitted = 0
+        val finish = stabilizer.finishUntil(generator.currentStep(), smoothed) { sample ->
+            emitted += generator.advance(sample, out)
+            if (generator.hasPendingSegment || out.isFull) {
+                StabilizerEmitDecision.PAUSE
+            } else {
+                StabilizerEmitDecision.CONTINUE
+            }
+        }
+        if (finish == StabilizerFinishResult.PENDING) return emitted
+
+        isActive = false
         emitted += generator.end(out)
         return emitted
     }
@@ -195,6 +220,8 @@ class StrokeDriver(
             "predict() needs a batch with no tail of its own, was marked at ${out.predictedFrom}"
         }
         if (!isActive || samples.size == 0) return 0
+        if (generator.hasPendingSegment) return 0
+
         // On the first frame `copy()` builds the pair AND is the sync; on every
         // later one the same two objects are re-synced in place, which is what
         // keeps a per-frame path allocation-free.
@@ -220,7 +247,10 @@ class StrokeDriver(
                 s.x, s.y, s.pressure, s.tilt, s.orientation, s.timeNs, s.source,
                 predicted = true,
             )
-            if (stab.push(tailRaw, tailSmoothed)) emitted += gen.advance(tailSmoothed, out)
+            if (stab.push(tailRaw, tailSmoothed)) {
+                emitted += gen.advance(tailSmoothed, out)
+                if (gen.hasPendingSegment) break
+            }
         }
         return emitted
     }

@@ -166,6 +166,95 @@ class StrokeDriverTest {
     }
 
     @Test
+    fun `pen-up resumes a catch-up segment across tiny batches`() {
+        val driver = driver(spacing = 0.5f, stabilizer = 1f)
+        var batch = DabBatch(capacity = 2)
+        var emitted = driver.begin(
+            0f, 0f, 1f, 0f, 0f, 0L, StrokeSource.STYLUS, batch,
+        )
+        batch = DabBatch(capacity = 2)
+        emitted += driver.sample(
+            100f, 0f, 1f, 0f, 0f, 8_000_000L, StrokeSource.STYLUS, batch,
+        )
+        while (driver.hasPendingDabs) {
+            batch = DabBatch(capacity = 2)
+            emitted += driver.resumeDabs(batch)
+        }
+
+        var passes = 0
+        while (driver.isActive && passes < 64) {
+            batch = DabBatch(capacity = 2)
+            emitted += driver.end(batch)
+            passes++
+        }
+
+        assertTrue(!driver.isActive, "pen-up must finish after bounded resumptions")
+        assertTrue(emitted > 2, "the test must overflow its pen-up batch")
+    }
+
+    @Test
+    fun `an exact resume retains the current sample as the next segment`() {
+        val driver = driver(spacing = 0.5f, stabilizer = 0f)
+        driver.begin(
+            0f, 0f, 1f, 0f, 0f, 0L, StrokeSource.STYLUS, DabBatch(capacity = 1),
+        )
+        driver.sample(
+            20f, 0f, 1f, 0f, 0f, 8_000_000L,
+            StrokeSource.STYLUS, DabBatch(capacity = 1),
+        )
+        assertTrue(driver.hasPendingDabs)
+
+        val exact = DabBatch(capacity = 3)
+        driver.sample(
+            25f, 0f, 1f, 0f, 0f, 16_000_000L, StrokeSource.STYLUS, exact,
+        )
+
+        assertTrue(exact.isFull, "the prior suffix must exactly fill this batch")
+        assertTrue(driver.hasPendingDabs, "the 25 px sample must remain pending")
+        val current = DabBatch(capacity = 1)
+        driver.resumeDabs(current)
+        assertEquals(25f, current.x[0], 0.001f)
+    }
+
+    @Test
+    fun `an exact resume retains a stationary ink sample`() {
+        val ink = preset(spacing = 0.5f, stabilizer = 0f).copy(
+            model = BrushModel.ChineseInk,
+        )
+        val reference = StrokeDriver(ink, seed = 1L)
+        reference.begin(
+            0f, 0f, 0.1f, 0f, 0f, 0L, StrokeSource.STYLUS, DabBatch(capacity = 1),
+        )
+        val allMoving = DabBatch(capacity = 4096)
+        reference.sample(
+            20f, 0f, 0.1f, 0f, 0f, 8_000_000L, StrokeSource.STYLUS, allMoving,
+        )
+        val suffixCount = allMoving.count - 1
+        assertTrue(suffixCount > 0)
+
+        val driver = StrokeDriver(ink, seed = 1L)
+        driver.begin(
+            0f, 0f, 0.1f, 0f, 0f, 0L, StrokeSource.STYLUS, DabBatch(capacity = 1),
+        )
+        driver.sample(
+            20f, 0f, 0.1f, 0f, 0f, 8_000_000L,
+            StrokeSource.STYLUS, DabBatch(capacity = 1),
+        )
+
+        val exact = DabBatch(capacity = suffixCount)
+        driver.sample(
+            20f, 0f, 1f, 0f, 0f, 16_000_000L, StrokeSource.STYLUS, exact,
+        )
+
+        assertTrue(exact.isFull)
+        assertTrue(driver.hasPendingDabs, "the stationary pressure dab must remain pending")
+        val pressureDab = DabBatch(capacity = 1)
+        driver.resumeDabs(pressureDab)
+        assertEquals(1, pressureDab.count)
+        assertEquals(20f, pressureDab.x[0], 0.001f)
+    }
+
+    @Test
     fun `a cancelled stroke emits nothing more and leaves no trace`() {
         val out = batch()
         val d = driver()

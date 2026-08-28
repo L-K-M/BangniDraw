@@ -48,11 +48,20 @@ class DabGeneratorTest {
         spacingPolicy: DabSpacingPolicy = DabSpacingPolicy.Brush,
     ): List<Dab> {
         val generator = DabGenerator(preset, seed, spacingPolicy)
-        val batch = DabBatch(capacity)
+        var batch = DabBatch(capacity)
+        val dabs = mutableListOf<Dab>()
         generator.begin(path.first(), batch)
-        for (i in 1 until path.size) generator.advance(path[i], batch)
+        for (i in 1 until path.size) {
+            generator.advance(path[i], batch)
+            while (generator.hasPendingSegment) {
+                dabs += batch.toList()
+                batch = DabBatch(capacity)
+                generator.resume(batch)
+            }
+        }
         if (end) generator.end(batch)
-        return batch.toList()
+        dabs += batch.toList()
+        return dabs
     }
 
     @Test
@@ -814,16 +823,16 @@ class DabGeneratorTest {
     }
 
     @Test
-    fun `a full batch stops the generator rather than losing count`() {
-        // The producer publishes and takes the next ring slot; the dabs that
-        // did land must be intact.
+    fun `a full batch retains the segment without losing count`() {
         val batch = DabBatch(capacity = 4)
         val generator = DabGenerator(plain, seed = 1L)
         val path = straightPath(0f, 1000f, 100)
         generator.begin(path[0], batch)
-        for (i in 1 until path.size) generator.advance(path[i], batch)
+        generator.advance(path.last(), batch)
+
         assertEquals(4, batch.count, "the batch must fill exactly to capacity")
         assertEquals(4, generator.dabCount, "the generator must not count dabs it could not place")
+        assertTrue(generator.hasPendingSegment, "the unwritten suffix must remain resumable")
         // And the dabs that landed are the right ones. Counting alone would
         // pass for a batch whose slots were overwritten or left unwritten,
         // which is the realistic failure when a ring buffer hits capacity.
@@ -835,6 +844,69 @@ class DabGeneratorTest {
         for (i in 0 until batch.count) {
             assertEquals(i * step, batch[i].x, pxEps, "dab $i must have landed at its step")
         }
+    }
+
+    @Test
+    fun `a split segment is bit-identical across tiny batches`() {
+        val brush = requireNotNull(builtIns["builtin.calligraphy"])
+        val first = sample(
+            x = 0f,
+            y = 0f,
+            pressure = 0.2f,
+            tilt = 0.1f,
+            orientation = -0.8f,
+            timeMs = 0L,
+        )
+        val last = sample(
+            x = 600f,
+            y = 300f,
+            pressure = 0.9f,
+            tilt = 1.1f,
+            orientation = 1.3f,
+            timeMs = 16L,
+        )
+
+        val referenceGenerator = DabGenerator(brush, seed = 19L)
+        val referenceBatch = DabBatch(capacity = 4096)
+        referenceGenerator.begin(first, referenceBatch)
+        referenceGenerator.advance(last, referenceBatch)
+
+        val splitGenerator = DabGenerator(brush, seed = 19L)
+        var splitBatch = DabBatch(capacity = 7)
+        val split = mutableListOf<Dab>()
+        splitGenerator.begin(first, splitBatch)
+        splitGenerator.advance(last, splitBatch)
+        while (true) {
+            split += splitBatch.toList()
+            if (!splitGenerator.hasPendingSegment) break
+
+            splitBatch = DabBatch(capacity = 7)
+            splitGenerator.resume(splitBatch)
+        }
+
+        assertTrue(referenceBatch.count > 7, "the reference must overflow a tiny batch")
+        assertEquals(referenceBatch.toList(), split)
+    }
+
+    @Test
+    fun `copy preserves an overflowing segment`() {
+        val brush = requireNotNull(builtIns["builtin.calligraphy"])
+        val first = sample(0f, 0f, pressure = 0.2f, timeMs = 0L)
+        val last = sample(600f, 300f, pressure = 0.9f, timeMs = 16L)
+        val real = DabGenerator(brush, seed = 23L)
+        real.begin(first, DabBatch(capacity = 1))
+        real.advance(last, DabBatch(capacity = 7))
+        assertTrue(real.hasPendingSegment)
+
+        val copy = real.copy()
+        val realSuffix = DabBatch(capacity = 4096)
+        val copySuffix = DabBatch(capacity = 4096)
+        real.resume(realSuffix)
+        copy.resume(copySuffix)
+
+        assertTrue(realSuffix.count > 0)
+        assertEquals(realSuffix.toList(), copySuffix.toList())
+        assertEquals(real.hasPendingSegment, copy.hasPendingSegment)
     }
 
     @Test

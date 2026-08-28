@@ -66,6 +66,13 @@ class Stabilizer internal constructor(
     private val raw = StrokeInput()
     private var started = false
 
+    private val finishStart = StrokeInput()
+    private var finishDx = 0f
+    private var finishDy = 0f
+    private var finishSteps = 0
+    private var finishIndex = 0
+    private var finishPending = false
+
     /**
      * Retunes for a new zoom or a new preset mid-stroke without moving the
      * output — the smoothing changes, the brush does not jump.
@@ -90,6 +97,7 @@ class Stabilizer internal constructor(
         state.set(first)
         raw.set(first)
         started = true
+        finishPending = false
     }
 
     /**
@@ -164,43 +172,70 @@ class Stabilizer internal constructor(
      * delta as "no new information" — which is what `DabGenerator` does.
      */
     fun finish(step: Float, out: StrokeInput, emit: (StrokeInput) -> Unit): Int {
-        require(step.isFinite() && step > 0f) { "catch-up step must be positive, was $step" }
-        if (!started) return 0
-        val dx = raw.x - state.x
-        val dy = raw.y - state.y
-        val remaining = hypot(dx, dy)
-        if (remaining < MIN_STEP_PX) {
-            started = false
-            return 0
+        var emitted = 0
+        finishUntil(step, out) { sample ->
+            emit(sample)
+            emitted++
+            StabilizerEmitDecision.CONTINUE
         }
-        // Bounded above as well as below. The whole burst runs inside one
-        // input callback, and nothing constrains how small a caller's step
-        // is — a hair brush's half-pixel step against a leash that reaches
-        // ~96 canvas px when zoomed out would synthesize nearly two thousand
-        // samples on the single frame the pen lifts. The last step still lands
-        // exactly on the pen, because the walk is parameterised by `i / steps`.
-        val steps = kotlin.math.ceil(remaining / step).toInt()
-            .coerceIn(1, MAX_CATCHUP_STEPS)
-        val fromX = state.x
-        val fromY = state.y
-        val fromPressure = state.pressure
-        val fromTilt = state.tilt
-        val fromOrientation = state.orientation
-        for (i in 1..steps) {
-            val t = i.toFloat() / steps
-            state.x = fromX + dx * t
-            state.y = fromY + dy * t
-            state.pressure = fromPressure + (raw.pressure - fromPressure) * t
-            state.tilt = fromTilt + (raw.tilt - fromTilt) * t
-            state.orientation = easeAngle(fromOrientation, raw.orientation, t)
+        return emitted
+    }
+
+    /**
+     * Continues pen-up catch-up until [emit] asks to pause.
+     *
+     * The original interpolation frame survives a pause, so splitting the
+     * output across batches does not shift later samples through rounding.
+     */
+    internal fun finishUntil(
+        step: Float,
+        out: StrokeInput,
+        emit: (StrokeInput) -> StabilizerEmitDecision,
+    ): StabilizerFinishResult {
+        require(step.isFinite() && step > 0f) { "catch-up step must be positive, was $step" }
+        if (!started) return StabilizerFinishResult.COMPLETE
+        if (!finishPending && !prepareFinish(step)) return StabilizerFinishResult.COMPLETE
+
+        while (finishIndex <= finishSteps) {
+            val t = finishIndex.toFloat() / finishSteps
+            state.x = finishStart.x + finishDx * t
+            state.y = finishStart.y + finishDy * t
+            state.pressure = finishStart.pressure +
+                (raw.pressure - finishStart.pressure) * t
+            state.tilt = finishStart.tilt + (raw.tilt - finishStart.tilt) * t
+            state.orientation = easeAngle(finishStart.orientation, raw.orientation, t)
             state.timeNs = raw.timeNs
             state.source = raw.source
             state.predicted = raw.predicted
             out.set(state)
-            emit(out)
+            finishIndex++
+
+            if (emit(out) == StabilizerEmitDecision.PAUSE) {
+                return StabilizerFinishResult.PENDING
+            }
         }
+
+        finishPending = false
         started = false
-        return steps
+        return StabilizerFinishResult.COMPLETE
+    }
+
+    private fun prepareFinish(step: Float): Boolean {
+        finishDx = raw.x - state.x
+        finishDy = raw.y - state.y
+        val remaining = hypot(finishDx, finishDy)
+        if (remaining < MIN_STEP_PX) {
+            started = false
+            return false
+        }
+
+        finishStart.set(state)
+        // Bound a pen-up burst while still landing exactly on the raw point.
+        finishSteps = kotlin.math.ceil(remaining / step).toInt()
+            .coerceIn(1, MAX_CATCHUP_STEPS)
+        finishIndex = 1
+        finishPending = true
+        return true
     }
 
     /**
@@ -235,6 +270,12 @@ class Stabilizer internal constructor(
         other.state.set(state)
         other.raw.set(raw)
         other.started = started
+        other.finishStart.set(finishStart)
+        other.finishDx = finishDx
+        other.finishDy = finishDy
+        other.finishSteps = finishSteps
+        other.finishIndex = finishIndex
+        other.finishPending = finishPending
     }
 
     /** The current smoothed sample, for tests and for the tail's starting point. */
@@ -298,6 +339,10 @@ class Stabilizer internal constructor(
         }
     }
 }
+
+internal enum class StabilizerEmitDecision { CONTINUE, PAUSE }
+
+internal enum class StabilizerFinishResult { COMPLETE, PENDING }
 
 /** Which stabilized changes are meaningful to the active brush model. */
 internal enum class StabilizerSamplePolicy {

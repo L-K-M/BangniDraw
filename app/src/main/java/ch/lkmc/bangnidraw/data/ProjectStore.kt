@@ -21,8 +21,16 @@ internal fun interface DuplicateFileWriter {
     fun copy(source: File, target: File)
 }
 
+internal fun interface ProjectDirectoryMover {
+    fun move(source: File, target: File): Boolean
+}
+
 private val DEFAULT_DUPLICATE_FILE_WRITER = DuplicateFileWriter { source, target ->
     source.copyTo(target)
+}
+
+private val DEFAULT_PROJECT_DIRECTORY_MOVER = ProjectDirectoryMover { source, target ->
+    source.renameTo(target)
 }
 
 /**
@@ -36,6 +44,7 @@ private val DEFAULT_DUPLICATE_FILE_WRITER = DuplicateFileWriter { source, target
 class ProjectStore internal constructor(
     private val root: File,
     private val duplicateFileWriter: DuplicateFileWriter,
+    private val projectDirectoryMover: ProjectDirectoryMover = DEFAULT_PROJECT_DIRECTORY_MOVER,
 ) {
 
     constructor(root: File) : this(root, DEFAULT_DUPLICATE_FILE_WRITER)
@@ -615,13 +624,10 @@ class ProjectStore internal constructor(
         if (!dir.exists()) return false
         val doomed = File(root, id + DELETING_SUFFIX)
         if (doomed.exists()) doomed.deleteRecursively()
-        if (dir.renameTo(doomed)) {
-            doomed.deleteRecursively()
-        } else {
-            // The rename failing (already half-deleted?) still must not leave
-            // the painting behind.
-            dir.deleteRecursively()
-        }
+        // Never partially delete a live project when crash-safe staging fails.
+        if (!projectDirectoryMover.move(dir, doomed)) return false
+
+        doomed.deleteRecursively()
         return !dir.exists()
     }
 

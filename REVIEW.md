@@ -1809,9 +1809,9 @@ touchscreen hover too, not only a pen.
 - **R-109 ⏸️ Round 1, outside diff: resource-level dark-mode guards are
   absent.** Refuted on the full PR. `values/themes.xml` uses the fixed Light
   parent, launch background, light system bars, and
-  `android:forceDarkAllowed=false`; the `values-night` theme is deleted. The
-  contract now rejects the whole night resource directory and pins the launch
-  colour to the default palette.
+  `android:forceDarkAllowed=false`; no night resources remain. The contract
+  rejects every values directory carrying a night qualifier and pins the
+  launch colour to the default palette.
 
 - **R-110 ⏸️ Round 1, outside diff: `kotlin-test` may be absent.**
   Refuted in `app/build.gradle.kts`: `testImplementation(libs.kotlin.test)` is
@@ -1843,3 +1843,49 @@ touchscreen hover too, not only a pen.
   Applied. Palette tests now cover primary and secondary across their actual
   surfaces, selected markers, and shared error roles; the plan records the
   exact palette ratios.
+
+- **R-116 🟢 Round 2, major: preference retry loop is unbounded and stops
+  logging after the first failure.** Applied. Reads now back off
+  exponentially and give up after five attempts, ending the flow on its last
+  value with a final warning; a `ReplaceFileCorruptionHandler` resets a
+  corrupt store before any flow sees it. Tests pin the attempt count, backoff
+  order, single fallback, and post-load stability.
+
+- **R-117 🟢 Round 2, major: substring contracts match comments and only
+  scan Theme.kt for `isSystemInDarkTheme`.** Applied. Kotlin sources are
+  loaded comment-stripped, and the dark-mode token is rejected across every
+  `.kt` file under `app/src/main/java`.
+
+- **R-118 ⏸️ Round 2, major: `ThemeColorPolicy` in `engine/core` couples the
+  engine to UI theming.** Declined as a move; documented instead. The repo is
+  single-module and `engine/core` is its only Compose-free JVM home (02 §2.2);
+  GL consumes just the constant `canvasVoid`. 08 §5.1 now says so.
+
+- **R-119 ⏸️ Round 2, minor: null initial theme can flash the default
+  palette.** Refuted like R-108: a null theme executes `return@setContent`, so
+  nothing composes before the first emission. A contract now also pins that
+  every emitted state is non-null by construction (`map(::UiState)` over a
+  non-null flow).
+
+- **R-120 ⏸️ Round 2, info: latch the loaded theme against a transient null.**
+  Declined. `stateIn` never re-emits its initial value and the recovery flow
+  emits only concrete palettes, so null is initial-only; the R-119 pin locks
+  that invariant instead of adding a second state holder.
+
+- **R-121 ⏸️ Round 2, info: apply retry/fallback resilience to every
+  preference flow.** Declined for scope. The corruption handler now covers the
+  persistent-failure mode for the whole DataStore file; the retry helper
+  exists because the launch gate depends on the theme flow's first emission.
+  Migrating sibling flows changes their failure behavior and tests; that is
+  separate work.
+
+- **R-122 ⏸️ Round 2, minor: gate only density changes on stroke commit.**
+  Refuted. The checkerboard pair is palette-derived (`surface`/
+  `surfaceVariant` at `CanvasScreen`), so theme updates do reach GL and must
+  wait for the commit/cancel scene to avoid mixing old and new cells in a
+  dirty front frame.
+
+- **R-123 🟢 Round 2, minor: cancel's dead-surface return drops the deferred
+  appearance.** Applied test-first. All three early returns in
+  `endStroke`/`cancelStroke` restore the deferred value for the next change
+  or session recreation; the contract counts them.

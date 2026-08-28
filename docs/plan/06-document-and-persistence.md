@@ -690,12 +690,15 @@ comment updated:
 </full-backup-content>
 ```
 
-The allowlisted DataStore includes `AppTheme`, so the chrome choice survives
-restart and device transfer even though painting folders do not.
+The allowlists include the entire DataStore file and legacy shared
+preferences, so every setting — including `AppTheme` — survives backup
+restore and device transfer. Painting folders also survive plain restarts,
+but excluded from the allowlists they do not transfer.
 
-`files/projects/` holds the user's paintings and their entire undo history; the app's promise
-is that nothing leaves the device except the gallery copy they can see. **Honest consequence,
-stated in About and README:** uninstalling the app removes every project folder. The gallery
+`files/projects/` holds the user's paintings and their entire undo history;
+the app's painting-data promise is that no painting leaves the device except
+the gallery copy they can see. **Honest consequence, stated in About and
+README:** uninstalling the app removes every project folder. The gallery
 copies survive (MediaStore items outlive their owner package; they merely stop being ours to
 rewrite — §9.2 handles that with a fresh insert). A future "export project" (OpenRaster,
 post-v1) is the intended way to move paintings between devices.

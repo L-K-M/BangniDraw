@@ -120,30 +120,19 @@ internal fun SettingsSheet(
             item {
                 Column(Modifier.selectableGroup()) {
                     SettingLabel(R.string.settings_theme_color)
-                    ThemeChoiceRow(
-                        AppTheme.SAFFRON,
-                        R.string.settings_theme_saffron,
-                        appTheme,
-                        onAppTheme,
-                    )
-                    ThemeChoiceRow(
-                        AppTheme.CORAL,
-                        R.string.settings_theme_coral,
-                        appTheme,
-                        onAppTheme,
-                    )
-                    ThemeChoiceRow(
-                        AppTheme.VIOLET,
-                        R.string.settings_theme_violet,
-                        appTheme,
-                        onAppTheme,
-                    )
-                    ThemeChoiceRow(
-                        AppTheme.TEAL,
-                        R.string.settings_theme_teal,
-                        appTheme,
-                        onAppTheme,
-                    )
+                    AppTheme.entries.forEach { theme ->
+                        ThemeChoiceRow(
+                            theme,
+                            when (theme) {
+                                AppTheme.SAFFRON -> R.string.settings_theme_saffron
+                                AppTheme.CORAL -> R.string.settings_theme_coral
+                                AppTheme.VIOLET -> R.string.settings_theme_violet
+                                AppTheme.TEAL -> R.string.settings_theme_teal
+                            },
+                            appTheme,
+                            onAppTheme,
+                        )
+                    }
                 }
             }
 

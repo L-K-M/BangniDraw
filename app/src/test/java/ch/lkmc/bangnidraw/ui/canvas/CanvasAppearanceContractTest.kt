@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.ui.canvas
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -79,6 +80,17 @@ class CanvasAppearanceContractTest {
             assertTrue(target >= 0, "$name stroke target is missing")
             assertTrue(apply < target, "$name must apply appearance before its scene transition")
         }
+
+        assertEquals(
+            1,
+            cancel.split(DEFERRED_APPEARANCE_RESTORE).size - 1,
+            "cancel's dead-surface return must restore the deferred appearance",
+        )
+        assertEquals(
+            2,
+            endStroke.split(DEFERRED_APPEARANCE_RESTORE).size - 1,
+            "both early commit returns must restore the deferred appearance",
+        )
     }
 
     @Test
@@ -145,9 +157,9 @@ class CanvasAppearanceContractTest {
         const val ENGINE_SESSION_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/EngineSession.kt"
         const val SURFACE_FACTORY_START = "factory = { ctx ->"
-        const val SURFACE_UPDATE_START = "        update = { surface ->"
+        const val SURFACE_UPDATE_START = "update = { surface ->"
         const val CONFIGURE_START = "internal fun configure("
-        const val CONFIGURE_END = "    /**\n     * Sets the view transform"
+        const val CONFIGURE_END = "fun setView("
         const val APPEARANCE_START = "fun setCanvasAppearance("
         const val APPEARANCE_END = "fun sampleColor("
         const val END_STROKE_START = "fun endStroke("
@@ -157,7 +169,7 @@ class CanvasAppearanceContractTest {
         const val END_STROKE_APPLY_TARGET = "renderer.endStroke("
         const val CANCEL_STROKE_APPLY_TARGET = "renderer.cancelStroke"
         const val OPACITY_BUTTON_START = "onClick = onOpacityClick,"
-        const val OPACITY_BUTTON_END = "            Box {"
+        const val OPACITY_BUTTON_END = "Box {"
         const val THEME_APPEARANCE = "val canvasAppearance = CanvasAppearance("
         const val SURFACE_APPEARANCE = "appearance = canvasAppearance,"
         const val APPEARANCE_CALL = "session?.setCanvasAppearance("
@@ -166,7 +178,10 @@ class CanvasAppearanceContractTest {
         const val SESSION_PUBLISH_CALL = "onSession(session)"
         const val REDRAW_CALL = "redraw()"
         const val APPLY_APPEARANCE_CALL = "applyCanvasAppearance(appearance)"
+        // The session stores the deferred value as `pendingCanvasAppearance` and
+        // snapshots it into a local `deferredAppearance` in endStroke/cancelStroke.
         const val APPLY_DEFERRED_APPEARANCE = "deferredAppearance?.let(::applyCanvasAppearance)"
+        const val DEFERRED_APPEARANCE_RESTORE = "pendingCanvasAppearance = deferredAppearance"
         val APPEARANCE_ASSIGNMENTS = listOf(
             "renderer.checkerPx = appearance.checkerPx",
             "renderer.checkerA = appearance.checkerA",

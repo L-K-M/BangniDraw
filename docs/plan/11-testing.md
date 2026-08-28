@@ -71,7 +71,9 @@ app/src/test/java/ch/lkmc/bangnidraw/
   input/            PalmRejectionTest.kt, StylusStateTest.kt
   ui/canvas/        CanvasViewModelTest.kt (autosave and gallery-sync clocks, fake
                     dispatcher), LayoutSpecTest.kt (window → layout decisions, pure),
-                    CanvasUiStateTest.kt, HsvMathTest.kt (§3.16)
+                    CanvasUiStateTest.kt, HsvMathTest.kt (§3.16),
+                    CanvasAppearanceContractTest.kt
+  ui/               AccessibilitySemanticsContractTest.kt
   ui/theme/         BangniColorSchemeTest.kt, ThemeContractTest.kt
   fixtures/         golden-stroke/*.json, fill/*.pgm, composite/*.txt
 ```
@@ -369,14 +371,14 @@ They are part of the suite under the §11 rule (every pure class gets a
 | `MixboxLutTest` | `09` §5.1, ADR 0003 (Mixbox source set) | the asset's sha256 equals the recorded value; dimensions 512×512 |
 | `PureCoreTest`, `ManifestTest` | `02-architecture.md` §5, ADR 0002 | no `android.`/`androidx.`/`com.scrtwpns.` import under `engine/core`; the merged manifest's `uses-permission` list is empty |
 | `RotationSnapTest` | `RotationSnap` (`07-input-and-stylus.md` §7) | the 3°/5° hysteresis, exact `0f` while snapped, one tick per entry |
-| `UserPreferencesTest`, `ThemeColorPolicyTest`, `ToolRailColorPolicyTest`, `CanvasVoidColorPolicyTest` | `AppTheme` and theme policies (proposal 0003 — selectable application themes; 08 §5.1) | exactly `SAFFRON`, `CORAL`, `VIOLET`, and `TEAL`; enum-name round trip; missing/unknown → `SAFFRON`; palette content and accent/surface text pairs ≥ 4.5:1; outline/surface, primary ring/container, selected marker/container, and rail icon/container ≥ 3:1; one shared opaque canvas void |
-| `PreferenceFlowRecoveryTest` | `retryIoWithInitialFallback`, used by `Prefs.appTheme` | initial `IOException` emits `SAFFRON` once and retries; a later I/O failure never replaces a loaded theme; cancellation and non-I/O failures propagate |
+| `UserPreferencesTest`, `ThemeColorPolicyTest`, `ToolRailColorPolicyTest`, `CanvasVoidColorPolicyTest` | `AppTheme` and theme policies (proposal 0003 — selectable application themes; 08 §5.1) | exactly `SAFFRON`, `CORAL`, `VIOLET`, and `TEAL`; enum-name round trip; missing/unknown → `SAFFRON`; palette content, containers, and accent/surface text pairs ≥ 4.5:1; outline/surface, primary ring/container, selected marker/container, rail icon/container, and dark system icon/bar-surface pairs ≥ 3:1; one shared opaque canvas void |
+| `PreferenceFlowRecoveryTest` | `retryIoWithInitialFallback`, used by `Prefs.appTheme` | initial `IOException` emits `SAFFRON` once and retries with backoff; a persistent failure ends on the last value after five attempts; a later I/O failure never replaces a loaded theme; cancellation and non-I/O failures propagate |
 | `BangniColorSchemeTest` | Compose adaptation of `ThemeColorPolicy` (08 §5.1) | every Material role is app-owned; tertiary, fixed, inverse, and every surface-container tier derive from the selected palette; shared error content and used-surface pairs ≥ 4.5:1 |
 
 `ThemeContractTest` pins the app-owned light system bars and launch theme,
-`android:forceDarkAllowed = false`, the absence of system-dark inputs/night
-resources, the root loading gate, and the wiring into the behavior-tested
-preference recovery. `CanvasAppearanceContractTest` pins both the initial GL
+`android:forceDarkAllowed = false`, every qualified night-resource directory,
+corrupted-preference reset, the root loading gate, and the behavior-tested
+recovery wiring. `CanvasAppearanceContractTest` pins both the initial GL
 appearance before bootstrap and subsequent theme updates at the commit/cancel
 boundary of an active stroke, plus the paired selected-layer text roles.
 `AccessibilitySemanticsContractTest` pins the named radio group in Settings.

@@ -13,13 +13,18 @@ class ThemeContractTest {
 
     @Test
     fun `app theme ignores the system appearance`() {
-        val theme = source(THEME_PATH)
-        val activity = source(MAIN_ACTIVITY_PATH)
+        val activity = strippedKotlin(MAIN_ACTIVITY_PATH)
         val platformTheme = source(PLATFORM_THEME_PATH)
+        val kotlinRoot = File(repositoryRoot(), MAIN_SOURCES_PATH)
 
-        assertFalse(
-            "isSystemInDarkTheme" in theme,
-            "BangniTheme must not follow the system dark-mode setting",
+        val nightFollowers = kotlinRoot.walkTopDown()
+            .filter { it.isFile && it.extension == KOTLIN_EXTENSION }
+            .filter { "isSystemInDarkTheme" in stripComments(it.readText()) }
+            .toList()
+
+        assertTrue(
+            nightFollowers.isEmpty(),
+            "no Kotlin source may follow the system dark-mode setting: $nightFollowers",
         )
         assertTrue(
             APP_THEME_ARGUMENT.containsMatchIn(activity),
@@ -49,15 +54,21 @@ class ThemeContractTest {
             "<item name=\"android:forceDarkAllowed\">false</item>" in platformTheme,
             "the platform must not auto-darken the fixed-light palette",
         )
-        assertFalse(
-            File(repositoryRoot(), NIGHT_RESOURCES_PATH).exists(),
+        val resourceDirectories = File(repositoryRoot(), RESOURCE_ROOT_PATH)
+            .listFiles()
+            .orEmpty()
+
+        assertTrue(
+            resourceDirectories.none { resource ->
+                resource.isDirectory && NIGHT_QUALIFIER in resource.name.split('-').drop(1)
+            },
             "night resources would reintroduce system-driven appearance",
         )
     }
 
     @Test
     fun `scheme construction cannot inherit Material baseline roles`() {
-        val colors = source(COLOR_SCHEME_PATH)
+        val colors = strippedKotlin(COLOR_SCHEME_PATH)
 
         assertTrue(
             "return ColorScheme(" in colors,
@@ -66,6 +77,24 @@ class ThemeContractTest {
         assertFalse(
             "lightColorScheme(" in colors,
             "a defaulting factory can leak Material baseline colors",
+        )
+    }
+
+    @Test
+    fun `corrupted preferences reset before theme observation`() {
+        val prefs = strippedKotlin(PREFS_PATH)
+
+        assertTrue(
+            "corruptionHandler = ReplaceFileCorruptionHandler" in prefs,
+            "Preferences DataStore must replace a corrupted file",
+        )
+        assertTrue(
+            "emptyPreferences()" in prefs,
+            "corruption recovery must reset every preference to its safe default",
+        )
+        assertTrue(
+            "Log.w(TAG, PREFERENCE_CORRUPTION_MESSAGE, error)" in prefs,
+            "corruption recovery must retain a diagnostic",
         )
     }
 
@@ -80,10 +109,10 @@ class ThemeContractTest {
 
     @Test
     fun `theme choice crosses settings storage and root boundaries`() {
-        val prefs = source(PREFS_PATH)
-        val rootViewModel = source(APP_THEME_VIEW_MODEL_PATH)
-        val studioViewModel = source(STUDIO_VIEW_MODEL_PATH)
-        val studioScreen = source(STUDIO_SCREEN_PATH)
+        val prefs = strippedKotlin(PREFS_PATH)
+        val rootViewModel = strippedKotlin(APP_THEME_VIEW_MODEL_PATH)
+        val studioViewModel = strippedKotlin(STUDIO_VIEW_MODEL_PATH)
+        val studioScreen = strippedKotlin(STUDIO_SCREEN_PATH)
 
         assertTrue(
             "AppTheme.fromStored(it[KEY_APP_THEME])" in prefs,
@@ -117,13 +146,17 @@ class ThemeContractTest {
 
     @Test
     fun `app content waits for the persisted theme`() {
-        val activity = source(MAIN_ACTIVITY_PATH)
-        val rootViewModel = source(APP_THEME_VIEW_MODEL_PATH)
-        val prefs = source(PREFS_PATH)
+        val activity = strippedKotlin(MAIN_ACTIVITY_PATH)
+        val rootViewModel = strippedKotlin(APP_THEME_VIEW_MODEL_PATH)
+        val prefs = strippedKotlin(PREFS_PATH)
 
         assertTrue(
             NULL_LOADING_THEME.containsMatchIn(rootViewModel),
             "the root theme state must start unloaded instead of assuming a palette",
+        )
+        assertTrue(
+            "map(::UiState)" in rootViewModel,
+            "every emitted theme state is non-null; only the initial value gates",
         )
         assertTrue(
             RETRY_HELPER_CALL.containsMatchIn(prefs),
@@ -135,7 +168,18 @@ class ThemeContractTest {
         )
     }
 
-    private fun source(path: String): String = File(repositoryRoot(), path).readText()
+    private fun source(path: String): String {
+        val file = File(repositoryRoot(), path)
+        if (!file.isFile) fail("source file is missing: $path")
+        return file.readText()
+    }
+
+    /** Substring contracts must not match comments. */
+    private fun strippedKotlin(path: String): String = stripComments(source(path))
+
+    private fun stripComments(text: String): String = text
+        .replace(BLOCK_COMMENT, "")
+        .replace(LINE_COMMENT, "")
 
     private fun colorResource(source: String, name: String): Int {
         val resource = Regex(
@@ -167,8 +211,6 @@ class ThemeContractTest {
         const val USER_DIRECTORY_PROPERTY = "user.dir"
         const val ROOT_MARKER = "settings.gradle.kts"
         const val APP_DIRECTORY = "app/src/main"
-        const val THEME_PATH =
-            "app/src/main/java/ch/lkmc/bangnidraw/ui/theme/Theme.kt"
         const val MAIN_ACTIVITY_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/MainActivity.kt"
         const val PREFS_PATH = "app/src/main/java/ch/lkmc/bangnidraw/data/Prefs.kt"
@@ -182,7 +224,10 @@ class ThemeContractTest {
         const val COLOR_SCHEME_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/theme/Color.kt"
         const val COLOR_RESOURCES_PATH = "app/src/main/res/values/colors.xml"
-        const val NIGHT_RESOURCES_PATH = "app/src/main/res/values-night"
+        const val RESOURCE_ROOT_PATH = "app/src/main/res"
+        const val MAIN_SOURCES_PATH = "app/src/main/java"
+        const val KOTLIN_EXTENSION = "kt"
+        const val NIGHT_QUALIFIER = "night"
         const val LAUNCH_BACKGROUND_RESOURCE = "launch_background"
         const val RGB_HEX_LENGTH = 6
         const val ARGB_HEX_LENGTH = 8
@@ -198,7 +243,9 @@ class ThemeContractTest {
             """\bretryIoWithInitialFallback\s*\(""",
         )
         val THEME_LOADING_GATE = Regex(
-            """val appTheme\s*=\s*state\.appTheme\s*\?:\s*return@setContent""",
+            """state\.appTheme\s*\?:\s*return@setContent""",
         )
+        val BLOCK_COMMENT = Regex("""/\*[\s\S]*?\*/""")
+        val LINE_COMMENT = Regex("""//[^\r\n]*""")
     }
 }

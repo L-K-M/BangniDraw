@@ -57,6 +57,12 @@ class ThemeColorPolicyTest {
                 "surface" to (colors.surfaceArgb to colors.onSurfaceArgb),
                 "surfaceVariant" to
                     (colors.surfaceVariantArgb to colors.onSurfaceVariantArgb),
+                "surfaceContainer" to
+                    (colors.surfaceContainerArgb to colors.onSurfaceArgb),
+                "surfaceContainerHigh" to
+                    (colors.surfaceContainerHighArgb to colors.onSurfaceArgb),
+                "inversePrimary on inverseSurface" to
+                    (colors.primaryContainerArgb to colors.onSurfaceArgb),
             )
 
             for ((role, pair) in pairs) {
@@ -141,7 +147,30 @@ class ThemeColorPolicyTest {
         }
     }
 
+    @Test
+    fun `system bar surfaces support dark icons`() {
+        for (theme in AppTheme.entries) {
+            val colors = ThemeColorPolicy.colors(theme)
+            val surfaces = listOf(
+                "background" to colors.backgroundArgb,
+                "surface" to colors.surfaceArgb,
+                "surfaceContainer" to colors.surfaceContainerArgb,
+                "surfaceContainerHigh" to colors.surfaceContainerHighArgb,
+            )
+
+            for ((role, surface) in surfaces) {
+                val contrast = contrastRatio(DARK_SYSTEM_ICON_ARGB, surface)
+
+                assertTrue(
+                    contrast >= MIN_ICON_CONTRAST,
+                    "$theme $role cannot support dark system icons: $contrast:1",
+                )
+            }
+        }
+    }
+
     private companion object {
+        val DARK_SYSTEM_ICON_ARGB = 0xFF000000.toInt()
         const val MIN_TEXT_CONTRAST = 4.5
         const val MIN_ICON_CONTRAST = 3.0
         const val ALPHA_SHIFT = 24

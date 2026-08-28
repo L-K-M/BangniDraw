@@ -47,7 +47,7 @@ otherwise; small sealed hierarchies share a file with their root.
 | Class | Responsibility |
 | --- | --- |
 | `Document` | Immutable value: `id`, `width`, `height`, `paperColor`, `LayerStack`, `historyCursor`, `galleryUri: String?`, timestamps. Serializable to `project.json`. |
-| `AppTheme`, `ThemeColorPolicy` | Persisted `SAFFRON`/`CORAL`/`VIOLET`/`TEAL` names and their pure opaque-ARGB role table, shared without a Compose or DataStore dependency; missing/unknown names resolve to `SAFFRON`. Renaming/removing a value requires preference migration. |
+| `AppTheme`, `ThemeColorPolicy` | Persisted `SAFFRON`/`CORAL`/`VIOLET`/`TEAL` names and their pure opaque-ARGB role table, shared without a Compose or DataStore dependency; missing/unknown names resolve to `SAFFRON`. Renaming/removing a value silently resets affected users to `SAFFRON` unless a preference migration rewrites stored names first. |
 | `LayerStack`, `Layer`, `BlendMode` | Ordered list of `Layer` (id, name, opacity, blend, visible, alphaLock, locked) with pure operations (`add`, `delete`, `duplicate`, `move`, `mergeDown`, `flatten`, `clear`, `rename`, `set…`, `select`) each returning a `StackResult` — the new stack, the `PixelOp` for the GL thread and the `HistoryEntry` for the journal, or a `Refused(reason)`. Detail: docs/plan/05-layers.md §3. |
 | `TileGrid`, `TileKey` | Canvas rect ↔ set of 256×256 tile keys; `TileKey(tx, ty)` is an inline value class over a packed `Int` (docs/plan/03-canvas-engine.md §1) so hot paths never box. |
 | `ViewTransform`, `FitTransform` | Meltorama's similarity transform, ported verbatim with its tests (`gesture`, `invert`, `invertVector`, `rebase`, `lerp`). `FitTransform` maps canvas pixels to the fitted view box for a given viewport size. |
@@ -119,7 +119,7 @@ otherwise; small sealed hierarchies share a file with their root.
 | `GalleryExporter` | One MediaStore item per painting in `Pictures/帮你Draw/`, rewritten in place via `openOutputStream(uri, "wt")`; re-inserts when ownership is lost. |
 | `ShareCache` | `cacheDir/share/` PNG/JPEG for the share sheet via `FileProvider`, swept on Studio open. |
 | `BrushPresetStore` | Built-in presets from `assets/brushes/*.json` + user edits in `filesDir/brushes/`; kotlinx-serialization. |
-| `Prefs` | DataStore Preferences: `AppTheme`, handedness, stylus-only, `penButtonAction`, `eraserEndPreset`, pressure curve / calibration, haptics, gallery sync, `mixer` choice (pigment / RGB), journal limits, palettes' active id, `nextSketchNumber`. Values are exposed as flows. Theme reads retry only `IOException`; before the first value they emit Saffron once, while later failures preserve the loaded choice. |
+| `Prefs` | DataStore Preferences: `AppTheme`, handedness, stylus-only, `penButtonAction`, `eraserEndPreset`, pressure curve / calibration, haptics, gallery sync, `mixer` choice (pigment / RGB), journal limits, palettes' active id, `nextSketchNumber`. Values are exposed as flows. Theme reads retry only `IOException` with backoff (`CorruptionException` included, but the factory's `ReplaceFileCorruptionHandler` resets a corrupt file before any flow retries it); before the first value they emit Saffron once, later failures preserve the loaded choice, and a persistent failure ends the flow on that choice after five attempts. |
 
 ### 2.8 `ui/`
 
@@ -465,8 +465,11 @@ has no state worth a back-stack entry.
 recolours Studio, Canvas, sheets, dialogs, and system bars immediately. Missing
 or unknown stored names resolve to Saffron; system dark mode is not an input.
 Until its first value, `MainActivity` composes no navigation and the fixed-light
-resource launch window stays visible. A pre-load I/O failure releases that gate
-with Saffron once and retries; cancellation and non-I/O failures propagate.
+resource launch window stays visible — a deliberate one-DataStore-read
+cold-start cost so a saved theme never flashes. A pre-load I/O failure releases
+that gate with Saffron once and retries with backoff; a persistent failure ends
+the read on the current theme after five attempts. Cancellation and non-I/O
+failures propagate.
 
 ## 8. Lifecycle
 

@@ -1033,10 +1033,13 @@ class EngineSession(
             if (notMergedListener != null) notMergedListener()
         }
         if (!pendingStrokeFallback.compareAndSet(null, fallback)) {
+            pendingCanvasAppearance = deferredAppearance
             fallback()
             return
         }
         if (!isLive()) {
+            // Dead GL cannot apply the palette; keep it for recreation.
+            pendingCanvasAppearance = deferredAppearance
             completeStrokeWithoutMerge(fallback)
             return
         }
@@ -1316,6 +1319,8 @@ class EngineSession(
 
         if (!isLive()) {
             if (cancelledSpec?.rmw != null) onRmwCancelled?.invoke(cancelledSpec, emptyList())
+            // Dead GL cannot apply the palette; keep it for recreation.
+            pendingCanvasAppearance = deferredAppearance
             return mode
         }
         glRenderer.execute {

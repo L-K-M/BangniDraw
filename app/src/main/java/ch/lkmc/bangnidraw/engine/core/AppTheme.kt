@@ -1,6 +1,6 @@
 package ch.lkmc.bangnidraw.engine.core
 
-/** App-owned palettes. System and wallpaper colours never alter them. */
+/** App-owned fixed-light palettes. System and wallpaper colours never alter them. */
 internal enum class AppTheme {
     SAFFRON,
     CORAL,
@@ -15,7 +15,7 @@ internal enum class AppTheme {
     }
 }
 
-/** Material roles kept pure so every palette can be contrast-tested on the JVM. */
+/** Base palette tokens; Compose expands them into every Material role. */
 internal data class ThemeColors(
     val primaryArgb: Int,
     val onPrimaryArgb: Int,

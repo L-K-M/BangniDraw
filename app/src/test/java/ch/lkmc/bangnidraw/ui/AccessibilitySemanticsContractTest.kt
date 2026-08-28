@@ -51,6 +51,15 @@ class AccessibilitySemanticsContractTest {
             ".selectableGroup()" in appearance,
             "theme choices need one selectable group",
         )
+        assertTrue(
+            "AppTheme.entries.forEach" in appearance,
+            "every AppTheme must produce a Settings row",
+        )
+        assertTrue(
+            "when (theme)" in appearance,
+            "theme labels must stay exhaustive when AppTheme changes",
+        )
+
         for (label in THEME_LABELS) {
             assertTrue(label in appearance, "theme choice needs its visible name: $label")
         }

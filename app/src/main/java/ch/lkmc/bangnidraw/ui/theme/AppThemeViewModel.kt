@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.stateIn
 @HiltViewModel
 internal class AppThemeViewModel @Inject constructor(prefs: Prefs) : ViewModel() {
 
+    /** Null keeps the launch window visible until storage emits. */
     internal data class UiState(val appTheme: AppTheme? = null)
 
     internal val uiState: StateFlow<UiState> = prefs.appTheme

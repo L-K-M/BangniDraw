@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Add four selectable application theme colors and ignore system dark mode.
+- Add a Settings option to pick one of four theme colors (Saffron, Coral,
+  Violet, or Teal). The app is now always light-themed and no longer follows
+  system dark mode.
 
 ## 1.1.3 - 2026-08-28
 

@@ -26,6 +26,7 @@ internal fun bangniColorScheme(theme: AppTheme): ColorScheme {
         onSecondary = Color(colors.onSecondaryArgb),
         secondaryContainer = Color(colors.secondaryContainerArgb),
         onSecondaryContainer = Color(colors.onSecondaryContainerArgb),
+        // The product has two accent families; tertiary intentionally reuses secondary.
         tertiary = Color(colors.secondaryArgb),
         onTertiary = Color(colors.onSecondaryArgb),
         tertiaryContainer = Color(colors.secondaryContainerArgb),
@@ -40,6 +41,7 @@ internal fun bangniColorScheme(theme: AppTheme): ColorScheme {
         onSurface = Color(colors.onSurfaceArgb),
         surfaceVariant = Color(colors.surfaceVariantArgb),
         onSurfaceVariant = Color(colors.onSurfaceVariantArgb),
+        // Bright and lowest share the base surface; elevation begins at containerLow.
         surfaceDim = Color(colors.surfaceContainerHighArgb),
         surfaceBright = Color(colors.surfaceArgb),
         surfaceContainerLowest = Color(colors.surfaceArgb),

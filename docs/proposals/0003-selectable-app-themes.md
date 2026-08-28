@@ -51,8 +51,11 @@ launch window therefore uses the fixed light Saffron background, with no
 night-qualified override, instead of briefly following an unrelated system
 mode. That window remains visible while Compose withholds navigation until the
 asynchronous preference read emits. The first `IOException` is logged; before
-any value it also emits Saffron once. I/O failures retry without replacing an
-already-visible selection. Cancellation and non-I/O failures propagate.
+any value it also emits Saffron once. I/O failures retry with capped
+exponential backoff — five attempts, then the flow ends on its last value —
+and never replace an already-visible selection. A corrupt preference file
+resets to defaults through the DataStore corruption handler instead of
+retrying forever. Cancellation and non-I/O failures propagate.
 
 ## Tests
 

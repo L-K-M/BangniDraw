@@ -619,6 +619,9 @@ selection. Surfaces carry a restrained tint from the same palette.
 | Coral | `#FFF5F5` / `#26191B` | `#FFF9F9` / `#26191B` | `#F4E1E3` / `#59474A` | `#F9EAEB` / `#F4E1E3` | `#79676A` / `#D3C1C3` |
 | Violet | `#FAF6FF` / `#211A29` | `#FDF9FF` / `#211A29` | `#EDE5F3` / `#504858` | `#F5EDF9` / `#EDE5F3` | `#716878` / `#CBC2D1` |
 | Teal | `#F2FBF8` / `#17211F` | `#F7FCFA` / `#17211F` | `#DAECE7` / `#41514D` | `#E7F3EF` / `#DAECE7` | `#62716D` / `#BCCBC7` |
+`surfaceContainerHigh` intentionally aliases `surfaceVariant`; components
+distinguish those roles through shape, placement, and interaction state rather
+than adding a fourth neutral tint.
 
 All themes share `error = #B3261E`, `onError = #FFFFFF`, and
 `canvasVoid = #B8B2AA`. The canvas void is sent through the existing
@@ -644,15 +647,18 @@ must be used whenever the boundary is the sole affordance.
 
 `ThemeColorPolicy` owns the palette-specific ARGB values in `engine/core`, so
 the decision remains JVM-testable and independent of Compose and DataStore.
-`Color.kt` constructs the complete `ColorScheme`. Tertiary, fixed, inverse, and
+`engine/core` is the only Compose-free JVM module; GL itself consumes just the
+neutral `canvasVoid`, never the chrome roles. `Color.kt` constructs the
+complete `ColorScheme`. Tertiary, fixed, inverse, and
 `surfaceContainerLowest` through `surfaceContainerHighest` derive from the same
 palette; shared error and scrim roles remain app-owned. No Material baseline
 role may leak into chrome. `LocalAppTheme` carries the selection. The
-activity-scoped `AppThemeViewModel` observes `Prefs.appTheme`. While it is
-unloaded, the root composes no navigation and leaves the fixed-light launch
-window visible.
+activity-scoped `AppThemeViewModel` observes `Prefs.appTheme`. Until it emits
+its first value, the root composes no navigation and leaves the fixed-light
+launch window visible.
 The first `IOException` is logged; before any value it emits Saffron once. I/O
-retries keep the current selection; cancellation and non-I/O failures propagate.
+retries back off and keep the current selection, ending on it after five
+failed attempts; cancellation and non-I/O failures propagate.
 `CanvasAppearance` reaches `EngineSession.configure` before GL's bootstrap
 frame; a later effect applies theme and density changes. During a live stroke,
 that update waits for the commit or cancel scene so dirty front frames cannot
@@ -779,7 +785,7 @@ Matches PLAN.md §3's package layout; names here are the file names.
 | `ui/canvas/FocusHandle.kt` | §3.6 |
 | `ui/canvas/HoverCursor.kt` | §3.8 |
 | `ui/canvas/FirstRunHint.kt` | §3.10 |
-| `ui/home/SettingsSheet.kt` | PLAN.md §5.3; a sheet from the Studio menu, not a route (`02-architecture.md` §7); §2's Appearance group, other preference rows, About + licenses |
+| `ui/home/SettingsSheet.kt` | PLAN.md §5.3; a sheet from the Studio menu, not a route (`02-architecture.md` §7); §2's Appearance group, other preference rows over `Prefs`, About + licenses |
 
 Tests that belong to this document: `LayoutSpecTest` (mode per
 width/height/hand; the §1 height budgets; the 60 % clear-zone assertion;

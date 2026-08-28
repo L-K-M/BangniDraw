@@ -6,6 +6,8 @@ import kotlin.test.assertTrue
 
 class ToolRailColorPolicyTest {
 
+    // contrastRatio() comes from the shared WCAG helper in this package's
+    // test sources (ColorContrast.kt); keep new contrast tests on it.
     @Test
     fun `rail icons meet non text contrast in every theme`() {
         for (theme in AppTheme.entries) {

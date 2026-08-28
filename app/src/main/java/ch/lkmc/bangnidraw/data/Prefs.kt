@@ -2,15 +2,17 @@ package ch.lkmc.bangnidraw.data
 
 import android.content.Context
 import android.util.Log
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
@@ -57,6 +59,10 @@ class Prefs @Inject constructor(
 ) {
 
     private val dataStore = PreferenceDataStoreFactory.create(
+        corruptionHandler = ReplaceFileCorruptionHandler { error ->
+            Log.w(TAG, PREFERENCE_CORRUPTION_MESSAGE, error)
+            emptyPreferences()
+        },
         produceFile = { context.preferencesDataStoreFile(STORE_NAME) },
     )
 
@@ -119,8 +125,11 @@ class Prefs @Inject constructor(
                 onFirstIoFailure = { error ->
                     Log.w(TAG, THEME_READ_FAILURE_MESSAGE, error)
                 },
-                pauseBeforeRetry = {
-                    delay(PREFERENCE_READ_RETRY_DELAY_MS)
+                onRetriesExhausted = { error ->
+                    Log.w(TAG, THEME_READ_EXHAUSTED_MESSAGE, error)
+                },
+                pauseBeforeRetry = { attempt ->
+                    delay(PREFERENCE_READ_RETRY_DELAY_MS shl attempt.toInt())
                 },
             )
 
@@ -371,6 +380,9 @@ class Prefs @Inject constructor(
         const val STORE_NAME = "bangni"
         const val TAG = "Prefs"
         const val THEME_READ_FAILURE_MESSAGE = "theme read failed; retrying"
+        const val THEME_READ_EXHAUSTED_MESSAGE =
+            "theme read keeps failing; keeping the current theme"
+        const val PREFERENCE_CORRUPTION_MESSAGE = "preferences corrupted; resetting"
         const val PREFERENCE_READ_RETRY_DELAY_MS = 1_000L
         val KEY_NEXT_SKETCH = intPreferencesKey("nextSketchNumber")
         val KEY_GALLERY_SYNC = booleanPreferencesKey("gallerySync")

@@ -1,7 +1,10 @@
 package ch.lkmc.bangnidraw.ui.theme
 
+import ch.lkmc.bangnidraw.engine.core.AppTheme
+import ch.lkmc.bangnidraw.engine.core.ThemeColorPolicy
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -27,8 +30,12 @@ class ThemeContractTest {
             "edge-to-edge bars must use an explicit light appearance",
         )
         assertTrue(
-            "statusBarStyle =" in activity && "navigationBarStyle =" in activity,
-            "both system bars must receive the explicit style",
+            "statusBarStyle =" in activity,
+            "the status bar must receive the explicit style",
+        )
+        assertTrue(
+            "navigationBarStyle =" in activity,
+            "the navigation bar must receive the explicit style",
         )
         assertFalse(
             "SystemBarStyle.auto" in activity,
@@ -43,9 +50,18 @@ class ThemeContractTest {
             "the platform must not auto-darken the fixed-light palette",
         )
         assertFalse(
-            File(repositoryRoot(), NIGHT_PLATFORM_THEME_PATH).exists(),
-            "a values-night launch theme would reintroduce system dark mode",
+            File(repositoryRoot(), NIGHT_RESOURCES_PATH).exists(),
+            "night resources would reintroduce system-driven appearance",
         )
+    }
+
+    @Test
+    fun `launch background matches the default palette`() {
+        val resources = source(COLOR_RESOURCES_PATH)
+        val actual = colorResource(resources, LAUNCH_BACKGROUND_RESOURCE)
+        val expected = ThemeColorPolicy.colors(AppTheme.DEFAULT).backgroundArgb
+
+        assertEquals(expected, actual)
     }
 
     @Test
@@ -90,27 +106,14 @@ class ThemeContractTest {
         val activity = source(MAIN_ACTIVITY_PATH)
         val rootViewModel = source(APP_THEME_VIEW_MODEL_PATH)
         val prefs = source(PREFS_PATH)
-        val appThemeFlow = section(prefs, APP_THEME_FLOW_START, APP_THEME_FLOW_END)
 
         assertTrue(
             NULL_LOADING_THEME.containsMatchIn(rootViewModel),
             "the root theme state must start unloaded instead of assuming a palette",
         )
         assertTrue(
-            ".retryWhen {" in appThemeFlow && "emit(AppTheme.DEFAULT)" in appThemeFlow,
-            "a preference failure must release the loading gate with the default theme",
-        )
-        assertTrue(
-            "delay(PREFERENCE_READ_RETRY_DELAY_MS)" in appThemeFlow,
-            "theme observation must retry without a busy loop",
-        )
-        assertFalse(
-            ".catch {" in appThemeFlow,
-            "a terminal fallback would ignore later preference updates",
-        )
-        assertTrue(
-            "if (error is CancellationException) throw error" in appThemeFlow,
-            "theme fallback must preserve structured cancellation",
+            RETRY_HELPER_CALL.containsMatchIn(prefs),
+            "theme observation must use the tested read-recovery policy",
         )
         assertTrue(
             THEME_LOADING_GATE.containsMatchIn(activity),
@@ -120,14 +123,20 @@ class ThemeContractTest {
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
 
-    private fun section(source: String, start: String, end: String): String {
-        val startIndex = source.indexOf(start)
-        assertTrue(startIndex >= 0, "section start is missing: $start")
-        val contentStart = startIndex + start.length
-        val endIndex = source.indexOf(end, contentStart)
-        assertTrue(endIndex >= contentStart, "section end is missing: $end")
+    private fun colorResource(source: String, name: String): Int {
+        val resource = Regex(
+            """<color\s+name="${Regex.escape(name)}">\s*#([\dA-Fa-f]+)\s*</color>""",
+        )
+        val match = resource.find(source)
+            ?: fail("color resource is missing: $name")
+        val hex = match.groupValues[1]
+        val argb = when (hex.length) {
+            RGB_HEX_LENGTH -> "$OPAQUE_ALPHA$hex"
+            ARGB_HEX_LENGTH -> hex
+            else -> fail("unsupported color resource: #$hex")
+        }
 
-        return source.substring(contentStart, endIndex)
+        return argb.toLong(HEX_RADIX).toInt()
     }
 
     private fun repositoryRoot(): File {
@@ -156,14 +165,21 @@ class ThemeContractTest {
         const val STUDIO_SCREEN_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/home/StudioScreen.kt"
         const val PLATFORM_THEME_PATH = "app/src/main/res/values/themes.xml"
-        const val NIGHT_PLATFORM_THEME_PATH = "app/src/main/res/values-night/themes.xml"
-        const val APP_THEME_FLOW_START = "internal val appTheme: Flow<AppTheme>"
-        const val APP_THEME_FLOW_END = "internal suspend fun setAppTheme"
+        const val COLOR_RESOURCES_PATH = "app/src/main/res/values/colors.xml"
+        const val NIGHT_RESOURCES_PATH = "app/src/main/res/values-night"
+        const val LAUNCH_BACKGROUND_RESOURCE = "launch_background"
+        const val RGB_HEX_LENGTH = 6
+        const val ARGB_HEX_LENGTH = 8
+        const val HEX_RADIX = 16
+        const val OPAQUE_ALPHA = "FF"
         val APP_THEME_ARGUMENT = Regex(
             """BangniTheme\(\s*appTheme\s*=\s*appTheme""",
         )
         val NULL_LOADING_THEME = Regex(
             """val appTheme:\s*AppTheme\?\s*=\s*null""",
+        )
+        val RETRY_HELPER_CALL = Regex(
+            """\bretryIoWithInitialFallback\s*\(""",
         )
         val THEME_LOADING_GATE = Regex(
             """val appTheme\s*=\s*state\.appTheme\s*\?:\s*return@setContent""",

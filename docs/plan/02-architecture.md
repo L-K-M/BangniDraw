@@ -40,14 +40,14 @@ otherwise; small sealed hierarchies share a file with their root.
 | File | Responsibility |
 | --- | --- |
 | `BangniApp.kt` | `@HiltAndroidApp` application. Installs `StrictMode` in debug, nothing else. No global state. |
-| `MainActivity.kt` | The single `@AndroidEntryPoint ComponentActivity`. Sets explicit light edge-to-edge bars, observes `AppThemeViewModel`, wraps `BangniNavHost()` in `BangniTheme`, and forwards `onTrimMemory` to `TilePool` via the engine session. Declares `configChanges` (§8.3) so rotation never destroys the GL context, and `launchMode="singleTask"` with `resizeableActivity="true"`: multi-window and DeX resize the one instance (§8.4), but the app is never open twice (two Canvases of one project folder would race the single-writer flusher; the Studio's duplicate/delete rely on it — `docs/plan/06-document-and-persistence.md` §8). |
+| `MainActivity.kt` | The single `@AndroidEntryPoint ComponentActivity`. Sets explicit light edge-to-edge bars, observes `AppThemeViewModel`, withholds `BangniNavHost()` while the theme is unloaded, then wraps it in `BangniTheme`. Forwards `onTrimMemory` to `TilePool` via the engine session. Declares `configChanges` (§8.3) so rotation never destroys the GL context, and `launchMode="singleTask"` with `resizeableActivity="true"`: multi-window and DeX resize the one instance (§8.4), but the app is never open twice (two Canvases of one project folder would race the single-writer flusher; the Studio's duplicate/delete rely on it — `docs/plan/06-document-and-persistence.md` §8). |
 
 ### 2.2 `engine/core` — pure JVM
 
 | Class | Responsibility |
 | --- | --- |
 | `Document` | Immutable value: `id`, `width`, `height`, `paperColor`, `LayerStack`, `historyCursor`, `galleryUri: String?`, timestamps. Serializable to `project.json`. |
-| `AppTheme`, `ThemeColorPolicy` | Persisted `SAFFRON`/`CORAL`/`VIOLET`/`TEAL` names and their pure opaque-ARGB role table; missing/unknown names resolve to `SAFFRON`. |
+| `AppTheme`, `ThemeColorPolicy` | Persisted `SAFFRON`/`CORAL`/`VIOLET`/`TEAL` names and their pure opaque-ARGB role table, shared without a Compose or DataStore dependency; missing/unknown names resolve to `SAFFRON`. Renaming/removing a value requires preference migration. |
 | `LayerStack`, `Layer`, `BlendMode` | Ordered list of `Layer` (id, name, opacity, blend, visible, alphaLock, locked) with pure operations (`add`, `delete`, `duplicate`, `move`, `mergeDown`, `flatten`, `clear`, `rename`, `set…`, `select`) each returning a `StackResult` — the new stack, the `PixelOp` for the GL thread and the `HistoryEntry` for the journal, or a `Refused(reason)`. Detail: docs/plan/05-layers.md §3. |
 | `TileGrid`, `TileKey` | Canvas rect ↔ set of 256×256 tile keys; `TileKey(tx, ty)` is an inline value class over a packed `Int` (docs/plan/03-canvas-engine.md §1) so hot paths never box. |
 | `ViewTransform`, `FitTransform` | Meltorama's similarity transform, ported verbatim with its tests (`gesture`, `invert`, `invertVector`, `rebase`, `lerp`). `FitTransform` maps canvas pixels to the fitted view box for a given viewport size. |
@@ -119,7 +119,7 @@ otherwise; small sealed hierarchies share a file with their root.
 | `GalleryExporter` | One MediaStore item per painting in `Pictures/帮你Draw/`, rewritten in place via `openOutputStream(uri, "wt")`; re-inserts when ownership is lost. |
 | `ShareCache` | `cacheDir/share/` PNG/JPEG for the share sheet via `FileProvider`, swept on Studio open. |
 | `BrushPresetStore` | Built-in presets from `assets/brushes/*.json` + user edits in `filesDir/brushes/`; kotlinx-serialization. |
-| `Prefs` | DataStore Preferences: `AppTheme`, handedness, stylus-only, `penButtonAction`, `eraserEndPreset`, pressure curve / calibration, haptics, gallery sync, `mixer` choice (pigment / RGB), journal limits, palettes' active id, `nextSketchNumber`. Values are exposed as flows. |
+| `Prefs` | DataStore Preferences: `AppTheme`, handedness, stylus-only, `penButtonAction`, `eraserEndPreset`, pressure curve / calibration, haptics, gallery sync, `mixer` choice (pigment / RGB), journal limits, palettes' active id, `nextSketchNumber`. Values are exposed as flows. Theme reads retry only `IOException`; before the first value they emit Saffron once, while later failures preserve the loaded choice. |
 
 ### 2.8 `ui/`
 
@@ -464,6 +464,9 @@ has no state worth a back-stack entry.
 `Prefs.appTheme` and wraps every route in `BangniTheme`, so a Settings change
 recolours Studio, Canvas, sheets, dialogs, and system bars immediately. Missing
 or unknown stored names resolve to Saffron; system dark mode is not an input.
+Until its first value, `MainActivity` composes no navigation and the fixed-light
+resource launch window stays visible. A pre-load I/O failure releases that gate
+with Saffron once and retries; cancellation and non-I/O failures propagate.
 
 ## 8. Lifecycle
 

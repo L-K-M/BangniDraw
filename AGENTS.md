@@ -151,18 +151,24 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - App display name lives ONLY in `strings.xml` (`app_name`). Never
   hardcode "帮你Draw" in a composable (rename checklist: PLAN.md "Renaming").
 - Application palette decisions live in `engine/core/ThemeColorPolicy`;
-  `ui/theme/Color.kt` adapts them to Compose. Screen chrome never uses ad-hoc
+  `ui/theme/Color.kt` adapts them to Compose. This keeps palette decisions pure
+  and JVM-testable while the data layer stores only the choice. Map every
+  Material 3 role, including tertiary, fixed, inverse, and all
+  surface-container tiers; an omitted `lightColorScheme` argument imports a
+  baseline Material colour. Screen chrome never uses ad-hoc
   `Color(0x…)`; `DebugOverlay`'s fixed diagnostic signal colors are the sole
   exception and stay palette-independent. `AppTheme` is a persisted choice
   among fixed-light Saffron (default), Coral, Violet, and Teal palettes; system
-  dark mode and dynamic color are deliberately ignored. The canvas void stays
-  neutral.
+  dark mode and dynamic color are deliberately ignored. Its enum names are
+  stored values, so renaming or removing one requires a preference migration.
+  The canvas void stays neutral.
 - The launch window cannot read DataStore. Keep its background and system-bar
   appearance fixed light, set `android:forceDarkAllowed` to `false`, and add no
-  `values-night` override; the root theme owner applies the persisted palette
-  once Compose starts. It withholds navigation until the first theme emission;
-  `Prefs.appTheme` must emit Saffron and retry after a non-cancellation read
-  failure. A terminal fallback freezes later selections until restart.
+  `values-night` override. The fixed launch window remains while the root theme
+  owner withholds navigation until the first preference emission. Log the first
+  `IOException`; if it precedes any successful load, emit Saffron once. Retry
+  I/O without replacing a loaded theme. Cancellation and non-I/O failures
+  propagate.
 - The GL canvas appearance is startup state, not merely a theme-change update.
   Include `CanvasAppearance` in `EngineSession.configure` before publishing the
   session or allowing its bootstrap frame; the later Compose effect keeps

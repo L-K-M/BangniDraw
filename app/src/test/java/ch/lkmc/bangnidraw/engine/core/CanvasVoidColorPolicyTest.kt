@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 class CanvasVoidColorPolicyTest {
 
     @Test
-    fun `canvas void follows every opaque theme palette`() {
+    fun `canvas void stays neutral and opaque across themes`() {
         for (theme in AppTheme.entries) {
             val canvasVoid = CanvasVoidColorPolicy.argb(theme)
 

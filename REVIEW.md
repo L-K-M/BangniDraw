@@ -1788,3 +1788,39 @@ touchscreen hover too, not only a pen.
   it performs no DataStore or suspending work. One app-scoped coroutine drains
   that conflated channel and awaits each `dataStore.edit` sequentially.
   Superseded full snapshots may be skipped, but the latest cannot be overtaken.
+
+## PR #141 — selectable application themes (2026-08-28)
+
+- **R-107 ⏸️ Round 1, major: replace every `ThemeContractTest` source
+  check with a behavioral test.** Applied where behavior is a plain-JVM
+  decision: enum decoding was already covered, and preference recovery now has
+  `PreferenceFlowRecoveryTest`. Declined for Android integration. This repo has
+  no `androidTest` or emulator job. A fake-`Prefs` ViewModel test would widen a
+  concrete data-layer boundary solely for a test. The remaining source
+  contracts pin Activity, Compose, and resource wiring that the JVM cannot run.
+
+- **R-108 ⏸️ Round 1, minor: cold start renders Saffron Compose frames
+  before the stored theme.** Refuted at `MainActivity`: a null theme executes
+  `return@setContent`, so neither `BangniTheme` nor navigation composes before
+  the first preference value. The visible Saffron surface is the fixed resource
+  launch window, deliberately used because it cannot read DataStore. Keeping a
+  splash on screen would retain that same window longer, not remove it.
+
+- **R-109 ⏸️ Round 1, outside diff: resource-level dark-mode guards are
+  absent.** Refuted on the full PR. `values/themes.xml` uses the fixed Light
+  parent, launch background, light system bars, and
+  `android:forceDarkAllowed=false`; the `values-night` theme is deleted. The
+  contract now rejects the whole night resource directory and pins the launch
+  colour to the default palette.
+
+- **R-110 ⏸️ Round 1, outside diff: `kotlin-test` may be absent.**
+  Refuted in `app/build.gradle.kts`: `testImplementation(libs.kotlin.test)` is
+  already present, and the complete JVM suite compiled and passed at the
+  reviewed commit.
+
+- **R-111 ⏸️ Round 1, outside diff: sibling plans retain obsolete theme
+  terminology.** Refuted by a scoped repository search. Remaining `select`
+  hits are domain methods or verbs; `accent` is generic accessibility or visual
+  language, and `isSystemInDarkTheme` appears only in an intentional negative
+  contract. Roadmap step 1's saffron/light-dark text records that historical
+  scaffold; rewriting it would falsify what that step landed.

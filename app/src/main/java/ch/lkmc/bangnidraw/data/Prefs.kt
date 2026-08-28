@@ -31,7 +31,6 @@ import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -40,7 +39,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
 
 /**
@@ -116,14 +114,15 @@ class Prefs @Inject constructor(
     internal val appTheme: Flow<AppTheme> =
         dataStore.data
             .map { AppTheme.fromStored(it[KEY_APP_THEME]) }
-            .retryWhen { error, _ ->
-                if (error is CancellationException) throw error
-
-                // Show the fallback now, then keep observing future edits.
-                emit(AppTheme.DEFAULT)
-                delay(PREFERENCE_READ_RETRY_DELAY_MS)
-                true
-            }
+            .retryIoWithInitialFallback(
+                fallback = AppTheme.DEFAULT,
+                onFirstIoFailure = { error ->
+                    Log.w(TAG, THEME_READ_FAILURE_MESSAGE, error)
+                },
+                pauseBeforeRetry = {
+                    delay(PREFERENCE_READ_RETRY_DELAY_MS)
+                },
+            )
 
     internal suspend fun setAppTheme(theme: AppTheme) {
         dataStore.edit { it[KEY_APP_THEME] = theme.name }
@@ -371,6 +370,7 @@ class Prefs @Inject constructor(
     private companion object {
         const val STORE_NAME = "bangni"
         const val TAG = "Prefs"
+        const val THEME_READ_FAILURE_MESSAGE = "theme read failed; retrying"
         const val PREFERENCE_READ_RETRY_DELAY_MS = 1_000L
         val KEY_NEXT_SKETCH = intPreferencesKey("nextSketchNumber")
         val KEY_GALLERY_SYNC = booleanPreferencesKey("gallerySync")

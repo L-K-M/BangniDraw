@@ -28,12 +28,18 @@ The app ignores system dark mode. There is no System choice, wallpaper-derived
 dynamic colour, or arbitrary colour picker. Curated palettes keep every text,
 icon, and control pair testable.
 
-`Prefs` stores the enum name. A missing or unknown value resolves to Saffron.
-An application-root `AppThemeViewModel` observes that preference and wraps the
-whole navigation host in `BangniTheme`; a screen-local ViewModel cannot own an
-application-wide choice. The selected theme supplies the Compose colour scheme
-and light system-bar appearance. `LocalAppTheme` carries the selection, while
-the renderer receives the shared neutral canvas-void colour through its existing
+`Prefs` stores the enum name. A missing or unknown value resolves to Saffron;
+renaming or removing a value therefore requires a preference migration rather
+than an ordinary refactor. `ThemeColorPolicy` stays in `engine/core` so opaque
+ARGB decisions remain JVM-testable and independent of DataStore and Compose;
+the data layer persists only the selection. An activity-scoped
+`AppThemeViewModel` observes that preference and wraps the whole navigation host
+in `BangniTheme`; a screen-local ViewModel cannot own an application-wide
+choice. The Compose adapter maps every Material colour role explicitly;
+tertiary, fixed, inverse, and surface-container roles derive from the selected
+palette, while shared error and scrim roles stay app-owned. The selection also
+supplies light system-bar appearance. `LocalAppTheme` carries it, while the
+renderer receives the shared neutral canvas-void colour through its existing
 Compose-to-GL appearance boundary. `CanvasSurface` includes that appearance in
 the session's initial configuration before GL can draw its bootstrap frame;
 later theme or density changes update the live session.
@@ -41,18 +47,23 @@ later theme or density changes update the live session.
 Android resource themes cannot read DataStore before Compose starts. The
 launch window therefore uses the fixed light Saffron background, with no
 night-qualified override, instead of briefly following an unrelated system
-mode. Compose withholds navigation until the asynchronous preference read
-emits; a non-cancellation read failure emits Saffron and retries observation so
-the launch gate cannot remain blank and later selections still apply.
+mode. That window remains visible while Compose withholds navigation until the
+asynchronous preference read emits. The first `IOException` is logged; before
+any value it also emits Saffron once. I/O failures retry without replacing an
+already-visible selection. Cancellation and non-I/O failures propagate.
 
 ## Tests
 
 - JVM: every enum name round-trips; missing and unknown values select Saffron.
-- JVM: required text and non-text contrast holds for every palette.
+- JVM: `PreferenceFlowRecoveryTest` pins I/O-only retry, the single pre-load
+  fallback, post-load stability, and exception propagation.
+- JVM: required text and non-text contrast holds for every palette, including
+  the primary active-tool ring against its container.
+- JVM: `BangniColorSchemeTest` proves every Material role is mapped explicitly.
 - Contract: Settings exposes one labelled radio group; the selected palette
   reaches `BangniTheme`, light system bars, `android:forceDarkAllowed = false`,
-  and the GL canvas appearance before its bootstrap frame; the loading gate has
-  a cancellation-safe, retrying fallback.
+  and the GL canvas appearance before its bootstrap frame; the root keeps
+  navigation behind the fixed launch window until a theme arrives.
 - Device: each choice applies immediately, survives restart, and remains
   unchanged when Android dark mode is toggled.
 

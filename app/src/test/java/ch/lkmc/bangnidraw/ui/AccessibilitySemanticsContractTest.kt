@@ -41,10 +41,7 @@ class AccessibilitySemanticsContractTest {
     fun `settings themes are a named radio group`() {
         val source = source(SETTINGS_PATH)
         val appearance = sourceSection(source, SETTINGS_APPEARANCE_START)
-        val themeChoice = source.substring(
-            source.indexOf(THEME_CHOICE_START),
-            source.indexOf(CHOICE_ROW_START),
-        )
+        val themeChoice = sourceSection(source, THEME_CHOICE_START, CHOICE_ROW_START)
 
         assertTrue(
             ".selectableGroup()" in appearance,
@@ -109,6 +106,17 @@ class AccessibilitySemanticsContractTest {
         val contentStart = startIndex + start.length
         val endIndex = source.indexOf(SETTINGS_SECTION_START, contentStart)
         if (endIndex < contentStart) return source.substring(contentStart)
+
+        return source.substring(contentStart, endIndex)
+    }
+
+    private fun sourceSection(source: String, start: String, end: String): String {
+        val startIndex = source.indexOf(start)
+        if (startIndex < 0) fail("missing source marker: $start")
+
+        val contentStart = startIndex + start.length
+        val endIndex = source.indexOf(end, contentStart)
+        if (endIndex < contentStart) fail("missing source marker: $end")
 
         return source.substring(contentStart, endIndex)
     }

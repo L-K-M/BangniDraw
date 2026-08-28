@@ -637,14 +637,20 @@ Every text-role pair clears 4.5:1 and each active or boundary role clears
 3:1. `outlineVariant` is intentionally subtle at about 1.6:1; `outline`
 must be used whenever the boundary is the sole affordance.
 
-`ThemeColorPolicy` owns the palette-specific ARGB values; `Color.kt` adapts
-them through `lightColorScheme` and supplies shared roles. `LocalAppTheme`
-carries the selection. The activity-scoped `AppThemeViewModel` observes
-`Prefs.appTheme`; Saffron is the missing, unknown, or read-failure fallback. A
-read failure emits that fallback and retries observation, while cancellation
-still propagates. `CanvasAppearance` reaches `EngineSession.configure` before
-GL's bootstrap frame; a later effect applies theme and density changes. Dynamic
-colour, `isSystemInDarkTheme()`, and a System option are deliberately absent.
+`ThemeColorPolicy` owns the palette-specific ARGB values in `engine/core`, so
+the decision remains JVM-testable and independent of Compose and DataStore.
+`Color.kt` fills every `lightColorScheme` argument. Tertiary, fixed, inverse,
+and `surfaceContainerLowest` through `surfaceContainerHighest` derive from the
+same palette; shared error and scrim roles remain app-owned. No Material
+baseline role may leak into chrome. `LocalAppTheme` carries the selection. The
+activity-scoped `AppThemeViewModel` observes `Prefs.appTheme`. While it is
+unloaded, the root composes no navigation and leaves the fixed-light launch
+window visible.
+The first `IOException` is logged; before any value it emits Saffron once. I/O
+retries keep the current selection; cancellation and non-I/O failures propagate.
+`CanvasAppearance` reaches `EngineSession.configure` before GL's bootstrap
+frame; a later effect applies theme and density changes. Dynamic colour,
+`isSystemInDarkTheme()`, and a System option are deliberately absent.
 
 | Token | Value |
 | --- | --- |

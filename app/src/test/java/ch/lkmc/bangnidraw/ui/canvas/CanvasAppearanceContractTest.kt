@@ -23,8 +23,13 @@ class CanvasAppearanceContractTest {
             INITIAL_APPEARANCE in factory,
             "CanvasSurface must include appearance in initial configuration",
         )
+
+        val configureCall = factory.indexOf(CONFIGURE_CALL)
+        val sessionPublish = factory.indexOf(SESSION_PUBLISH_CALL)
+        assertTrue(configureCall >= 0, "initial configuration call is missing")
+        assertTrue(sessionPublish >= 0, "session publication call is missing")
         assertTrue(
-            factory.indexOf("session.configure(") < factory.indexOf("onSession(session)"),
+            configureCall < sessionPublish,
             "initial appearance must be queued before the session can bootstrap",
         )
 
@@ -35,8 +40,12 @@ class CanvasAppearanceContractTest {
             assertTrue(assignment in update, "live update is missing $assignment")
         }
 
+        val firstAppearance = configure.indexOf(APPEARANCE_ASSIGNMENTS.first())
+        val firstRedraw = configure.indexOf(REDRAW_CALL)
+        assertTrue(firstAppearance >= 0, "initial appearance assignment is missing")
+        assertTrue(firstRedraw >= 0, "initial redraw is missing")
         assertTrue(
-            configure.indexOf(APPEARANCE_ASSIGNMENTS.first()) < configure.indexOf("redraw()"),
+            firstAppearance < firstRedraw,
             "initial appearance must reach GL before its first redraw",
         )
     }
@@ -116,6 +125,9 @@ class CanvasAppearanceContractTest {
         const val SURFACE_APPEARANCE = "appearance = canvasAppearance,"
         const val APPEARANCE_CALL = "session?.setCanvasAppearance("
         const val INITIAL_APPEARANCE = "appearance = appearance,"
+        const val CONFIGURE_CALL = "session.configure("
+        const val SESSION_PUBLISH_CALL = "onSession(session)"
+        const val REDRAW_CALL = "redraw()"
         val APPEARANCE_ASSIGNMENTS = listOf(
             "renderer.checkerPx = appearance.checkerPx",
             "renderer.checkerA = appearance.checkerA",

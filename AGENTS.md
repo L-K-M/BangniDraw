@@ -91,6 +91,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - The CPU reference implementations in `engine/core` (`Composite`, the
   mixing formula, dab falloff) and the GLSL must stay trivially close; when
   one changes, change both, and let the unit tests pin the semantics.
+- GL and tile storage use RGBA bytes; Android `ARGB_8888` bitmap buffers use
+  native-order packed ARGB. Route bitmap copies through `PixelChannelOrder`;
+  a byte-for-byte RGBA copy swaps red and blue on little-endian devices.
 - `DabBounds` and `WatercolorDabBounds` own dab-edge arithmetic. Live
   `DabBatch`, `DabPass`, and `WatercolorPass` paths retain primitive edges;
   do not rebuild `IntRect` or tile-scissor objects per dab.

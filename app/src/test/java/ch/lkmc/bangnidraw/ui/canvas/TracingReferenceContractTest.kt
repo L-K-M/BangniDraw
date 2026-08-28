@@ -45,7 +45,6 @@ class TracingReferenceContractTest {
     }
 
     @Test
-    @Test
     fun `tracing controls scroll below a stable header`() {
         val panel = File(repositoryRoot(), REFERENCE_PANEL_PATH).readText()
         val headerIndex = requiredIndex(panel, HEADER_PATTERN)

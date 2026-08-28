@@ -63,12 +63,14 @@ object WatercolorWetKernel {
         parameters: Parameters,
     ): StoredCell {
         val previous = center.stored
-        val age = ageFactor(previous, parameters.nowTick, parameters.mode)
-        val agedWater = previous.surfaceWater * age
-        val agedSaturation = previous.saturation * age
+        val aged = WatercolorKernel.evaporate(
+            surfaceWater = previous.surfaceWater,
+            saturation = previous.saturation,
+            elapsedTicks = elapsedTicks(previous, parameters.nowTick, parameters.mode),
+        )
         val stamp = encodeTick(parameters.nowTick)
         if (parameters.mode != Mode.UPDATE) {
-            return StoredCell(agedWater, stamp.high, stamp.low, agedSaturation)
+            return StoredCell(aged.surfaceWater, stamp.high, stamp.low, aged.saturation)
         }
 
         val centerWet = suppliedWet(center, parameters)
@@ -82,7 +84,7 @@ object WatercolorWetKernel {
             parameters.spread * parameters.flowMask
         var wet = (centerWet + diffusion * (average - centerWet)).coerceIn(0f, 1f)
 
-        var saturation = agedSaturation
+        var saturation = aged.saturation
         val paperPocket = 1f - parameters.paperRelief
         val paperCapacity = WatercolorKernel.PAPER_CAPACITY_MIN +
             WatercolorKernel.PAPER_CAPACITY_RANGE * paperPocket
@@ -136,23 +138,22 @@ object WatercolorWetKernel {
     }
 
     private fun suppliedWet(cell: Cell, parameters: Parameters): Float {
-        val wet = cell.stored.surfaceWater * ageFactor(
-            cell.stored,
-            parameters.nowTick,
-            Mode.UPDATE,
+        val aged = WatercolorKernel.evaporate(
+            surfaceWater = cell.stored.surfaceWater,
+            saturation = cell.stored.saturation,
+            elapsedTicks = elapsedTicks(cell.stored, parameters.nowTick, Mode.UPDATE),
         )
         val source = (parameters.waterLoad * cell.sourceMask).coerceIn(0f, 1f)
-        return wet + source * (1f - wet)
+        return aged.surfaceWater + source * (1f - aged.surfaceWater)
     }
 
-    private fun ageFactor(cell: StoredCell, nowTick: Int, mode: Mode): Float {
+    private fun elapsedTicks(cell: StoredCell, nowTick: Int, mode: Mode): Int {
         val updatedTick = decodeTick(cell.tickHigh, cell.tickLow)
-        val age = if (mode == Mode.EPOCH_REBASE && updatedTick <= nowTick) {
-            WatercolorKernel.DRY_TICKS
-        } else {
-            WatercolorKernel.ageTicks(nowTick, updatedTick)
+        if (mode == Mode.EPOCH_REBASE && updatedTick <= nowTick) {
+            return WatercolorKernel.MAX_DRY_TICKS
         }
-        return (1f - age.toFloat() / WatercolorKernel.DRY_TICKS).coerceIn(0f, 1f)
+
+        return WatercolorKernel.ageTicks(nowTick, updatedTick)
     }
 
     private fun requireUnit(name: String, value: Float) {

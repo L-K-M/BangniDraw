@@ -49,6 +49,41 @@ class WatercolorColorKernelTest {
     }
 
     @Test
+    fun `pre-wet blank paper carries freshly deposited pigment`() {
+        val center = WatercolorColorKernel.evaluate(
+            center = Rgba.TRANSPARENT,
+            neighbors = sameNeighbors(Rgba.TRANSPARENT),
+            parameters = parameters(
+                surfaceWater = 1f,
+                spread = 1f,
+                flowMask = 1f,
+                strength = 0.5f,
+                depositMode = DepositMode.PIGMENT,
+                neighborDepositAverage = 0f,
+            ),
+        )
+        val edge = WatercolorColorKernel.evaluate(
+            center = Rgba.TRANSPARENT,
+            neighbors = sameNeighbors(Rgba.TRANSPARENT),
+            parameters = parameters(
+                surfaceWater = 1f,
+                spread = 1f,
+                flowMask = 1f,
+                dabMask = 0f,
+                strength = 0.5f,
+                depositMode = DepositMode.PIGMENT,
+                neighborDepositAverage = 0.125f,
+            ),
+        )
+
+        assertRgba(Rgba(0.38f, 0f, 0f, 0.38f), center)
+        assertRgba(Rgba(0.03f, 0f, 0f, 0.03f), edge)
+        assertEquals(0.5f, center.a + FOUR_NEIGHBORS * edge.a, EPSILON)
+        assertTrue(center.isPremultiplied())
+        assertTrue(edge.isPremultiplied())
+    }
+
+    @Test
     fun `alpha lock preserves coverage through flow and deposit`() {
         val center = Rgba.straight(1f, 0f, 0f, 0.4f)
         val blue = Rgba.straight(0f, 0f, 1f, 0.8f)
@@ -62,6 +97,7 @@ class WatercolorColorKernelTest {
                 flowMask = 1f,
                 strength = 0.5f,
                 color = StraightRgb(0f, 1f, 0f),
+                neighborDepositAverage = 0.5f,
                 depositMode = DepositMode.PIGMENT,
                 alphaLock = AlphaLock.ENABLED,
             ),
@@ -218,6 +254,9 @@ class WatercolorColorKernelTest {
             parameters(normalizedRadius = -0.1f)
         }
         assertFailsWith<IllegalArgumentException> {
+            parameters(neighborDepositAverage = 1.1f)
+        }
+        assertFailsWith<IllegalArgumentException> {
             StraightRgb(1.1f, 0f, 0f)
         }
     }
@@ -235,6 +274,7 @@ class WatercolorColorKernelTest {
         normalizedRadius: Float = 0f,
         strength: Float = 0f,
         edgeDarkening: Float = 0f,
+        neighborDepositAverage: Float = 0f,
         dilution: Float = 0f,
         color: StraightRgb = StraightRgb(1f, 0f, 0f),
         depositMode: DepositMode = DepositMode.CLEAR_WATER,
@@ -250,6 +290,7 @@ class WatercolorColorKernelTest {
         normalizedRadius = normalizedRadius,
         strength = strength,
         edgeDarkening = edgeDarkening,
+        neighborDepositAverage = neighborDepositAverage,
         dilution = dilution,
         color = color,
         depositMode = depositMode,
@@ -265,5 +306,6 @@ class WatercolorColorKernelTest {
 
     private companion object {
         const val EPSILON = 1e-6f
+        const val FOUR_NEIGHBORS = 4f
     }
 }

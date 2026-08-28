@@ -1,16 +1,19 @@
 # Changelog
 
-## 1.0.9 - 2026-08-27
+## 1.1.0 - 2026-08-28
 
-- Add a new built-in spray can brush preset.
-- Keep the canvas visible and correctly positioned through display rotation.
-- Replace the ambiguous marker and eraser rail icons.
-- Draw pressure curves above their knot controls.
-- Cache decoded Studio thumbnails.
-- Preserve typed custom canvas sizes over remembered prefills.
-- Name newly created palettes and reject duplicate names.
-- Tint the hover ring with the active brush colour.
-- Report Studio action and share failures accurately.
+- Add Watercolor with wet mixing, spreading, granulation, and dark rims.
+- Add a colourless Water tool that re-wets and carries existing paint.
+- Add Spray can, Charcoal, Soft pastel, Technical pen, Chinese ink,
+  Dry brush, Oil paint, and Pigment wash presets.
+- Add private tracing references and composition guides.
+- Keep the full tool rail usable on short screens.
+- Preserve hue through greyscale edits and make the color panel smoother.
+- Draw pressure curves and preserve typed custom canvas sizes.
+- Name palettes, reject duplicate or reserved names, and cache thumbnails.
+- Report Studio and share failures accurately.
+- Preserve canvas placement through rotation, harden layer reordering, tint
+  the hover ring, and clarify tool icons.
 
 ## 1.0.8 - 2026-08-27
 

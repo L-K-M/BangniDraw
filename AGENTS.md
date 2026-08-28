@@ -349,6 +349,12 @@ and the contradiction is noted here.
   apply the same rotation resize twice and move the paper outside the viewport.
   Ordinary pan/zoom callbacks do not publish directly to GL; `CanvasSurface`
   owns their state-driven redraw so navigation does not schedule two commits.
+- **Viewport target recreation must first release reusable FBOs.** Deleting an
+  attached texture can leave the FBO holding its old storage while GLES reuses
+  the numeric name. `GlFbo` would then mistake the replacement texture for its
+  cached attachment, draw into the deleted object, and present the blank new
+  target. `CanvasRenderer.onSurfaceChanged` therefore releases `fbo` and
+  `readFbo` before replacing `Accum` or `Scratch`.
 - **Accum and the window target use different scissor row conventions.**
   `Accum` is an ordinary texture FBO, so its y-down dirty rect becomes
   `height - bottom` for `glScissor`. graphics-core's HardwareBuffer is consumed

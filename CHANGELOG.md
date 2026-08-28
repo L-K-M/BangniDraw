@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Keep the canvas visible after fold, rotation, and aspect-ratio changes.
+
 ## 1.1.0 - 2026-08-28
 
 - Add Watercolor with wet mixing, spreading, granulation, and dark rims.

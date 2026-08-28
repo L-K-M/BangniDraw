@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import androidx.compose.ui.unit.dp
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -42,10 +43,10 @@ class ColorPanelAllocationContractTest {
             "ring geometry does not share the picker's measured basis",
         )
         assertTrue(
-            "minOf(PICKER_SIZE, maxWidth, maxHeight)" in picker &&
+            "pickerSizeFor(maxWidth, maxHeight)" in picker &&
                 ".size(pickerSize)" in picker &&
                 "pickerSize.toPx()" in picker,
-            "the picker does not shrink with its panel",
+            "the picker does not size to its panel (capped at PICKER_MAX)",
         )
         assertEquals(
             2,
@@ -56,6 +57,15 @@ class ColorPanelAllocationContractTest {
             UNKEYED_POINTER_INPUT.containsMatchIn(picker),
             "no picker gesture may omit the resize key",
         )
+    }
+
+    @Test
+    fun `picker sizes to its panel capped at PICKER_MAX`() {
+        assertEquals(160.dp, pickerSizeFor(160.dp, 400.dp))
+        assertEquals(280.dp, pickerSizeFor(320.dp, 320.dp))
+        assertEquals(220.dp, pickerSizeFor(220.dp, 600.dp))
+        // Height as the smaller constraint, not only width.
+        assertEquals(220.dp, pickerSizeFor(600.dp, 220.dp))
     }
 
     @Test

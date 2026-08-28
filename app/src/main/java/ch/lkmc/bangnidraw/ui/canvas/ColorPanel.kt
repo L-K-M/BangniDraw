@@ -233,7 +233,10 @@ private fun HsvRingSquare(
         HsvRingSquareSized(
             hsv = hsv,
             hapticsMode = hapticsMode,
-            pickerSize = minOf(PICKER_SIZE, maxWidth, maxHeight),
+            // Sized to its panel, capped: the fixed 220 dp left tablets'
+            // 320 dp floating panel half empty, and a bigger ring is an
+            // easier target either way.
+            pickerSize = pickerSizeFor(maxWidth, maxHeight),
             onPreview = onPreview,
             onCommit = onCommit,
         )
@@ -876,7 +879,11 @@ private val HUE_COLORS = listOf(
     Color.Magenta,
     Color.Red,
 )
-private val PICKER_SIZE = 220.dp
+private val PICKER_MAX = 280.dp
+
+/** The hue ring's size: its panel's smaller dimension, capped. */
+internal fun pickerSizeFor(maxWidth: Dp, maxHeight: Dp): Dp =
+    minOf(maxWidth, maxHeight).coerceAtMost(PICKER_MAX)
 private val CURRENT_CHIP_SIZE = 56.dp
 private val PREVIOUS_CHIP_SIZE = 48.dp
 private val SWATCH_TARGET = 48.dp

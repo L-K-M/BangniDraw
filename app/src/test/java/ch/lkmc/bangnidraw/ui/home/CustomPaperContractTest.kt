@@ -28,9 +28,13 @@ class CustomPaperContractTest {
         // A custom colour equal to a fixed swatch must not read as double-selected.
         assertTrue("paperSwatchColors().none" in dialog)
         // The HSV draft survives rotation as raw channel floats (HsvColor is
-        // not Bundle-savable, and an ARGB round-trip collapses hue on greys).
-        assertTrue("listSaver(" in dialog)
-        assertTrue("rememberSaveable(initial)" !in dialog)
+        // not Bundle-savable, and an ARGB round-trip collapses hue on greys) —
+        // pinned to the draft declaration, not just present in the file.
+        assertTrue(
+            Regex("rememberSaveable\\(\\s*initial,\\s*stateSaver\\s*=\\s*HSV_SAVER")
+                .containsMatchIn(dialog),
+            "the paper draft is not saved through HSV_SAVER",
+        )
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()

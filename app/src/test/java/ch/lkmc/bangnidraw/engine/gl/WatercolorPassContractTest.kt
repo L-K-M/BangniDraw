@@ -107,6 +107,25 @@ class WatercolorPassContractTest {
     }
 
     @Test
+    fun `a failed wet restore drops the page instead of keeping gesture water`() {
+        val cancel = source()
+            .substringAfter("    /** Keeps pre-gesture wetness while dropping newly added water. */")
+            .substringBefore("    fun finish()")
+
+        val present = cancel.indexOf("restoreWetKey(backup, wetLayer.textures, key)")
+        val failureDrop = cancel.indexOf(
+            "if (!wetLayer.textures.slice(key).isNone) wetLayer.textures.remove(key)",
+            startIndex = present,
+        )
+
+        assertTrue(present >= 0)
+        assertTrue(
+            failureDrop > present,
+            "a restore that cannot run must drop the page, not keep gesture water",
+        )
+    }
+
+    @Test
     fun `written color tiles invalidate semantic occupancy`() {
         val draw = source()
             .substringAfter("private fun drawOutputTiles")

@@ -183,6 +183,11 @@ internal class WatercolorPass(
 
             if (restoreWetKey(backup, wetLayer.textures, key)) {
                 wetLayer.updatedAtNanos[keyIndex] = backedWetTimes[keyIndex]
+            } else {
+                // A restore that cannot run must not leave the gesture's
+                // water behind: drop the page, exactly like an absent one.
+                if (!wetLayer.textures.slice(key).isNone) wetLayer.textures.remove(key)
+                wetLayer.updatedAtNanos[keyIndex] = 0L
             }
         }
         resetStroke()

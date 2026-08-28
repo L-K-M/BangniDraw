@@ -278,7 +278,7 @@ class GestureArbiter(
         if (slot < 0) return NO_DEADLINE_NS
 
         val delayMs = if (stylusOnly) {
-            if (longPressFired) return NO_DEADLINE_NS
+            if (longPressFired || movedPast[slot]) return NO_DEADLINE_NS
             LONG_PRESS_MS
         } else {
             PENDING_MS

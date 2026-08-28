@@ -17,6 +17,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -880,6 +881,24 @@ class CanvasTouchHandlerTest {
     }
 
     @Test
+    fun `stylus-only slop crossing disarms the long-press deadline`() {
+        val host = Host()
+        val scheduler = DeadlineScheduler()
+        val h = handler(host, scheduler)
+        h.stylusOnly = true
+
+        h.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+        h.handleMove(1, 140f, 100f, ms(20))
+        h.handleMoveEnd(ms(20))
+
+        assertTrue("nav+" in host.events)
+        assertTrue(!scheduler.scheduled, "navigation must disarm long press")
+
+        scheduler.advanceTo(ms(GestureArbiter.LONG_PRESS_MS))
+        assertTrue("pick" !in host.events)
+    }
+
+    @Test
     fun `a quick finger lift draws one sample and cancels its deadline`() {
         val host = Host()
         val scheduler = DeadlineScheduler()
@@ -944,6 +963,29 @@ class CanvasTouchHandlerTest {
     }
 
     @Test
+    fun `reset releases a view-owned deadline scheduler but keeps an injected one`() {
+        val viewOwned = handler(Host(), DeadlineScheduler())
+        viewOwned.javaClass.getDeclaredField(DEADLINE_SCHEDULER_INJECTED_FIELD).apply {
+            isAccessible = true
+            setBoolean(viewOwned, false)
+        }
+
+        viewOwned.reset()
+
+        val scheduler = viewOwned.javaClass.getDeclaredField(DEADLINE_SCHEDULER_FIELD).apply {
+            isAccessible = true
+        }.get(viewOwned)
+        assertNull(scheduler, "a retired handler must release its View-owning adapter")
+
+        val injectedScheduler = DeadlineScheduler()
+        val injected = handler(Host(), injectedScheduler)
+        injected.reset()
+        injected.handleDown(1, PointerTool.FINGER, 100f, 100f, ms(0))
+
+        assertTrue(injectedScheduler.scheduled, "JVM-injected schedulers survive reset")
+    }
+
+    @Test
     fun `replacement rolls back a live stroke while surface disposal stays silent`() {
         val replacementHost = Host()
         val replacement = handler(replacementHost)
@@ -980,5 +1022,7 @@ class CanvasTouchHandlerTest {
          * well outside the touch path, so that is a follow-up, not this PR.
          */
         const val BYTES_PER_MOVE_BUDGET = 80
+        const val DEADLINE_SCHEDULER_FIELD = "deadlineScheduler"
+        const val DEADLINE_SCHEDULER_INJECTED_FIELD = "deadlineSchedulerInjected"
     }
 }

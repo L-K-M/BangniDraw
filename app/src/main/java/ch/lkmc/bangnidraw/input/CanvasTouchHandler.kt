@@ -427,6 +427,12 @@ class CanvasTouchHandler(
 
     private fun clearHandlerState() {
         cancelGestureDeadline()
+        // The production adapter owns a View; retired handlers must release it.
+        if (!deadlineSchedulerInjected) {
+            deadlineScheduler = null
+            deadlineView = null
+        }
+
         navigating = false
         pendingMove = false
         strokeLive = false

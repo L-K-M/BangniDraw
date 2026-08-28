@@ -253,6 +253,7 @@ private fun CanvasContent(
     val recentScroll = rememberScrollState()
     val recentPaletteFocusRequester = remember { FocusRequester() }
     var historyReadout by remember { mutableIntStateOf(0) }
+    var historyReadoutRedo by remember { mutableStateOf(false) }
     val layerThumbnails by viewModel.layerThumbnails.collectAsStateWithLifecycle()
 
     // The stroke in flight. Plain vars, not Compose state: they change several
@@ -1125,7 +1126,14 @@ private fun CanvasContent(
                 onBack = { viewModel.handleBack(onBack) },
                 onUndo = viewModel::undo,
                 onRedo = viewModel::redo,
-                onUndoLongPress = { historyReadout++ },
+                onUndoLongPress = {
+                    historyReadoutRedo = false
+                    historyReadout++
+                },
+                onRedoLongPress = {
+                    historyReadoutRedo = true
+                    historyReadout++
+                },
                 onLayers = { viewModel.togglePanel(CanvasPanel.LAYERS) },
                 onColor = { viewModel.togglePanel(CanvasPanel.COLOR) },
                 onColorLongPress = {
@@ -1238,6 +1246,8 @@ private fun CanvasContent(
             // under the strip for a moment — the one place the history budget
             // is visible where undo is actually used. An incrementing token
             // rather than a boolean, so a repeat long-press restarts the timer.
+            // The redo button's long-press reuses the surface: it reports the
+            // redo depth instead (how many redo steps a tap would walk back).
             if (historyReadout > 0) {
                 LaunchedEffect(historyReadout) {
                     delay(HISTORY_READOUT_MS)
@@ -1253,13 +1263,21 @@ private fun CanvasContent(
                         .zIndex(CHROME_Z),
                 ) {
                     Text(
-                        text = pluralStringResource(
-                            R.plurals.canvas_history_readout,
-                            state.historySteps,
-                            state.historySteps,
-                            Formatter.formatShortFileSize(context, state.historyBytes),
-                            Formatter.formatShortFileSize(context, state.historyMaxBytes),
-                        ),
+                        text = if (historyReadoutRedo) {
+                            pluralStringResource(
+                                R.plurals.canvas_redo_readout,
+                                state.redoSteps,
+                                state.redoSteps,
+                            )
+                        } else {
+                            pluralStringResource(
+                                R.plurals.canvas_history_readout,
+                                state.historySteps,
+                                state.historySteps,
+                                Formatter.formatShortFileSize(context, state.historyBytes),
+                                Formatter.formatShortFileSize(context, state.historyMaxBytes),
+                            )
+                        },
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     )

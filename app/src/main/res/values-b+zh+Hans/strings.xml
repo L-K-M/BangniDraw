@@ -79,9 +79,13 @@
     <string name="panel_eyedropper_opened">吸管设置已打开</string>
     <string name="canvas_undo">撤销</string>
     <string name="canvas_redo">重做</string>
+    <string name="cd_history_readout">查看历史详情</string>
     <string name="canvas_more">更多操作</string>
     <plurals name="canvas_history_readout">
         <item quantity="other">撤销历史：%1$d 步 · %2$s（上限 %3$s）</item>
+    </plurals>
+    <plurals name="canvas_redo_readout">
+        <item quantity="other">重做：%1$d 步</item>
     </plurals>
     <string name="cd_unavailable">不可用</string>
     <string name="canvas_export_png">导出 PNG</string>

@@ -232,6 +232,8 @@ class CanvasViewModel @Inject constructor(
             val historyBytes: Long = 0L,
             val historyMaxSteps: Int = 0,
             val historyMaxBytes: Long = 0L,
+            /** Steps below the journal cursor — the redo long-press readout. */
+            val redoSteps: Int = 0,
             val brushPresets: List<BrushPreset>,
             val paintSlots: PaintSlotAssignments,
             val eraserBrushId: String,
@@ -669,6 +671,7 @@ class CanvasViewModel @Inject constructor(
             historyBytes = j?.stats()?.bytes ?: 0L,
             historyMaxSteps = journalLimits.maxEntries,
             historyMaxBytes = journalLimits.maxBytes,
+            redoSteps = j?.redoDepth ?: 0,
             brushPresets = brushPresets,
             paintSlots = paintSlots,
             eraserBrushId = eraserBrushId,
@@ -1869,6 +1872,7 @@ class CanvasViewModel @Inject constructor(
             canRedo = j.canRedo() && !applyBusy,
             historySteps = j.stats().entries,
             historyBytes = j.stats().bytes,
+            redoSteps = j.redoDepth,
         )
     }
 

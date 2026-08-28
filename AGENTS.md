@@ -167,7 +167,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   IO and tag it with `CheckpointGeneration`. GL readback dirties share the
   checkpoint-state lock; completion may clear dirty, content, and thumbnail
   state only while its generation is still current. A newer edit already owns
-  those flags and the live document.
+  those flags and the live document. Finish that generation before gallery
+  sync can dirty its new metadata; the metadata belongs to the next
+  checkpoint, not the content checkpoint that produced it.
 
 ## Deviations discovered while building
 

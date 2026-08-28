@@ -170,9 +170,10 @@ class TileFlusher(
     fun hasMirrorRoom(): Boolean = _storageFull.value || pendingBytes < CPU_MIRROR_CAP_BYTES
 
     /**
-     * Accepts one readback tile into the mirror. Returns false — with the
-     * buffer already recycled — when [CpuTile.revision] is older than what
-     * this key has already seen (§10.1's out-of-order case, not an error).
+     * Accepts one readback tile into the mirror. Returns false, after recycling
+     * its buffer, exactly when this key already has an equal-or-newer revision
+     * (§10.1's duplicate/out-of-order case, not an error). The existing mirror
+     * therefore remains authoritative on every false return.
      *
      * Called on the GL thread; the lock covers map mutation only, never a
      * copy (§6.3). No flush is triggered: the tile belongs to its stroke's
@@ -183,7 +184,7 @@ class TileFlusher(
         val replaced: CpuTile?
         synchronized(lock) {
             val latest = latestRevision[mapKey]
-            if (latest != null && tile.revision < latest) {
+            if (latest != null && tile.revision <= latest) {
                 pool?.release(tile.pixels)
                 return false
             }

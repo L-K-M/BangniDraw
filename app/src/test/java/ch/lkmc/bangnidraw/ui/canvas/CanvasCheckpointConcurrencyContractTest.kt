@@ -34,6 +34,20 @@ class CanvasCheckpointConcurrencyContractTest {
         assertTrue(freshness < clear)
     }
 
+    @Test
+    fun `checkpoint finishes content before gallery metadata becomes dirty`() {
+        val checkpoint = section(source(), CHECKPOINT_START, CAPTURE_START)
+        val finish = checkpoint.indexOf(FINISH_CALL)
+        if (finish < 0) fail("missing $FINISH_CALL")
+        val gallery = checkpoint.indexOf(GALLERY_CALL)
+        if (gallery < 0) fail("missing $GALLERY_CALL")
+
+        assertTrue(
+            finish < gallery,
+            "gallery metadata must belong to the next checkpoint generation",
+        )
+    }
+
     private fun source(): String = File(repositoryRoot(), CANVAS_VIEW_MODEL_PATH).readText()
 
     private fun section(source: String, startMarker: String, endMarker: String): String {
@@ -72,5 +86,7 @@ class CanvasCheckpointConcurrencyContractTest {
         const val INSTALL_DOCUMENT = "document = folded"
         const val FRESHNESS_CHECK = "checkpointGeneration.freshness(snapshot.generation)"
         const val CLEAR_DIRTY = "dirty = false"
+        const val FINISH_CALL = "finishCheckpoint(snapshot)"
+        const val GALLERY_CALL = "maybeSyncGallery(snapshot.document"
     }
 }

@@ -1847,6 +1847,7 @@ class CanvasViewModel @Inject constructor(
         val copy = pool.acquire()
         pixels.get(copy)
         val presence = presenceOf(copy)
+        // False means an equal/newer mirror owns the key; the pool owns copy.
         if (!flusher.markDirty(CpuTile(layer, key, revision, copy))) return
 
         // Publish the model update only after the mirror owns these bytes.
@@ -2833,8 +2834,8 @@ class CanvasViewModel @Inject constructor(
                         target = File(store.projectDir(snapshot.document.id), "thumb.png"),
                     )
                 }
-                maybeSyncGallery(snapshot.document, trigger, snapshot.timestampMs)
                 withContext(Dispatchers.Main) { finishCheckpoint(snapshot) }
+                maybeSyncGallery(snapshot.document, trigger, snapshot.timestampMs)
             } catch (_: java.io.IOException) {
                 // Same family as a failed tile write: the storage-full state
                 // and its retry-on-next-checkpoint own this. `dirty` stays

@@ -15,6 +15,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
@@ -133,6 +134,26 @@ class TileFlusherTest {
         flusher.markDirty(tile(key, revision = 2, fill = 2))
         assertTrue(flushEverything())
         assertEquals(listOf("tile:2_3"), writer.events)
+    }
+
+    @Test
+    fun `a duplicate or stale tile is rejected and its buffer recycled`() {
+        val pool = TileBufferPool(maxPooled = 1)
+        val guarded = TileFlusher(writer, pool)
+        val key = TileKey(1, 1)
+        val current = pool.acquire()
+        assertTrue(guarded.markDirty(CpuTile(layer, key, revision = 5, current)))
+
+        val duplicate = pool.acquire()
+        assertFalse(guarded.markDirty(CpuTile(layer, key, revision = 5, duplicate)))
+        val recycledDuplicate = pool.acquire()
+        assertSame(duplicate, recycledDuplicate)
+
+        assertFalse(
+            guarded.markDirty(CpuTile(layer, key, revision = 4, recycledDuplicate)),
+        )
+        val recycledStale = pool.acquire()
+        assertSame(recycledDuplicate, recycledStale)
     }
 
     @Test

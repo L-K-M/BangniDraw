@@ -1572,7 +1572,6 @@ private fun CanvasPanelContent(
             onDuplicate = viewModel::duplicateLayer,
             onMove = viewModel::moveLayer,
             onMergeDown = viewModel::mergeLayerDown,
-            onClear = viewModel::clearLayer,
             onRequestDialog = viewModel::requestDialog,
             onOpacityPreview = viewModel::previewLayerOpacity,
             onOpacityFinished = viewModel::finishLayerOpacity,

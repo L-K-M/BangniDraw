@@ -112,7 +112,6 @@ internal fun LayerPanel(
     onDuplicate: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
     onMergeDown: (Int) -> Unit,
-    onClear: (Int) -> Unit,
     onRequestDialog: (CanvasDialog) -> Unit,
     onOpacityPreview: (Int, Float) -> Boolean,
     onOpacityFinished: () -> Unit,
@@ -345,7 +344,9 @@ internal fun LayerPanel(
                             Modifier.clickable {
                                 hint = null
                                 hintRefusal = null
-                                onClear(stack.activeIndex)
+                                onRequestDialog(
+                                    CanvasDialog.ClearLayer(stack.activeIndex),
+                                )
                             }
                         } else {
                             Modifier

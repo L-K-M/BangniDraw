@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.2 - 2026-08-28
+## 1.1.3 - 2026-08-28
 
 - Show wet paper, retain heavier water longer, and make fresh Watercolor
   react to stored water.

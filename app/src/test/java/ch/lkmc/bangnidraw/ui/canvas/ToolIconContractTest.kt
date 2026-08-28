@@ -23,6 +23,11 @@ class ToolIconContractTest {
         // The wash must not share the Water tool's droplet: two identical
         // glyphs in one rail defeat the glance-recognition the rail is for.
         assertFalse("BrushToolGlyph.PIGMENT_WASH -> Icons.Filled.WaterDrop" in rail)
+        // Guard against any duplicate icon across brush mappings, not just
+        // the historical droplet collision with the Water tool.
+        val brushIcons = Regex("BrushToolGlyph\\.\\w+ -> (.+)")
+            .findAll(rail).map { it.groupValues[1].trim() }.toList()
+        assertEquals(brushIcons.size, brushIcons.distinct().size)
         assertFalse("if (preset.eraseMode) stringResource(R.string.tool_eraser)" in rail)
         assertFalse("DeleteSweep" in rail)
         assertFalse("Icons.Filled.Highlight" in rail)

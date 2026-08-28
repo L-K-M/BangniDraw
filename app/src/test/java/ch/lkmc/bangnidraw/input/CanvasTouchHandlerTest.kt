@@ -241,6 +241,49 @@ class CanvasTouchHandlerTest {
     }
 
     @Test
+    fun `a platform-cancelled stylus lift beside a finger cancels the stroke`() {
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(7, PointerTool.STYLUS, 100f, 100f, ms(0))
+        h.handleDown(9, PointerTool.FINGER, 300f, 300f, ms(1))
+        host.events.clear()
+
+        assertTrue(
+            h.handlePlatformCancellation(
+                pointerId = 7,
+                action = MotionEvent.ACTION_POINTER_UP,
+                flags = MotionEvent.FLAG_CANCELED,
+                apiLevel = Build.VERSION_CODES.TIRAMISU,
+                timeNs = ms(2),
+            ),
+        )
+
+        assertEquals(listOf("cancel"), host.events)
+    }
+
+    @Test
+    fun `a platform-cancelled final palm lift does not cancel a finished stroke`() {
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(7, PointerTool.STYLUS, 100f, 100f, ms(0))
+        h.handleDown(9, PointerTool.FINGER, 300f, 300f, ms(1))
+        h.handleUp(7, ms(2))
+        host.events.clear()
+
+        assertTrue(
+            h.handlePlatformCancellation(
+                pointerId = 9,
+                action = MotionEvent.ACTION_UP,
+                flags = MotionEvent.FLAG_CANCELED,
+                apiLevel = Build.VERSION_CODES.TIRAMISU,
+                timeNs = ms(3),
+            ),
+        )
+
+        assertTrue(host.events.isEmpty())
+    }
+
+    @Test
     fun `a cancellation flag on a move does not cancel the stroke`() {
         val host = Host()
         val h = handler(host)

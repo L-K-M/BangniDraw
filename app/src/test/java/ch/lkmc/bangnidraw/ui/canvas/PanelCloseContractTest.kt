@@ -49,7 +49,12 @@ class PanelCloseContractTest {
             "no sheet call sites found; SHEET_CALL_SITE or CanvasScreen.kt may have moved",
         )
         callSites.forEachIndexed { index, site ->
-            val nextCall = callSites.getOrNull(index + 1)?.range?.first ?: screen.length
+            // The window ends at the next sheet call site, or — for the last
+            // — at the end of the enclosing function, so a stray onDismiss
+            // later in the file cannot mask an unwired sheet.
+            val nextCall = callSites.getOrNull(index + 1)?.range?.first
+                ?: screen.indexOf("\nprivate fun", site.range.last).takeIf { it >= 0 }
+                ?: screen.length
             val arguments = screen.substring(site.range.first, nextCall)
             assertTrue(
                 DISMISS_WIRING.containsMatchIn(arguments),

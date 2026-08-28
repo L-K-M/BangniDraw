@@ -906,6 +906,12 @@ class EngineSession(
     fun acquireDabBatch(): DabBatch? = dabRing.acquire()
 
     /**
+     * Borrows for replaceable prediction without consuming real input's final
+     * slot.
+     */
+    fun acquirePredictionDabBatch(): DabBatch? = dabRing.acquirePrediction()
+
+    /**
      * Hands a borrowed batch back unused — the generator emitted nothing for
      * this sample, which the stabilizer's leash makes routine. Without this the
      * slot would stay checked out and the ring would starve after eight quiet

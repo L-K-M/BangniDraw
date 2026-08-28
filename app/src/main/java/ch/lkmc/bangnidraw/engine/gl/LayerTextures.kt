@@ -128,6 +128,10 @@ class LayerTextures(
      */
     fun visibleKeys(rect: IntRect, out: IntArray): Int = index.visibleKeys(rect, out, sortScratch)
 
+    /** Unique sampled pages, used to keep tile-FBO targets out of feedback loops. */
+    internal fun visiblePages(rect: IntRect, out: IntArray): Int =
+        index.visiblePages(rect, out, sortScratch)
+
     internal fun mayContainColor(key: TileKey): Boolean = content.mayContainColor(key)
 
     internal fun markColorWritten(key: TileKey) = content.written(key)

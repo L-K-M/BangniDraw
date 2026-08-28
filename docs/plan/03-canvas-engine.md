@@ -243,9 +243,12 @@ uses the present-only variant described below.
 
 Row convention: **texture row 0 is the canvas's top row** (tiles are stored
 "y-down", exactly like the CPU copies and like `glReadPixels` returns them).
-Offscreen passes use the y-down ortho without a texture flip. SurfaceControl
-instead consumes GL row zero as the HardwareBuffer's top row, so the final
-present uses a y-up ortho and flips only its `Accum` source v (§8.5).
+Viewport-sized offscreen passes use the y-down ortho without a texture flip.
+A pass writing a tile slice instead maps logical y = 0 to GL row zero with a
+y-up projection (or the equivalent direct clip-space mapping); using y-down
+there vertically flips that tile when it is later sampled. SurfaceControl also
+consumes GL row zero as the HardwareBuffer's top row, so the final present uses
+a y-up ortho and flips only its `Accum` source v (§8.5).
 
 ### 3.2 Passes and the accumulation target
 
@@ -457,6 +460,10 @@ have.
 **Building a cache** is canvas-space, tile by tile: for each key present
 in any contributing layer (for Below: every key of the canvas, since the
 paper covers it all — an opaque paper makes every Below tile present),
+the optional tracing base first reports every source page intersecting that
+destination tile. The first target uses `allocateNotOn` against that live
+prefix before the base draws, because sampling and drawing one texture-array
+page is undefined even when the slices differ. The rebuild then continues by
 ping-pong between two reserved scratch slices
 (`SandwichCache.scratchA/B`, each allocated with `allocateNotOn` against
 the other's page and the contributing layers' pages, §2.1), one composite
@@ -1216,8 +1223,9 @@ chunks — never held whole.
 Everything on the GPU is derived state. A plain `surfaceDestroyed` /
 `surfaceChanged` (activity stop, rotation, fold) does **not** drop the
 pool: graphics-core's `GLRenderer` and its EGL context persist across
-`SurfaceHolder` callbacks and only `Accum`/`Scratch` are re-created
-(`02-architecture.md` §8.2). The cold path is a new `EngineSession` —
+`SurfaceHolder` callbacks; only `Accum`/`Scratch` and their reusable FBOs
+are re-created (`02-architecture.md` §8.2). The cold path is a new
+`EngineSession` —
 after `release()` on Compose dispose, `detachSession()`, or a genuine
 `EGL_CONTEXT_LOST` — when `CanvasRenderer.release()` has dropped the pool,
 caches, `Accum`, PBOs and shaders. On the next surface of a cold session:

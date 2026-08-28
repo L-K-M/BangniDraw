@@ -122,6 +122,28 @@ class EngineRenderPolicyTest {
     }
 
     @Test
+    fun `wet overlay refresh uses the cancellable front buffer during a stroke`() {
+        val policy = EngineRenderPolicy()
+        policy.beginStroke()
+
+        assertEquals(OverlayRedrawDecision.FRONT, policy.requestOverlayRedraw())
+        assertEquals(
+            RedrawDecision.DRAW,
+            policy.finishStroke(StrokeFinish.CANCEL_BUFFERED),
+        )
+    }
+
+    @Test
+    fun `wet overlay refresh waits for RMW restoration`() {
+        val policy = EngineRenderPolicy()
+        policy.beginStroke()
+        policy.finishStroke(StrokeFinish.CANCEL_READ_MODIFY_WRITE)
+
+        assertEquals(OverlayRedrawDecision.DEFER, policy.requestOverlayRedraw())
+        assertEquals(RedrawDecision.DRAW, policy.completeRmwCancel())
+    }
+
+    @Test
     fun `redraw during a buffered cancel runs after cancel`() {
         val policy = EngineRenderPolicy()
         policy.beginStroke()

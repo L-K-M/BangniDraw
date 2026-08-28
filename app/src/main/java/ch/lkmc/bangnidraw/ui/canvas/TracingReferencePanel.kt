@@ -3,9 +3,12 @@ package ch.lkmc.bangnidraw.ui.canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -35,66 +38,77 @@ internal fun TracingReferencePanel(
 ) {
     val enabled = importState == ReferenceImportState.IDLE
 
+    // PanelHost bounds the height; pin the title and Done around scrolling controls.
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(16.dp),
+        modifier = Modifier
+            .fillMaxHeight()
+            .padding(16.dp),
     ) {
         Text(stringResource(R.string.reference_image), style = MaterialTheme.typography.titleMedium)
-        Text(
-            stringResource(R.string.reference_edit_help),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(stringResource(R.string.reference_opacity))
-        Slider(
-            value = reference.opacity,
-            onValueChange = onOpacity,
-            enabled = enabled,
-        )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .toggleable(
-                    value = reference.visibility == ReferenceVisibility.VISIBLE,
-                    enabled = enabled,
-                    role = Role.Switch,
-                    onValueChange = { onToggleVisibility() },
-                )
-                .padding(vertical = 4.dp),
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
         ) {
-            Text(stringResource(R.string.reference_visible))
-            Switch(
-                checked = reference.visibility == ReferenceVisibility.VISIBLE,
-                onCheckedChange = null,
+            Text(
+                stringResource(R.string.reference_edit_help),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(stringResource(R.string.reference_opacity))
+            Slider(
+                value = reference.opacity,
+                onValueChange = onOpacity,
                 enabled = enabled,
             )
-        }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            TextButton(
-                onClick = onReplace,
-                enabled = enabled,
-                modifier = Modifier.weight(1f),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .toggleable(
+                        value = reference.visibility == ReferenceVisibility.VISIBLE,
+                        enabled = enabled,
+                        role = Role.Switch,
+                        onValueChange = { onToggleVisibility() },
+                    )
+                    .padding(vertical = 4.dp),
             ) {
-                Text(stringResource(R.string.reference_replace))
+                Text(stringResource(R.string.reference_visible))
+                Switch(
+                    checked = reference.visibility == ReferenceVisibility.VISIBLE,
+                    onCheckedChange = null,
+                    enabled = enabled,
+                )
             }
-            TextButton(
-                onClick = onReset,
-                enabled = enabled,
-                modifier = Modifier.weight(1f),
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(stringResource(R.string.reference_reset))
-            }
-            TextButton(
-                onClick = onRemove,
-                enabled = enabled,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(stringResource(R.string.reference_remove))
+                TextButton(
+                    onClick = onReplace,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.reference_replace))
+                }
+                TextButton(
+                    onClick = onReset,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.reference_reset))
+                }
+                TextButton(
+                    onClick = onRemove,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.reference_remove))
+                }
             }
         }
         Row(

@@ -1,10 +1,15 @@
 package ch.lkmc.bangnidraw
 
+import android.graphics.Color
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcuts
 import ch.lkmc.bangnidraw.engine.core.KeyModifiers
@@ -12,22 +17,28 @@ import ch.lkmc.bangnidraw.engine.core.KeyPhase
 import ch.lkmc.bangnidraw.engine.core.ShortcutContext
 import ch.lkmc.bangnidraw.engine.core.ShortcutKey
 import ch.lkmc.bangnidraw.ui.navigation.BangniNavHost
+import ch.lkmc.bangnidraw.ui.theme.AppThemeViewModel
 import ch.lkmc.bangnidraw.ui.theme.BangniTheme
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    private val appThemeViewModel by viewModels<AppThemeViewModel>()
     private var shortcutSink: CanvasShortcutSink? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Edge to edge: the canvas owns the whole screen (PLAN.md §1,
-        // principle 1). The theme follows the system, so the default
-        // auto() bar styles are right here — unlike Meltorama's always-dark
-        // deck, there is no forced-dark special case.
-        enableEdgeToEdge()
+        // Every app palette is light, so system night mode must not invert bar icons.
+        val systemBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+        enableEdgeToEdge(
+            statusBarStyle = systemBarStyle,
+            navigationBarStyle = systemBarStyle,
+        )
         setContent {
-            BangniTheme {
+            val state by appThemeViewModel.uiState.collectAsStateWithLifecycle()
+            val appTheme = state.appTheme ?: return@setContent
+
+            BangniTheme(appTheme = appTheme) {
                 BangniNavHost()
             }
         }

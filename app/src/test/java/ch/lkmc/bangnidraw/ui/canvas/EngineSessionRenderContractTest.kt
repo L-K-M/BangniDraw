@@ -159,6 +159,66 @@ class EngineSessionRenderContractTest {
         assertTrue(redraws >= 0, "release must unblock SurfaceHolder redraw callbacks")
         assertTrue(cleanup >= 0, "canvas GL cleanup is missing")
         assertTrue(stop > cleanup, "the shared context must stop after canvas cleanup is queued")
+        assertTrue(WET_TICK_REMOVAL in release, "release must stop wet-overlay refreshes")
+    }
+
+    @Test
+    fun `wet overlay refreshes until its final clearing frame`() {
+        val source = source(ENGINE_SESSION_PATH)
+        val refresh = section(source, WET_REFRESH_START, WET_REFRESH_END)
+
+        assertTrue("renderer.refreshWatercolorOverlay()" in refresh)
+        assertTrue("WatercolorOverlayKernel.Refresh.REDRAW_AND_CONTINUE" in refresh)
+        assertTrue("WatercolorOverlayKernel.REFRESH_MILLIS" in refresh)
+        assertTrue("requestWetOverlayRedraw()" in refresh)
+        assertTrue("pendingWetOverlayDirty" in source)
+        assertTrue("attachmentGate.requestFront()" in refresh)
+    }
+
+    @Test
+    fun `wet overlay clock coalesces instead of postponing active refreshes`() {
+        val source = source(ENGINE_SESSION_PATH)
+        val refresh = section(source, WET_REFRESH_START, WET_REFRESH_END)
+        val tick = refresh.substringBefore("private fun applyWetOverlayRefresh(")
+        val pump = refresh.substringAfter("private fun pumpWetOverlay()")
+
+        assertFalse("pollHandler.removeCallbacks(wetOverlayTick)" in pump)
+        assertTrue("wetOverlayTickScheduled.compareAndSet(false, true)" in pump)
+        assertTrue(
+            tick.indexOf("wetOverlayTickScheduled.set(false)") in
+                0 until tick.indexOf("renderer.refreshWatercolorOverlay()"),
+            "the running tick must release the coalescing latch before it can re-arm",
+        )
+    }
+
+    @Test
+    fun `wet overlay damage survives a failed scene presentation`() {
+        val source = source(ENGINE_SESSION_PATH)
+        val front = section(source, FRONT_DRAW_START, FRONT_DRAW_END)
+        val multi = source.substringAfter("private fun onDrawMultiBufferedLayer(")
+            .substringBefore("private fun ensureContext()")
+        val refresh = section(source, WET_REFRESH_START, WET_REFRESH_END)
+        val retry = refresh.substringAfter("private fun retryWetOverlayPresentation()")
+            .substringBefore("private fun clearPendingWetOverlay()")
+
+        assertTrue("val presented = renderer.drawFrame(" in multi)
+        assertPresentationAcknowledged(front)
+        assertPresentationAcknowledged(multi)
+        assertTrue("refresh.copy(dirty = pendingWetOverlayDirty)" in refresh)
+        val budgetGuard = retry.indexOf("wetOverlayPresentationRetries <= 0")
+        val decrement = retry.indexOf("wetOverlayPresentationRetries -= 1")
+        val repump = retry.indexOf("pumpWetOverlay()")
+        assertTrue(budgetGuard >= 0 && decrement > budgetGuard && repump > decrement)
+        assertTrue("const val WET_OVERLAY_PRESENT_RETRIES = 1" in source)
+    }
+
+    private fun assertPresentationAcknowledged(source: String) {
+        val success = source.indexOf("if (presented) {")
+        val clear = source.indexOf("clearPendingWetOverlay()", success)
+        val failure = source.indexOf("else {", clear)
+        val retry = source.indexOf("retryWetOverlayPresentation()", failure)
+
+        assertTrue(success >= 0 && clear > success && failure > clear && retry > failure)
     }
 
     @Test
@@ -261,8 +321,12 @@ class EngineSessionRenderContractTest {
     fun `canvas startup configures one scene before one redraw`() {
         val source = source(CANVAS_SURFACE_PATH)
         val factory = section(source, FACTORY_START, FACTORY_END)
+        val configure = section(factory, CONFIGURE_CALL, CONFIGURE_CALL_END)
 
         assertTrue(CONFIGURE_CALL in factory, "startup scene configuration is missing")
+        for (argument in CONFIGURE_ARGUMENTS) {
+            assertTrue(argument in configure, "startup configuration is missing $argument")
+        }
         assertFalse(SET_STACK_CALL in factory, "startup must not queue a stack redraw")
         assertFalse(SET_PAPER_CALL in factory, "startup must not queue a paper redraw")
         assertFalse(SET_VIEW_CALL in factory, "startup must not queue a view redraw")
@@ -332,6 +396,9 @@ class EngineSessionRenderContractTest {
         const val DISPATCH_END = "// ---------------------------------------------------------------- façade"
         const val RELEASE_START = "fun release()"
         const val RELEASE_END = "private companion object"
+        const val WET_REFRESH_START = "private val wetOverlayTick = Runnable"
+        const val WET_REFRESH_END = "/** Renders panel thumbnails"
+        const val WET_TICK_REMOVAL = "pollHandler.removeCallbacks(wetOverlayTick)"
         const val STROKE_FALLBACK_START = "private fun completeStrokeWithoutMerge("
         const val STROKE_FALLBACK_END = "/**\n     * §10.1's between-frame poll"
         const val DRIVER_FACTORY_START = "private fun scheduleDriverCreation("
@@ -433,7 +500,8 @@ class EngineSessionRenderContractTest {
         const val EXECUTE_CALL = "glRenderer.execute {"
         const val FRAME_SNAPSHOT_SCOPE = "PendingBatchDrainScope.FRAME_SNAPSHOT"
         const val EXHAUSTIVE_SCOPE = "PendingBatchDrainScope.EXHAUSTIVE"
-        const val CONFIGURE_CALL = "session.configure(stack, paperColor, view, tracingReference)"
+        const val CONFIGURE_CALL = "session.configure("
+        const val CONFIGURE_CALL_END = "onSession(session)"
         const val SET_STACK_CALL = "session.setStack(stack)"
         const val SET_PAPER_CALL = "session.setPaperColor(paperColor)"
         const val SET_VIEW_CALL = "session.setView(view)"
@@ -441,5 +509,12 @@ class EngineSessionRenderContractTest {
         const val RENDERER_PAPER_CALL = "renderer.setPaperColor(paperColor)"
         const val RENDERER_VIEW_CALL = "renderer.setView(view)"
         val REDRAW_CALL = Regex("""\bredraw\(\)""")
+        val CONFIGURE_ARGUMENTS = listOf(
+            "stack = stack",
+            "paperColor = paperColor",
+            "appearance = appearance",
+            "view = view",
+            "tracingReference = tracingReference",
+        )
     }
 }

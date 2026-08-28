@@ -43,6 +43,43 @@ class CanvasResizeOwnershipContractTest {
         assertFalse(".rebase(" in renderer)
     }
 
+    @Test
+    fun `renderer resize releases stale framebuffer attachments before target replacement`() {
+        val resize = source(RENDERER_PATH)
+            .substringAfter("fun onSurfaceChanged(width: Int, height: Int)")
+            .substringBefore("// ------------------------------------------------------------- document")
+        val changeDeclaration =
+            "val viewportChanged = width != viewportWidth || height != viewportHeight"
+        val changeBranch = "if (viewportChanged) {"
+        val guardIndex = resize.indexOf("if (width <= 0 || height <= 0) return")
+        val changeIndex = resize.indexOf(changeDeclaration)
+        val branchIndex = resize.indexOf(changeBranch)
+        val widthAssignment = resize.indexOf("viewportWidth = width")
+        val heightAssignment = resize.indexOf("viewportHeight = height")
+        val accum = resize.indexOf("accum.ensure(width, height, state)")
+        val scratch = resize.indexOf("scratch.ensure(width, height, state)")
+
+        assertTrue(changeIndex >= 0)
+        assertTrue(guardIndex in 0 until changeIndex)
+        assertTrue(branchIndex > changeIndex)
+        assertTrue(widthAssignment > changeIndex)
+        assertTrue(heightAssignment > changeIndex)
+        assertTrue(accum > branchIndex)
+        assertTrue(scratch > branchIndex)
+
+        val changed = resize
+            .substring(branchIndex)
+            .substringAfter(changeBranch)
+            .substringBefore("}")
+
+        assertTrue("fbo.release()" in changed)
+        assertTrue("readFbo.release()" in changed)
+
+        val firstEnsure = minOf(accum, scratch)
+        assertTrue(resize.indexOf("fbo.release()", branchIndex) in branchIndex until firstEnsure)
+        assertTrue(resize.indexOf("readFbo.release()", branchIndex) in branchIndex until firstEnsure)
+    }
+
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
 
     private fun repositoryRoot(): File {

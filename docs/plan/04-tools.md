@@ -542,6 +542,9 @@ pencil gets `"grain": "paper-fine"` and the position jitter drops to 0.05.
   Watercolor flow) into the session copy and remember them per preset in
   `Prefs`. Water's quick Size and Water values remain session-only. Neither
   path edits JSON; slider fiddling is not "editing a brush".
+- FULL-rail paint assignments are an ordered list of preset ids in `Prefs`.
+  Choosing a preset swaps it into the active slot; the active slot index stays
+  session-only. Assignments are app chrome, never painting or preset data.
 
 ### 5.2 Watercolor and Water
 
@@ -564,8 +567,10 @@ sets the colour pass to transport-only.
 
 Both tools execute one wet and optional colour update per accepted non-zero
 dab. They never run a frame timer or a pen-up settle pass. Wet state lasts
-12 seconds by lazy monotonic age and is transient; proposal 0002 owns the
-engine and lifecycle details.
+in proportion to its stored amount: half a water unit lasts about 12 seconds,
+one unit about 24 seconds, and the two full reservoirs at most 48 seconds.
+State is aged lazily and remains transient; proposal 0002 owns the engine and
+lifecycle details.
 
 ## 6. Smudge and Blur
 

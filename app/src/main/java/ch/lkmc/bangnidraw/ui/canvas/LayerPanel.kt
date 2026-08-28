@@ -85,7 +85,6 @@ import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.PanelMode
 import ch.lkmc.bangnidraw.engine.core.Refusal
-import ch.lkmc.bangnidraw.ui.theme.Indigo
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchGray
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWarm
@@ -112,7 +111,6 @@ internal fun LayerPanel(
     onDuplicate: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
     onMergeDown: (Int) -> Unit,
-    onClear: (Int) -> Unit,
     onRequestDialog: (CanvasDialog) -> Unit,
     onOpacityPreview: (Int, Float) -> Boolean,
     onOpacityFinished: () -> Unit,
@@ -211,6 +209,7 @@ internal fun LayerPanel(
                     onAdd = onAdd,
                     onMenuChange = { headerMenu = it },
                     onFlatten = { onRequestDialog(CanvasDialog.FlattenLayers) },
+                    onClose = onDismiss,
                 )
 
                 LazyColumn(
@@ -239,7 +238,10 @@ internal fun LayerPanel(
                                 onOpacityFinished()
                                 opacityLayer = null
                                 onSelect(index)
-                                if (compact) onDismiss()
+                                // Keep the panel open after selecting so the
+                                // user can still reach opacity/blend on a phone
+                                // (tablet already behaves this way). Dismiss via
+                                // scrim or Back when done.
                                 if (hapticsMode == HapticsMode.ENABLED) {
                                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                                 }
@@ -266,7 +268,9 @@ internal fun LayerPanel(
                                     onMergeDown(index)
                                 }
                             },
-                            onClear = { onClear(index) },
+                            onClear = {
+                                onRequestDialog(CanvasDialog.ClearLayer(index))
+                            },
                             onToggleAlphaLock = { onToggleAlphaLock(index) },
                             onToggleLock = { onToggleLock(index) },
                             onBlendMode = { onBlendMode(index, it) },
@@ -343,7 +347,9 @@ internal fun LayerPanel(
                             Modifier.clickable {
                                 hint = null
                                 hintRefusal = null
-                                onClear(stack.activeIndex)
+                                onRequestDialog(
+                                    CanvasDialog.ClearLayer(stack.activeIndex),
+                                )
                             }
                         } else {
                             Modifier
@@ -369,6 +375,7 @@ private fun LayerPanelHeader(
     onAdd: () -> Unit,
     onMenuChange: (Boolean) -> Unit,
     onFlatten: () -> Unit,
+    onClose: () -> Unit,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -408,6 +415,9 @@ private fun LayerPanelHeader(
                 )
             }
         }
+        // A visible way out: the scrim tap that also dismisses is invisible
+        // to a first-time user (08 §4.1 keeps both).
+        PanelCloseButton(onClose)
     }
 }
 
@@ -446,8 +456,10 @@ private fun LayerRow(
         mutableFloatStateOf(layer.props.opacity)
     }
     val view = LocalView.current
-    val background = if (selected) MaterialTheme.colorScheme.primaryContainer
+    val background = if (selected) MaterialTheme.colorScheme.secondaryContainer
     else MaterialTheme.colorScheme.surfaceContainer
+    val captionColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+    else MaterialTheme.colorScheme.onSurfaceVariant
     val rowAlpha = if (layer.props.visible) 1f else HIDDEN_ALPHA
     val reorderCustomActions = reorderActions.map { action ->
         CustomAccessibilityAction(
@@ -492,7 +504,10 @@ private fun LayerRow(
                 modifier = Modifier
                     .width(SELECTION_BAR)
                     .fillMaxHeight()
-                    .background(if (selected) Indigo else Color.Transparent),
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.secondary
+                        else Color.Transparent,
+                    ),
             )
             // Touch-only affordance: the accessible reorder path is the
             // row's custom actions and the per-row menu, so the handle
@@ -563,7 +578,7 @@ private fun LayerRow(
                     Text(
                         text = blendModeName(layer.props.blendMode),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = captionColor,
                         maxLines = 1,
                     )
                 }
@@ -586,6 +601,7 @@ private fun LayerRow(
                 Text(
                     stringResource(R.string.layer_opacity_value, (opacity * PERCENT).toInt()),
                     style = MaterialTheme.typography.labelSmall,
+                    color = captionColor,
                 )
             }
             Box {

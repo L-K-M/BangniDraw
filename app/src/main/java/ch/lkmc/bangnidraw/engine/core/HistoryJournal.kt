@@ -66,6 +66,9 @@ class HistoryJournal(
     fun canUndo(): Boolean = cursor > 0
     fun canRedo(): Boolean = cursor < list.size
 
+    /** Entries below the cursor: how many redo steps a long-press reports. */
+    val redoDepth: Int get() = list.size - cursor
+
     /**
      * Appends a stamped entry: the redo branch is dropped first (a new edit
      * after undo makes the undone future unreachable — the universal

@@ -45,10 +45,10 @@ The rule is enforced structurally, not by good intentions:
 | --- | --- | --- |
 | `engine/core` | **No.** `java.*`/`kotlin.*` only. A lint check `NoAndroidInEngineCore` (custom, to verify feasibility; until it exists, a `grep` step in `scripts/check.sh`) fails the build on any `import android` under this package. | plain JUnit, exhaustive |
 | `engine/mixbox` | `MixboxMixer` no (it wraps the `com.scrtwpns.Mixbox` jar, which is plain Java); the LUT loader yes | JUnit for the mixer |
-| `data/` | `java.io.File` and `java.util.zip` only for `ProjectStore`/`TileStore`/`HistoryStore` — they take a root `File`, never a `Context`. `GalleryExporter`, `ShareCache` (`FileProvider`), `Prefs` (DataStore) are Android and untested. | JUnit with a temp dir |
+| `data/` | `java.io.File` and `java.util.zip` only for `ProjectStore`/`TileStore`/`HistoryStore` — they take a root `File`, never a `Context`. `GalleryExporter`, `ShareCache` (`FileProvider`), and `Prefs` wiring are Android; the preference-recovery Flow is plain Kotlin. | JUnit with a temp dir; direct Flow tests for recovery |
 | `tools/` | No — a tool is engine ops + params | JUnit |
 | `input/` | `CanvasTouchHandler` yes (it consumes `MotionEvent`); `GestureArbiter`, `PalmRejection` decisions, `StylusState` no | JUnit for the decisions |
-| `engine/gl`, `ui/` | Yes | not unit-tested (§7); shader *sources* are, as strings |
+| `engine/gl`, `ui/` | Yes | Android behavior is not unit-tested (§7); pure adapters and source contracts are JVM-tested |
 
 The seam that makes `input/` testable: `CanvasTouchHandler` does nothing but
 unpack a `MotionEvent` into a small value type (`PointerSample`: id, tool
@@ -61,16 +61,22 @@ timelines of samples and never see a `MotionEvent`.
 
 ```
 app/src/test/java/ch/lkmc/bangnidraw/
-  engine/core/      one XxxTest.kt per class listed in PLAN.md §3 (incl. GestureArbiterTest.kt)
+  engine/core/      one XxxTest.kt per class listed in PLAN.md §3 (incl. GestureArbiterTest.kt,
+                    ThemeColorPolicyTest.kt, ToolRailColorPolicyTest.kt,
+                    CanvasVoidColorPolicyTest.kt)
   engine/gl/        GlShaderContractTest.kt, GlslDeclarationOrderTest.kt
   engine/mixbox/    MixboxMixerTest.kt
   tools/            FillToolTest.kt, BrushPresetTest.kt (JSON presets load and validate)
   data/             ProjectStoreTest.kt, TileStoreTest.kt, HistoryStoreTest.kt,
-                    TornWriteTest.kt, BrushPresetStoreTest.kt
+                    TornWriteTest.kt, BrushPresetStoreTest.kt,
+                    PreferenceFlowRecoveryTest.kt
   input/            PalmRejectionTest.kt, StylusStateTest.kt
   ui/canvas/        CanvasViewModelTest.kt (autosave and gallery-sync clocks, fake
                     dispatcher), LayoutSpecTest.kt (window → layout decisions, pure),
-                    CanvasUiStateTest.kt, HsvMathTest.kt (§3.16)
+                    CanvasUiStateTest.kt, HsvMathTest.kt (§3.16),
+                    CanvasAppearanceContractTest.kt
+  ui/               AccessibilitySemanticsContractTest.kt
+  ui/theme/         BangniColorSchemeTest.kt, ThemeContractTest.kt
   fixtures/         golden-stroke/*.json, fill/*.pgm, composite/*.txt
 ```
 
@@ -367,6 +373,17 @@ They are part of the suite under the §11 rule (every pure class gets a
 | `MixboxLutTest` | `09` §5.1, ADR 0003 (Mixbox source set) | the asset's sha256 equals the recorded value; dimensions 512×512 |
 | `PureCoreTest`, `ManifestTest` | `02-architecture.md` §5, ADR 0002 | no `android.`/`androidx.`/`com.scrtwpns.` import under `engine/core`; the merged manifest's `uses-permission` list is empty |
 | `RotationSnapTest` | `RotationSnap` (`07-input-and-stylus.md` §7) | the 3°/5° hysteresis, exact `0f` while snapped, one tick per entry |
+| `UserPreferencesTest`, `ThemeColorPolicyTest`, `ToolRailColorPolicyTest`, `CanvasVoidColorPolicyTest` | `AppTheme` and theme policies (proposal 0003 — selectable application themes; 08 §5.1) | exactly `SAFFRON`, `CORAL`, `VIOLET`, and `TEAL`; enum-name round trip; missing/unknown → `SAFFRON`; palette content, containers, and accent/surface text pairs ≥ 4.5:1; outline/surface, primary ring/container, selected marker/container, rail icon/container, and dark system icon/bar-surface pairs ≥ 3:1; one shared opaque canvas void |
+| `PreferenceFlowRecoveryTest` | `retryIoWithInitialFallback`, used by `Prefs.appTheme` | initial `IOException` emits `SAFFRON` once and retries with backoff; a persistent failure ends on the last value after five attempts; a later I/O failure never replaces a loaded theme; cancellation and non-I/O failures propagate |
+| `BangniColorSchemeTest` | Compose adaptation of `ThemeColorPolicy` (08 §5.1) | every Material role is app-owned; tertiary, fixed, inverse, and every surface-container tier derive from the selected palette; shared error content and used-surface pairs ≥ 4.5:1 |
+
+`ThemeContractTest` pins the app-owned light system bars and launch theme,
+`android:forceDarkAllowed = false`, every qualified night-resource directory,
+corrupted-preference reset, the root loading gate, and the behavior-tested
+recovery wiring. `CanvasAppearanceContractTest` pins both the initial GL
+appearance before bootstrap and subsequent theme updates at the commit/cancel
+boundary of an active stroke, plus the paired selected-layer text roles.
+`AccessibilitySemanticsContractTest` pins the named radio group in Settings.
 
 ## 4. Shader contract tests — `GlShaderContractTest`, `GlslDeclarationOrderTest`
 
@@ -532,6 +549,7 @@ checklist with ticks; a failing row blocks the merge.
 | U2 | Fold/unfold (Z Fold) and multi-window resize: the layout reflows by width, panels reopen where they were | 9 |
 | U3 | One-handed on a phone: every tool and the undo are reachable with the thumb | 9 |
 | U4 | Focus mode hides all chrome; a tap brings it back | 9 |
+| U5 | Select every theme: named radio state and chrome update immediately; restart preserves it; toggling Android dark mode changes nothing | 13 |
 | S1 | `adb shell dumpsys package` shows no requested permissions | every release |
 
 ## 9. Instrumented tests: none in v1

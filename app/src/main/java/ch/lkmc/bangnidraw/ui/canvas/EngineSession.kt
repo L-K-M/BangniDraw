@@ -28,6 +28,7 @@ import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.MultiDrawCompletion
+import ch.lkmc.bangnidraw.engine.core.OverlayRedrawDecision
 import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.PendingBatchDrainScope
 import ch.lkmc.bangnidraw.engine.core.PendingBatchDrainWindow
@@ -45,13 +46,23 @@ import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
 import ch.lkmc.bangnidraw.engine.core.TracingReference
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.engine.core.WatercolorOverlayKernel
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
 import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 internal enum class LayerEditResult { APPLIED, REFUSED }
 internal enum class StrokeCancelMode { BUFFERED, READ_MODIFY_WRITE }
+
+/** Renderer chrome queued before bootstrap and reused for later theme changes. */
+internal data class CanvasAppearance(
+    val checkerPx: Float,
+    val checkerA: Int,
+    val checkerB: Int,
+    val canvasVoid: Int,
+)
 
 /**
  * The per-canvas façade the ViewModel and tools talk to
@@ -112,6 +123,7 @@ class EngineSession(
     private val surfaceView = surface
     private val glRenderer = GLRenderer().apply { start() }
     private val redrawCompletionTracker = RedrawCompletionTracker()
+    private val wetOverlayTickScheduled = AtomicBoolean(false)
 
     @Volatile
     private var released = false
@@ -252,6 +264,13 @@ class EngineSession(
     @Volatile
     private var activeStrokeSpec: StrokeSpec? = null
 
+    /** Main-thread theme update retained until the live stroke owns no front frame. */
+    private var pendingCanvasAppearance: CanvasAppearance? = null
+
+    /** GL-thread damage retained until a front or scene frame presents it. */
+    private var pendingWetOverlayDirty = IntRect.EMPTY
+    private var wetOverlayPresentationRetries = 0
+
     /** Exactly one completion survives an apply/release race. */
     private val fillResult = AtomicReference<((Boolean) -> Unit)?>(null)
 
@@ -308,7 +327,10 @@ class EngineSession(
             stamp = true,
             scope = PendingBatchDrainScope.FRAME_SNAPSHOT,
         )
-        val dirty = framePlan.dirty(incrementalDirty, renderer.strokePreviewDirty)
+        val dirty = framePlan.dirty(
+            incrementalDirty.union(pendingWetOverlayDirty),
+            renderer.strokePreviewDirty,
+        )
         if (dirty.present.isEmpty) return
 
         val presented = renderer.drawStrokeFrame(
@@ -319,7 +341,12 @@ class EngineSession(
             compositeDirtyCanvas = dirty.composite,
             presentDirtyCanvas = dirty.present,
         )
-        if (presented) renderPolicy.frontFramePresented(framePlan)
+        if (presented) {
+            clearPendingWetOverlay()
+            renderPolicy.frontFramePresented(framePlan)
+        } else {
+            retryWetOverlayPresentation()
+        }
     }
 
     /**
@@ -363,6 +390,7 @@ class EngineSession(
             }
             dabRing.release(next)
         }
+        if (stampedAny && renderer.hasWatercolorOverlay()) pumpWetOverlay()
         return dirty
     }
 
@@ -386,12 +414,17 @@ class EngineSession(
         ensureContext()
         if (!isSupported) return
         renderer.onSurfaceChanged(width, height)
-        renderer.drawFrame(
+        val presented = renderer.drawFrame(
             frameBufferId = bufferInfo.frameBufferId,
             bufferWidth = bufferInfo.width,
             bufferHeight = bufferInfo.height,
             bufferTransform = transform,
         )
+        if (presented) {
+            clearPendingWetOverlay()
+        } else {
+            retryWetOverlayPresentation()
+        }
         // §8.2 says `params` is iterated only to release ring slots. **This
         // implementation must not**, and the difference is a crash.
         //
@@ -638,12 +671,14 @@ class EngineSession(
     internal fun configure(
         stack: LayerStack,
         paperColor: Int,
+        appearance: CanvasAppearance,
         view: ViewTransform,
         tracingReference: TracingReference?,
     ) {
         glRenderer.execute {
             renderer.setStack(stack)
             renderer.setPaperColor(paperColor)
+            applyCanvasAppearance(appearance)
             renderer.setView(view)
             renderer.setTracingReference(tracingReference)
         }
@@ -729,13 +764,37 @@ class EngineSession(
         colorB: Int,
         canvasVoid: Int,
     ) {
-        glRenderer.execute {
-            renderer.checkerPx = checkerPx
-            renderer.checkerA = colorA
-            renderer.checkerB = colorB
-            renderer.canvasVoid = canvasVoid
+        val appearance = CanvasAppearance(
+            checkerPx = checkerPx,
+            checkerA = colorA,
+            checkerB = colorB,
+            canvasVoid = canvasVoid,
+        )
+        if (activeStrokeSpec != null) {
+            pendingCanvasAppearance = appearance
+            redraw()
+            return
         }
+
+        // A refused stroke may leave a deferred value; this newer choice wins.
+        pendingCanvasAppearance = null
+        glRenderer.execute { applyCanvasAppearance(appearance) }
         redraw()
+    }
+
+    /** GL-thread mutation paired with an initial or full scene frame. */
+    private fun applyCanvasAppearance(appearance: CanvasAppearance) {
+        renderer.checkerPx = appearance.checkerPx
+        renderer.checkerA = appearance.checkerA
+        renderer.checkerB = appearance.checkerB
+        renderer.canvasVoid = appearance.canvasVoid
+    }
+
+    private fun takePendingCanvasAppearance(): CanvasAppearance? {
+        val appearance = pendingCanvasAppearance
+        pendingCanvasAppearance = null
+
+        return appearance
     }
 
     fun sampleColor(
@@ -884,6 +943,12 @@ class EngineSession(
     fun acquireDabBatch(): DabBatch? = dabRing.acquire()
 
     /**
+     * Borrows for replaceable prediction without consuming real input's final
+     * slot.
+     */
+    fun acquirePredictionDabBatch(): DabBatch? = dabRing.acquirePrediction()
+
+    /**
      * Hands a borrowed batch back unused — the generator emitted nothing for
      * this sample, which the stabilizer's leash makes routine. Without this the
      * slot would stay checked out and the ring would starve after eight quiet
@@ -966,6 +1031,7 @@ class EngineSession(
         renderPolicy.finishStroke(StrokeFinish.COMMIT)
         activeStrokeRmw = false
         activeStrokeSpec = null
+        val deferredAppearance = takePendingCanvasAppearance()
         val thisRevision = revisions.incrementAndGet()
         val mergedListener = onStrokeMerged
         val notMergedListener = onStrokeNotMerged
@@ -973,10 +1039,13 @@ class EngineSession(
             if (notMergedListener != null) notMergedListener()
         }
         if (!pendingStrokeFallback.compareAndSet(null, fallback)) {
+            pendingCanvasAppearance = deferredAppearance
             fallback()
             return
         }
         if (!isLive()) {
+            // Dead GL cannot apply the palette; keep it for recreation.
+            pendingCanvasAppearance = deferredAppearance
             completeStrokeWithoutMerge(fallback)
             return
         }
@@ -985,6 +1054,7 @@ class EngineSession(
         // before the multi-buffered draw `commit()` schedules, so the layer
         // already owns the stroke by the time the committed frame is composed.
         glRenderer.execute {
+            deferredAppearance?.let(::applyCanvasAppearance)
             // §10.1's ordering rule, enforced where §10.2 says it must be:
             // stroke N+1's capture must not run until stroke N's readback has
             // been mapped into the mirror, or undoing N+1 would also revert N.
@@ -1065,6 +1135,67 @@ class EngineSession(
         // Handler is thread-safe from both.
         pollHandler.removeCallbacks(pollTick)
         pollHandler.postDelayed(pollTick, READBACK_POLL_MS)
+    }
+
+    /** Redraws the fading cue; monotonic wet timestamps remain authoritative. */
+    private val wetOverlayTick = Runnable {
+        wetOverlayTickScheduled.set(false)
+        if (!isLive()) return@Runnable
+
+        glRenderer.execute {
+            val refresh = renderer.refreshWatercolorOverlay()
+            pendingWetOverlayDirty = pendingWetOverlayDirty.union(refresh.dirty)
+            if (!refresh.dirty.isEmpty) {
+                wetOverlayPresentationRetries = WET_OVERLAY_PRESENT_RETRIES
+            }
+            val presentationRefresh = refresh.copy(dirty = pendingWetOverlayDirty)
+
+            pollHandler.post { applyWetOverlayRefresh(presentationRefresh) }
+        }
+    }
+
+    private fun applyWetOverlayRefresh(
+        refresh: WatercolorOverlayKernel.RefreshResult,
+    ) {
+        if (!isLive()) return
+
+        if (!refresh.dirty.isEmpty) requestWetOverlayRedraw()
+        if (refresh.action == WatercolorOverlayKernel.Refresh.REDRAW_AND_CONTINUE) {
+            pumpWetOverlay()
+        }
+    }
+
+    private fun requestWetOverlayRedraw() {
+        when (renderPolicy.requestOverlayRedraw()) {
+            OverlayRedrawDecision.SCENE -> redrawNow()
+            OverlayRedrawDecision.FRONT -> dispatch(attachmentGate.requestFront())
+            OverlayRedrawDecision.DEFER,
+            OverlayRedrawDecision.COVERED,
+            -> Unit
+        }
+    }
+
+    /** Retries one failed wet presentation, then leaves damage for the next frame. */
+    private fun retryWetOverlayPresentation() {
+        if (pendingWetOverlayDirty.isEmpty) return
+        if (wetOverlayPresentationRetries <= 0) return
+        if (wetOverlayTickScheduled.get()) return
+
+        wetOverlayPresentationRetries -= 1
+        pumpWetOverlay()
+    }
+
+    private fun clearPendingWetOverlay() {
+        pendingWetOverlayDirty = IntRect.EMPTY
+        wetOverlayPresentationRetries = 0
+    }
+
+    private fun pumpWetOverlay() {
+        if (!wetOverlayTickScheduled.compareAndSet(false, true)) return
+        pollHandler.postDelayed(
+            wetOverlayTick,
+            WatercolorOverlayKernel.REFRESH_MILLIS,
+        )
     }
 
     /** Renders panel thumbnails on the GL thread and returns them on main. */
@@ -1187,15 +1318,19 @@ class EngineSession(
         val cancelledSpec = activeStrokeSpec
         activeStrokeRmw = false
         activeStrokeSpec = null
+        val deferredAppearance = takePendingCanvasAppearance()
         // Install the document-action barrier before an invalid surface can
         // synchronously deliver the restore callback.
         beforeCancel(mode)
 
         if (!isLive()) {
             if (cancelledSpec?.rmw != null) onRmwCancelled?.invoke(cancelledSpec, emptyList())
+            // Dead GL cannot apply the palette; keep it for recreation.
+            pendingCanvasAppearance = deferredAppearance
             return mode
         }
         glRenderer.execute {
+            deferredAppearance?.let(::applyCanvasAppearance)
             // Released, not stamped: §4 says a cancelled stroke leaves no
             // trace, but the slots still have to come back.
             drainPending(stamp = false, scope = PendingBatchDrainScope.EXHAUSTIVE)
@@ -1245,6 +1380,8 @@ class EngineSession(
         discardDriver()
         abandonRedrawCompletions()
         pollHandler.removeCallbacks(pollTick)
+        pollHandler.removeCallbacks(wetOverlayTick)
+        wetOverlayTickScheduled.set(false)
         // Anything published but never drawn: `cancelPending = true` below
         // means those callbacks will not run, so their slots would stay checked
         // out. Harmless for a session that is going away — except that the ring
@@ -1273,5 +1410,6 @@ class EngineSession(
          * anything slower is a wedged GPU, where polling faster buys nothing.
          */
         const val READBACK_POLL_MS = 17L
+        const val WET_OVERLAY_PRESENT_RETRIES = 1
     }
 }

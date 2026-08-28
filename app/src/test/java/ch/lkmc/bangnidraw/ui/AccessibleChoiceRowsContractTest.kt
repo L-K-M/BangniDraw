@@ -12,8 +12,13 @@ class AccessibleChoiceRowsContractTest {
     fun `new canvas radios delegate to one grouped row action`() {
         val source = source(NEW_CANVAS_PATH)
 
-        assertTrue(".selectableGroup()" in source)
-        assertEquals(RADIO_ROWS, DELEGATING_RADIO.findAll(source).count())
+        assertTrue(SELECTABLE_GROUP.containsMatchIn(source))
+        val totalRadios = TOTAL_RADIO.findAll(source).count()
+        assertTrue(totalRadios > 0, "New Canvas must retain a radio choice")
+        assertEquals(
+            totalRadios,
+            DELEGATING_RADIO.findAll(source).count(),
+        )
         assertTrue(CUSTOM_RADIO_ROLE.containsMatchIn(source))
         assertTrue(PRESET_RADIO_ROLE.containsMatchIn(source))
     }
@@ -24,31 +29,44 @@ class AccessibleChoiceRowsContractTest {
 
         assertTrue(DELETE_ROW_TOGGLE.containsMatchIn(source))
         assertTrue(DELETE_CHECKBOX_DELEGATES.containsMatchIn(source))
-        assertTrue("role = Role.Checkbox" in source)
+        assertTrue(CHECKBOX_ROLE.containsMatchIn(source))
     }
 
     @Test
     fun `brush switch labels and controls share one row action`() {
         val source = source(BRUSH_SETTINGS_PATH)
-        val toggleRow = section(source, TOGGLE_ROW_START, TOGGLE_ROW_END)
+        val toggleRow = bracedBlock(source, TOGGLE_ROW_START)
 
-        assertTrue(".toggleable(" in toggleRow)
-        assertTrue("role = Role.Switch" in toggleRow)
-        assertTrue("onCheckedChange = null" in toggleRow)
-        assertTrue("ToggleRow(" in source(RMW_SETTINGS_PATH))
+        assertTrue(TOGGLEABLE.containsMatchIn(toggleRow))
+        assertTrue(SWITCH_ROLE.containsMatchIn(toggleRow))
+        assertTrue(DELEGATING_SWITCH.containsMatchIn(toggleRow))
+        assertTrue(TOGGLE_ROW_CALL.containsMatchIn(source(RMW_SETTINGS_PATH)))
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
-    private fun section(source: String, start: String, end: String): String {
-        val startIndex = source.indexOf(start)
-        if (startIndex < 0) fail("missing source marker: $start")
 
-        val endIndex = source.indexOf(end, startIndex + start.length)
-        if (endIndex <= startIndex) fail("missing source marker: $end")
+    private fun bracedBlock(source: String, marker: String): String {
+        val markerIndex = source.indexOf(marker)
+        if (markerIndex < 0) fail("missing block marker: $marker")
 
-        return source.substring(startIndex, endIndex)
+        val openIndex = source.indexOf('{', markerIndex + marker.length)
+        if (openIndex < 0) fail("missing block start: $marker")
+
+        var depth = 0
+        for (index in openIndex until source.length) {
+            when (source[index]) {
+                '{' -> depth += 1
+                '}' -> {
+                    depth -= 1
+                    if (depth == 0) {
+                        return source.substring(markerIndex, index + 1)
+                    }
+                }
+            }
+        }
+
+        fail("unclosed block: $marker")
     }
-
 
     private fun repositoryRoot(): File {
         val workingDirectory = File(
@@ -73,22 +91,27 @@ class AccessibleChoiceRowsContractTest {
         const val RMW_SETTINGS_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/RmwSettingsSheet.kt"
         const val TOGGLE_ROW_START = "internal fun ToggleRow("
-        const val TOGGLE_ROW_END = "internal fun CurveEditor("
-        const val RADIO_ROWS = 2
         val CUSTOM_RADIO_ROLE = Regex(
             """selected\s*=\s*isCustom,\s*role\s*=\s*Role\.RadioButton""",
         )
         val PRESET_RADIO_ROLE = Regex(
             """enabled\s*=\s*preset\.enabled,\s*role\s*=\s*Role\.RadioButton""",
         )
+        val SELECTABLE_GROUP = Regex("""\.selectableGroup\s*\(\s*\)""")
+        val TOTAL_RADIO = Regex("""RadioButton\s*\(""")
         val DELEGATING_RADIO = Regex(
-            """RadioButton\([\s\S]*?onClick\s*=\s*null""",
+            """RadioButton\s*\([\s\S]*?onClick\s*=\s*null""",
         )
+        val CHECKBOX_ROLE = Regex("""role\s*=\s*Role\.Checkbox""")
+        val TOGGLEABLE = Regex("""\.toggleable\s*\(""")
+        val SWITCH_ROLE = Regex("""role\s*=\s*Role\.Switch""")
+        val DELEGATING_SWITCH = Regex("""onCheckedChange\s*=\s*null""")
+        val TOGGLE_ROW_CALL = Regex("""ToggleRow\s*\(""")
         val DELETE_ROW_TOGGLE = Regex(
             """\.toggleable\(\s*value\s*=\s*deleteGalleryToo""",
         )
         val DELETE_CHECKBOX_DELEGATES = Regex(
-            """Checkbox\(\s*checked\s*=\s*deleteGalleryToo,\s*onCheckedChange\s*=\s*null""",
+            """Checkbox\s*\(\s*checked\s*=\s*deleteGalleryToo,\s*onCheckedChange\s*=\s*null""",
         )
     }
 }

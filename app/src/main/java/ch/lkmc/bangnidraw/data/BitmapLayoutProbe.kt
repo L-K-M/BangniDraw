@@ -9,8 +9,8 @@ import java.nio.ByteBuffer
  * its memory back. `copyPixelsToBuffer` is the same memcpy as
  * `copyPixelsFromBuffer`, so byte 0 holding the red channel means the bitmap
  * stores R,G,B,A (modern Skia); byte 2 holding it means B,G,R,A (older
- * port-configured builds). Android's N32 color type is only ever those two,
- * so the single-byte check is exhaustive — there is no third case to log.
+ * port-configured builds). Android's N32 color type is only ever those two;
+ * a measurement matching neither throws rather than silently picking one.
  */
 internal object BitmapLayoutProbe {
 
@@ -28,15 +28,20 @@ internal object BitmapLayoutProbe {
         }
     }
 
-    /** The decision itself, pure so the JVM suite pins it: red at byte 0 → RGBA. */
-    internal fun classify(bytes: ByteBuffer): PixelChannelOrder.Layout =
-        if (bytes.get(RED_OFFSET) != 0.toByte()) {
-            PixelChannelOrder.Layout.RGBA
-        } else {
-            PixelChannelOrder.Layout.BGRA
-        }
+    /** The decision itself, pure so the JVM suite pins it. */
+    internal fun classify(bytes: ByteBuffer): PixelChannelOrder.Layout {
+        val redAt0 = bytes.get(RED_OFFSET) != 0.toByte()
+        val redAt2 = bytes.get(BLUE_OFFSET) != 0.toByte()
+        if (redAt0) return PixelChannelOrder.Layout.RGBA
+        if (redAt2) return PixelChannelOrder.Layout.BGRA
+
+        // A probe that wrote nothing would otherwise silently pick the
+        // layout that reintroduces the swap this probe exists to prevent.
+        error("ARGB_8888 probe bytes match neither RGBA nor BGRA")
+    }
 
     private const val PROBE_RED = 0xFFFF0000.toInt()
     private const val PIXEL_BYTES = 4
     private const val RED_OFFSET = 0
+    private const val BLUE_OFFSET = 2
 }

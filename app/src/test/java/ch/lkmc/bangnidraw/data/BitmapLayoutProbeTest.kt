@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.data
 import java.nio.ByteBuffer
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class BitmapLayoutProbeTest {
 
@@ -18,5 +19,12 @@ class BitmapLayoutProbeTest {
         val bytes = ByteBuffer.wrap(byteArrayOf(0, 0, 0xFF.toByte(), 0xFF.toByte()))
 
         assertEquals(PixelChannelOrder.Layout.BGRA, BitmapLayoutProbe.classify(bytes))
+    }
+
+    @Test
+    fun `a probe that wrote nothing fails loudly`() {
+        val bytes = ByteBuffer.wrap(ByteArray(4))
+
+        assertFailsWith<IllegalStateException> { BitmapLayoutProbe.classify(bytes) }
     }
 }

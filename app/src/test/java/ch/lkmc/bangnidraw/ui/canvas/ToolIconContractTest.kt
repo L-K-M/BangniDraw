@@ -25,7 +25,7 @@ class ToolIconContractTest {
         assertFalse("BrushToolGlyph.PIGMENT_WASH -> Icons.Filled.WaterDrop" in rail)
         // Guard against any duplicate icon across brush mappings, not just
         // the historical droplet collision with the Water tool.
-        val brushIcons = Regex("BrushToolGlyph\\.\\w+ -> (\\S+)")
+        val brushIcons = Regex("BrushToolGlyph\\.\\w+\\s*->\\s*(\\S+)")
             .findAll(rail).map { it.groupValues[1] }.toList()
         assertFalse(brushIcons.isEmpty(), "expected BrushToolGlyph icon mappings in rail")
         val duplicateIcons = brushIcons.groupingBy { it }.eachCount().filterValues { it > 1 }.keys

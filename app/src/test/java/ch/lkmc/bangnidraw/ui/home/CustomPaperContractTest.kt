@@ -21,7 +21,10 @@ class CustomPaperContractTest {
             CREATE_SEAM.containsMatchIn(dialog),
             "Create must pass the custom colour through the same seam as the presets",
         )
-        assertTrue("R.string.paper_custom" in dialog, "the custom swatch is labelled")
+        assertTrue(
+            PAPER_CUSTOM_LABEL.containsMatchIn(dialog),
+            "the custom swatch is labelled",
+        )
     }
 
     @Test
@@ -56,5 +59,8 @@ class CustomPaperContractTest {
         val CREATE_SEAM = Regex(
             """onCreate\(\s*it\.preset\.size,\s*if\s*\(\s*paperIsCustom\s*\)\s*customPaper\s*else\s*paper\s*\)""",
         )
+
+        /** Word-boundary: does not match `paper_custom_preview`. */
+        val PAPER_CUSTOM_LABEL = Regex("""R\.string\.paper_custom\b""")
     }
 }

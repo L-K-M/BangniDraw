@@ -29,6 +29,9 @@ class TracingReferenceContractTest {
         val root = repositoryRoot()
         val viewModel = File(root, VIEW_MODEL_PATH).readText()
         val panel = File(root, REFERENCE_PANEL_PATH).readText()
+        val removeReference = viewModel
+            .substringAfter("internal fun removeTracingReference()")
+            .substringBefore("private fun applyTracingReference")
 
         assertTrue(
             Regex("ready\\s+!is\\s+UiState\\.Ready").containsMatchIn(viewModel),
@@ -38,6 +41,7 @@ class TracingReferenceContractTest {
                 .findAll(panel).count() ==
                 REFERENCE_ACTION_COUNT,
         )
+        assertTrue("dismissPanel()" in removeReference)
     }
 
     private fun repositoryRoot(): File {

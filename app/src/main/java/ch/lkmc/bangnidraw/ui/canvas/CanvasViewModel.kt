@@ -983,6 +983,7 @@ class CanvasViewModel @Inject constructor(
 
     internal fun removeTracingReference() {
         applyTracingReference(null)
+        dismissPanel()
         dismissDialog()
         dismissCanvasOverlay()
     }

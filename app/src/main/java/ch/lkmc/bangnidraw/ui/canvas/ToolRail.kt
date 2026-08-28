@@ -862,7 +862,7 @@ private fun iconFor(glyph: BrushToolGlyph): ImageVector = when (glyph) {
     BrushToolGlyph.CALLIGRAPHY -> Icons.Filled.HistoryEdu
     BrushToolGlyph.DRY_BRUSH -> Icons.Filled.FormatPaint
     BrushToolGlyph.OIL_PAINT -> Icons.Filled.OilBarrel
-    BrushToolGlyph.PIGMENT_WASH -> Icons.Filled.WaterDrop
+    BrushToolGlyph.PIGMENT_WASH -> ToolGlyphs.PigmentWash
     BrushToolGlyph.ERASER -> ToolGlyphs.Eraser
     BrushToolGlyph.CUSTOM -> Icons.Filled.Tune
 }

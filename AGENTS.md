@@ -147,9 +147,11 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - Third-party assets (brush grains, sample art, fonts) must be public
   domain / CC0 with provenance recorded in this file when added. Currently
   none besides Mixbox.
-- Marker, eraser, spray-can, and Watercolor rail glyphs are repo-owned
-  `ImageVector` silhouettes. Material's alternatives depict attention, deletion, or a
-  chart, not these local drawing tools. Preset glyph roles resolve from the
+- Marker, eraser, spray-can, Watercolor, and pigment-wash rail glyphs are
+  repo-owned `ImageVector` silhouettes. Material's alternatives depict
+  attention, deletion, or a chart, not these local drawing tools — and its
+  droplet belongs to the Water tool alone, so a brush reusing it collides in
+  the FULL rail. Preset glyph roles resolve from the
   stored `BrushPreset.icon` key in `engine/core`; eraser mode always wins, and
   unknown keys use the settings glyph.
 - Proposals for post-v1 features live in `docs/proposals/` as numbered

@@ -132,4 +132,39 @@ internal object ToolGlyphs {
             close()
         }
     }.build()
+
+    val PigmentWash: ImageVector = ImageVector.Builder(
+        name = "ToolPigmentWash",
+        defaultWidth = ICON_SIZE,
+        defaultHeight = ICON_SIZE,
+        viewportWidth = ICON_VIEWPORT,
+        viewportHeight = ICON_VIEWPORT,
+    ).apply {
+        // A broad hand-pulled band: the tool lays down wide transparent
+        // layers, so the silhouette is the swash itself, not a brush or a
+        // drop (those belong to Watercolor and the Water tool).
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(2f, 13f)
+            lineTo(22f, 10f)
+            lineTo(22f, 15f)
+            lineTo(2f, 18f)
+            close()
+        }
+        // The shorter second pass above it reads as layering, not a stripe.
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(6f, 8.5f)
+            lineTo(18f, 6.8f)
+            lineTo(18f, 8.8f)
+            lineTo(6f, 10.5f)
+            close()
+        }
+        // The bead where the pull collected pigment at its end.
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(4f, 19.5f)
+            lineTo(10f, 18.8f)
+            lineTo(10f, 21f)
+            lineTo(4f, 21.7f)
+            close()
+        }
+    }.build()
 }

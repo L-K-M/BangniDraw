@@ -18,7 +18,6 @@ import ch.lkmc.bangnidraw.data.ShareCache
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Document
-import ch.lkmc.bangnidraw.engine.core.GallerySyncDecision
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayerId
@@ -117,13 +116,20 @@ class StudioViewModel @Inject constructor(
     private val refreshPublications = LatestPublicationGate()
     private var refreshJob: Job? = null
 
+    internal enum class PaintingAvailability {
+        AVAILABLE,
+        NEWER_VERSION,
+        UNREADABLE,
+    }
+
     internal data class Painting(
         val id: String,
-        val title: String,
-        val updatedAtMillis: Long,
+        val title: String?,
+        val updatedAtMillis: Long?,
         val thumbnail: File?,
         val bytes: Long,
         val galleryUri: String?,
+        val availability: PaintingAvailability,
     )
 
     internal data class UiState(
@@ -234,6 +240,14 @@ class StudioViewModel @Inject constructor(
                         thumbnail = it.thumbnail,
                         bytes = it.bytes,
                         galleryUri = it.galleryUri,
+                        availability = when (it.availability) {
+                            ProjectStore.ShelfAvailability.AVAILABLE ->
+                                PaintingAvailability.AVAILABLE
+                            ProjectStore.ShelfAvailability.NEWER_VERSION ->
+                                PaintingAvailability.NEWER_VERSION
+                            ProjectStore.ShelfAvailability.UNREADABLE ->
+                                PaintingAvailability.UNREADABLE
+                        },
                     )
                 }
                 val totalBytes = listed.sumOf { it.bytes }
@@ -310,9 +324,7 @@ class StudioViewModel @Inject constructor(
      */
     private fun syncStale(listed: List<ProjectStore.Summary>) {
         if (staleSyncJob?.isActive == true) return
-        val stale = listed.filter {
-            GallerySyncDecision.isStaleOnDisk(it.updatedAt, it.lastGallerySyncAt)
-        }
+        val stale = StudioGallerySyncPolicy.staleCandidates(listed)
         if (stale.isEmpty()) return
         staleSyncJob = viewModelScope.launch(Dispatchers.IO) {
             if (!prefs.gallerySync.first()) return@launch

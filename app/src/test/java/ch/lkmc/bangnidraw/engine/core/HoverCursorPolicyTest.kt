@@ -63,16 +63,37 @@ class HoverCursorPolicyTest {
     }
 
     @Test
-    fun `water uses a colorless solid ring`() {
+    fun `water uses a colorless solid ring sized to its bloom`() {
+        // spreadPx = ceil(radius * spread * 0.5) = ceil(4 * 0.65 * 0.5) = 2
         assertEquals(
-            HoverCursorSpec(4f, HoverRing.Solid, crosshair = true, ink = false),
+            HoverCursorSpec(6f, HoverRing.Solid, crosshair = false, ink = false),
             HoverCursorPolicy.resolve(
                 PointerTool.STYLUS,
-                ToolKind.Water(WaterParams(size = 8f)),
+                ToolKind.Water(WaterParams(size = 8f, spread = 0.65f)),
                 eraser,
                 canvasToScreenScale = 0.5f,
             ),
         )
+    }
+
+    @Test
+    fun `water ring grows with spread and stops at the bloom cap`() {
+        val dry = HoverCursorPolicy.resolve(
+            PointerTool.STYLUS,
+            ToolKind.Water(WaterParams(size = 400f, spread = 0f)),
+            eraser,
+            canvasToScreenScale = 1f,
+        )
+        val wet = HoverCursorPolicy.resolve(
+            PointerTool.STYLUS,
+            ToolKind.Water(WaterParams(size = 400f, spread = 1f)),
+            eraser,
+            canvasToScreenScale = 1f,
+        )
+
+        assertEquals(400f, dry!!.diameterPx)
+        // A 200 px radius wants 100 px of spread; the shared cap holds it at 32.
+        assertEquals(464f, wet!!.diameterPx)
     }
 
     @Test

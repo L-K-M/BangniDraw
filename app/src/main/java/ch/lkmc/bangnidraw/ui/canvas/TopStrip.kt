@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -36,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -74,6 +76,7 @@ internal fun TopStrip(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onUndoLongPress: () -> Unit,
+    onRedoLongPress: () -> Unit,
     onLayers: () -> Unit,
     onColor: () -> Unit,
     onColorLongPress: () -> Unit,
@@ -98,6 +101,7 @@ internal fun TopStrip(
             onUndo,
             onRedo,
             onUndoLongPress,
+            onRedoLongPress,
         )
     }
     val tools: @Composable () -> Unit = {
@@ -155,11 +159,14 @@ private fun NavigationCluster(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onUndoLongPress: () -> Unit,
+    onRedoLongPress: () -> Unit,
 ) {
     val view = LocalView.current
     val undoEnabled = undoAvailability == ActionAvailability.ENABLED
+    val redoEnabled = redoAvailability == ActionAvailability.ENABLED
     val iconColor = LocalContentColor.current
     val unavailableText = stringResource(R.string.cd_unavailable)
+    val readoutLabel = stringResource(R.string.cd_history_readout)
     Row(horizontalArrangement = Arrangement.Start) {
         IconButton(onClick = onBack) {
             Icon(
@@ -176,8 +183,10 @@ private fun NavigationCluster(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(ICON_BUTTON)
+                .clip(CircleShape)
                 .combinedClickable(
                     role = Role.Button,
+                    onLongClickLabel = readoutLabel,
                     onClick = {
                         if (!undoEnabled) return@combinedClickable
                         if (hapticsMode == HapticsMode.ENABLED) {
@@ -204,18 +213,38 @@ private fun NavigationCluster(
                 tint = if (undoEnabled) iconColor else iconColor.copy(alpha = DISABLED_ALPHA),
             )
         }
-        IconButton(
-            enabled = redoAvailability == ActionAvailability.ENABLED,
-            onClick = {
-                if (hapticsMode == HapticsMode.ENABLED) {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                }
-                onRedo()
-            },
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(ICON_BUTTON)
+                .clip(CircleShape)
+                .combinedClickable(
+                    role = Role.Button,
+                    onLongClickLabel = readoutLabel,
+                    onClick = {
+                        if (!redoEnabled) return@combinedClickable
+                        if (hapticsMode == HapticsMode.ENABLED) {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        }
+                        onRedo()
+                    },
+                    onLongClick = {
+                        if (hapticsMode == HapticsMode.ENABLED) {
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        }
+                        onRedoLongPress()
+                    },
+                )
+                // Same shape as undo: the node stays enabled so the readout
+                // works with nothing to redo; the state explains a dead tap.
+                .semantics {
+                    if (!redoEnabled) stateDescription = unavailableText
+                },
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.Redo,
                 contentDescription = stringResource(R.string.canvas_redo),
+                tint = if (redoEnabled) iconColor else iconColor.copy(alpha = DISABLED_ALPHA),
             )
         }
     }

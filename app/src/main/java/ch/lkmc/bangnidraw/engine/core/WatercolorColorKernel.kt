@@ -45,6 +45,7 @@ object WatercolorColorKernel {
         val dabMask: Float,
         val normalizedRadius: Float,
         val strength: Float,
+        val neighborDepositAverage: Float,
         val edgeDarkening: Float,
         val dilution: Float,
         val color: StraightRgb,
@@ -63,6 +64,7 @@ object WatercolorColorKernel {
                 "normalizedRadius must be finite and non-negative, was $normalizedRadius"
             }
             requireUnit("strength", strength)
+            requireUnit("neighborDepositAverage", neighborDepositAverage)
             requireUnit("edgeDarkening", edgeDarkening)
             requireUnit("dilution", dilution)
         }
@@ -95,19 +97,10 @@ object WatercolorColorKernel {
             return clampPremultiplied(flowed)
         }
 
-        // Paper and the dab rim modulate how much new pigment settles here.
-        val rim = smoothstep(
-            WatercolorKernel.RIM_INNER_RADIUS,
-            WatercolorKernel.RIM_OUTER_RADIUS,
-            parameters.normalizedRadius,
-        ) * parameters.dabMask
-        val deposit = (
-            parameters.strength * parameters.dabMask * paper *
-                (
-                    1f + WatercolorKernel.RIM_DEPOSIT_GAIN *
-                        parameters.edgeDarkening * rim
-                    )
-            ).coerceIn(0f, 1f)
+        // Carry this dab's source alpha with the same wet flow as existing pigment.
+        val localDeposit = pigmentDeposit(parameters, paper)
+        val deposit = localDeposit +
+            flow * (parameters.neighborDepositAverage - localDeposit)
         val result = depositPigment(flowed, deposit, parameters, lerp, scratch)
 
         return clampPremultiplied(result)
@@ -129,6 +122,22 @@ object WatercolorColorKernel {
             WatercolorKernel.PAPER_MOBILITY_RANGE * parameters.paperRelief
 
         return 1f + (reliefMobility - 1f) * parameters.granulation
+    }
+
+    private fun pigmentDeposit(parameters: Parameters, paper: Float): Float {
+        val rim = smoothstep(
+            WatercolorKernel.RIM_INNER_RADIUS,
+            WatercolorKernel.RIM_OUTER_RADIUS,
+            parameters.normalizedRadius,
+        ) * parameters.dabMask
+
+        return (
+            parameters.strength * parameters.dabMask * paper *
+                (
+                    1f + WatercolorKernel.RIM_DEPOSIT_GAIN *
+                        parameters.edgeDarkening * rim
+                    )
+            ).coerceIn(0f, 1f)
     }
 
     private fun mixPigment(

@@ -112,7 +112,6 @@ internal fun LayerPanel(
     onDuplicate: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
     onMergeDown: (Int) -> Unit,
-    onClear: (Int) -> Unit,
     onRequestDialog: (CanvasDialog) -> Unit,
     onOpacityPreview: (Int, Float) -> Boolean,
     onOpacityFinished: () -> Unit,
@@ -211,6 +210,7 @@ internal fun LayerPanel(
                     onAdd = onAdd,
                     onMenuChange = { headerMenu = it },
                     onFlatten = { onRequestDialog(CanvasDialog.FlattenLayers) },
+                    onClose = onDismiss,
                 )
 
                 LazyColumn(
@@ -239,7 +239,10 @@ internal fun LayerPanel(
                                 onOpacityFinished()
                                 opacityLayer = null
                                 onSelect(index)
-                                if (compact) onDismiss()
+                                // Keep the panel open after selecting so the
+                                // user can still reach opacity/blend on a phone
+                                // (tablet already behaves this way). Dismiss via
+                                // scrim or Back when done.
                                 if (hapticsMode == HapticsMode.ENABLED) {
                                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                                 }
@@ -266,7 +269,9 @@ internal fun LayerPanel(
                                     onMergeDown(index)
                                 }
                             },
-                            onClear = { onClear(index) },
+                            onClear = {
+                                onRequestDialog(CanvasDialog.ClearLayer(index))
+                            },
                             onToggleAlphaLock = { onToggleAlphaLock(index) },
                             onToggleLock = { onToggleLock(index) },
                             onBlendMode = { onBlendMode(index, it) },
@@ -343,7 +348,9 @@ internal fun LayerPanel(
                             Modifier.clickable {
                                 hint = null
                                 hintRefusal = null
-                                onClear(stack.activeIndex)
+                                onRequestDialog(
+                                    CanvasDialog.ClearLayer(stack.activeIndex),
+                                )
                             }
                         } else {
                             Modifier
@@ -369,6 +376,7 @@ private fun LayerPanelHeader(
     onAdd: () -> Unit,
     onMenuChange: (Boolean) -> Unit,
     onFlatten: () -> Unit,
+    onClose: () -> Unit,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -408,6 +416,9 @@ private fun LayerPanelHeader(
                 )
             }
         }
+        // A visible way out: the scrim tap that also dismisses is invisible
+        // to a first-time user (08 §4.1 keeps both).
+        PanelCloseButton(onClose)
     }
 }
 

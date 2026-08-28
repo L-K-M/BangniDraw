@@ -523,7 +523,7 @@ class CanvasRenderer(
         var dirty = IntRect.EMPTY
         if (committed > 0) {
             dirty = pass.stamp(
-                batch, buffer, strokeBufferMode, spec.grainMode,
+                batch, buffer, strokeBufferMode, spec.grainMode, spec.brushModel,
                 strokeR, strokeG, strokeB,
                 from = 0, until = committed,
             )
@@ -532,7 +532,7 @@ class CanvasRenderer(
             val tail = tailBuffer
             if (tail != null) {
                 val tailRect = pass.stamp(
-                    batch, tail, strokeBufferMode, spec.grainMode,
+                    batch, tail, strokeBufferMode, spec.grainMode, spec.brushModel,
                     strokeR, strokeG, strokeB,
                     from = committed, until = batch.count,
                 )

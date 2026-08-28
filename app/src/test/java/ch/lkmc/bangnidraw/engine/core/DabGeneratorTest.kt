@@ -135,7 +135,7 @@ class DabGeneratorTest {
             "builtin.charcoal" to Expected(4.92f, 7.08f, 0.28f, 0.6f, 1f),
             "builtin.soft_pastel" to Expected(16.4f, 23.6f, 0.24f, 0.62f, 0.65f),
             "builtin.technical_pen" to Expected(2f, 2f, 1f, 1f, 1f),
-            "builtin.calligraphy" to Expected(8f, 8f, 0.9f, 0.85f, 0.35f),
+            "builtin.calligraphy" to Expected(20f, 20f, 1f, 0.92f, 1f),
             "builtin.dry_brush" to Expected(22.88f, 29.12f, 0.22f, 0.78f, 0.45f),
             "builtin.oil_paint" to Expected(28.16f, 35.84f, 0.95f, 0.55f, 0.6f),
             "builtin.pigment_wash" to Expected(57f, 63f, 0.12f, 0.18f, 0.75f),
@@ -204,6 +204,208 @@ class DabGeneratorTest {
         val softEraser = builtIns.getValue("builtin.soft_eraser")
         val soft = run(softEraser, listOf(sample(0f, 0f, pressure = 0.5f))).single()
         assertEquals(0.2f, soft.flow, 0.002f, "soft eraser pressure controls lift per dab")
+    }
+
+    @Test
+    fun `Chinese ink pressure spreads a pointed tuft into its belly`() {
+        val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
+        assertEquals(BrushModel.ChineseInk, brush.model)
+
+        val light = run(brush, listOf(sample(0f, 0f, pressure = 0.08f)), seed = 9L).single()
+        val pressed = run(brush, listOf(sample(0f, 0f, pressure = 1f)), seed = 9L).single()
+
+        assertTrue(pressed.radius > light.radius * 4f, "pressure must expose the brush belly")
+        assertEquals(1f, light.flow, pxEps, "light pressure must leave sparse black hairs, not grey ink")
+        assertEquals(1f, light.aspect, pxEps, "a directionless first touch must stay round")
+        assertEquals(1f, pressed.aspect, pxEps, "a stationary press must spread without choosing an axis")
+    }
+
+    @Test
+    fun `Chinese ink records a stationary press`() {
+        val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
+        val generator = DabGenerator(brush, seed = 13L)
+        val batch = DabBatch()
+
+        generator.begin(sample(40f, 50f, pressure = 0.04f), batch)
+        generator.advance(sample(40f, 50f, pressure = 0.55f, timeMs = 12), batch)
+
+        assertEquals(2, batch.count, "pressing the tuft in place must enlarge the stroke head")
+        assertTrue(batch[1].radius > batch[0].radius)
+        assertEquals(batch[0].x, batch[1].x, pxEps)
+        assertEquals(batch[0].y, batch[1].y, pxEps)
+    }
+
+    @Test
+    fun `stationary Chinese ink retains its depleted tuft state`() {
+        val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
+        val generator = DabGenerator(brush, seed = 13L)
+        val batch = DabBatch(4096)
+
+        generator.begin(sample(0f, 0f, pressure = 0.35f), batch)
+        generator.advance(sample(500f, 0f, pressure = 0.35f, timeMs = 600), batch)
+        generator.advance(sample(500f, 120f, pressure = 0.35f, timeMs = 800), batch)
+        val beforePress = batch.count
+        generator.advance(sample(500f, 120f, pressure = 0.9f, timeMs = 816), batch)
+
+        assertEquals(beforePress + 1, batch.count, "the pressure rise must stamp once")
+        val pressed = batch[batch.count - 1]
+        assertTrue(pressed.wetness < 0.8f, "a stationary press must not reload the tuft")
+        assertTrue(abs(pressed.angle) > 0.1f, "a stationary press must retain the turned tuft axis")
+        assertTrue(pressed.bristleAlong > 100f, "a stationary press must retain material phase")
+        assertTrue(abs(pressed.bristleAcross) > 1f, "a turned tuft must retain its cross phase")
+    }
+
+    @Test
+    fun `Chinese ink keeps brush direction through a turn`() {
+        val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
+        val generator = DabGenerator(brush, seed = 17L)
+        val batch = DabBatch()
+
+        generator.begin(sample(0f, 0f, pressure = 1f), batch)
+        generator.advance(sample(100f, 0f, pressure = 1f, timeMs = 80), batch)
+        val turnStart = batch.count
+        generator.advance(sample(100f, 100f, pressure = 1f, timeMs = 160), batch)
+
+        val turn = (turnStart until batch.count).map(batch::get)
+        assertTrue(turn.size > 4, "the turn needs enough dabs to observe the tuft response")
+        assertTrue(turn.first().angle < 0.35f, "the first turning dab must retain the incoming axis")
+        assertTrue(turn.last().angle > turn.first().angle + 0.35f, "the tuft must rotate through the turn")
+        assertTrue(turn.last().angle < PI.toFloat() / 2f, "the soft tuft must still trail the new tangent")
+        assertEquals((brush.tip as TipShape.Flat).aspect, turn.last().aspect, pxEps)
+    }
+
+    @Test
+    fun `Chinese ink bristle contact stays correlated through a sharp turn`() {
+        val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
+        val generator = DabGenerator(brush, seed = 17L)
+        val batch = DabBatch()
+
+        generator.begin(sample(2_000f, 2_000f, pressure = 1f), batch)
+        generator.advance(sample(2_100f, 2_000f, pressure = 1f, timeMs = 80), batch)
+        val turnStart = batch.count
+        generator.advance(sample(2_100f, 2_100f, pressure = 1f, timeMs = 160), batch)
+
+        val turn = (turnStart until batch.count).map(batch::get)
+        assertTrue(turn.size > 4, "the turn needs several overlapping dabs")
+        val first = turn.first().copy(wetness = 0.24f)
+        val next = turn[3].copy(wetness = first.wetness)
+        assertTrue(abs(next.x - first.x) < pxEps, "the fixture must move across the incoming axis")
+        assertTrue(next.y > first.y)
+        assertTrue(first.angle < 0.35f, "the tuft must still face along the incoming segment")
+
+        val centreX = ((first.x + next.x) * 0.5f).toInt()
+        val centreY = ((first.y + next.y) * 0.5f).toInt()
+        var compared = 0
+        var matching = 0
+        var firstContacts = 0
+
+        for (y in centreY - 8..centreY + 8) {
+            for (x in centreX - 16..centreX + 16) {
+                val px = x + 0.5f
+                val py = y + 0.5f
+                val firstInterior = DabStamp.localDistance(
+                    px, py, first.x, first.y, first.angle, first.aspect,
+                ) < first.radius * 0.6f
+                val nextInterior = DabStamp.localDistance(
+                    px, py, next.x, next.y, next.angle, next.aspect,
+                ) < next.radius * 0.6f
+                if (!firstInterior || !nextInterior) continue
+
+                val a = InkBrushMask.weight(px, py, first) >= 0.5f
+                val b = InkBrushMask.weight(px, py, next) >= 0.5f
+                compared++
+                if (a) firstContacts++
+                if (a == b) matching++
+            }
+        }
+
+        assertTrue(compared > 100, "the fixture needs a broad shared interior, had $compared samples")
+        assertTrue(firstContacts > compared / 10, "the first dab must retain visible hairs")
+        assertTrue(firstContacts < compared * 9 / 10, "the first dab must retain visible gaps")
+        assertTrue(
+            matching.toFloat() / compared > 0.75f,
+            "the sharp turn changed ${compared - matching} of $compared bristle contacts",
+        )
+    }
+
+    @Test
+    fun `Chinese ink depletion follows swept distance rather than dab count`() {
+        val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
+        val path = straightPath(0f, 600f, steps = 60, pressure = 1f, msPerStep = 12L)
+        val dense = run(brush.copy(spacing = 0.05f), path, seed = 21L)
+        val sparse = run(brush.copy(spacing = 0.20f), path, seed = 21L)
+
+        assertTrue(dense.size > sparse.size * 2, "the fixtures must use different dab counts")
+        assertEquals(sparse.last().wetness, dense.last().wetness, 0.02f)
+        assertTrue(dense.last().wetness < dense.first().wetness * 0.7f, "a long stroke must run dry")
+        assertEquals(1, dense.map { it.seed }.distinct().size, "bristle lanes must persist for the stroke")
+        assertTrue(
+            dense.zipWithNext().all { (a, b) -> b.bristleAlong >= a.bristleAlong },
+            "the along phase must follow a straight stroke",
+        )
+        assertTrue(dense.last().bristleAlong > 500f, "the phase must follow the whole stroke")
+        assertTrue(
+            dense.all { abs(it.bristleAcross) < pxEps },
+            "a horizontal stroke must not drift across its tuft",
+        )
+    }
+
+    @Test
+    fun `Chinese ink speed exposes bristles without collapsing width`() {
+        val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
+        val slow = run(brush, straightPath(0f, 400f, 40, pressure = 1f, msPerStep = 40L))
+        val fast = run(brush, straightPath(0f, 400f, 40, pressure = 1f, msPerStep = 2L))
+
+        assertTrue(fast.last().wetness < slow.last().wetness * 0.8f, "speed should make the mark scratchier")
+        assertTrue(fast.last().radius > slow.last().radius * 0.9f, "speed must not fake dryness by shrinking")
+    }
+
+    @Test
+    fun `Chinese ink contains malformed contact dynamics`() {
+        data class Contact(
+            val label: String,
+            val pressure: Float = 0.5f,
+            val tilt: Float = 0f,
+            val orientation: Float = 0f,
+            val radius: Float = 10f,
+            val speed: Float = 0f,
+        )
+
+        val contacts = listOf(
+            Contact("pressure", pressure = Float.NaN),
+            Contact("tilt", tilt = Float.NaN),
+            Contact("orientation", orientation = Float.NaN),
+            Contact("radius", radius = Float.NaN),
+            Contact("speed", speed = Float.NaN),
+        )
+
+        for (contact in contacts) {
+            val dynamics = InkBrushDynamics(
+                baseRadius = 20f,
+                patternSeed = 0.4f,
+                tip = TipShape.Flat(0.58f),
+                orientation = TipOrientation.StrokeDirection,
+            )
+            val ink = InkBrushSample()
+            dynamics.reset(0.5f)
+            dynamics.prepareSegment(
+                pathAngle = 0f,
+                distance = 20f,
+                pressure = contact.pressure,
+                tiltFraction = contact.tilt,
+                stylusAngle = contact.orientation,
+                contactRadius = contact.radius,
+                speedFraction = contact.speed,
+            )
+            dynamics.writeSampleAt(1f, ink)
+            dynamics.finishSegment(0.5f)
+
+            assertTrue(ink.angle.isFinite(), "${contact.label} poisoned the tuft angle")
+            assertTrue(ink.wetness.isFinite(), "${contact.label} poisoned the ink load")
+            assertTrue(ink.bristleAlong.isFinite(), "${contact.label} poisoned the along phase")
+            assertTrue(ink.bristleAcross.isFinite(), "${contact.label} poisoned the across phase")
+            assertTrue(dynamics.currentAngle().isFinite(), "${contact.label} poisoned later segments")
+        }
     }
 
     @Test

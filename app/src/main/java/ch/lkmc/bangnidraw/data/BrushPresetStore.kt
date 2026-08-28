@@ -1,7 +1,9 @@
 package ch.lkmc.bangnidraw.data
 
 import android.util.Log
+import ch.lkmc.bangnidraw.engine.core.BrushModel
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
+import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.isSafePathSegment
 import java.io.File
 import java.io.IOException
@@ -66,7 +68,7 @@ class BrushPresetStore internal constructor(
 
         for (name in names) {
             val preset = try {
-                decode(name, assets.read(name))
+                decode(name, assets.read(name), PresetOrigin.Asset)
             } catch (e: IOException) {
                 Log.w(TAG, "brush asset $name could not be read", e)
                 null
@@ -85,7 +87,7 @@ class BrushPresetStore internal constructor(
 
         for (file in files) {
             val preset = try {
-                decode(file.name, file.readText(Charsets.UTF_8))
+                decode(file.name, file.readText(Charsets.UTF_8), PresetOrigin.User)
             } catch (e: IOException) {
                 Log.w(TAG, "user brush ${file.name} could not be read", e)
                 null
@@ -100,7 +102,7 @@ class BrushPresetStore internal constructor(
         }
     }
 
-    private fun decode(source: String, text: String): BrushPreset? = try {
+    private fun decode(source: String, text: String, origin: PresetOrigin): BrushPreset? = try {
         val element = json.parseToJsonElement(text)
         val version = element.jsonObject[VERSION_KEY]?.jsonPrimitive?.intOrNull ?: FORMAT_VERSION
         if (version > FORMAT_VERSION) {
@@ -108,7 +110,19 @@ class BrushPresetStore internal constructor(
             return null
         }
 
-        val preset = json.decodeFromJsonElement<BrushPreset>(element)
+        val decoded = json.decodeFromJsonElement<BrushPreset>(element)
+        // Old calligraphy overrides predate the model field. Preserve every
+        // user edit while adopting the built-in's new rendering semantics.
+        val preset = if (
+            origin == PresetOrigin.User &&
+            decoded.id == BrushPresets.CALLIGRAPHY_ID &&
+            MODEL_KEY !in element.jsonObject
+        ) {
+            Log.i(TAG, "upgrading legacy user brush $source to ChineseInk")
+            decoded.copy(model = BrushModel.ChineseInk)
+        } else {
+            decoded
+        }
         if (!isSafePathSegment(preset.id)) {
             Log.w(TAG, "brush $source has an unsafe id; dropped")
             return null
@@ -134,10 +148,16 @@ class BrushPresetStore internal constructor(
 
     private fun userFile(id: String): File = File(root, "$id$JSON_SUFFIX")
 
+    private enum class PresetOrigin {
+        Asset,
+        User,
+    }
+
     private companion object {
         const val TAG = "BrushPresetStore"
         const val FORMAT_VERSION = 1
         const val VERSION_KEY = "v"
+        const val MODEL_KEY = "model"
         const val JSON_SUFFIX = ".json"
 
         val json = Json {

@@ -1,12 +1,34 @@
 package ch.lkmc.bangnidraw.engine.gl
 
+import ch.lkmc.bangnidraw.engine.core.PerfConstants
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
 class DabPassDirtyContractTest {
+
+    @Test
+    fun `dab pass uploads the complete core dab layout`() {
+        val source = File(repositoryRoot(), DAB_PASS_PATH).readText()
+        val compact = source
+            .replace(Regex("""//[^\n]*|/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("""\s+"""), "")
+
+        assertEquals(11, PerfConstants.DAB_STRIDE)
+        assertTrue("constvalDAB_FLOATS=DAB_STRIDE" in compact)
+        assertTrue("instanceData[o++]=batch.seed[i]" in compact)
+        assertTrue("instanceData[o++]=batch.wetness[i]" in compact)
+        assertTrue("instanceData[o++]=batch.bristleAlong[i]" in compact)
+        assertTrue("instanceData[o]=batch.bristleAcross[i]" in compact)
+        assertTrue("Shaders.ATTR_DAB_SEEDto1" in compact)
+        assertTrue("Shaders.ATTR_DAB_WETNESSto1" in compact)
+        assertTrue("Shaders.ATTR_DAB_BRISTLE_ALONGto1" in compact)
+        assertTrue("Shaders.ATTR_DAB_BRISTLE_ACROSSto1" in compact)
+        assertTrue("program.uniform1i(\"u_brushModel\",brushModel.shaderId)" in compact)
+    }
 
     @Test
     fun `dab pass reports exact selected bounds only after a tile draw`() {

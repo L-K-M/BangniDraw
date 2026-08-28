@@ -98,7 +98,8 @@ ch.lkmc.bangnidraw
 │     ViewTransform, FitTransform, GestureArbiter
 │     StrokeInput, Stabilizer, PressureCurve, DabGenerator, Dab (+ the
 │     strided DabBatch the hot path actually uses)
-│     BrushPreset, ToolKind, ColorMixer (RgbMixer), Composite (CPU reference)
+│     BrushPreset, BrushModel, ToolKind, ColorMixer (RgbMixer), Composite
+│     (CPU reference)
 │     FloodFill, HistoryJournal, HistoryEntry, AutosavePolicy
 │     CanvasPresets, MemoryBudget
 ├── engine/gl/        the GPU: CanvasRenderer (graphics-core callbacks),
@@ -157,7 +158,8 @@ A stroke is: `MotionEvent` (+historical, +predicted) → `StrokeInput`
 (canvas-space x, y via the inverse view transform; pressure, tilt,
 orientation, time, tool type) → `Stabilizer` → `DabGenerator` (spacing as a
 fraction of radius; size/flow/opacity dynamics from pressure, tilt,
-velocity) → a batch of dabs → GPU. Dabs land in a per-stroke **stroke
+velocity; stateful tuft and ink-load dynamics for the Chinese ink model) →
+a batch of dabs → GPU. Dabs land in a per-stroke **stroke
 buffer**; *flow* is the per-dab weight and *opacity* is a **cap** on the
 buffer's accumulated coverage, so a stroke never exceeds its opacity no
 matter how many dabs overlap. The buffer is merged into the active layer
@@ -351,7 +353,7 @@ competes with the picture.
 | Spray can | preset | scattered soft low-flow dabs across a broad radius |
 | Charcoal / Soft pastel | presets | procedural paper grain, jitter, pressure buildup, broad tilt shading |
 | Technical pen | preset | constant narrow width, hard edge, strong stabilizer |
-| Calligraphy | preset | narrow path-oriented tip, pressure thick/thin, velocity taper |
+| Chinese ink brush | preset (`ChineseInk` model) | flexible pointed tuft: pressure splay, lagged turns and stationary presses; distance/speed expose stable split bristles |
 | Dry brush | preset | grainy broken edge, low flow, narrow path-oriented tip |
 | Oil paint | preset | broad, opaque, high-flow pigment mixing |
 | Pigment wash | preset | broad transparent pigment layers; no bloom or diffusion claim |
@@ -364,8 +366,8 @@ competes with the picture.
 
 Every brush exposes: size, opacity, flow, hardness, spacing, pressure
 curves (size / opacity / flow), tilt effect, velocity effect, jitter,
-stabilizer, pigment mixing on/off. Presets are JSON in assets (built-in)
-and `filesDir/brushes/` (user-edited).
+stabilizer, pigment mixing on/off, and footprint model. Presets are JSON in
+assets (built-in) and `filesDir/brushes/` (user-edited).
 
 ## 7. Testing
 
@@ -373,7 +375,8 @@ and `filesDir/brushes/` (user-edited).
   `ViewTransform` (gesture composition, clamping, rebase), `GestureArbiter`
   (draw vs navigate vs tap-undo decisions from pointer timelines),
   `Stabilizer`/`DabGenerator` (spacing invariant under resolution, pressure
-  curves, zero-length strokes), `TileGrid` (dirty-rect → tile keys),
+  curves, zero-length strokes, Chinese-ink tuft/wetness state), `TileGrid`
+  (dirty-rect → tile keys),
   `LayerStack` ops (reorder/merge/delete invariants), `HistoryJournal`
   (undo/redo/truncate/prune, round-trip through the on-disk encoding),
   `FloodFill` (tolerance, expand, gap behavior on fixtures), `Composite`

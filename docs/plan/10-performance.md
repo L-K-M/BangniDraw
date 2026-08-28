@@ -118,8 +118,9 @@ allocated in steady state.** Concretely:
   capacity) spills the oldest samples to a second pool that is allocated
   once and kept.
 - `Dab` is likewise a slot in `DabBatch` (SoA `FloatArray`s, the
-  `DAB_STRIDE` = 8 fields x, y, radius, flow, hardness, angle, aspect,
-  seed — `02-architecture.md` §3.2), written by
+  `DAB_STRIDE` = 11 fields x, y, radius, flow, hardness, angle, aspect,
+  seed, wetness, bristle-along and bristle-across phase —
+  `02-architecture.md` §3.2), written by
   `DabGenerator.begin/advance/end(…, out)` (`04-tools.md` §3) into a caller
   supplied batch.
 - The ring buffer between threads is `DabRing`: `Array<DabBatch>` of
@@ -266,7 +267,7 @@ object PerfConstants {
 
     // Touch path (all preallocated once per CanvasTouchHandler)
     const val STROKE_INPUT_CAPACITY = 8192       // samples kept in the SoA before spilling
-    const val DAB_STRIDE = 8                     // x y radius flow hardness angle aspect seed (02 §3.2; colour and opacity are per stroke)
+    const val DAB_STRIDE = 11 // geometry + seed, wetness and two bristle phases
     const val DAB_BATCH_CAPACITY = 1024          // dabs per ring slot
     const val DAB_RING_SLOTS = 8
     const val DAB_RING_CAPACITY = DAB_BATCH_CAPACITY * DAB_RING_SLOTS

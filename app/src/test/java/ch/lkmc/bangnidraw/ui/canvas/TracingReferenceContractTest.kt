@@ -45,6 +45,7 @@ class TracingReferenceContractTest {
     }
 
     @Test
+    @Test
     fun `tracing controls scroll below a stable header`() {
         val panel = File(repositoryRoot(), REFERENCE_PANEL_PATH).readText()
         val headerIndex = requiredIndex(panel, HEADER_PATTERN)
@@ -61,6 +62,18 @@ class TracingReferenceContractTest {
     private fun requiredIndex(source: String, pattern: Regex): Int {
         val match = pattern.find(source) ?: fail("missing source pattern: $pattern")
         return match.range.first
+    }
+
+    @Test
+    fun `failed reference decode preserves the committed asset`() {
+        val viewModel = File(repositoryRoot(), VIEW_MODEL_PATH).readText()
+        val streamReference = viewModel
+            .substringAfter("private suspend fun streamTracingReference(")
+            .substringBefore("private companion object")
+
+        assertFalse("applyTracingReference(null)" in streamReference)
+        assertFalse("dismissPanel()" in streamReference)
+        assertTrue("showReferenceNotice(R.string.err_reference_unreadable)" in streamReference)
     }
 
     private fun repositoryRoot(): File {

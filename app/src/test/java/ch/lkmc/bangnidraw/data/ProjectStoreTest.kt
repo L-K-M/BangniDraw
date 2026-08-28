@@ -397,6 +397,32 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun `a newer format remains represented on the shelf`() {
+        val dir = store.projectDir("newer-shelf").also { it.mkdirs() }
+        File(dir, "project.json").writeText(
+            """{"formatVersion":2,"id":"newer-shelf","title":"Future work",
+               "updatedAt":42,"width":512,"height":512,
+               "layers":[{"id":"a","name":"n"}],"activeLayerId":"a"}""",
+        )
+
+        val summary = store.list().single()
+        assertEquals("newer-shelf", summary.id)
+        assertEquals("Future work", summary.title)
+        assertEquals(ProjectStore.ShelfAvailability.NEWER_VERSION, summary.availability)
+    }
+
+    @Test
+    fun `malformed metadata remains represented on the shelf`() {
+        val dir = store.projectDir("damaged-shelf").also { it.mkdirs() }
+        File(dir, "project.json").writeText("{not json")
+
+        val summary = store.list().single()
+        assertEquals("damaged-shelf", summary.id)
+        assertNull(summary.title)
+        assertEquals(ProjectStore.ShelfAvailability.UNREADABLE, summary.availability)
+    }
+
+    @Test
     fun `a leftover tmp file is ignored and cleaned up`() {
         val doc = document(id = "p-8")
         store.checkpoint(doc)
@@ -412,8 +438,8 @@ class ProjectStoreTest {
         store.checkpoint(document(id = "old", title = "old", updatedAt = 100))
         store.checkpoint(document(id = "new", title = "new", updatedAt = 300))
         store.checkpoint(document(id = "mid", title = "mid", updatedAt = 200))
-        // Not paintings: a folder without project.json, an unparseable one,
-        // and a half-deleted leftover — skipped (the first two) or swept.
+        // Missing metadata is skipped; malformed metadata stays visible; a
+        // half-deleted leftover is swept.
         File(root, "empty-folder").mkdirs()
         store.projectDir("broken").also { it.mkdirs() }
             .let { File(it, "project.json") }.writeText("nope")
@@ -421,7 +447,8 @@ class ProjectStoreTest {
             .let { File(it, "project.json") }.writeText("{}")
 
         val listed = store.list()
-        assertEquals(listOf("new", "mid", "old"), listed.map { it.id })
+        assertEquals(listOf("new", "mid", "old", "broken"), listed.map { it.id })
+        assertEquals(ProjectStore.ShelfAvailability.UNREADABLE, listed.last().availability)
         assertEquals(2, listed[0].layerCount)
         assertEquals(512, listed[0].width)
         assertEquals(768, listed[0].height)
@@ -710,5 +737,27 @@ class ProjectStoreTest {
         assertFalse(store.delete("keep"))
         // An id that cannot address a folder is refused, not removed.
         assertFalse(store.delete("../../evil"))
+    }
+
+    @Test
+    fun `failed delete staging preserves the live project`() {
+        val id = "preserve"
+        store.checkpoint(document(id = id))
+        val marker = File(store.projectDir(id), "marker")
+        marker.writeText("recoverable")
+        val refusingStore = ProjectStore(
+            root = root,
+            duplicateFileWriter = DuplicateFileWriter { source, target ->
+                source.copyTo(target)
+            },
+            projectDirectoryMover = ProjectDirectoryMover { _, _ -> false },
+        )
+
+        assertFalse(refusingStore.delete(id))
+        assertEquals("recoverable", marker.readText())
+        assertIs<ProjectStore.LoadResult.Loaded>(refusingStore.load(id))
+        assertTrue(
+            root.listFiles().orEmpty().none { it.name.endsWith(".deleting") },
+        )
     }
 }

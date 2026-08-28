@@ -22,6 +22,17 @@ class StabilizerTest {
         timeNs: Long = 0L,
     ) = StrokeInput().apply { set(x, y, pressure, tilt, orientation, timeNs) }
 
+    private fun snapshot(input: StrokeInput): List<Long> = listOf(
+        input.x.toRawBits().toLong(),
+        input.y.toRawBits().toLong(),
+        input.pressure.toRawBits().toLong(),
+        input.tilt.toRawBits().toLong(),
+        input.orientation.toRawBits().toLong(),
+        input.timeNs,
+        input.source.ordinal.toLong(),
+        if (input.predicted) 1L else 0L,
+    )
+
     /** Feeds a path and returns every emitted output point. */
     private fun run(
         stabilizer: Stabilizer,
@@ -173,6 +184,52 @@ class StabilizerTest {
         for (i in 1 until tail.size) {
             assertTrue(tail[i] >= tail[i - 1] - eps, "the tail went backwards at $i")
         }
+
+    }
+    @Test
+    fun `a paused finish is bit-identical to one shot`() {
+        val base = Stabilizer(strength = 1f)
+        val scratch = StrokeInput()
+        base.reset(sample(0f, 0f, pressure = 1f))
+        base.push(
+            sample(
+                1_000f, 200f, pressure = 0.2f, tilt = 0.8f,
+                orientation = 1.4f, timeNs = 8_000_000L,
+            ),
+            scratch,
+        )
+
+        val reference = mutableListOf<List<Long>>()
+        val singleResult = base.copy().finishUntil(step = 3f, out = StrokeInput()) {
+            reference += snapshot(it)
+            StabilizerEmitDecision.CONTINUE
+        }
+        assertEquals(StabilizerFinishResult.COMPLETE, singleResult)
+        assertTrue(reference.size > 2, "the fixture must cross a pause boundary")
+
+        val split = mutableListOf<List<Long>>()
+        val resumed = base.copy()
+        var result: StabilizerFinishResult
+        var calls = 0
+        do {
+            var emittedThisCall = 0
+            result = resumed.finishUntil(
+                step = if (calls == 0) 3f else 99f,
+                out = StrokeInput(),
+            ) {
+                split += snapshot(it)
+                emittedThisCall++
+                if (emittedThisCall == 2) {
+                    StabilizerEmitDecision.PAUSE
+                } else {
+                    StabilizerEmitDecision.CONTINUE
+                }
+            }
+            calls++
+        } while (result == StabilizerFinishResult.PENDING)
+
+        assertTrue(calls > 1)
+        assertEquals(reference, split)
     }
 
     @Test

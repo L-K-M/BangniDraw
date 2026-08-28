@@ -40,6 +40,56 @@ class CanvasRendererGeometryContractTest {
     }
 
     @Test
+    fun `wet overlay stays above the active layer and below upper layers`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+        val composite = section(source, COMPOSITE_START, COMPOSITE_END)
+        val cachedActive = composite.indexOf(ACTIVE_LAYER_CALL)
+        val cachedOverlay = composite.indexOf(OVERLAY_CALL, cachedActive)
+        val cachedAbove = composite.indexOf(ABOVE_CACHE_CALL, cachedOverlay)
+        val directLayer = composite.indexOf(LAYER_LOOP)
+        val directGuard = composite.indexOf(DIRECT_OVERLAY_GUARD, directLayer)
+        val directOverlay = composite.indexOf(OVERLAY_CALL, directGuard)
+
+        assertTrue(cachedActive >= 0 && cachedOverlay > cachedActive && cachedAbove > cachedOverlay)
+        assertTrue(directLayer >= 0 && directGuard > directLayer && directOverlay > directGuard)
+    }
+
+    @Test
+    fun `coarse wet texels scale into canvas space`() {
+        val overlay = File(repositoryRoot(), WATER_OVERLAY_PASS_PATH).readText()
+        val composite = File(repositoryRoot(), COMPOSITE_PASS_PATH).readText()
+        val scaled = section(composite, SCALED_DRAW_START, REFERENCE_DRAW_START)
+
+        assertTrue("val cell = WatercolorKernel.CELL_SIZE" in overlay)
+        assertTrue("sourceToCanvasScale = cell.toFloat()" in overlay)
+        assertTrue("u_canvasSize" in overlay)
+        assertTrue("xx = screen.a * sourceToCanvasScale" in scaled)
+        assertTrue("xy = -screen.b * sourceToCanvasScale" in scaled)
+        assertTrue("yx = screen.b * sourceToCanvasScale" in scaled)
+        assertTrue("yy = screen.a * sourceToCanvasScale" in scaled)
+        assertTrue(
+            "sourcePerTargetX = screen.canvasPerScreen / sourceToCanvasScale" in scaled,
+        )
+    }
+
+    @Test
+    fun `committed frames report whether presentation succeeded`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+        val frame = section(source, DRAW_FRAME_START, STROKE_FRAME_START)
+        val compositeFailure = frame.substringAfter("if (!compositeIntoAccum(")
+            .substringBefore("val effectiveBufferTransform")
+        val presentFailure = frame.substringAfter("if (!presentToWindow(")
+            .substringBefore("GlErrors.checkGlDebug")
+
+        assertTrue("): Boolean {" in frame)
+        assertTrue("return false" in compositeFailure)
+        assertTrue("return false" in presentFailure)
+        assertTrue(
+            frame.lastIndexOf("return true") > frame.indexOf("GlErrors.checkGlDebug"),
+        )
+    }
+
+    @Test
     fun `cached rendering adds the tracing reference above paper`() {
         val source = File(repositoryRoot(), SANDWICH_CACHE_PATH).readText()
         val build = section(source, CACHE_BUILD_START, CACHE_BUILD_END)
@@ -48,6 +98,52 @@ class CanvasRendererGeometryContractTest {
         val layers = build.indexOf(CACHE_LAYER_LOOP)
 
         assertTrue(paper >= 0 && reference > paper && layers > reference)
+    }
+
+    @Test
+    fun `cached tracing reference writes source top into tile row zero`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+
+        assertTrue(
+            TOP_FIRST_REFERENCE_TILE_PROJECTION in source,
+            "the cache tile FBO must map source top to GL row zero",
+        )
+        assertTrue(
+            INVERTED_REFERENCE_TILE_PROJECTION !in source,
+            "a y-down tile projection vertically flips every 256 px strip",
+        )
+    }
+
+    @Test
+    fun `cached tracing query and draw share sampled geometry`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+        val query = section(
+            source,
+            TRACING_PAGE_QUERY_START,
+            TRACING_PAGE_QUERY_END,
+        )
+        val draw = section(
+            source,
+            TRACING_TILE_DRAW_START,
+            TRACING_TILE_DRAW_END,
+        )
+
+        assertTrue(CACHE_BASE_PAGE_WIRING in source)
+        assertTrue(REFERENCE_VISIBLE_PAGE_QUERY in query)
+        assertTrue(SHARED_REFERENCE_SOURCE_RECT in query)
+        assertTrue(SHARED_REFERENCE_SOURCE_RECT in draw)
+    }
+
+    @Test
+    fun `cached tracing reference excludes sampled pages before drawing`() {
+        val source = File(repositoryRoot(), SANDWICH_CACHE_PATH).readText()
+        val build = section(source, CACHE_BUILD_START, CACHE_BUILD_END)
+
+        val pages = build.indexOf(CACHE_BASE_PAGE_QUERY)
+        val allocation = build.indexOf(CACHE_SAFE_BASE_ALLOCATION)
+        val draw = build.indexOf(CACHE_REFERENCE_CALL)
+
+        assertTrue(pages >= 0 && allocation > pages && draw > allocation)
     }
 
     @Test
@@ -152,14 +248,21 @@ class CanvasRendererGeometryContractTest {
         const val APP_DIRECTORY = "app/src/main"
         const val CANVAS_RENDERER_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/CanvasRenderer.kt"
+        const val COMPOSITE_PASS_PATH =
+            "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/CompositePass.kt"
+        const val WATER_OVERLAY_PASS_PATH =
+            "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/WatercolorOverlayPass.kt"
         const val SANDWICH_CACHE_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/SandwichCache.kt"
+        const val DRAW_FRAME_START = "fun drawFrame("
         const val STROKE_FRAME_START = "fun drawStrokeFrame("
         const val STROKE_FRAME_END = "/**\n     * Hands one front-buffered frame"
         const val PRESENT_START = "private fun presentToWindow("
         const val PRESENT_END = "private fun rebuildSandwichIfNeeded("
         const val COMPOSITE_START = "private fun compositeIntoAccum("
         const val COMPOSITE_END = "private fun drawLayer("
+        const val SCALED_DRAW_START = "internal fun drawScaled("
+        const val REFERENCE_DRAW_START = "internal fun drawReferenceToScreen("
         const val PAPER_START = "private fun drawPaper("
         const val PAPER_END = "private fun setColorUniform("
         const val RELEASE_START = "fun release() {"
@@ -174,13 +277,41 @@ class CanvasRendererGeometryContractTest {
             "BufferScissor.toHardwareBufferScissor(scissor, bufferHeight, scissorScratch)"
         const val Y_UP_BUFFER_PROJECTION = "Mat4.orthoYUp("
         const val Y_DOWN_BUFFER_PROJECTION = "Mat4.orthoYDown("
+        const val TOP_FIRST_REFERENCE_TILE_PROJECTION =
+            "private val referenceTileProjection = Mat4.orthoYUp("
+        const val INVERTED_REFERENCE_TILE_PROJECTION =
+            "private val referenceTileProjection = Mat4.orthoYDown("
         const val PAPER_CALL = "drawPaper(screenTransform, bakedIntoBelow = useSandwich)"
         const val REFERENCE_CALL = "drawTracingReference(pass, screenTransform, rect)"
         const val LAYER_LOOP = "for (i in current.layers.indices)"
+        const val ACTIVE_LAYER_CALL =
+            "drawLayer(pass, current.activeIndex, current, screenTransform, rect, previewSpec)"
+        const val OVERLAY_CALL =
+            "drawWatercolorOverlay(current, screenTransform, rect, previewSpec, overlayNowNanos)"
+        const val ABOVE_CACHE_CALL = "readyCache.above"
+        const val DIRECT_OVERLAY_GUARD = "if (i == current.activeIndex)"
         const val CACHE_BUILD_START = "private fun buildTile("
         const val CACHE_BUILD_END = "private fun premultiplied("
         const val CACHE_PAPER_CLEAR = "fbo.clear("
         const val CACHE_REFERENCE_CALL = "drawBase?.invoke(key)"
+        const val TRACING_PAGE_QUERY_START =
+            "private fun sampleTracingReferencePages("
+        const val TRACING_PAGE_QUERY_END =
+            "/** Draws the reference above the paper"
+        const val TRACING_TILE_DRAW_START =
+            "private fun drawTracingReferenceTile("
+        const val TRACING_TILE_DRAW_END =
+            "private fun visibleCanvasRect("
+        const val SHARED_REFERENCE_SOURCE_RECT =
+            "tracingReferenceSourceRect(key)"
+        const val CACHE_BASE_PAGE_WIRING =
+            "sampleBelowBasePages = sampleTracingReferencePagesCallback"
+        const val REFERENCE_VISIBLE_PAGE_QUERY =
+            "textures.visiblePages(sourceRect, out)"
+        const val CACHE_BASE_PAGE_QUERY =
+            "sampleBasePages?.invoke(key, baseExcludedPages)"
+        const val CACHE_SAFE_BASE_ALLOCATION =
+            "pool.allocateNotOn(baseExcludedPages, basePageCount)"
         const val CACHE_LAYER_LOOP = "for (i in indices)"
         val PAPER_SCREEN_UNIFORM = Regex(
             """program\.uniform4f\(\s*"u_screenBasis",\s*screenTransform\.a,\s*""" +

@@ -6,6 +6,8 @@ import kotlin.test.assertEquals
 class ToolSwitcherTest {
 
     private val pencil = ToolKind.Brush(BrushPresets.DEFAULT.copy(id = "test.pencil"))
+    private val markerPreset = BrushPresets.DEFAULT.copy(id = "test.marker")
+    private val marker = ToolKind.Brush(markerPreset)
     private val ink = ToolKind.Brush(BrushPresets.INK_PEN)
     private val eraser = ToolKind.Brush(
         BrushPresets.DEFAULT.copy(id = "test.eraser", eraseMode = true),
@@ -32,6 +34,19 @@ class ToolSwitcherTest {
 
         switcher.popTemporary(TemporaryReason.PenButton)
         assertEquals(ToolSelection(ink), switcher.selection.value)
+    }
+
+    @Test
+    fun `shared paint assignment updates the base beneath a temporary tool`() {
+        val switcher = ToolSwitcher(pencil)
+        switcher.pushTemporary(eraser, TemporaryReason.PenButton)
+
+        switcher.replaceBasePaintPreset(markerPreset)
+
+        assertEquals(ToolSelection(eraser, TemporaryReason.PenButton), switcher.selection.value)
+
+        switcher.popTemporary(TemporaryReason.PenButton)
+        assertEquals(ToolSelection(marker), switcher.selection.value)
     }
 
     @Test

@@ -42,8 +42,9 @@ import kotlin.math.roundToInt
 internal fun SmudgeSettingsSheet(
     active: SmudgeParams,
     onChanged: (SmudgeParams) -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    ToolSheetScaffold(title = stringResource(R.string.tool_smudge)) {
+    ToolSheetScaffold(title = stringResource(R.string.tool_smudge), onClose = onDismiss) {
         val percent: @Composable (Float) -> String = {
             stringResource(R.string.brush_value_percent, it * PERCENT)
         }
@@ -116,8 +117,9 @@ internal fun SmudgeSettingsSheet(
 internal fun WaterSettingsSheet(
     active: WaterParams,
     onChanged: (WaterParams) -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    ToolSheetScaffold(title = stringResource(R.string.tool_water)) {
+    ToolSheetScaffold(title = stringResource(R.string.tool_water), onClose = onDismiss) {
         val percent: @Composable (Float) -> String = {
             stringResource(R.string.brush_value_percent, it * PERCENT)
         }
@@ -148,8 +150,9 @@ internal fun WaterSettingsSheet(
 internal fun BlurSettingsSheet(
     active: BlurParams,
     onChanged: (BlurParams) -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    ToolSheetScaffold(title = stringResource(R.string.tool_blur)) {
+    ToolSheetScaffold(title = stringResource(R.string.tool_blur), onClose = onDismiss) {
         val percent: @Composable (Float) -> String = {
             stringResource(R.string.brush_value_percent, it * PERCENT)
         }
@@ -194,8 +197,9 @@ internal fun BlurSettingsSheet(
 internal fun EyedropperSettingsSheet(
     active: EyedropperParams,
     onChanged: (EyedropperParams) -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    ToolSheetScaffold(title = stringResource(R.string.tool_eyedropper)) {
+    ToolSheetScaffold(title = stringResource(R.string.tool_eyedropper), onClose = onDismiss) {
         Text(
             text = stringResource(R.string.eyedropper_sample),
             style = MaterialTheme.typography.titleSmall,
@@ -225,7 +229,11 @@ internal fun EyedropperSettingsSheet(
 }
 
 @Composable
-private fun ToolSheetScaffold(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun ToolSheetScaffold(
+    title: String,
+    onClose: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.large,
@@ -237,10 +245,7 @@ private fun ToolSheetScaffold(title: String, content: @Composable ColumnScope.()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = SHEET_PADDING),
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall,
-            )
+            PanelHeader(title = title, onClose = onClose)
             content()
             Spacer(Modifier.height(SHEET_BOTTOM_GAP))
         }

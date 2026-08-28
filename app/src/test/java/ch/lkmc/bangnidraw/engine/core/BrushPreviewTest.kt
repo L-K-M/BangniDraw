@@ -42,9 +42,11 @@ class BrushPreviewTest {
     @Test
     fun `a reused render buffer matches fresh renders exactly`() {
         val buffer = BrushPreview.RenderBuffer(WIDTH, HEIGHT)
+        // Large first: if clear() ever failed, the small render would keep
+        // the large one's coverage and the mismatch would be loud.
         val presets = listOf(
-            BrushPresets.INK_PEN.copy(size = 2f),
             BrushPresets.INK_PEN.copy(size = 24f),
+            BrushPresets.INK_PEN.copy(size = 2f),
         )
 
         // A second render through the same buffer must not see the first's

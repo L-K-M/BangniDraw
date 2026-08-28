@@ -32,10 +32,9 @@ internal object BrushPreview {
         width: Int,
         height: Int,
     ): IntArray {
-        val pixels = render(preset, brushColor, paperColor, RenderBuffer(width, height))
-        val copy = IntArray(pixels.size)
-        pixels.copyInto(copy)
-        return copy
+        // The buffer is freshly allocated here and never reused, so its
+        // pixel array is exclusively owned by the caller — no copy needed.
+        return render(preset, brushColor, paperColor, RenderBuffer(width, height))
     }
 
     fun render(

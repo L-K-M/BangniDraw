@@ -331,6 +331,9 @@
     <string name="settings_mixbox_license">Mixbox 采用 CC BY-NC 4.0；此版本仅限非商业用途。</string>
     <string name="settings_accessibility_help">TalkBack 可以读出各项控件，但触摸浏览会拦截在画布上绘画的手势。</string>
     <string name="settings_debug">调试</string>
+    <string name="settings_shortcuts">键盘快捷键</string>
+    <string name="shortcut_brush">画笔</string>
+    <string name="shortcut_hold_eyedropper">临时吸管（按住）</string>
     <string name="settings_latency_overlay">延迟叠加层</string>
     <string name="settings_about">关于与许可证</string>
     <string name="settings_close">关闭设置</string>

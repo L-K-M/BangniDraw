@@ -365,6 +365,9 @@
     <string name="settings_mixbox_license">Mixbox is CC BY-NC 4.0; this build is non-commercial.</string>
     <string name="settings_accessibility_help">TalkBack announces the controls, but explore-by-touch intercepts drawing on the canvas.</string>
     <string name="settings_debug">Debug</string>
+    <string name="settings_shortcuts">Keyboard shortcuts</string>
+    <string name="shortcut_brush">Brush</string>
+    <string name="shortcut_hold_eyedropper">Eyedropper (hold)</string>
     <string name="settings_latency_overlay">Latency overlay</string>
     <string name="settings_about">About and licenses</string>
     <string name="settings_close">Close settings</string>

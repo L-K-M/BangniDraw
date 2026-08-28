@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.ui.home
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -25,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -250,6 +252,30 @@ internal fun SettingsSheet(
                 }
             }
 
+            item { SectionTitle(R.string.settings_shortcuts) }
+            item {
+                // The canvas keyboard table (engine/core/CanvasShortcut.kt),
+                // listed so DeX and keyboard-cover users can discover it.
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                ) {
+                    ShortcutRow(R.string.canvas_undo, "Ctrl+Z")
+                    ShortcutRow(R.string.canvas_redo, "Ctrl+Shift+Z")
+                    ShortcutRow(R.string.brush_size, "[   ]")
+                    ShortcutRow(R.string.shortcut_brush, "B")
+                    ShortcutRow(R.string.tool_eraser, "E")
+                    ShortcutRow(R.string.tool_smudge, "S")
+                    ShortcutRow(R.string.tool_water, "W")
+                    ShortcutRow(R.string.tool_fill, "G")
+                    ShortcutRow(R.string.tool_eyedropper, "I")
+                    ShortcutRow(R.string.shortcut_hold_eyedropper, "Alt")
+                    ShortcutRow(R.string.canvas_reset_view, "0")
+                    ShortcutRow(R.string.canvas_focus, "Tab")
+                    ShortcutRow(R.string.layers_title, "L")
+                    ShortcutRow(R.string.color_panel, "C")
+                }
+            }
             item {
                 Text(
                     text = stringResource(R.string.settings_accessibility_help),
@@ -359,6 +385,35 @@ private fun ReadoutRow(title: Int, value: String) {
     }
 }
 
+/** One shortcut reference row: the action, then its key in a cap. */
+@Composable
+private fun ShortcutRow(action: Int, key: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = SHORTCUT_ROW_MIN),
+    ) {
+        Text(
+            stringResource(action),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Surface(
+            shape = MaterialTheme.shapes.small,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Text(
+                key,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun AboutDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
@@ -414,6 +469,7 @@ private fun AboutDialog(onDismiss: () -> Unit) {
 
 private val SETTINGS_MAX_HEIGHT = 640.dp
 private val MIN_TARGET = 48.dp
+private val SHORTCUT_ROW_MIN = 28.dp
 private val ABOUT_ICON_SIZE = 96.dp
 private const val BYTES_PER_MIB = 1024L * 1024L
 private const val MILLIS_PER_SECOND = 1_000L

@@ -1771,3 +1771,21 @@ touchscreen hover too, not only a pen.
   action outcomes"), which adds `studio_share_failed` to both locales and
   repoints both share paths at it. Keeping the string change out of this
   PR's scope.
+
+## PR #109 — Water slider preset opacity (2026-08-28)
+
+- **R-105 ⏸️ Round 1, major, outside diff: "a downstream consumer may
+  still read `preset.opacity` as water load, so water strokes could render
+  at full strength regardless of the load slider."** Refuted against the
+  code: water load flows only through `WaterParams` →
+  `RmwStrokePolicy.spec` → `RmwSpec.Water/Watercolor.behavior` →
+  `WatercolorPass` (`u_waterLoad = behavior.waterLoad * batch.flow`);
+  slider write-back routes `updateActiveToolSecondary` → `withWaterLoad`;
+  size write-back routes `withSize`. `ToolSliderPreset.forKind` has exactly
+  two consumers (ToolRail, CanvasScreen's ledge), both reading size fields
+  plus `secondaryValue`. The one place `preset.opacity` feeds
+  `StrokeSpec.opacity` (CanvasScreen pen-down) is dead for Water:
+  `renderer.endStroke` dispatches RMW strokes to `endRmwStroke`, which takes
+  no opacity ceiling, and `WatercolorPass.stamp` reads `dilution`,
+  `alphaLock`, and `rmw` — never `stroke.opacity`. The old test name's
+  "pressure headroom" was `pressureFlow = pressureWater`, not opacity.

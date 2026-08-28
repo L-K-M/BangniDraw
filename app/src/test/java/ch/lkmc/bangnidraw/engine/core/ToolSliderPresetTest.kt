@@ -91,6 +91,18 @@ class ToolSliderPresetTest {
     }
 
     @Test
+    fun `changing water load never leaks into the primary water preset`() {
+        val low = ToolSliderPreset.forKind(ToolKind.Water(WaterParams(size = 80f, waterLoad = 0.2f)))!!
+        val high = ToolSliderPreset.forKind(ToolKind.Water(WaterParams(size = 80f, waterLoad = 0.9f)))!!
+
+        assertEquals(low.size, high.size)
+        assertEquals(low.sizeMin, high.sizeMin)
+        assertEquals(low.sizeMax, high.sizeMax)
+        assertEquals(low.opacity, high.opacity)
+        assertEquals(low.flow, high.flow)
+    }
+
+    @Test
     fun `fill and eyedropper get no sliders`() {
         assertNull(ToolSliderPreset.forKind(ToolKind.Fill(FillParams())))
         assertNull(ToolSliderPreset.forKind(ToolKind.Eyedropper(EyedropperParams())))

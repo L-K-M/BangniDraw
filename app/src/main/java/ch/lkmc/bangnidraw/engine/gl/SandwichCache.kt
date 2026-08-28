@@ -47,6 +47,7 @@ class SandwichCache(
     private val fbo = GlFbo()
     private val pass = TileCompositePass(program, state, pool)
     private val excludedPages = IntArray(2)
+    private val baseExcludedPages = IntArray(TileGrid.MAX_TILES)
 
     /** A whole half needs rebuilding; individual tiles are rebuilt as they are drawn. */
     private var belowStale = true
@@ -139,6 +140,7 @@ class SandwichCache(
         stack: LayerStack,
         paper: Int,
         layerTextures: (Int) -> LayerTextures,
+        sampleBelowBasePages: (TileKey, IntArray) -> Int,
         drawBelowBase: (TileKey) -> Unit,
     ) {
         // An unavailable half never fills its built set, so its stale flag can
@@ -161,6 +163,7 @@ class SandwichCache(
                     indices = 0 until activeIndex,
                     stack = stack,
                     layerTextures = layerTextures,
+                    sampleBasePages = sampleBelowBasePages,
                     drawBase = drawBelowBase,
                 )
                 if (built) belowBuilt.add(key.packed)
@@ -175,6 +178,7 @@ class SandwichCache(
                     indices = (activeIndex + 1) until stack.layers.size,
                     stack = stack,
                     layerTextures = layerTextures,
+                    sampleBasePages = null,
                     drawBase = null,
                 )
                 if (built) aboveBuilt.add(key.packed)
@@ -188,8 +192,10 @@ class SandwichCache(
      * Composites one tile of a half, in canvas space.
      *
      * Each contributing layer reads the partial composite and its own tile,
-     * then writes a fresh slice excluded from both sampled pages. The cache
-     * adopts the final slice only after every pass succeeds, so a refusal keeps
+     * then writes a fresh slice excluded from both sampled pages. The base
+     * likewise declares its sampled pages before the first target is allocated,
+     * keeping tracing textures out of a feedback loop. The cache adopts the
+     * final slice only after every pass succeeds, so a refusal keeps
      * the previous cached tile intact for a later retry.
      */
     private fun buildTile(
@@ -199,10 +205,13 @@ class SandwichCache(
         indices: IntRange,
         stack: LayerStack,
         layerTextures: (Int) -> LayerTextures,
+        sampleBasePages: ((TileKey, IntArray) -> Int)?,
         drawBase: ((TileKey) -> Unit)?,
     ): Boolean {
+        val basePageCount = sampleBasePages?.invoke(key, baseExcludedPages) ?: 0
         var current = try {
-            pool.allocate()
+            if (basePageCount == 0) pool.allocate()
+            else pool.allocateNotOn(baseExcludedPages, basePageCount)
         } catch (_: PoolExhausted) {
             return false
         }

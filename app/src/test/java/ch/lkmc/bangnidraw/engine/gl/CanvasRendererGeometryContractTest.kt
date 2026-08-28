@@ -51,6 +51,45 @@ class CanvasRendererGeometryContractTest {
     }
 
     @Test
+    fun `cached tracing reference writes source top into tile row zero`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+
+        assertTrue(
+            TOP_FIRST_REFERENCE_TILE_PROJECTION in source,
+            "the cache tile FBO must map source top to GL row zero",
+        )
+        assertTrue(
+            INVERTED_REFERENCE_TILE_PROJECTION !in source,
+            "a y-down tile projection vertically flips every 256 px strip",
+        )
+    }
+
+    @Test
+    fun `cached tracing reference reports every sampled page`() {
+        val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
+        val query = section(
+            source,
+            TRACING_PAGE_QUERY_START,
+            TRACING_PAGE_QUERY_END,
+        )
+
+        assertTrue(CACHE_BASE_PAGE_WIRING in source)
+        assertTrue(REFERENCE_VISIBLE_PAGE_QUERY in query)
+    }
+
+    @Test
+    fun `cached tracing reference excludes sampled pages before drawing`() {
+        val source = File(repositoryRoot(), SANDWICH_CACHE_PATH).readText()
+        val build = section(source, CACHE_BUILD_START, CACHE_BUILD_END)
+
+        val pages = build.indexOf(CACHE_BASE_PAGE_QUERY)
+        val allocation = build.indexOf(CACHE_SAFE_BASE_ALLOCATION)
+        val draw = build.indexOf(CACHE_REFERENCE_CALL)
+
+        assertTrue(pages >= 0 && allocation > pages && draw > allocation)
+    }
+
+    @Test
     fun `canvas void is cleared behind paper and owns a dedicated quad lifetime`() {
         val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
         val paper = section(source, PAPER_START, PAPER_END)
@@ -174,6 +213,10 @@ class CanvasRendererGeometryContractTest {
             "BufferScissor.toHardwareBufferScissor(scissor, bufferHeight, scissorScratch)"
         const val Y_UP_BUFFER_PROJECTION = "Mat4.orthoYUp("
         const val Y_DOWN_BUFFER_PROJECTION = "Mat4.orthoYDown("
+        const val TOP_FIRST_REFERENCE_TILE_PROJECTION =
+            "private val referenceTileProjection = Mat4.orthoYUp("
+        const val INVERTED_REFERENCE_TILE_PROJECTION =
+            "private val referenceTileProjection = Mat4.orthoYDown("
         const val PAPER_CALL = "drawPaper(screenTransform, bakedIntoBelow = useSandwich)"
         const val REFERENCE_CALL = "drawTracingReference(pass, screenTransform, rect)"
         const val LAYER_LOOP = "for (i in current.layers.indices)"
@@ -181,6 +224,18 @@ class CanvasRendererGeometryContractTest {
         const val CACHE_BUILD_END = "private fun premultiplied("
         const val CACHE_PAPER_CLEAR = "fbo.clear("
         const val CACHE_REFERENCE_CALL = "drawBase?.invoke(key)"
+        const val TRACING_PAGE_QUERY_START =
+            "private fun sampleTracingReferencePages("
+        const val TRACING_PAGE_QUERY_END =
+            "/** Draws the reference above the paper"
+        const val CACHE_BASE_PAGE_WIRING =
+            "sampleBelowBasePages = sampleTracingReferencePagesCallback"
+        const val REFERENCE_VISIBLE_PAGE_QUERY =
+            "textures.visiblePages(sourceRect, out)"
+        const val CACHE_BASE_PAGE_QUERY =
+            "sampleBasePages?.invoke(key, baseExcludedPages)"
+        const val CACHE_SAFE_BASE_ALLOCATION =
+            "pool.allocateNotOn(baseExcludedPages, basePageCount)"
         const val CACHE_LAYER_LOOP = "for (i in indices)"
         val PAPER_SCREEN_UNIFORM = Regex(
             """program\.uniform4f\(\s*"u_screenBasis",\s*screenTransform\.a,\s*""" +

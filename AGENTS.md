@@ -159,6 +159,14 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - Tracing references are private project assets, not paint. They reserve one
   layer of tile budget, render in `SandwichCache.Below` above paper, and never
   enter thumbnails, flatten, gallery sync, sharing, export, or painting undo.
+  The cached reference base draws into tile-array FBOs, where logical y = 0
+  must land in GL row zero; its tile projection is therefore `orthoYUp`.
+  `orthoYDown` flips each 256 px strip even though the direct viewport path
+  looks correct.
+  Before allocating that cache target, the base must report every reference
+  page it may sample and use `allocateNotOn` with the returned live prefix.
+  Sampling and drawing one texture-array page is undefined even when the
+  slices differ.
   Photo Picker is the import boundary; do not add storage permission or retain
   the picked URI. Checkpoints delete only the superseded committed asset;
   reopen preserves the metadata-named asset even when unreadable and sweeps

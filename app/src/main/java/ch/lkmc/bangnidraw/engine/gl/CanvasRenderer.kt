@@ -171,10 +171,17 @@ class CanvasRenderer(
 
     private val projection = FloatArray(Mat4.SIZE)
     private val identity = Mat4.identity()
-    private val referenceTileProjection = Mat4.orthoYDown(
+    // Tile slices store logical top in GL row zero. A y-down target projection
+    // instead flips each cached 256 px strip vertically.
+    private val referenceTileProjection = Mat4.orthoYUp(
         TILE_SIZE.toFloat(),
         TILE_SIZE.toFloat(),
     )
+
+    // Reused bound references keep cache rebuilds allocation-free.
+    private val sampleTracingReferencePagesCallback =
+        ::sampleTracingReferencePages
+    private val drawTracingReferenceTileCallback = ::drawTracingReferenceTile
 
     var caps: GlCaps? = null
         private set
@@ -1895,7 +1902,8 @@ class CanvasRenderer(
             layerTextures = { index ->
                 textures(current.layers[index].id) ?: LayerTextures(grid, tiles)
             },
-            drawBelowBase = ::drawTracingReferenceTile,
+            sampleBelowBasePages = sampleTracingReferencePagesCallback,
+            drawBelowBase = drawTracingReferenceTileCallback,
         )
     }
 
@@ -1923,6 +1931,25 @@ class CanvasRenderer(
             bufferTransform = identity,
             dirtyRect = sourceRect,
         )
+    }
+
+    /** Reports every reference page [drawTracingReferenceTile] may sample. */
+    private fun sampleTracingReferencePages(
+        key: TileKey,
+        out: IntArray,
+    ): Int {
+        val reference = tracingReference ?: return 0
+        if (reference.visibility != ReferenceVisibility.VISIBLE || reference.opacity <= 0f) return 0
+        val textures = referenceTextures?.layer ?: return 0
+        val canvasRect = grid.tileRect(key)
+        val sourceRect = reference.transform.sourceBoundsOf(
+            destination = canvasRect,
+            sourceWidth = reference.imageWidth,
+            sourceHeight = reference.imageHeight,
+        )
+        if (sourceRect.isEmpty) return 0
+
+        return textures.visiblePages(sourceRect, out)
     }
 
     /** Draws the reference above the paper while Below's target tile is bound. */

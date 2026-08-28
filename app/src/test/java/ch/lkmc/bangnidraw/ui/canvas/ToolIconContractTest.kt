@@ -18,7 +18,11 @@ class ToolIconContractTest {
         assertTrue("BrushToolGlyph.MARKER -> ToolGlyphs.Marker" in rail)
         assertTrue("BrushToolGlyph.SPRAY_CAN -> ToolGlyphs.SprayCan" in rail)
         assertTrue("BrushToolGlyph.WATERCOLOR -> WaterToolGlyphs.Watercolor" in rail)
+        assertTrue("BrushToolGlyph.PIGMENT_WASH -> ToolGlyphs.PigmentWash" in rail)
         assertTrue("description = { brushPresetName(preset) }" in rail)
+        // The wash must not share the Water tool's droplet: two identical
+        // glyphs in one rail defeat the glance-recognition the rail is for.
+        assertFalse("BrushToolGlyph.PIGMENT_WASH -> Icons.Filled.WaterDrop" in rail)
         assertFalse("if (preset.eraseMode) stringResource(R.string.tool_eraser)" in rail)
         assertFalse("DeleteSweep" in rail)
         assertFalse("Icons.Filled.Highlight" in rail)
@@ -34,14 +38,18 @@ class ToolIconContractTest {
         assertEquals(ICON_VIEWPORT, ToolGlyphs.SprayCan.viewportHeight)
         assertEquals(ICON_VIEWPORT, WaterToolGlyphs.Watercolor.viewportWidth)
         assertEquals(ICON_VIEWPORT, WaterToolGlyphs.Watercolor.viewportHeight)
+        assertEquals(ICON_VIEWPORT, ToolGlyphs.PigmentWash.viewportWidth)
+        assertEquals(ICON_VIEWPORT, ToolGlyphs.PigmentWash.viewportHeight)
         assertTrue(ToolGlyphs.Marker.name.contains("Marker"))
         assertTrue(ToolGlyphs.Eraser.name.contains("Eraser"))
         assertTrue(ToolGlyphs.SprayCan.name.contains("SprayCan"))
         assertTrue(WaterToolGlyphs.Watercolor.name.contains("Watercolor"))
+        assertTrue(ToolGlyphs.PigmentWash.name.contains("PigmentWash"))
         assertEquals(SEMANTIC_PARTS, ToolGlyphs.Marker.root.size)
         assertEquals(SEMANTIC_PARTS, ToolGlyphs.Eraser.root.size)
         assertEquals(SEMANTIC_PARTS, ToolGlyphs.SprayCan.root.size)
         assertEquals(SEMANTIC_PARTS, WaterToolGlyphs.Watercolor.root.size)
+        assertEquals(SEMANTIC_PARTS, ToolGlyphs.PigmentWash.root.size)
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()

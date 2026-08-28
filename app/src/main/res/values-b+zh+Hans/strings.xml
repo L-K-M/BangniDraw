@@ -67,6 +67,8 @@
     <string name="paper_gray">灰色纸张</string>
     <string name="paper_black">黑色纸张</string>
     <string name="paper_transparent">透明纸张</string>
+    <string name="paper_custom">自定义纸张</string>
+    <string name="paper_custom_preview">自定义纸张颜色预览</string>
     <string name="paper_transparent_hint">导出时背景为透明。JPEG 会填充为白色；PNG 保留透明。</string>
 
     <string name="canvas_back">返回画室</string>

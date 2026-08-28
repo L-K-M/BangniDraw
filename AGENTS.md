@@ -91,6 +91,10 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - The CPU reference implementations in `engine/core` (`Composite`, the
   mixing formula, dab falloff) and the GLSL must stay trivially close; when
   one changes, change both, and let the unit tests pin the semantics.
+- `TileFlusher.checkpointFlush()` is the pixel-to-metadata commit barrier.
+  A `false` result must not write `project.json`, clear dirty state, or let a
+  leave navigate; the pending mirror still holds newer pixels that disk does
+  not.
 - `DabBounds` and `WatercolorDabBounds` own dab-edge arithmetic. Live
   `DabBatch`, `DabPass`, and `WatercolorPass` paths retain primitive edges;
   do not rebuild `IntRect` or tile-scissor objects per dab.

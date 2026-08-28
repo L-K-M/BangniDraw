@@ -45,6 +45,12 @@ internal object PixelChannelOrder {
         }
     }
 
+    /**
+     * Temporarily reorders [pixels] in place as native `ARGB_8888` bytes,
+     * runs [block], then restores RGBA even when [block] throws. The block
+     * must not retain the array or a view over it, such as a wrapped
+     * `ByteBuffer`, because that storage returns to RGBA when the block ends.
+     */
     inline fun <T> withArgb8888Bytes(pixels: ByteArray, block: (ByteArray) -> T): T {
         rgbaToArgb8888InPlace(pixels)
         return try {

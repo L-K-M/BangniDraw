@@ -1,7 +1,5 @@
 package ch.lkmc.bangnidraw.engine.core
 
-import kotlin.math.ceil
-
 /** Reusable full- and coarse-resolution bounds for one watercolor dab. */
 internal class WatercolorDabBounds(private val grid: TileGrid) {
 
@@ -56,9 +54,7 @@ internal class WatercolorDabBounds(private val grid: TileGrid) {
         }
         DabBounds.requireValid(x, y, radius)
 
-        val spreadPx = ceil(
-            radius * spread * WatercolorDabPlan.SPREAD_RADIUS_FRACTION,
-        ).toInt().coerceAtMost(WatercolorDabPlan.MAX_SPREAD_PX)
+        val spreadPx = WatercolorDabPlan.spreadPx(radius, spread)
         outputLeft = clip(DabBounds.left(x, radius).toLong() - spreadPx, grid.width)
         outputTop = clip(DabBounds.top(y, radius).toLong() - spreadPx, grid.height)
         outputRight = clip(DabBounds.right(x, radius).toLong() + spreadPx, grid.width)

@@ -5,6 +5,7 @@ import android.view.Choreographer
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
+import ch.lkmc.bangnidraw.engine.core.ActualSizePolicy
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.FitTransform
@@ -300,6 +301,14 @@ class CanvasTouchHandler(
         snap.reset()
     }
 
+    /**
+     * The 100 %-zoom view anchored at the viewport centre — the reset pill's
+     * long-press — or null before the first layout. The handler owns [fit],
+     * so the policy's 1/fit.scale is computed here, not in the composable.
+     */
+    fun actualSizeView(): ViewTransform? =
+        fit?.let { ActualSizePolicy.transform(it, view) }
+
     fun setViewport(canvas: CanvasSize, width: Int, height: Int) {
         val next = if (width > 0 && height > 0) {
             FitTransform(
@@ -544,6 +553,30 @@ class CanvasTouchHandler(
         for (i in trackIds.indices) trackIds[i] = NO_POINTER
         navIds[0] = NO_POINTER
         navIds[1] = NO_POINTER
+    }
+
+    /**
+     * Rolls back only a rejected stroke owner or the gesture's last pointer.
+     *
+     * A flagged `ACTION_POINTER_UP` may be a rejected palm beside a live pen;
+     * that pointer follows normal per-pointer cleanup without touching the pen.
+     */
+    internal fun handlePlatformCancellation(
+        pointerId: Int,
+        action: Int,
+        flags: Int,
+        apiLevel: Int,
+        timeNs: Long,
+    ): Boolean {
+        // The flag is delivered only on T+ to apps targeting T+; the runtime
+        // check is a safe superset of that platform contract.
+        if (apiLevel < Build.VERSION_CODES.TIRAMISU) return false
+        if (action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_POINTER_UP) return false
+        if (flags and MotionEvent.FLAG_CANCELED == 0) return false
+        if (action == MotionEvent.ACTION_POINTER_UP && pointerId != drawingId) return false
+
+        handleCancel(timeNs)
+        return true
     }
 
     /** Drives the pending window and the long press when no event arrives. */
@@ -944,9 +977,16 @@ class CanvasTouchHandler(
      */
     override fun onTouch(v: View?, event: MotionEvent?): Boolean {
         val e = event ?: return false
+        val action = e.actionMasked
         val index = e.actionIndex
         val id = e.getPointerId(index)
         val timeNs = e.eventTime * 1_000_000L
+        if (handlePlatformCancellation(
+                id, action, e.flags, Build.VERSION.SDK_INT, timeNs,
+            )
+        ) {
+            return true
+        }
         // §8: one predictor per surface, recreated with it. `v` is the
         // SurfaceView the session draws into, so building it from here means
         // nothing has to be plumbed through the composable that owns both.
@@ -958,8 +998,8 @@ class CanvasTouchHandler(
         // value the `when` had already switched on — invisible to anyone
         // scanning the arms, and silently inherited by whatever action is added
         // to that arm next.
-        if (e.actionMasked == MotionEvent.ACTION_DOWN) requestUnbuffered(v, e)
-        when (e.actionMasked) {
+        if (action == MotionEvent.ACTION_DOWN) requestUnbuffered(v, e)
+        when (action) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 handleDown(
                     id, toolOf(e.getToolType(index)), e.getX(index), e.getY(index), timeNs,
@@ -1032,8 +1072,8 @@ class CanvasTouchHandler(
             else -> return false
         }
         val downTool = toolOf(e.getToolType(index))
-        val isDown = e.actionMasked == MotionEvent.ACTION_DOWN ||
-            e.actionMasked == MotionEvent.ACTION_POINTER_DOWN
+        val isDown = action == MotionEvent.ACTION_DOWN ||
+            action == MotionEvent.ACTION_POINTER_DOWN
         if (isDown && (downTool == PointerTool.STYLUS || downTool == PointerTool.ERASER)) {
             postHoverFrame()
         }

@@ -48,6 +48,7 @@ import ch.lkmc.bangnidraw.engine.core.ViewportResizePolicy
 import ch.lkmc.bangnidraw.engine.core.ViewportResizeState
 import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
 import ch.lkmc.bangnidraw.engine.core.ThemeTone
+import ch.lkmc.bangnidraw.engine.core.WatercolorOverlayKernel
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxLut
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxShaderSource
 
@@ -123,6 +124,26 @@ class CanvasRenderer(
         readback?.poll()
     }
 
+    /** Advances transient wet presentation without changing document pixels. */
+    internal fun refreshWatercolorOverlay(): WatercolorOverlayKernel.RefreshResult {
+        val current = stack
+        val visibleLayer = if (current == null) {
+            null
+        } else {
+            activeOverlayLayer(current, stroke)?.id
+        }
+
+        return watercolorPass?.refreshOverlay(visibleLayer, clock.nowNanos())
+            ?: WatercolorOverlayKernel.RefreshResult(
+                action = WatercolorOverlayKernel.Refresh.IDLE,
+                dirty = IntRect.EMPTY,
+            )
+    }
+
+    /** GL-thread query used to arm the low-frequency presentation clock. */
+    internal fun hasWatercolorOverlay(): Boolean =
+        watercolorPass?.hasWetOverlay() == true
+
     /**
      * Blocks the GL thread until everything in flight has been handed over —
      * the checkpoint's "the last stroke's pixels are on the CPU" barrier.
@@ -171,10 +192,17 @@ class CanvasRenderer(
 
     private val projection = FloatArray(Mat4.SIZE)
     private val identity = Mat4.identity()
-    private val referenceTileProjection = Mat4.orthoYDown(
+    // Tile slices store logical top in GL row zero. A y-down target projection
+    // instead flips each cached 256 px strip vertically.
+    private val referenceTileProjection = Mat4.orthoYUp(
         TILE_SIZE.toFloat(),
         TILE_SIZE.toFloat(),
     )
+
+    // Reused bound references keep cache rebuilds allocation-free.
+    private val sampleTracingReferencePagesCallback =
+        ::sampleTracingReferencePages
+    private val drawTracingReferenceTileCallback = ::drawTracingReferenceTile
 
     var caps: GlCaps? = null
         private set
@@ -194,6 +222,7 @@ class CanvasRenderer(
     private var blurVertical: GlProgram? = null
     private var watercolorWet: GlProgram? = null
     private var watercolorColor: GlProgram? = null
+    private var watercolorOverlay: GlProgram? = null
     private var smudgeDepositMix: GlProgram? = null
     private var smudgeAbsorbMix: GlProgram? = null
     private var watercolorColorMix: GlProgram? = null
@@ -369,7 +398,7 @@ class CanvasRenderer(
         // inserting a program above PREVIEW would silently hand the preview
         // pass someone else's shaders. The `onContextLost` comment records that
         // this family of lists has already been wrong twice.
-        val linked = ArrayList<GlProgram>(18)
+        val linked = ArrayList<GlProgram>()
         var compositeProgram: GlProgram? = null
         var presentProgram: GlProgram? = null
         var checkerProgram: GlProgram? = null
@@ -381,6 +410,7 @@ class CanvasRenderer(
         var blurVerticalProgram: GlProgram? = null
         var watercolorWetProgram: GlProgram? = null
         var watercolorColorProgram: GlProgram? = null
+        var watercolorOverlayProgram: GlProgram? = null
         var smudgeDepositMixProgram: GlProgram? = null
         var smudgeAbsorbMixProgram: GlProgram? = null
         var watercolorColorMixProgram: GlProgram? = null
@@ -401,6 +431,8 @@ class CanvasRenderer(
             blurVerticalProgram = GlProgram.link(Shaders.BLUR_VERTICAL).also { linked += it }
             watercolorWetProgram = GlProgram.link(Shaders.WATERCOLOR_WET).also { linked += it }
             watercolorColorProgram = GlProgram.link(Shaders.WATERCOLOR_COLOR).also { linked += it }
+            watercolorOverlayProgram =
+                GlProgram.link(Shaders.WATERCOLOR_OVERLAY).also { linked += it }
             mergeProgram = GlProgram.link(Shaders.MERGE).also { linked += it }
             previewProgram = GlProgram.link(Shaders.PREVIEW).also { linked += it }
             val mixboxSource = MixboxShaderSource.load(assets)
@@ -433,6 +465,7 @@ class CanvasRenderer(
         checkNotNull(blurVerticalProgram)
         checkNotNull(watercolorWetProgram)
         checkNotNull(watercolorColorProgram)
+        checkNotNull(watercolorOverlayProgram)
         checkNotNull(mergeProgram)
         checkNotNull(previewProgram)
         composite = compositeProgram
@@ -463,6 +496,7 @@ class CanvasRenderer(
         blurVertical = blurVerticalProgram
         watercolorWet = watercolorWetProgram
         watercolorColor = watercolorColorProgram
+        watercolorOverlay = watercolorOverlayProgram
         smudgeDepositMix = smudgeDepositMixProgram
         smudgeAbsorbMix = smudgeAbsorbMixProgram
         watercolorColorMix = watercolorColorMixProgram
@@ -481,12 +515,14 @@ class CanvasRenderer(
             smudgeAbsorbMixProgram,
             lutTexture,
         )
+        val wetOverlayPass = WatercolorOverlayPass(canvas, watercolorOverlayProgram, state)
         watercolorPass = WatercolorPass(
             canvas,
             tiles,
             state,
             watercolorWetProgram,
             watercolorColorProgram,
+            wetOverlayPass,
             watercolorColorMixProgram,
             lutTexture,
         )
@@ -791,10 +827,17 @@ class CanvasRenderer(
     internal val strokePreviewDirty: IntRect
         get() = strokeDirty.union(previousTailRect)
 
-    /** A new surface, or a resize: `Accum` and `Scratch` are the only casualties. */
+    /** Rebuilds viewport targets and their cached FBO attachments after a resize. */
     fun onSurfaceChanged(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
         val previous = fit
+        val viewportChanged = width != viewportWidth || height != viewportHeight
+        if (viewportChanged) {
+            // Drop old attachments before GLES can reuse deleted texture IDs.
+            fbo.release()
+            readFbo.release()
+        }
+
         viewportWidth = width
         viewportHeight = height
         val next = FitTransform(
@@ -1347,13 +1390,16 @@ class CanvasRenderer(
      * transform × pixelPos`). It is identity for every offscreen pass here and
      * only ever binds on the present quad. The canonical half-turn takes the
      * device fallback documented in §8.5.
+     *
+     * Returns true after presenting the frame or explicitly clearing an
+     * unready target.
      */
     fun drawFrame(
         frameBufferId: Int,
         bufferWidth: Int,
         bufferHeight: Int,
         bufferTransform: FloatArray,
-    ) {
+    ): Boolean {
         // §10.1: every GL-thread entry maps whatever readback has finished.
         readback?.poll()
         val current = stack
@@ -1373,7 +1419,7 @@ class CanvasRenderer(
             GLES30.glClearColor(0f, 0f, 0f, 0f)
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
             state.invalidate()
-            return
+            return true
         }
 
         // graphics-core runs this with a framebuffer already bound and may have
@@ -1382,15 +1428,23 @@ class CanvasRenderer(
         // mattered, which is worse than the redundancy it saves.
         state.invalidate()
 
-        if (!compositeIntoAccum(current, screenTransform, pass, fullCanvasRect, null, null)) return
+        if (!compositeIntoAccum(current, screenTransform, pass, fullCanvasRect, null, null)) {
+            return false
+        }
 
         val effectiveBufferTransform = effectiveBufferTransform(
             bufferTransform,
             bufferWidth,
             bufferHeight,
         )
-        presentToWindow(frameBufferId, bufferWidth, bufferHeight, effectiveBufferTransform, null)
+        if (!presentToWindow(
+                frameBufferId, bufferWidth, bufferHeight, effectiveBufferTransform, null,
+            )
+        ) {
+            return false
+        }
         GlErrors.checkGlDebug("drawFrame")
+        return true
     }
 
     /**
@@ -1564,6 +1618,7 @@ class CanvasRenderer(
     ): Boolean {
         rebuildSandwichIfNeeded(current, screenTransform)
 
+        val overlayNowNanos = clock.nowNanos()
         if (!fbo.bindTexture2d(accum.texture)) return false
         state.viewport(0, 0, accum.width, accum.height)
         if (accumScissor == null) {
@@ -1593,6 +1648,7 @@ class CanvasRenderer(
                 rect, scratch.texture,
             )
             drawLayer(pass, current.activeIndex, current, screenTransform, rect, previewSpec)
+            drawWatercolorOverlay(current, screenTransform, rect, previewSpec, overlayNowNanos)
             pass.draw(
                 readyCache.above, BlendMode.NORMAL, 1f, screenTransform, projection, identity,
                 rect, scratch.texture,
@@ -1607,9 +1663,45 @@ class CanvasRenderer(
 
             for (i in current.layers.indices) {
                 drawLayer(pass, i, current, screenTransform, rect, previewSpec)
+                if (i == current.activeIndex) {
+                    drawWatercolorOverlay(current, screenTransform, rect, previewSpec, overlayNowNanos)
+                }
             }
         }
         return true
+    }
+
+    private fun drawWatercolorOverlay(
+        current: LayerStack,
+        screenTransform: ScreenTransform,
+        rect: IntRect,
+        previewSpec: StrokeSpec?,
+        nowNanos: Long,
+    ) {
+        val layer = activeOverlayLayer(current, previewSpec) ?: return
+        watercolorPass?.drawOverlay(
+            layer = layer.id,
+            screen = screenTransform,
+            projection = projection,
+            bufferTransform = identity,
+            canvasDirty = rect,
+            nowNanos = nowNanos,
+            opacity = layer.props.opacity,
+        )
+    }
+
+    private fun activeOverlayLayer(
+        current: LayerStack,
+        previewSpec: StrokeSpec?,
+    ): Layer? {
+        val layer = current.layers.getOrNull(current.activeIndex) ?: return null
+        val props = layer.props
+        val previewsStroke = previewSpec?.layerId == layer.id
+        if (!LayerVisibilityPolicy.shouldDraw(props.visible, props.opacity, previewsStroke)) {
+            return null
+        }
+
+        return layer
     }
 
     private fun drawLayer(
@@ -1888,7 +1980,8 @@ class CanvasRenderer(
             layerTextures = { index ->
                 textures(current.layers[index].id) ?: LayerTextures(grid, tiles)
             },
-            drawBelowBase = ::drawTracingReferenceTile,
+            sampleBelowBasePages = sampleTracingReferencePagesCallback,
+            drawBelowBase = drawTracingReferenceTileCallback,
         )
     }
 
@@ -1918,19 +2011,37 @@ class CanvasRenderer(
         )
     }
 
-    /** Draws the reference above the paper while Below's target tile is bound. */
-    private fun drawTracingReferenceTile(key: TileKey) {
-        val reference = tracingReference ?: return
-        if (reference.visibility != ReferenceVisibility.VISIBLE || reference.opacity <= 0f) return
-        val textures = referenceTextures?.layer ?: return
-        val pass = compositePass ?: return
-        val canvasRect = grid.tileRect(key)
+    /** Reports every reference page [drawTracingReferenceTile] may sample. */
+    private fun sampleTracingReferencePages(
+        key: TileKey,
+        out: IntArray,
+    ): Int {
+        val sourceRect = tracingReferenceSourceRect(key) ?: return 0
+        val textures = referenceTextures?.layer ?: return 0
+
+        return textures.visiblePages(sourceRect, out)
+    }
+
+    /** Keeps page exclusion and tile drawing on the same sampled geometry. */
+    private fun tracingReferenceSourceRect(key: TileKey): IntRect? {
+        val reference = tracingReference ?: return null
+        if (reference.visibility != ReferenceVisibility.VISIBLE || reference.opacity <= 0f) return null
         val sourceRect = reference.transform.sourceBoundsOf(
-            destination = canvasRect,
+            destination = grid.tileRect(key),
             sourceWidth = reference.imageWidth,
             sourceHeight = reference.imageHeight,
         )
-        if (sourceRect.isEmpty) return
+        if (sourceRect.isEmpty) return null
+
+        return sourceRect
+    }
+
+    /** Draws the reference above the paper while Below's target tile is bound. */
+    private fun drawTracingReferenceTile(key: TileKey) {
+        val reference = tracingReference ?: return
+        val sourceRect = tracingReferenceSourceRect(key) ?: return
+        val textures = referenceTextures?.layer ?: return
+        val pass = compositePass ?: return
 
         pass.drawReferenceToTile(
             textures = textures,
@@ -2044,6 +2155,7 @@ class CanvasRenderer(
         smudgeDepositMix = null
         watercolorWet = null
         watercolorColor = null
+        watercolorOverlay = null
         smudgeAbsorbMix = null
         merge = null
         watercolorColorMix = null
@@ -2104,6 +2216,7 @@ class CanvasRenderer(
         smudgeDepositMix?.release()
         watercolorWet?.release()
         watercolorColor?.release()
+        watercolorOverlay?.release()
         smudgeAbsorbMix?.release()
         merge?.release()
         watercolorColorMix?.release()

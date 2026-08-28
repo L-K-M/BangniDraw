@@ -102,6 +102,30 @@ class TileIndex(val grid: TileGrid) {
     }
 
     /**
+     * Fills [out] with the unique pages sampled inside [rect].
+     *
+     * [visibleKeys] already sorts by page, so compacting its output in place
+     * stays linear and allocation-free. The returned count is the live prefix.
+     */
+    internal fun visiblePages(rect: IntRect, out: IntArray, scratch: LongArray): Int {
+        val keyCount = visibleKeys(rect, out, scratch)
+        if (keyCount == 0) return 0
+
+        var page = get(TileKey(out[0])).page
+        var pageCount = 1
+        out[0] = page
+        for (index in 1 until keyCount) {
+            val nextPage = get(TileKey(out[index])).page
+            if (nextPage == page) continue
+
+            page = nextPage
+            out[pageCount++] = page
+        }
+
+        return pageCount
+    }
+
+    /**
      * Appends every key with a slice to [out], in row-major order.
      *
      * Used where the whole layer is the subject — flatten, export, the

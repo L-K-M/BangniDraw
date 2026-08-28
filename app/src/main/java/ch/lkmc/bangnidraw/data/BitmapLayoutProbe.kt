@@ -37,7 +37,11 @@ internal object BitmapLayoutProbe {
 
         // A probe that wrote nothing would otherwise silently pick the
         // layout that reintroduces the swap this probe exists to prevent.
-        error("ARGB_8888 probe bytes match neither RGBA nor BGRA")
+        error(
+            "ARGB_8888 probe bytes match neither RGBA nor BGRA " +
+                "(byte0=0x%02x, byte2=0x%02x)"
+                    .format(bytes.get(RED_OFFSET), bytes.get(BLUE_OFFSET)),
+        )
     }
 
     private const val PROBE_RED = 0xFFFF0000.toInt()

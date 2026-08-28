@@ -60,6 +60,23 @@ class ReferenceGalleryPolicyTest {
     }
 
     @Test
+    fun `simultaneous pixel and reference edits are due`() {
+        // Pins OR semantics: a suite of single-axis cases alone would also
+        // pass an implementation demanding "exactly one" axis to differ.
+        assertTrue(
+            ReferenceGalleryPolicy.isDue(
+                trigger = GallerySyncDecision.Trigger.LEAVE,
+                pixelRevision = 8,
+                referenceRevision = 3,
+                lastSyncedPixelRevision = 7,
+                lastSyncedReferenceRevision = 2,
+                nowMs = 100,
+                lastSyncAtMs = 90,
+            ),
+        )
+    }
+
+    @Test
     fun `nothing moved is never due`() {
         for (trigger in GallerySyncDecision.Trigger.entries) {
             assertFalse(
@@ -69,7 +86,9 @@ class ReferenceGalleryPolicyTest {
                     referenceRevision = 2,
                     lastSyncedPixelRevision = 7,
                     lastSyncedReferenceRevision = 2,
-                    nowMs = 100,
+                    // Past the checkpoint floor: elapsed time alone must
+                    // never make the variant due.
+                    nowMs = GallerySyncDecision.CHECKPOINT_FLOOR_MS + 1,
                     lastSyncAtMs = 0,
                 ),
             )

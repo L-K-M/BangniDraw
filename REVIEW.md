@@ -2013,3 +2013,61 @@ touchscreen hover too, not only a pen.
   Refuted. The class lives in `engine/core` and tests the stored enums there
   (`Hand`, `TouchDrawingMode`, `AppTheme`, …); `data/Prefs` only persists
   them. The tree entry mirrors the real package.
+
+## PR #152 — gallery variant with the tracing image (2026-08-28)
+
+- **R-136 🟠 Round 1: `withdraw` never checked row ownership.** Applied.
+  `!row.owned` joins the guard; the KDoc and AGENTS.md both promised
+  "ours and untampered", and a recycled row id with 0/0 recorded state
+  must not be deletable on the tamper half's say-so alone.
+
+- **R-137 🟠 Round 1: flat decode double-materializes the reference.**
+  Partially applied. The premise is wrong — import normalizes the asset
+  to ≤ canvas pixel bytes (`TracingReferencePolicy.normalizedSize`), so
+  no 50 MP decode exists — but the size check ran *after* the allocation,
+  so a replaced/hand-mangled asset file could balloon first. Bounds are
+  now decoded (`inJustDecodeBounds`) and compared before any pixel
+  allocation. The `BitmapRegionDecoder` streaming rewrite is declined:
+  the offline path is bounded and debounced, and the canvas's own
+  `streamTiles` already exists for the per-frame side.
+
+- **R-138 🟠 Round 1: unsettled withdrawal cleared the recorded URI.**
+  Applied in both ViewModels. `withdraw` now returns whether the row is
+  settled (gone, or no longer ours to touch); a retryable delete failure
+  keeps the URI and leaves the variant due, so the row cannot be
+  orphaned in the gallery or duplicated when a reference returns.
+
+- **R-139 🟠 Round 1 (as minor a/c/d/f + test g/h/i): the surrounding
+  hardening.** Applied: `ensureActive` after the reference decode, a
+  failed clean copy no longer aborts a pending variant/withdrawal, the
+  contract test pins its own delimiters (which immediately caught this
+  PR's own false-pass — `private fun sync(` never existed), the
+  suffix-cap KDoc tells the truth, the shadowed `reference` local is
+  `placed`, and the policy suite pins OR semantics plus floor-past
+  staleness.
+
+- **R-140 ⏸️ Round 1: a permanently undecodable reference re-encodes the
+  painting on every sweep.** Declined. The state requires the app-private
+  asset to be externally deleted or mangled *after* commit — the loader
+  drops an unreadable reference at open, so the sweep sees it only
+  through a race window — and the sweep is human-triggered (Studio
+  show/return), not a loop. Settling would freeze a stale variant row;
+  eventual retry is the cheaper wrong.
+
+- **R-141 ⏸️ Round 1, info: make reference publication opt-in beyond the
+  visibility/opacity gate.** Declined. The product owner directed the
+  auto-store; the settings help string discloses it. An opt-in toggle is
+  a separate product decision for the owner, not a review fix.
+
+- **R-142 ⏸️ Round 1, info: two writers own the reference gallery
+  fields.** Refuted as a new hazard. It is the `galleryUri` pattern
+  exactly, and the interleaving it fears is closed by the leave gate:
+  the Studio's sweep only runs on refresh, and navigation returns only
+  after the canvas's final checkpoint completed.
+
+- **R-143 ⏸️ Round 1, info: share the tile pass between the two
+  flattens; ViewModel tests for the staleness gate.** Declined. The
+  double flatten is the AGENTS-accepted "seconds on IO" cost, debounced
+  30 s / leave; the ViewModel split follows the repo's stated rule
+  (decisions pure and tested, MediaStore/VM orchestration untested —
+  AGENTS.md's gallery-debounce precedent).

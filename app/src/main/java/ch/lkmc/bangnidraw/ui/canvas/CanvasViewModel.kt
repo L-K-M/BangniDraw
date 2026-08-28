@@ -3157,9 +3157,15 @@ class CanvasViewModel @Inject constructor(
                     recordedBytes = doc.galleryBytes,
                     displayName = name,
                     png = png,
-                ) ?: return@launch
-                galleryOutcome = outcome
-                syncedAt = outcome.syncedAt
+                )
+                // Not an early return: a clean-copy failure must not strand a
+                // pending variant sync or withdrawal — the variant's own
+                // bookkeeping decides what settled, and the clean copy stays
+                // due for the next trigger either way.
+                if (outcome != null) {
+                    galleryOutcome = outcome
+                    syncedAt = outcome.syncedAt
+                }
             }
 
             // The variant: decoded, composited under the paint, mirrored as
@@ -3167,6 +3173,7 @@ class CanvasViewModel @Inject constructor(
             val reference = doc.tracingReference
             if (ReferenceGalleryPolicy.includes(reference) && reference != null) {
                 val flat = referenceImageCodec.decodeFlatReference(doc.id, reference)
+                coroutineContext.ensureActive()
                 if (flat != null) {
                     val rgba = CpuFlatten.flatten(doc, flat) { store.layerDir(doc.id, it) }
                     coroutineContext.ensureActive()
@@ -3192,12 +3199,15 @@ class CanvasViewModel @Inject constructor(
                     }
                 }
             } else if (doc.referenceGalleryUri != null) {
-                exporter.withdraw(
+                val settled = exporter.withdraw(
                     recordedUri = doc.referenceGalleryUri,
                     recordedModifiedAt = doc.referenceGalleryModifiedAt,
                     recordedBytes = doc.referenceGalleryBytes,
                 )
-                variant = VariantOutcome.Withdrawn
+                // An unsettled withdrawal keeps the recorded URI: forgetting
+                // it here would orphan the row in the gallery forever and
+                // duplicate it when a reference returns.
+                if (settled) variant = VariantOutcome.Withdrawn
             }
 
             withContext(Dispatchers.Main) {

@@ -190,31 +190,44 @@ class GalleryExporter @Inject constructor(
      * Withdraws the reference variant — the second item a painting kept
      * while its tracing image was visible — once the image stops qualifying.
      * The mirror's own rule inverted: the row is deleted only while it is
-     * still the untampered copy we wrote; an edit by another app, or a row
-     * we can no longer probe, is the user's and stays. The caller forgets
-     * the URI either way, exactly as a REINSERT forgets.
+     * still ours and untampered; an edit by another app, or a row we can no
+     * longer probe, is the user's and stays.
+     *
+     * Returns whether the row is **settled**: gone, or no longer ours to
+     * touch — in both cases the caller may forget the URI, exactly as a
+     * REINSERT forgets. False means the delete failed in a way worth
+     * retrying, and the recorded URI must survive for the next attempt.
      */
     fun withdraw(
         recordedUri: String?,
         recordedModifiedAt: Long,
         recordedBytes: Long,
-    ) {
-        val uri = recordedUri?.let(Uri::parse) ?: return
+    ): Boolean {
+        val uri = recordedUri?.let(Uri::parse) ?: return true
         val row = try {
             probeRow(uri, recordedModifiedAt, recordedBytes)
         } catch (e: RuntimeException) {
             // A probe that dies outside its own containment is no reason to
             // keep a recorded URI the next round cannot trust either.
             Log.w(TAG, "gallery withdraw probe failed", e)
-            return
+            return true
         }
-        if (!row.present || row.threw || row.modifiedByOther) return
+        // Ownership joins the guard: with 0/0 recorded state the tamper half
+        // is forced false, and a row id MediaStore recycled after our item
+        // vanished must not be deletable just because it sits there.
+        if (!row.present || !row.owned || row.threw || row.modifiedByOther) return true
 
         try {
             context.contentResolver.delete(uri, null, null)
         } catch (e: SecurityException) {
             Log.w(TAG, "gallery withdraw refused; the item is the user's now", e)
+        } catch (e: RuntimeException) {
+            // The same containment as the probe's: an unexpected provider
+            // failure is retryable, not a reason to orphan the row.
+            Log.w(TAG, "gallery withdraw failed; will retry", e)
+            return false
         }
+        return true
     }
 
     private fun rewrite(uri: Uri, displayName: String, png: ByteArray): Outcome {

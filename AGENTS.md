@@ -588,7 +588,8 @@ and the contradiction is noted here.
   When the reference stops qualifying, the row is withdrawn: deleted only
   while still ours and untampered (`GalleryExporter.withdraw`); an edit by
   another app survives and the URI is forgotten, exactly as a REINSERT
-  forgets. A duplicate inherits neither gallery row, and the Studio's delete
+  forgets, while a delete that failed retryably keeps the URI for the next
+  trigger. A duplicate inherits neither gallery row, and the Studio's delete
   dialog offers both. Privacy: the variant puts the reference photo into the
   shared gallery automatically — the settings help string says so, and
   share/export still never include it.

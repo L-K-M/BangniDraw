@@ -418,11 +418,13 @@ class StudioViewModel @Inject constructor(
         }
         if (doc.referenceGalleryUri == null) return true
 
-        exporter.withdraw(
+        val settled = exporter.withdraw(
             recordedUri = doc.referenceGalleryUri,
             recordedModifiedAt = doc.referenceGalleryModifiedAt,
             recordedBytes = doc.referenceGalleryBytes,
         )
+        if (!settled) return false
+
         store.updateReferenceGalleryFields(
             doc.id,
             referenceGalleryUri = null,

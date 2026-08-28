@@ -107,18 +107,18 @@ class ReferenceCompositeTest {
     fun `a translated footprint draws only where the image lands`() {
         val source = solid(4, 4, -1)
         val moved = ReferenceTransform(xx = 1f, xy = 0f, yx = 0f, yy = 1f, tx = 260f, ty = 260f)
-        val reference = reference(4, 4, transform = moved)
+        val placed = reference(4, 4, transform = moved)
         val sourceReader = ReferenceComposite.Source { x, y -> source[y * 4 + x] }
 
-        val away = ReferenceComposite.tile(reference, sourceReader, tileLeft = 0, tileTop = 0)
+        val away = ReferenceComposite.tile(placed, sourceReader, tileLeft = 0, tileTop = 0)
         assertTrue(away.all { it == Composite.TRANSPARENT })
 
-        val onto = ReferenceComposite.tile(reference, sourceReader, tileLeft = 256, tileTop = 256)
+        val onto = ReferenceComposite.tile(placed, sourceReader, tileLeft = 256, tileTop = 256)
         assertEquals(-1, onto[4 * TILE + 4], "the image's own origin, in tile-local px")
         assertEquals(Composite.TRANSPARENT, onto[0])
 
-        assertFalse(ReferenceComposite.coversTile(reference, IntRect(0, 0, 256, 256)))
-        assertTrue(ReferenceComposite.coversTile(reference, IntRect(256, 256, 512, 512)))
+        assertFalse(ReferenceComposite.coversTile(placed, IntRect(0, 0, 256, 256)))
+        assertTrue(ReferenceComposite.coversTile(placed, IntRect(256, 256, 512, 512)))
     }
 
     @Test

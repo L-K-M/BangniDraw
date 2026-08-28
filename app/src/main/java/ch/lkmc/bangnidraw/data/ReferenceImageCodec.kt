@@ -98,6 +98,23 @@ class ReferenceImageCodec @Inject constructor(
         reference: TracingReference,
     ): CpuFlatten.FlatReference? {
         val file = store.referenceFile(projectId, reference.assetName)
+
+        // Bounds before pixels: the asset is capped at import
+        // (`TracingReferencePolicy.normalizedSize`), but the file is
+        // app-storage, and a replaced or hand-mangled one must be refused
+        // before the decode allocates, not after.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth != reference.imageWidth || bounds.outHeight != reference.imageHeight) {
+            Log.w(
+                TAG,
+                "reference variant asset drifted: " +
+                    "${bounds.outWidth}x${bounds.outHeight} vs " +
+                    "${reference.imageWidth}x${reference.imageHeight}",
+            )
+            return null
+        }
+
         val bitmap = BitmapFactory.decodeFile(
             file.absolutePath,
             BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 },

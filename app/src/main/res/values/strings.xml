@@ -293,6 +293,7 @@
     </plurals>
     <string name="layer_only">Can’t delete the only layer — clear it instead.</string>
     <string name="layer_locked">Layer is locked.</string>
+    <string name="canvas_busy">Hold on — the last change is still settling.</string>
     <string name="layer_hidden">Layer is hidden. Your stroke is still added.</string>
     <string name="layer_hidden_partner">Show both layers to merge.</string>
     <string name="layer_no_below">There is no layer below.</string>

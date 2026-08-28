@@ -1717,7 +1717,10 @@ class CanvasViewModel @Inject constructor(
     }
 
     fun beginStrokeTool(source: StrokeSource, button: ButtonState): ToolSelection? {
-        if (!actionGate.beginStroke()) return null
+        if (!actionGate.beginStroke()) {
+            noteStrokeRefused()
+            return null
+        }
 
         chrome = CanvasUiPolicy.onStrokeBegin(chrome)
         updateInteractionUi()
@@ -2082,6 +2085,18 @@ class CanvasViewModel @Inject constructor(
             StrokeLayerDecision.DRAW_HIDDEN -> R.string.layer_hidden
             StrokeLayerDecision.REFUSE_LOCKED -> R.string.layer_locked
         }
+        strokeLayerNoticeRevision += 1
+        updateInteractionUi()
+    }
+
+    /**
+     * Pen-down while the gate is busy: the pen would move and nothing would
+     * land, so the existing stroke-notice toast says why — the same channel
+     * locked layers use. The busy window is short by design; the notice is
+     * per attempt, exactly like the locked-layer one.
+     */
+    private fun noteStrokeRefused() {
+        strokeLayerNotice = R.string.canvas_busy
         strokeLayerNoticeRevision += 1
         updateInteractionUi()
     }

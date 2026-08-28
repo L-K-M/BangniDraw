@@ -1604,6 +1604,7 @@ private fun CanvasPanelContent(
                 viewModel.dismissPanel()
                 viewModel.selectDishEyedropper(it)
             },
+            onDishTChanged = viewModel::setDishT,
             onTextInputFocus = onTextInputFocus,
             hapticsMode = state.hapticsMode,
         )

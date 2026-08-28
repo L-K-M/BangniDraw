@@ -1518,6 +1518,14 @@ class CanvasViewModel @Inject constructor(
         viewModelScope.launch { prefs.setDishWells(dish.a, dish.b) }
     }
 
+    internal fun setDishT(t: Float) {
+        val clamped = t.coerceIn(0f, 1f)
+        if (dish.t == clamped) return
+        dish = dish.copy(t = clamped)
+        updateToolUi()
+        viewModelScope.launch { prefs.setDishT(clamped) }
+    }
+
     private fun editActivePalette(edit: (Palette) -> Palette) {
         val active = colorUiState().activePalette
         if (active.builtIn) return

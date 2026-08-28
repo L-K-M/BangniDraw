@@ -174,6 +174,7 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         DishState(
             a = it[KEY_DISH_A] ?: PaletteCatalog.ULTRAMARINE_BLUE_ARGB.toInt(),
             b = it[KEY_DISH_B] ?: PaletteCatalog.CADMIUM_YELLOW_ARGB.toInt(),
+            t = it[KEY_DISH_T] ?: DishState.DEFAULT_T,
         )
     }
 
@@ -181,6 +182,19 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         dataStore.edit {
             it[KEY_DISH_A] = a
             it[KEY_DISH_B] = b
+        }
+    }
+
+    suspend fun setDishT(t: Float) {
+        val clamped = t.coerceIn(0f, 1f)
+        dataStore.edit { it[KEY_DISH_T] = clamped }
+    }
+
+    suspend fun setDish(dish: DishState) {
+        dataStore.edit {
+            it[KEY_DISH_A] = dish.a
+            it[KEY_DISH_B] = dish.b
+            it[KEY_DISH_T] = dish.t.coerceIn(0f, 1f)
         }
     }
 
@@ -274,6 +288,7 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         val KEY_ACTIVE_PALETTE = stringPreferencesKey("activePalette")
         val KEY_DISH_A = intPreferencesKey("dishA")
         val KEY_DISH_B = intPreferencesKey("dishB")
+        val KEY_DISH_T = floatPreferencesKey("dishT")
         val KEY_RECENT_COLORS = stringPreferencesKey("recent_colors")
         val KEY_LAST_CUSTOM_WIDTH = intPreferencesKey("lastCustomWidth")
         val KEY_LAST_CUSTOM_HEIGHT = intPreferencesKey("lastCustomHeight")

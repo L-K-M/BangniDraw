@@ -103,6 +103,7 @@ internal fun ColorPanel(
     onPickSwatch: (Int) -> Unit,
     onDishWellChanged: (DishWell, Int) -> Unit,
     onPickDishWell: (DishWell) -> Unit,
+    onDishTChanged: (Float) -> Unit,
     onTextInputFocus: (TextInputFocus) -> Unit,
     hapticsMode: HapticsMode,
 ) {
@@ -208,6 +209,7 @@ internal fun ColorPanel(
                 onAddToPalette = onAddToPalette,
                 onWellChanged = onDishWellChanged,
                 onPickWell = onPickDishWell,
+                onTChanged = onDishTChanged,
             )
         }
     }
@@ -724,8 +726,9 @@ private fun MixingDishControls(
     onAddToPalette: (Int) -> Unit,
     onWellChanged: (DishWell, Int) -> Unit,
     onPickWell: (DishWell) -> Unit,
+    onTChanged: (Float) -> Unit,
 ) {
-    var t by remember { mutableFloatStateOf(state.dish.t) }
+    val t = state.dish.t
     // The nine-mix gradient and the current mix are remembered: the panel
     // recomposes per frame while the picker ring drags, and the wells did
     // not change — nine Mixbox mixes per drag frame buy nothing.
@@ -744,7 +747,7 @@ private fun MixingDishControls(
                     onLongClick = { onPickWell(DishWell.A) },
                 ),
         )
-        Slider(value = t, onValueChange = { t = it }, modifier = Modifier.weight(1f))
+        Slider(value = t, onValueChange = onTChanged, modifier = Modifier.weight(1f))
         ColorCircle(
             state.dish.b,
             Modifier
@@ -758,7 +761,7 @@ private fun MixingDishControls(
     }
     val selectedStep = (t * (MixingDish.STEPS - 1)).roundToInt()
     SwatchStrip(gradient, selectedStep) { index, color ->
-        t = index.toFloat() / (MixingDish.STEPS - 1)
+        onTChanged(index.toFloat() / (MixingDish.STEPS - 1))
         onSelect(color)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(PANEL_GAP)) {

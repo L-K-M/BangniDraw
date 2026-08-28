@@ -2078,3 +2078,14 @@ touchscreen hover too, not only a pen.
   now bounded by construction, the composite delegates to
   `ReferenceGalleryPolicy.includes`, and the gone-asset case gets its own
   log line.
+
+- **R-145 🟠 Round 3: AAPT would trim the suffix's leading space; a
+  permanently undecodable asset churned the sweep forever.** Both applied.
+  The resource is quoted (`" (with reference)"` — verified it survives into
+  `packaged_res`), and `syncReferenceVariant` settles on a null decode: the
+  loader already drops a *missing* asset at open (so the sweep's withdraw
+  branch owns that case), leaving only corruption or the load→decode race,
+  neither of which heals — re-encoding the clean copy every sweep for them
+  was the R-140 cost with no payoff. This narrows R-140's decline: the
+  settle applies to the undecodable asset, while retry still governs
+  row-write and withdrawal failures.

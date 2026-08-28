@@ -378,12 +378,24 @@ class StudioViewModel @Inject constructor(
 
     /**
      * The sweep's second half: the variant row, or its withdrawal. False
-     * means "attempted and failed" — the painting must stay stale.
+     * means a *retryable* failure — the row write or the withdrawal did not
+     * land, so the painting must stay stale. An undecodable asset settles
+     * instead: it never self-heals, and re-encoding the clean copy on every
+     * sweep for it would churn forever.
      */
     private suspend fun syncReferenceVariant(doc: Document): Boolean {
         val reference = doc.tracingReference
         if (ReferenceGalleryPolicy.includes(reference) && reference != null) {
-            val flat = referenceImageCodec.decodeFlatReference(doc.id, reference) ?: return false
+            val flat = referenceImageCodec.decodeFlatReference(doc.id, reference)
+            if (flat == null) {
+                // A gone or corrupt asset never self-heals — the loader
+                // drops a missing one at open, so this is corruption or the
+                // load→decode race, and the codec logged which. Settle
+                // rather than keep the painting stale and re-encode the
+                // clean copy on every sweep; the variant's row catches up
+                // with the next organic edit (or the reference's removal).
+                return true
+            }
             val png = try {
                 val rgba = CpuFlatten.flatten(doc, flat) { store.layerDir(doc.id, it) }
                 ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)

@@ -46,8 +46,9 @@
     <string name="save_to_gallery">Export a new gallery image</string>
     <string name="studio_saved_to_gallery">Added to gallery</string>
     <string name="studio_save_failed">Couldn’t add to gallery</string>
-    <!-- Carries its own leading separator so locales choose spacing. -->
-    <string name="gallery_reference_suffix"> (with reference)</string>
+    <!-- Carries its own leading separator so locales choose spacing;
+         quoted because AAPT trims unquoted leading/trailing whitespace. -->
+    <string name="gallery_reference_suffix">" (with reference)"</string>
 
     <!-- New Canvas dialog (08 §2.1) -->
     <string name="new_canvas_title">New painting</string>

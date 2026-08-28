@@ -133,9 +133,11 @@ class BrushPresetStore internal constructor(
                 pressureOpacity = Curve.One,
                 bufferMode = BufferMode.Accumulate,
             )
-        } catch (_: IllegalArgumentException) {
-            // A size window the wet pass cannot serve (1960 < sizeMax <= 2048)
-            // cannot hold the graft, so the replacement wins with size and flow.
+        } catch (e: IllegalArgumentException) {
+            // Any invariant the user's file cannot satisfy — today the size
+            // window the wet pass cannot serve (1960 < sizeMax <= 2048) —
+            // adopts the replacement with size and flow instead, and says so.
+            Log.w(TAG, "paintbrush override rejected the watercolor graft; adopting replacement", e)
             replacement.withSize(preset.size).copy(flow = preset.flow)
         }
     }

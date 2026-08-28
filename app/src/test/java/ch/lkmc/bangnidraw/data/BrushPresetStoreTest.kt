@@ -233,6 +233,14 @@ class BrushPresetStoreTest {
         assertEquals(Jitter(0.15f, 0.25f), migrated.jitter)
         assertEquals(0.62f, migrated.stabilizer)
         assertEquals(0.21f, migrated.dilution)
+        // The graft forces exactly these; the rest of the preset is the user's.
+        assertEquals("watercolor", migrated.icon)
+        assertEquals(1f, migrated.opacity)
+        assertEquals(Curve.One, migrated.pressureOpacity)
+        assertTrue(migrated.mixing)
+        assertFalse(migrated.eraseMode)
+        assertEquals(BrushModel.Standard, migrated.model)
+        assertEquals(BufferMode.Accumulate, migrated.bufferMode)
         assertEquals(
             WatercolorBehavior(
                 waterLoad = 0.72f,

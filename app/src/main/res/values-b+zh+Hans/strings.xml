@@ -270,6 +270,7 @@
     </plurals>
     <string name="layer_only">无法删除唯一图层——请改为清除。</string>
     <string name="layer_locked">图层已锁定。</string>
+    <string name="canvas_busy">请稍等——上一步还在处理。</string>
     <string name="layer_hidden">图层已隐藏。笔触仍会添加到图层中。</string>
     <string name="layer_hidden_partner">请显示两个图层后再合并。</string>
     <string name="layer_no_below">下方没有图层。</string>

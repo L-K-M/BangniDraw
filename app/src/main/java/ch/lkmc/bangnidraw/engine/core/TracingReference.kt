@@ -148,6 +148,39 @@ data class ReferenceTransform(
     private fun inverseY(x: Float, y: Float): Float =
         (-yx * (x - tx) + xx * (y - ty)) / determinant
 
+    /**
+     * Canvas-space AABB of the placed image, unclamped by the canvas.
+     *
+     * The renderer compares this against the canvas rect to decide whether
+     * the reference still has pixels over the void beyond the paper. A fitted
+     * image reports bounds inside the canvas; an enlarged or dragged-out one
+     * escapes on at least one side.
+     */
+    fun imageCanvasBounds(imageWidth: Int, imageHeight: Int): IntRect {
+        if (imageWidth <= 0 || imageHeight <= 0) return IntRect.EMPTY
+
+        val w = imageWidth.toFloat()
+        val h = imageHeight.toFloat()
+        val x0 = apply(0f, 0f)
+        val x1 = apply(w, 0f)
+        val x2 = apply(w, h)
+        val x3 = apply(0f, h)
+        if (!x0.first.isFinite() || !x0.second.isFinite() ||
+            !x1.first.isFinite() || !x1.second.isFinite() ||
+            !x2.first.isFinite() || !x2.second.isFinite() ||
+            !x3.first.isFinite() || !x3.second.isFinite()
+        ) {
+            return IntRect.EMPTY
+        }
+
+        val left = floor(min(min(x0.first, x1.first), min(x2.first, x3.first))).toInt()
+        val top = floor(min(min(x0.second, x1.second), min(x2.second, x3.second))).toInt()
+        val right = ceil(max(max(x0.first, x1.first), max(x2.first, x3.first))).toInt()
+        val bottom = ceil(max(max(x0.second, x1.second), max(x2.second, x3.second))).toInt()
+
+        return IntRect(left, top, right, bottom)
+    }
+
     companion object {
         val IDENTITY = ReferenceTransform(
             xx = 1f,

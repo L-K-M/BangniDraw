@@ -205,6 +205,76 @@ data class ScreenTransform(
         else IntRect(left, top, right, bottom)
     }
 
+    /**
+     * The exact screen-space AABB of [rect] — corner walk, `floor`/`ceil`, and
+     * **no** inflation or viewport clipping.
+     *
+     * [screenBoundsOf] is a scissor helper: its one-pixel inflation and
+     * viewport clamp are right for damage rectangles and wrong for geometry
+     * that must abut another rect exactly. The void band around the canvas
+     * uses this: an inflated box would eat a pixel of the canvas edge, and a
+     * clamped one would swallow bands that lie partly off-screen. Abutment
+     * is pixel-exact only when mapped edges land on integer screen
+     * coordinates; at a fractional scale `ceil` can leave a sub-pixel sliver
+     * of true void uncovered beside the canvas edge.
+     */
+    fun rawScreenBoundsOf(rect: IntRect): IntRect {
+        if (rect.isEmpty) return IntRect.EMPTY
+
+        val x0 = rect.left.toFloat()
+        val y0 = rect.top.toFloat()
+        val x1 = rect.right.toFloat()
+        val y1 = rect.bottom.toFloat()
+        val sx00 = screenX(x0, y0); val sy00 = screenY(x0, y0)
+        val sx10 = screenX(x1, y0); val sy10 = screenY(x1, y0)
+        val sx11 = screenX(x1, y1); val sy11 = screenY(x1, y1)
+        val sx01 = screenX(x0, y1); val sy01 = screenY(x0, y1)
+        if (!sx00.isFinite() || !sy00.isFinite() || !sx10.isFinite() || !sy10.isFinite() ||
+            !sx11.isFinite() || !sy11.isFinite() || !sx01.isFinite() || !sy01.isFinite()
+        ) {
+            return IntRect.EMPTY
+        }
+
+        return IntRect(
+            floor(min(min(sx00, sx10), min(sx11, sx01))).toInt(),
+            floor(min(min(sy00, sy10), min(sy11, sy01))).toInt(),
+            ceil(max(max(sx00, sx10), max(sx11, sx01))).toInt(),
+            ceil(max(max(sy00, sy10), max(sy11, sy01))).toInt(),
+        )
+    }
+
+    /**
+     * The canvas-space AABB the viewport covers — the inverse corner walk,
+     * `floor`/`ceil`, and **no** clipping to the canvas.
+     *
+     * [canvasBoundsOf] clips because paint damage cannot leave the canvas.
+     * The tracing reference is not canvas-bounded: the tiles needed to draw
+     * it over the void come from the *unclipped* region, or the selection
+     * would drop exactly the parts beyond the border.
+     */
+    fun rawCanvasBoundsOf(viewportWidth: Int, viewportHeight: Int): IntRect {
+        if (viewportWidth <= 0 || viewportHeight <= 0) return IntRect.EMPTY
+
+        val vw = viewportWidth.toFloat()
+        val vh = viewportHeight.toFloat()
+        val cx00 = invertX(0f, 0f); val cy00 = invertY(0f, 0f)
+        val cx10 = invertX(vw, 0f); val cy10 = invertY(vw, 0f)
+        val cx11 = invertX(vw, vh); val cy11 = invertY(vw, vh)
+        val cx01 = invertX(0f, vh); val cy01 = invertY(0f, vh)
+        if (!cx00.isFinite() || !cy00.isFinite() || !cx10.isFinite() || !cy10.isFinite() ||
+            !cx11.isFinite() || !cy11.isFinite() || !cx01.isFinite() || !cy01.isFinite()
+        ) {
+            return IntRect.EMPTY
+        }
+
+        return IntRect(
+            floor(min(min(cx00, cx10), min(cx11, cx01))).toInt(),
+            floor(min(min(cy00, cy10), min(cy11, cy01))).toInt(),
+            ceil(max(max(cx00, cx10), max(cx11, cx01))).toInt(),
+            ceil(max(max(cy00, cy10), max(cy11, cy01))).toInt(),
+        )
+    }
+
     companion object {
         /**
          * `view ∘ fit`, per §3.1.
@@ -225,4 +295,59 @@ data class ScreenTransform(
             )
         }
     }
+}
+
+/**
+ * The window-px rect bands of [clip] that lie outside [canvas], in the order
+ * left, right, top, bottom.
+ *
+ * The side bands span the clip's full height; the top and bottom bands sit
+ * strictly between the canvas's x extent, so the returned rects tile the void
+ * without overlapping the canvas or each other:
+ *
+ * ```
+ *   ┌─────────────────┐
+ *   │       top       │
+ *   ├───┬─────────┬───┤
+ *   │ L │ canvas  │ R │
+ *   ├───┴─────────┴───┤
+ *   │      bottom     │
+ *   └─────────────────┘
+ * ```
+ *
+ * Pure so the four clamps that make "disjoint and complete" true stay
+ * testable — the renderer turns each band into one scissored draw.
+ */
+fun voidBandsAround(canvas: IntRect, clip: IntRect): List<IntRect> {
+    if (canvas.isEmpty || clip.isEmpty) return emptyList()
+
+    val bands = ArrayList<IntRect>(4)
+
+    val leftEnd = minOf(canvas.left, clip.right)
+    if (clip.left < leftEnd) {
+        bands += IntRect(clip.left, clip.top, leftEnd, clip.bottom)
+    }
+
+    val rightStart = maxOf(canvas.right, clip.left)
+    if (rightStart < clip.right) {
+        bands += IntRect(rightStart, clip.top, clip.right, clip.bottom)
+    }
+
+    // Top and bottom live strictly inside the canvas's x overlap with the
+    // clip; without that, a canvas past one edge would re-emit full bands.
+    val midLeft = maxOf(canvas.left, clip.left)
+    val midRight = minOf(canvas.right, clip.right)
+    if (midLeft < midRight) {
+        val topEnd = minOf(canvas.top, clip.bottom)
+        if (clip.top < topEnd) {
+            bands += IntRect(midLeft, clip.top, midRight, topEnd)
+        }
+
+        val bottomStart = maxOf(canvas.bottom, clip.top)
+        if (bottomStart < clip.bottom) {
+            bands += IntRect(midLeft, bottomStart, midRight, clip.bottom)
+        }
+    }
+
+    return bands
 }

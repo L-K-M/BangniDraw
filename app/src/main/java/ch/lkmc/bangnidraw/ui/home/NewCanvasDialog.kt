@@ -137,7 +137,10 @@ fun NewCanvasDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Column(Modifier.selectableGroup()) {
+                Column(
+                    modifier = Modifier.selectableGroup(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     presets.forEachIndexed { index, preset ->
                         PresetRow(
                             preset = preset,

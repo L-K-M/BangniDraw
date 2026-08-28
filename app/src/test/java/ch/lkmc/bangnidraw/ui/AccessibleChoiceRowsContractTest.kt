@@ -13,6 +13,7 @@ class AccessibleChoiceRowsContractTest {
         val source = source(NEW_CANVAS_PATH)
 
         assertTrue(SELECTABLE_GROUP.containsMatchIn(source))
+        assertTrue(SELECTABLE_GROUP_SPACING.containsMatchIn(source))
         val totalRadios = TOTAL_RADIO.findAll(source).count()
         assertTrue(totalRadios > 0, "New Canvas must retain a radio choice")
         assertEquals(
@@ -43,6 +44,24 @@ class AccessibleChoiceRowsContractTest {
         assertTrue(TOGGLE_ROW_CALL.containsMatchIn(source(RMW_SETTINGS_PATH)))
     }
 
+    @Test
+    fun `brace scanner ignores comments and quoted braces`() {
+        val source = """
+            fun target() {
+                val text = "}"
+                // }
+                /* { */
+                keep()
+            }
+            fun next() = Unit
+        """.trimIndent()
+
+        val block = bracedBlock(source, "fun target()")
+
+        assertTrue("keep()" in block)
+        assertTrue("fun next()" !in block)
+    }
+
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
 
     private fun bracedBlock(source: String, marker: String): String {
@@ -53,16 +72,34 @@ class AccessibleChoiceRowsContractTest {
         if (openIndex < 0) fail("missing block start: $marker")
 
         var depth = 0
-        for (index in openIndex until source.length) {
-            when (source[index]) {
-                '{' -> depth += 1
-                '}' -> {
-                    depth -= 1
-                    if (depth == 0) {
-                        return source.substring(markerIndex, index + 1)
+        var index = openIndex
+        while (index < source.length) {
+            when {
+                source.startsWith("//", index) -> {
+                    val newline = source.indexOf('\n', index)
+                    if (newline < 0) break
+                    index = newline
+                }
+                source.startsWith("/*", index) -> {
+                    val end = source.indexOf("*/", index + 2)
+                    if (end < 0) break
+                    index = end + 1
+                }
+                source[index] == '"' || source[index] == '\'' -> {
+                    var close = index + 1
+                    while (close < source.length && source[close] != source[index]) {
+                        if (source[close] == '\\') close += 1
+                        close += 1
                     }
+                    index = close
+                }
+                source[index] == '{' -> depth += 1
+                source[index] == '}' -> {
+                    depth -= 1
+                    if (depth == 0) return source.substring(markerIndex, index + 1)
                 }
             }
+            index += 1
         }
 
         fail("unclosed block: $marker")
@@ -96,6 +133,9 @@ class AccessibleChoiceRowsContractTest {
         )
         val PRESET_RADIO_ROLE = Regex(
             """enabled\s*=\s*preset\.enabled,\s*role\s*=\s*Role\.RadioButton""",
+        )
+        val SELECTABLE_GROUP_SPACING = Regex(
+            """Modifier\.selectableGroup\s*\(\s*\),\s*verticalArrangement\s*=\s*Arrangement\.spacedBy\s*\(\s*4\.dp\s*\)""",
         )
         val SELECTABLE_GROUP = Regex("""\.selectableGroup\s*\(\s*\)""")
         val TOTAL_RADIO = Regex("""RadioButton\s*\(""")

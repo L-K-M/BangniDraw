@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add four selectable application theme colors and ignore system dark mode.
+
 ## 1.1.3 - 2026-08-28
 
 - Show wet paper, retain heavier water longer, and make fresh Watercolor

@@ -150,8 +150,24 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   `LocalWindowInfo` from inside the dialog.
 - App display name lives ONLY in `strings.xml` (`app_name`). Never
   hardcode "帮你Draw" in a composable (rename checklist: PLAN.md "Renaming").
-- Colors come from `ui/theme/Color.kt` — no ad-hoc `Color(0x…)` in
-  screens. The theme follows the system (light and dark), no dynamic color.
+- Application palette decisions live in `engine/core/ThemeColorPolicy`;
+  `ui/theme/Color.kt` adapts them to Compose. Screen chrome never uses ad-hoc
+  `Color(0x…)`; `DebugOverlay`'s fixed diagnostic signal colors are the sole
+  exception and stay palette-independent. `AppTheme` is a persisted choice
+  among fixed-light Saffron (default), Coral, Violet, and Teal palettes; system
+  dark mode and dynamic color are deliberately ignored. The canvas void stays
+  neutral.
+- The launch window cannot read DataStore. Keep its background and system-bar
+  appearance fixed light, set `android:forceDarkAllowed` to `false`, and add no
+  `values-night` override; the root theme owner applies the persisted palette
+  once Compose starts. It withholds navigation until the first theme emission;
+  `Prefs.appTheme` must emit Saffron and retry after a non-cancellation read
+  failure. A terminal fallback freezes later selections until restart.
+- The GL canvas appearance is startup state, not merely a theme-change update.
+  Include `CanvasAppearance` in `EngineSession.configure` before publishing the
+  session or allowing its bootstrap frame; the later Compose effect keeps
+  theme and density changes synchronized. Otherwise transparent canvases can
+  flash the renderer's fallback checker colours.
 - **Greyscale ARGB cannot encode hue.** `ColorPanel` keeps an `HsvSelection`;
   panel-originated ARGB echoes must not reconstruct HSV, while external colors
   must. Do not key the selection state directly to the current ARGB.

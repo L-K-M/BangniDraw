@@ -316,6 +316,12 @@
     <string name="reference_remove_body">自动保存后将删除应用内的图像副本。</string>
 
     <string name="settings_title">设置</string>
+    <string name="settings_appearance">外观</string>
+    <string name="settings_theme_color">主题色</string>
+    <string name="settings_theme_saffron">藏红花黄</string>
+    <string name="settings_theme_coral">珊瑚红</string>
+    <string name="settings_theme_violet">紫罗兰</string>
+    <string name="settings_theme_teal">青绿</string>
     <string name="settings_drawing">绘画</string>
     <string name="settings_handedness">惯用手</string>
     <string name="settings_hand_right">右手</string>

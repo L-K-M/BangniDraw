@@ -907,6 +907,31 @@ cancel/undo, context loss, TalkBack, and GL errors remain pending.
 approximations. Device evidence, not a larger untimed solver, decides any
 follow-up.
 
+### Step 13 — Selectable application themes (S)
+
+**Goal.** Let the user choose expressive application chrome without allowing
+the system or wallpaper to recolour the studio.
+
+**Creates.** Proposal 0003's pure `AppTheme` enum and four curated fixed-light
+palettes: Saffron (default), Coral, Violet, and Teal. `Prefs` persists the
+choice; an activity-scoped `AppThemeViewModel` wraps the navigation host.
+Settings adds the named, radio-style Appearance group. The launch window,
+system bars, Compose theme, tool rail, and canvas appearance use the app-owned
+light tone; the canvas void stays neutral.
+
+**Depends on.** Step 10's Settings and accessibility semantics.
+
+**Acceptance.** JVM tests pin enum fallback and round trips plus text/icon
+contrast for every palette. Contract tests pin the Settings radio group and
+the preference-to-theme boundary. Device: every choice applies immediately
+across Studio and Canvas, survives restart, and remains selected after Android
+dark mode changes.
+
+**Risk.** The launch window cannot read DataStore, while rendering navigation
+before it emits would flash Saffron on an existing non-default install. The
+fixed light launch background appears immediately; Compose withholds navigation
+until the asynchronous read emits, and a read failure falls back to Saffron.
+
 ## 4. Dependency graph and parallelism
 
 ```
@@ -926,7 +951,8 @@ follow-up.
  │
 10 v1.0
  ├─ 11 Tracing reference   ← needs persistence, export, and adaptive UI
- └─ 12 Watercolor          ← needs 7, the RMW history path, and adaptive UI
+ ├─ 12 Watercolor          ← needs 7, the RMW history path, and adaptive UI
+ └─ 13 Application themes  ← needs Settings and adaptive UI
 ```
 
 | After this lands | These can run concurrently |
@@ -936,7 +962,7 @@ follow-up.
 | 3 and 5 | 8 |
 | 5 | 7 |
 | 4, 5, 6, 7, 8 | 9, then 10 |
-| 10 | 11 and 12 |
+| 10 | 11, 12, and 13 |
 
 Two agents is the practical maximum: one on the persistence spine (3 → 4/6, then 8 once 5 is in)
 and one on the tool spine (5 → 7). Both branch from `main`, and the second

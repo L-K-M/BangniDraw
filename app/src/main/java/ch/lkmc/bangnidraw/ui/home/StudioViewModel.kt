@@ -15,6 +15,7 @@ import ch.lkmc.bangnidraw.data.ImageEncode
 import ch.lkmc.bangnidraw.data.Prefs
 import ch.lkmc.bangnidraw.data.ProjectStore
 import ch.lkmc.bangnidraw.data.ShareCache
+import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Document
@@ -248,6 +249,10 @@ class StudioViewModel @Inject constructor(
             }
             syncStale(listed)
         }
+    }
+
+    internal fun setAppTheme(value: AppTheme) {
+        viewModelScope.launch { prefs.setAppTheme(value) }
     }
 
     internal fun setHandedness(value: Hand) {

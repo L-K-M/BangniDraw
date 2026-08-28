@@ -3,11 +3,16 @@ package ch.lkmc.bangnidraw.ui.home
 import androidx.annotation.StringRes
 import android.content.Intent
 import android.net.Uri
+import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -47,6 +53,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.BuildConfig
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.AutosavePolicy
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.Hand
@@ -57,13 +64,16 @@ import ch.lkmc.bangnidraw.engine.core.PressurePreference
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcutCatalog
 import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
+import ch.lkmc.bangnidraw.ui.theme.themePreviewColor
 
 /** One-level preference sheet; About/licenses is its only child. */
 @Composable
 internal fun SettingsSheet(
     state: StudioViewModel.UiState,
+    appTheme: AppTheme,
     historyMaxSteps: Int,
     historyMaxBytes: Long,
+    onAppTheme: (AppTheme) -> Unit,
     onHandedness: (Hand) -> Unit,
     onTouchDrawingMode: (TouchDrawingMode) -> Unit,
     onPenButtonAction: (PenButtonAction) -> Unit,
@@ -106,6 +116,37 @@ internal fun SettingsSheet(
                 .heightIn(max = SETTINGS_MAX_HEIGHT),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp),
         ) {
+            item { SectionTitle(R.string.settings_appearance) }
+            item {
+                Column(Modifier.selectableGroup()) {
+                    SettingLabel(R.string.settings_theme_color)
+                    ThemeChoiceRow(
+                        AppTheme.SAFFRON,
+                        R.string.settings_theme_saffron,
+                        appTheme,
+                        onAppTheme,
+                    )
+                    ThemeChoiceRow(
+                        AppTheme.CORAL,
+                        R.string.settings_theme_coral,
+                        appTheme,
+                        onAppTheme,
+                    )
+                    ThemeChoiceRow(
+                        AppTheme.VIOLET,
+                        R.string.settings_theme_violet,
+                        appTheme,
+                        onAppTheme,
+                    )
+                    ThemeChoiceRow(
+                        AppTheme.TEAL,
+                        R.string.settings_theme_teal,
+                        appTheme,
+                        onAppTheme,
+                    )
+                }
+            }
+
             item { SectionTitle(R.string.settings_drawing) }
             item {
                 Column(Modifier.selectableGroup()) {
@@ -315,6 +356,42 @@ private fun SettingLabel(title: Int) {
 }
 
 @Composable
+private fun ThemeChoiceRow(
+    theme: AppTheme,
+    @StringRes title: Int,
+    selectedTheme: AppTheme,
+    onTheme: (AppTheme) -> Unit,
+) {
+    val selected = theme == selectedTheme
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = MIN_TARGET)
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = { onTheme(theme) },
+            )
+            .padding(horizontal = 24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(12.dp))
+        Box(
+            modifier = Modifier
+                .size(THEME_SWATCH_SIZE)
+                .background(themePreviewColor(theme), CircleShape)
+                .border(THEME_SWATCH_BORDER, MaterialTheme.colorScheme.outline, CircleShape),
+        )
+        Text(
+            text = stringResource(title),
+            modifier = Modifier.padding(start = 12.dp),
+        )
+    }
+}
+
+@Composable
 private fun ChoiceRow(title: Int, selected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
@@ -476,6 +553,8 @@ private fun AboutDialog(onDismiss: () -> Unit) {
     )
 }
 
+private val THEME_SWATCH_SIZE = 32.dp
+private val THEME_SWATCH_BORDER = 1.dp
 private val SETTINGS_MAX_HEIGHT = 640.dp
 private val MIN_TARGET = 48.dp
 private val SHORTCUT_ROW_HEIGHT = 40.dp

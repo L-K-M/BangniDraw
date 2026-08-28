@@ -40,13 +40,14 @@ otherwise; small sealed hierarchies share a file with their root.
 | File | Responsibility |
 | --- | --- |
 | `BangniApp.kt` | `@HiltAndroidApp` application. Installs `StrictMode` in debug, nothing else. No global state. |
-| `MainActivity.kt` | The single `@AndroidEntryPoint ComponentActivity`. Sets `enableEdgeToEdge()`, hosts `BangniNavHost()`, forwards `onTrimMemory` to `TilePool` via the engine session. Declares `configChanges` (§8.3) so rotation never destroys the GL context, and `launchMode="singleTask"` with `resizeableActivity="true"`: multi-window and DeX resize the one instance (§8.4), but the app is never open twice (two Canvases of one project folder would race the single-writer flusher; the Studio's duplicate/delete rely on it — `docs/plan/06-document-and-persistence.md` §8). |
+| `MainActivity.kt` | The single `@AndroidEntryPoint ComponentActivity`. Sets explicit light edge-to-edge bars, observes `AppThemeViewModel`, wraps `BangniNavHost()` in `BangniTheme`, and forwards `onTrimMemory` to `TilePool` via the engine session. Declares `configChanges` (§8.3) so rotation never destroys the GL context, and `launchMode="singleTask"` with `resizeableActivity="true"`: multi-window and DeX resize the one instance (§8.4), but the app is never open twice (two Canvases of one project folder would race the single-writer flusher; the Studio's duplicate/delete rely on it — `docs/plan/06-document-and-persistence.md` §8). |
 
 ### 2.2 `engine/core` — pure JVM
 
 | Class | Responsibility |
 | --- | --- |
 | `Document` | Immutable value: `id`, `width`, `height`, `paperColor`, `LayerStack`, `historyCursor`, `galleryUri: String?`, timestamps. Serializable to `project.json`. |
+| `AppTheme`, `ThemeColorPolicy` | Persisted `SAFFRON`/`CORAL`/`VIOLET`/`TEAL` names and their pure opaque-ARGB role table; missing/unknown names resolve to `SAFFRON`. |
 | `LayerStack`, `Layer`, `BlendMode` | Ordered list of `Layer` (id, name, opacity, blend, visible, alphaLock, locked) with pure operations (`add`, `delete`, `duplicate`, `move`, `mergeDown`, `flatten`, `clear`, `rename`, `set…`, `select`) each returning a `StackResult` — the new stack, the `PixelOp` for the GL thread and the `HistoryEntry` for the journal, or a `Refused(reason)`. Detail: docs/plan/05-layers.md §3. |
 | `TileGrid`, `TileKey` | Canvas rect ↔ set of 256×256 tile keys; `TileKey(tx, ty)` is an inline value class over a packed `Int` (docs/plan/03-canvas-engine.md §1) so hot paths never box. |
 | `ViewTransform`, `FitTransform` | Meltorama's similarity transform, ported verbatim with its tests (`gesture`, `invert`, `invertVector`, `rebase`, `lerp`). `FitTransform` maps canvas pixels to the fitted view box for a given viewport size. |
@@ -118,18 +119,19 @@ otherwise; small sealed hierarchies share a file with their root.
 | `GalleryExporter` | One MediaStore item per painting in `Pictures/帮你Draw/`, rewritten in place via `openOutputStream(uri, "wt")`; re-inserts when ownership is lost. |
 | `ShareCache` | `cacheDir/share/` PNG/JPEG for the share sheet via `FileProvider`, swept on Studio open. |
 | `BrushPresetStore` | Built-in presets from `assets/brushes/*.json` + user edits in `filesDir/brushes/`; kotlinx-serialization. |
-| `Prefs` | DataStore Preferences: handedness, stylus-only, `penButtonAction`, `eraserEndPreset`, pressure curve / calibration, haptics, gallery sync, `mixer` choice (pigment / RGB), journal limits, palettes' active id, `nextSketchNumber`. Exposed as a `Flow<Prefs.Snapshot>`. |
+| `Prefs` | DataStore Preferences: `AppTheme`, handedness, stylus-only, `penButtonAction`, `eraserEndPreset`, pressure curve / calibration, haptics, gallery sync, `mixer` choice (pigment / RGB), journal limits, palettes' active id, `nextSketchNumber`. Values are exposed as flows. |
 
 ### 2.8 `ui/`
 
 | File | Responsibility |
 | --- | --- |
+| `ui/theme/AppThemeViewModel.kt`, `Color.kt`, `Theme.kt` | Activity-scoped preference owner and Compose adapters for §5.1's app-owned fixed-light palettes. |
 | `ui/home/StudioScreen.kt`, `StudioViewModel.kt` | The shelf. `StudioUiState(paintings, storage, dialog, error)`. |
 | `ui/canvas/CanvasScreen.kt`, `CanvasViewModel.kt` | The editor scaffold and its single writer of `CanvasUiState`. |
 | `ui/canvas/CanvasSurface.kt` | `AndroidView { SurfaceView }`; creates the `EngineSession`, wires `CanvasTouchHandler`, reports viewport size changes. |
 | `ui/canvas/ToolRail.kt`, `TopStrip.kt`, `LayerPanel.kt`, `ColorPanel.kt`, `BrushSettingsSheet.kt`, `NewCanvasDialog.kt`, `HoverCursor.kt` | Stateless composables taking slices of `CanvasUiState` and emitting callbacks. |
 | `ui/navigation/BangniNavHost.kt` | Routes (§7). |
-| `ui/components/`, `ui/theme/` | Chunky slider, haptic tap modifier, the studio palette. |
+| `ui/components/` | Chunky slider, swatch, dialog, and haptic primitives. |
 | `ui/canvas/EngineSession.kt` *(helper)* | The per-canvas façade the ViewModel and tools talk to (§4.3). Lives in `ui/canvas` because its lifetime is the composable's, but it is not a composable. |
 
 ## 3. Threading model
@@ -457,6 +459,11 @@ reads it with `savedStateHandle.toRoute<CanvasRoute>()`.
 
 Settings/About is a sheet reachable from the Studio menu, not a route; it
 has no state worth a back-stack entry.
+
+`AppThemeViewModel` is activity-scoped above this host. It observes
+`Prefs.appTheme` and wraps every route in `BangniTheme`, so a Settings change
+recolours Studio, Canvas, sheets, dialogs, and system bars immediately. Missing
+or unknown stored names resolve to Saffron; system dark mode is not an input.
 
 ## 8. Lifecycle
 

@@ -56,6 +56,14 @@ import java.util.concurrent.atomic.AtomicReference
 internal enum class LayerEditResult { APPLIED, REFUSED }
 internal enum class StrokeCancelMode { BUFFERED, READ_MODIFY_WRITE }
 
+/** Renderer chrome queued before bootstrap and reused for later theme changes. */
+internal data class CanvasAppearance(
+    val checkerPx: Float,
+    val checkerA: Int,
+    val checkerB: Int,
+    val canvasVoid: Int,
+)
+
 /**
  * The per-canvas façade the ViewModel and tools talk to
  * (`docs/plan/02-architecture.md` §4.3).
@@ -660,12 +668,17 @@ class EngineSession(
     internal fun configure(
         stack: LayerStack,
         paperColor: Int,
+        appearance: CanvasAppearance,
         view: ViewTransform,
         tracingReference: TracingReference?,
     ) {
         glRenderer.execute {
             renderer.setStack(stack)
             renderer.setPaperColor(paperColor)
+            renderer.checkerPx = appearance.checkerPx
+            renderer.checkerA = appearance.checkerA
+            renderer.checkerB = appearance.checkerB
+            renderer.canvasVoid = appearance.canvasVoid
             renderer.setView(view)
             renderer.setTracingReference(tracingReference)
         }

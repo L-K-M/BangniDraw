@@ -323,6 +323,10 @@ class EngineSessionRenderContractTest {
         val factory = section(source, FACTORY_START, FACTORY_END)
 
         assertTrue(CONFIGURE_CALL in factory, "startup scene configuration is missing")
+        assertTrue(
+            CONFIGURE_APPEARANCE_ARGUMENT in factory,
+            "startup appearance configuration is missing",
+        )
         assertFalse(SET_STACK_CALL in factory, "startup must not queue a stack redraw")
         assertFalse(SET_PAPER_CALL in factory, "startup must not queue a paper redraw")
         assertFalse(SET_VIEW_CALL in factory, "startup must not queue a view redraw")
@@ -496,7 +500,8 @@ class EngineSessionRenderContractTest {
         const val EXECUTE_CALL = "glRenderer.execute {"
         const val FRAME_SNAPSHOT_SCOPE = "PendingBatchDrainScope.FRAME_SNAPSHOT"
         const val EXHAUSTIVE_SCOPE = "PendingBatchDrainScope.EXHAUSTIVE"
-        const val CONFIGURE_CALL = "session.configure(stack, paperColor, view, tracingReference)"
+        const val CONFIGURE_CALL = "session.configure("
+        const val CONFIGURE_APPEARANCE_ARGUMENT = "appearance = appearance,"
         const val SET_STACK_CALL = "session.setStack(stack)"
         const val SET_PAPER_CALL = "session.setPaperColor(paperColor)"
         const val SET_VIEW_CALL = "session.setView(view)"

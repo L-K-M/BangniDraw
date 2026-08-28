@@ -6,19 +6,18 @@ import kotlin.test.assertEquals
 class CanvasVoidColorPolicyTest {
 
     @Test
-    fun `quiet studio canvas void is opaque and theme specific`() {
-        val light = CanvasVoidColorPolicy.argb(ThemeTone.LIGHT)
-        val dark = CanvasVoidColorPolicy.argb(ThemeTone.DARK)
+    fun `canvas void follows every opaque theme palette`() {
+        for (theme in AppTheme.entries) {
+            val canvasVoid = CanvasVoidColorPolicy.argb(theme)
 
-        assertEquals(LIGHT_VOID, light)
-        assertEquals(DARK_VOID, dark)
-        assertEquals(OPAQUE_ALPHA, light ushr ALPHA_SHIFT)
-        assertEquals(OPAQUE_ALPHA, dark ushr ALPHA_SHIFT)
+            assertEquals(ThemeColorPolicy.colors(theme).canvasVoidArgb, canvasVoid)
+            assertEquals(NEUTRAL_CANVAS_VOID, canvasVoid)
+            assertEquals(OPAQUE_ALPHA, canvasVoid ushr ALPHA_SHIFT)
+        }
     }
 
     private companion object {
-        const val LIGHT_VOID = 0xFFB8B2AA.toInt()
-        const val DARK_VOID = 0xFF0F0E0D.toInt()
+        const val NEUTRAL_CANVAS_VOID = 0xFFB8B2AA.toInt()
         const val ALPHA_SHIFT = 24
         const val OPAQUE_ALPHA = 0xFF
     }

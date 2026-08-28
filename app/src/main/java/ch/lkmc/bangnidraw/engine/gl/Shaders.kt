@@ -296,7 +296,7 @@ object Shaders {
      * caller, which is the only place that knows the display density.
      *
      * Colours are uniforms rather than constants so the checkerboard follows
-     * the light/dark theme — `ui/theme/Color.kt` owns the two values, per
+     * the selected app palette — `ui/theme/Color.kt` owns the two values, per
      * AGENTS.md's "no ad-hoc `Color(0x…)`" rule.
      */
     val CHECKER_FRAG = """

@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.engine.gl
 import android.content.res.AssetManager
 import android.opengl.GLES30
 import android.util.Log
+import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BlendMode
 import ch.lkmc.bangnidraw.engine.core.BufferScissor
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
@@ -47,7 +48,6 @@ import ch.lkmc.bangnidraw.engine.core.ViewportResizeOwner
 import ch.lkmc.bangnidraw.engine.core.ViewportResizePolicy
 import ch.lkmc.bangnidraw.engine.core.ViewportResizeState
 import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
-import ch.lkmc.bangnidraw.engine.core.ThemeTone
 import ch.lkmc.bangnidraw.engine.core.WatercolorOverlayKernel
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxLut
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxShaderSource
@@ -338,7 +338,7 @@ class CanvasRenderer(
     var checkerB: Int = 0xFFE0E0E0.toInt()
 
     /** Theme colour outside the transformed paper (`08-ui-and-layout.md` §5.1). */
-    var canvasVoid: Int = CanvasVoidColorPolicy.argb(ThemeTone.LIGHT)
+    var canvasVoid: Int = CanvasVoidColorPolicy.argb(AppTheme.DEFAULT)
 
     /**
      * True once [onContextCreated] has run and the device can render at all.

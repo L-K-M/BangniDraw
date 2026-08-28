@@ -85,7 +85,6 @@ import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.PanelMode
 import ch.lkmc.bangnidraw.engine.core.Refusal
-import ch.lkmc.bangnidraw.ui.theme.Indigo
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchGray
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWarm
@@ -457,8 +456,10 @@ private fun LayerRow(
         mutableFloatStateOf(layer.props.opacity)
     }
     val view = LocalView.current
-    val background = if (selected) MaterialTheme.colorScheme.primaryContainer
+    val background = if (selected) MaterialTheme.colorScheme.secondaryContainer
     else MaterialTheme.colorScheme.surfaceContainer
+    val captionColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+    else MaterialTheme.colorScheme.onSurfaceVariant
     val rowAlpha = if (layer.props.visible) 1f else HIDDEN_ALPHA
     val reorderCustomActions = reorderActions.map { action ->
         CustomAccessibilityAction(
@@ -503,7 +504,10 @@ private fun LayerRow(
                 modifier = Modifier
                     .width(SELECTION_BAR)
                     .fillMaxHeight()
-                    .background(if (selected) Indigo else Color.Transparent),
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.secondary
+                        else Color.Transparent,
+                    ),
             )
             // Touch-only affordance: the accessible reorder path is the
             // row's custom actions and the per-row menu, so the handle
@@ -574,7 +578,7 @@ private fun LayerRow(
                     Text(
                         text = blendModeName(layer.props.blendMode),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = captionColor,
                         maxLines = 1,
                     )
                 }
@@ -597,6 +601,7 @@ private fun LayerRow(
                 Text(
                     stringResource(R.string.layer_opacity_value, (opacity * PERCENT).toInt()),
                     style = MaterialTheme.typography.labelSmall,
+                    color = captionColor,
                 )
             }
             Box {

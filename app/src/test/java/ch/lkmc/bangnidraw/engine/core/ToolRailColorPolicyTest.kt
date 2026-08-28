@@ -8,17 +8,19 @@ import kotlin.test.assertTrue
 class ToolRailColorPolicyTest {
 
     @Test
-    fun `dark rail icons meet non text contrast`() {
-        for (emphasis in ToolButtonEmphasis.entries) {
-            val colors = ToolRailColorPolicy.colors(ThemeTone.DARK, emphasis)
-            val contrast = contrastRatio(colors.iconArgb, colors.containerArgb)
+    fun `rail icons meet non text contrast in every theme`() {
+        for (theme in AppTheme.entries) {
+            for (emphasis in ToolButtonEmphasis.entries) {
+                val colors = ToolRailColorPolicy.colors(theme, emphasis)
+                val contrast = contrastRatio(colors.iconArgb, colors.containerArgb)
 
-            assertEquals(OPAQUE_ALPHA, colors.iconArgb ushr ALPHA_SHIFT)
-            assertEquals(OPAQUE_ALPHA, colors.containerArgb ushr ALPHA_SHIFT)
-            assertTrue(
-                contrast >= MIN_ICON_CONTRAST,
-                "$emphasis icon contrast is $contrast:1",
-            )
+                assertEquals(OPAQUE_ALPHA, colors.iconArgb ushr ALPHA_SHIFT)
+                assertEquals(OPAQUE_ALPHA, colors.containerArgb ushr ALPHA_SHIFT)
+                assertTrue(
+                    contrast >= MIN_ICON_CONTRAST,
+                    "$theme $emphasis icon contrast is $contrast:1",
+                )
+            }
         }
     }
 

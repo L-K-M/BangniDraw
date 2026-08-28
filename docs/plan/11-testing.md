@@ -367,6 +367,15 @@ They are part of the suite under the §11 rule (every pure class gets a
 | `MixboxLutTest` | `09` §5.1, ADR 0003 (Mixbox source set) | the asset's sha256 equals the recorded value; dimensions 512×512 |
 | `PureCoreTest`, `ManifestTest` | `02-architecture.md` §5, ADR 0002 | no `android.`/`androidx.`/`com.scrtwpns.` import under `engine/core`; the merged manifest's `uses-permission` list is empty |
 | `RotationSnapTest` | `RotationSnap` (`07-input-and-stylus.md` §7) | the 3°/5° hysteresis, exact `0f` while snapped, one tick per entry |
+| `UserPreferencesTest`, `ThemeColorPolicyTest`, `ToolRailColorPolicyTest`, `CanvasVoidColorPolicyTest` | `AppTheme` and theme policies (proposal 0003, 08 §5.1) | exactly `SAFFRON`, `CORAL`, `VIOLET`, and `TEAL`; enum-name round trip; missing/unknown → `SAFFRON`; every content-role pair ≥ 4.5:1; outline/surface and rail icon/container ≥ 3:1; one shared opaque canvas void |
+
+`ThemeContractTest` pins the app-owned light system bars and launch theme,
+`android:forceDarkAllowed = false`, the absence of system-dark inputs/night
+resources, the root loading gate, and its cancellation-safe, retrying
+preference-failure fallback. `CanvasAppearanceContractTest` pins both the
+initial GL appearance before bootstrap and subsequent theme updates, plus the
+paired selected-layer text roles.
+`AccessibilitySemanticsContractTest` pins the named radio group in Settings.
 
 ## 4. Shader contract tests — `GlShaderContractTest`, `GlslDeclarationOrderTest`
 
@@ -532,6 +541,7 @@ checklist with ticks; a failing row blocks the merge.
 | U2 | Fold/unfold (Z Fold) and multi-window resize: the layout reflows by width, panels reopen where they were | 9 |
 | U3 | One-handed on a phone: every tool and the undo are reachable with the thumb | 9 |
 | U4 | Focus mode hides all chrome; a tap brings it back | 9 |
+| U5 | Select every theme: named radio state and chrome update immediately; restart preserves it; toggling Android dark mode changes nothing | 13 |
 | S1 | `adb shell dumpsys package` shows no requested permissions | every release |
 
 ## 9. Instrumented tests: none in v1

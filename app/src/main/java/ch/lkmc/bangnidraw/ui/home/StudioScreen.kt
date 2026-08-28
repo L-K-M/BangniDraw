@@ -82,6 +82,7 @@ import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.WidthClass
+import ch.lkmc.bangnidraw.ui.theme.LocalAppTheme
 import kotlin.math.ceil
 
 /**
@@ -370,8 +371,10 @@ fun StudioScreen(
     if (showSettings) {
         SettingsSheet(
             state = state,
+            appTheme = LocalAppTheme.current,
             historyMaxSteps = viewModel.budget.historyMaxSteps,
             historyMaxBytes = viewModel.budget.historyMaxBytes,
+            onAppTheme = viewModel::setAppTheme,
             onHandedness = viewModel::setHandedness,
             onTouchDrawingMode = viewModel::setTouchDrawingMode,
             onPenButtonAction = viewModel::setPenButtonAction,

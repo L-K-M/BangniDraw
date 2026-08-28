@@ -188,7 +188,6 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
     suspend fun setDishT(t: Float) {
         if (t.isNaN()) return
         val clamped = t.coerceIn(0f, 1f)
-        if (clamped.isNaN()) return
         dataStore.edit { it[KEY_DISH_T] = clamped }
     }
 

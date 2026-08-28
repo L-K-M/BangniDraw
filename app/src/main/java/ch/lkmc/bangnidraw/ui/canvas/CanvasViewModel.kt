@@ -1522,7 +1522,7 @@ class CanvasViewModel @Inject constructor(
     internal fun setDishT(t: Float) {
         if (t.isNaN()) return
         val clamped = t.coerceIn(0f, 1f)
-        if (clamped.isNaN() || dish.t == clamped) return
+        if (dish.t == clamped) return
         dish = dish.copy(t = clamped)
         updateToolUi()
         dishTJob?.cancel()

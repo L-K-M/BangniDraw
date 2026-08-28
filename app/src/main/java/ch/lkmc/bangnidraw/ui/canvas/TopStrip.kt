@@ -74,6 +74,7 @@ internal fun TopStrip(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onUndoLongPress: () -> Unit,
+    onRedoLongPress: () -> Unit,
     onLayers: () -> Unit,
     onColor: () -> Unit,
     onColorLongPress: () -> Unit,
@@ -98,6 +99,7 @@ internal fun TopStrip(
             onUndo,
             onRedo,
             onUndoLongPress,
+            onRedoLongPress,
         )
     }
     val tools: @Composable () -> Unit = {
@@ -155,9 +157,11 @@ private fun NavigationCluster(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onUndoLongPress: () -> Unit,
+    onRedoLongPress: () -> Unit,
 ) {
     val view = LocalView.current
     val undoEnabled = undoAvailability == ActionAvailability.ENABLED
+    val redoEnabled = redoAvailability == ActionAvailability.ENABLED
     val iconColor = LocalContentColor.current
     val unavailableText = stringResource(R.string.cd_unavailable)
     Row(horizontalArrangement = Arrangement.Start) {
@@ -204,18 +208,36 @@ private fun NavigationCluster(
                 tint = if (undoEnabled) iconColor else iconColor.copy(alpha = DISABLED_ALPHA),
             )
         }
-        IconButton(
-            enabled = redoAvailability == ActionAvailability.ENABLED,
-            onClick = {
-                if (hapticsMode == HapticsMode.ENABLED) {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                }
-                onRedo()
-            },
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(ICON_BUTTON)
+                .combinedClickable(
+                    role = Role.Button,
+                    onClick = {
+                        if (!redoEnabled) return@combinedClickable
+                        if (hapticsMode == HapticsMode.ENABLED) {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        }
+                        onRedo()
+                    },
+                    onLongClick = {
+                        if (hapticsMode == HapticsMode.ENABLED) {
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        }
+                        onRedoLongPress()
+                    },
+                )
+                // Same shape as undo: the node stays enabled so the readout
+                // works with nothing to redo; the state explains a dead tap.
+                .semantics {
+                    if (!redoEnabled) stateDescription = unavailableText
+                },
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.Redo,
                 contentDescription = stringResource(R.string.canvas_redo),
+                tint = if (redoEnabled) iconColor else iconColor.copy(alpha = DISABLED_ALPHA),
             )
         }
     }

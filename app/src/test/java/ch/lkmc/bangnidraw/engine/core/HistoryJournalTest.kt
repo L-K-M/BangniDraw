@@ -106,6 +106,27 @@ class HistoryJournalTest {
     }
 
     @Test
+    fun `redo depth tracks the cursor through undo and truncation`() {
+        val j = journal()
+        assertEquals(0, j.redoDepth)
+
+        j.push(entry(1))
+        j.push(entry(2))
+        j.push(entry(3))
+        assertEquals(0, j.redoDepth)
+
+        j.undo()
+        j.undo()
+        assertEquals(2, j.redoDepth)
+
+        j.redo()
+        assertEquals(1, j.redoDepth)
+
+        j.push(entry(4))
+        assertEquals(0, j.redoDepth)
+    }
+
+    @Test
     fun `prune by step count drops the oldest entries`() {
         val j = journal(maxEntries = 3)
         j.push(entry(1))

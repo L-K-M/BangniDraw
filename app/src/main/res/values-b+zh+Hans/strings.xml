@@ -82,6 +82,9 @@
     <plurals name="canvas_history_readout">
         <item quantity="other">撤销历史：%1$d 步 · %2$s（上限 %3$s）</item>
     </plurals>
+    <plurals name="canvas_redo_readout">
+        <item quantity="other">重做：%1$d 步</item>
+    </plurals>
     <string name="cd_unavailable">不可用</string>
     <string name="canvas_export_png">导出 PNG</string>
     <string name="canvas_export_jpeg">导出 JPEG</string>

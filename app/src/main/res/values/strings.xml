@@ -95,6 +95,10 @@
         <item quantity="one">Undo history: %1$d step · %2$s of %3$s</item>
         <item quantity="other">Undo history: %1$d steps · %2$s of %3$s</item>
     </plurals>
+    <plurals name="canvas_redo_readout">
+        <item quantity="one">Redo: %1$d step</item>
+        <item quantity="other">Redo: %1$d steps</item>
+    </plurals>
     <string name="cd_unavailable">Unavailable</string>
     <string name="canvas_export_png">Export PNG</string>
     <string name="canvas_export_jpeg">Export JPEG</string>

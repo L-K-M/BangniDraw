@@ -2985,7 +2985,7 @@ class CanvasViewModel @Inject constructor(
             checkpointGeneration.capture()
         }
         var projectCommitted = false
-        try {
+        return try {
             CheckpointBarrier.commitWhenFlushed(
                 awaitReadbacks = ::awaitReadbacks,
                 flushTiles = flusher::checkpointFlush,

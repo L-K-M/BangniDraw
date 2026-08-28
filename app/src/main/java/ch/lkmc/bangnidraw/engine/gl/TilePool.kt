@@ -132,7 +132,7 @@ class TilePool(
         val handle = allocator.tryAllocateNotOn(excluded, excludedCount)
         check(!handle.isNone) {
             "no slice after creating page ${allocator.pageCount - 1}; " +
-                "stale exclusion list ${excluded.contentToString()}?"
+                "stale exclusion list ${excluded.copyOf(excludedCount).contentToString()}?"
         }
         return handle
     }

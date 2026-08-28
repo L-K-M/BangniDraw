@@ -1938,33 +1938,32 @@ class CanvasRenderer(
         key: TileKey,
         out: IntArray,
     ): Int {
-        val reference = tracingReference ?: return 0
-        if (reference.visibility != ReferenceVisibility.VISIBLE || reference.opacity <= 0f) return 0
+        val sourceRect = tracingReferenceSourceRect(key) ?: return 0
         val textures = referenceTextures?.layer ?: return 0
-        val canvasRect = grid.tileRect(key)
+
+        return textures.visiblePages(sourceRect, out)
+    }
+
+    /** Keeps page exclusion and tile drawing on the same sampled geometry. */
+    private fun tracingReferenceSourceRect(key: TileKey): IntRect? {
+        val reference = tracingReference ?: return null
+        if (reference.visibility != ReferenceVisibility.VISIBLE || reference.opacity <= 0f) return null
         val sourceRect = reference.transform.sourceBoundsOf(
-            destination = canvasRect,
+            destination = grid.tileRect(key),
             sourceWidth = reference.imageWidth,
             sourceHeight = reference.imageHeight,
         )
-        if (sourceRect.isEmpty) return 0
+        if (sourceRect.isEmpty) return null
 
-        return textures.visiblePages(sourceRect, out)
+        return sourceRect
     }
 
     /** Draws the reference above the paper while Below's target tile is bound. */
     private fun drawTracingReferenceTile(key: TileKey) {
         val reference = tracingReference ?: return
-        if (reference.visibility != ReferenceVisibility.VISIBLE || reference.opacity <= 0f) return
+        val sourceRect = tracingReferenceSourceRect(key) ?: return
         val textures = referenceTextures?.layer ?: return
         val pass = compositePass ?: return
-        val canvasRect = grid.tileRect(key)
-        val sourceRect = reference.transform.sourceBoundsOf(
-            destination = canvasRect,
-            sourceWidth = reference.imageWidth,
-            sourceHeight = reference.imageHeight,
-        )
-        if (sourceRect.isEmpty) return
 
         pass.drawReferenceToTile(
             textures = textures,

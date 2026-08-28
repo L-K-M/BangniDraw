@@ -65,16 +65,23 @@ class CanvasRendererGeometryContractTest {
     }
 
     @Test
-    fun `cached tracing reference reports every sampled page`() {
+    fun `cached tracing query and draw share sampled geometry`() {
         val source = File(repositoryRoot(), CANVAS_RENDERER_PATH).readText()
         val query = section(
             source,
             TRACING_PAGE_QUERY_START,
             TRACING_PAGE_QUERY_END,
         )
+        val draw = section(
+            source,
+            TRACING_TILE_DRAW_START,
+            TRACING_TILE_DRAW_END,
+        )
 
         assertTrue(CACHE_BASE_PAGE_WIRING in source)
         assertTrue(REFERENCE_VISIBLE_PAGE_QUERY in query)
+        assertTrue(SHARED_REFERENCE_SOURCE_RECT in query)
+        assertTrue(SHARED_REFERENCE_SOURCE_RECT in draw)
     }
 
     @Test
@@ -228,6 +235,12 @@ class CanvasRendererGeometryContractTest {
             "private fun sampleTracingReferencePages("
         const val TRACING_PAGE_QUERY_END =
             "/** Draws the reference above the paper"
+        const val TRACING_TILE_DRAW_START =
+            "private fun drawTracingReferenceTile("
+        const val TRACING_TILE_DRAW_END =
+            "private fun visibleCanvasRect("
+        const val SHARED_REFERENCE_SOURCE_RECT =
+            "tracingReferenceSourceRect(key)"
         const val CACHE_BASE_PAGE_WIRING =
             "sampleBelowBasePages = sampleTracingReferencePagesCallback"
         const val REFERENCE_VISIBLE_PAGE_QUERY =

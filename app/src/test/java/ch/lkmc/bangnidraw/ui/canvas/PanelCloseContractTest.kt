@@ -36,16 +36,26 @@ class PanelCloseContractTest {
     fun `the screen wires every sheet's dismiss`() {
         val screen = source(CANVAS_SCREEN_PATH)
 
-        // Every call site of a dismissable sheet must wire the callback —
-        // counted from the call sites, not a hand-kept constant, so a new
-        // sheet kind cannot silently stay green. TracingReferencePanel is
-        // excluded: it already carries a Done button.
-        val sheetCallSites = SHEET_CALL_SITE.findAll(screen).count()
-        val wirings = DISMISS_WIRING.findAll(screen).count()
+        // Every call site of a dismissable sheet wires the callback, checked
+        // per call site (name to next sheet call site) rather than by totals:
+        // a total can pass with a stray `onDismiss =` in dead code, and an
+        // empty result set cannot pass at all. Known limit, stated rather
+        // than overstated: a sheet kind missing from SHEET_CALL_SITE is not
+        // counted either. TracingReferencePanel is excluded: it already
+        // carries a Done button.
+        val callSites = SHEET_CALL_SITE.findAll(screen).toList()
         assertTrue(
-            wirings == sheetCallSites,
-            "expected every sheet call site ($sheetCallSites) to wire onDismiss, found $wirings",
+            callSites.isNotEmpty(),
+            "no sheet call sites found; SHEET_CALL_SITE or CanvasScreen.kt may have moved",
         )
+        callSites.forEachIndexed { index, site ->
+            val nextCall = callSites.getOrNull(index + 1)?.range?.first ?: screen.length
+            val arguments = screen.substring(site.range.first, nextCall)
+            assertTrue(
+                DISMISS_WIRING.containsMatchIn(arguments),
+                "${site.value} call site does not wire onDismiss before the next sheet call site",
+            )
+        }
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()

@@ -122,6 +122,7 @@ import ch.lkmc.bangnidraw.data.GalleryExportOutcome
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasDialog
+import ch.lkmc.bangnidraw.engine.core.CanvasOverlayClearance
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
 import ch.lkmc.bangnidraw.engine.core.ColorText
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
@@ -1302,11 +1303,8 @@ private fun CanvasContent(
                 }
             }
 
-            val resetBottomPadding = when (layout.railMode) {
-                RailMode.DOCK -> DOCK_CHROME_HEIGHT.dp
-                RailMode.SHORT -> LEDGE_CHROME_HEIGHT.dp
-                RailMode.GROUPED, RailMode.FULL -> RESET_EDGE_PADDING.dp
-            }
+            val overlayBottomPadding =
+                CanvasOverlayClearance.bottomPaddingDp(layout.railMode).dp
             ResetViewPill(
                 view = view,
                 density = density.density,
@@ -1314,7 +1312,7 @@ private fun CanvasContent(
                 onReset = resetView,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = resetBottomPadding),
+                    .padding(bottom = overlayBottomPadding),
             )
 
             // §6.3's storage-full banner: persistent while the state holds,
@@ -1327,8 +1325,10 @@ private fun CanvasContent(
                     shape = MaterialTheme.shapes.medium,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .semantics { liveRegion = LiveRegionMode.Assertive }
-                        .padding(16.dp),
+                        .padding(horizontal = 16.dp)
+                        .padding(top = 16.dp)
+                        .padding(bottom = overlayBottomPadding)
+                        .semantics { liveRegion = LiveRegionMode.Assertive },
                 ) {
                     Text(
                         text = stringResource(R.string.err_storage_full),
@@ -1338,14 +1338,6 @@ private fun CanvasContent(
                 }
             }
 
-            // The card must clear whatever chrome owns the bottom edge — the
-            // dock mode's rail sits 56 dp tall there, and the card composed
-            // after it would otherwise cover the dock's top half mid-fill.
-            val fillCardBottomPadding = when (layout.railMode) {
-                RailMode.DOCK -> DOCK_CHROME_HEIGHT.dp
-                RailMode.SHORT -> LEDGE_CHROME_HEIGHT.dp
-                RailMode.GROUPED, RailMode.FULL -> RESET_EDGE_PADDING.dp
-            }
             val fillProgress = state.fillProgress
             if (fillProgress != null) {
                 Surface(
@@ -1354,7 +1346,7 @@ private fun CanvasContent(
                     tonalElevation = 3.dp,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = fillCardBottomPadding)
+                        .padding(bottom = overlayBottomPadding)
                         .width(FILL_PROGRESS_WIDTH.dp),
                 ) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -1966,9 +1958,6 @@ private fun toolName(tool: ToolKind): String = when (tool) {
 private const val CHECKER_DP = 8
 private const val FILL_PROGRESS_WIDTH = 240
 private const val DOCK_HEIGHT = 56
-private const val DOCK_CHROME_HEIGHT = 120
-private const val LEDGE_CHROME_HEIGHT = 64
-private const val RESET_EDGE_PADDING = 16
 private const val EXCLUSION_GAP_DP = 16
 private const val CHROME_Z = 2f
 private const val HINT_Z = 3f

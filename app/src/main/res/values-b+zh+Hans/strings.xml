@@ -253,6 +253,8 @@
     <string name="layer_rename_hint">图层名称</string>
     <string name="layer_merge_title">合并这两个图层？</string>
     <string name="layer_merge_body">混合模式将烘焙到一个正常图层中。</string>
+    <string name="layer_clear_title">清除此图层？</string>
+    <string name="layer_clear_body">图层中的像素将被移除。此操作可以撤销。</string>
     <plurals name="layer_flatten_title">
         <item quantity="other">拼合 %1$d 个图层？</item>
     </plurals>

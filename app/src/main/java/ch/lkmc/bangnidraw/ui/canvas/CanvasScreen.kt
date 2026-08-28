@@ -1797,6 +1797,15 @@ private fun CanvasDialogHost(
             },
             onDismiss = viewModel::dismissDialog,
         )
+        is CanvasDialog.ClearLayer -> ConfirmationDialog(
+            title = stringResource(R.string.layer_clear_title),
+            body = stringResource(R.string.layer_clear_body),
+            onConfirm = {
+                viewModel.dismissDialog()
+                viewModel.clearLayer(dialog.index)
+            },
+            onDismiss = viewModel::dismissDialog,
+        )
         CanvasDialog.FlattenLayers -> ConfirmationDialog(
             title = pluralStringResource(
                 R.plurals.layer_flatten_title,

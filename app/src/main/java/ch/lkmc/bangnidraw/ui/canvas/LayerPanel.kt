@@ -266,7 +266,9 @@ internal fun LayerPanel(
                                     onMergeDown(index)
                                 }
                             },
-                            onClear = { onClear(index) },
+                            onClear = {
+                                onRequestDialog(CanvasDialog.ClearLayer(index))
+                            },
                             onToggleAlphaLock = { onToggleAlphaLock(index) },
                             onToggleLock = { onToggleLock(index) },
                             onBlendMode = { onBlendMode(index, it) },

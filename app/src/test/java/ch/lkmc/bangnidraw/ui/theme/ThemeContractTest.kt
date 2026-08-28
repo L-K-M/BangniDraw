@@ -130,8 +130,12 @@ class ThemeContractTest {
             "prefs.appTheme" in studioViewModel,
             "the activity-scoped owner must be the only theme observer",
         )
+        val appThemeFlow = prefs
+            .substringAfter("val appTheme", "")
+            .substringBefore("internal suspend fun setAppTheme", "")
+        assertTrue(appThemeFlow.isNotEmpty(), "the appTheme flow section is missing")
         assertTrue(
-            ".distinctUntilChanged()" in prefs,
+            ".distinctUntilChanged()" in appThemeFlow,
             "unrelated preference writes must not recompose the whole app",
         )
         assertTrue(

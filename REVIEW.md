@@ -2000,3 +2000,16 @@ touchscreen hover too, not only a pen.
 - **R-133 ⏸️ Round 4, minor: AGENTS.md should demand deleting leftover
   night resources.** Declined. The rule already says add none, and the
   contract rejects every night-qualified directory, which covers leftovers.
+  (Round 4 landed as PR #148: #141 was merged while its review ran.)
+
+## PR #148 — theme review round 4 (2026-08-28)
+
+- **R-134 🟢 Round 1, minor: backoff constants are silently coupled; the
+  dedup pin scans all of Prefs.** Applied. The shift/multiplier invariant is
+  documented at the constants, and the `distinctUntilChanged` assertion is
+  scoped to the `appTheme` flow section with loud marker failures.
+
+- **R-135 ⏸️ Round 1, info: `UserPreferencesTest` belongs under `data/`.**
+  Refuted. The class lives in `engine/core` and tests the stored enums there
+  (`Hand`, `TouchDrawingMode`, `AppTheme`, …); `data/Prefs` only persists
+  them. The tree entry mirrors the real package.

@@ -95,8 +95,11 @@ internal object WatercolorShaders {
 
         float ageFactor(vec4 state) {
             float updatedTick = decodeTick(state);
-            float age = u_epochRollover && updatedTick <= u_nowTick
-                ? float(DRY_TICKS)
+            // u_epochRollover re-stamps the tick into the new 16-bit epoch and
+            // must preserve the wetness/saturation already stored; drying it
+            // would wipe live water at the rollover.
+            float age = u_epochRollover
+                ? 0.0
                 : mod(
                     u_nowTick - updatedTick + float(TICK_MODULUS),
                     float(TICK_MODULUS)

@@ -147,8 +147,12 @@ object WatercolorWetKernel {
 
     private fun ageFactor(cell: StoredCell, nowTick: Int, mode: Mode): Float {
         val updatedTick = decodeTick(cell.tickHigh, cell.tickLow)
-        val age = if (mode == Mode.EPOCH_REBASE && updatedTick <= nowTick) {
-            WatercolorKernel.DRY_TICKS
+        // EPOCH_REBASE only re-stamps the tick into the new 16-bit epoch; it
+        // must preserve the wetness and saturation already stored (the cell
+        // was aged by prior UPDATE passes). Drying it here would wipe live
+        // water at the ~109-minute device-uptime rollover.
+        val age = if (mode == Mode.EPOCH_REBASE) {
+            0
         } else {
             WatercolorKernel.ageTicks(nowTick, updatedTick)
         }

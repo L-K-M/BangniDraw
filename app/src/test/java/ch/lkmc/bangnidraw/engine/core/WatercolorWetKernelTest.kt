@@ -126,7 +126,11 @@ class WatercolorWetKernelTest {
     }
 
     @Test
-    fun `epoch rebase dries ambiguous low ticks and keeps recent wrapped ticks`() {
+    fun `epoch rebase preserves wetness and only re-stamps the tick`() {
+        // The rebase moves a live cell's 16-bit tick into the new epoch without
+        // aging it; drying it would wipe live water at the ~109-minute device
+        // uptime rollover (AGENTS.md: rebase "preserves water"). A genuinely dry
+        // cell already stores 0, so preserving keeps it 0.
         val stale = WatercolorWetKernel.step(
             center = cell(surfaceWater = 0.8f, updatedTick = 5, saturation = 0.6f),
             neighbors = dryNeighbors(),
@@ -143,12 +147,28 @@ class WatercolorWetKernelTest {
                 mode = WatercolorWetKernel.Mode.EPOCH_REBASE,
             ),
         )
-        val retention = 1f - 3f / WatercolorKernel.DRY_TICKS
 
-        assertEquals(0f, stale.surfaceWater, EPSILON)
-        assertEquals(0f, stale.saturation, EPSILON)
-        assertEquals(0.8f * retention, recent.surfaceWater, EPSILON)
-        assertEquals(0.6f * retention, recent.saturation, EPSILON)
+        assertEquals(0.8f, stale.surfaceWater, EPSILON)
+        assertEquals(0.6f, stale.saturation, EPSILON)
+        assertEquals(5, WatercolorWetKernel.decodeTick(stale.tickHigh, stale.tickLow))
+        assertEquals(0.8f, recent.surfaceWater, EPSILON)
+        assertEquals(0.6f, recent.saturation, EPSILON)
+        assertEquals(1, WatercolorWetKernel.decodeTick(recent.tickHigh, recent.tickLow))
+    }
+
+    @Test
+    fun `epoch rebase leaves a dry cell dry`() {
+        val dry = WatercolorWetKernel.step(
+            center = cell(surfaceWater = 0f, saturation = 0f, updatedTick = 5),
+            neighbors = dryNeighbors(),
+            parameters = parameters(
+                nowTick = 5,
+                mode = WatercolorWetKernel.Mode.EPOCH_REBASE,
+            ),
+        )
+
+        assertEquals(0f, dry.surfaceWater, EPSILON)
+        assertEquals(0f, dry.saturation, EPSILON)
     }
 
     @Test

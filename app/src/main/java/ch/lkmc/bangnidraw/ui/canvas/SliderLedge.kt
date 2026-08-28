@@ -7,18 +7,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -55,20 +50,9 @@ internal fun SliderLedge(
         shape = MaterialTheme.shapes.medium,
         modifier = modifier.height(LEDGE_HEIGHT),
     ) {
-        if (layout.railMode == RailMode.DOCK) {
-            CompactLedge(
-                layout,
-                preset,
-                secondary,
-                secondaryValue,
-                hapticsMode,
-                onSizeChanged,
-                onSecondaryChanged,
-                onTuningFinished,
-            )
-            return@Surface
-        }
-
+        // SHORT and DOCK both lay the size and secondary sliders side by side:
+        // on a sideways phone (DOCK) the user must still see brush size and
+        // opacity/flow/water together, not pick one behind a tab.
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -96,60 +80,6 @@ internal fun SliderLedge(
                     onTuningFinished,
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun CompactLedge(
-    layout: LayoutSpec,
-    preset: BrushPreset,
-    secondary: ToolSliderSecondary,
-    secondaryValue: Float,
-    hapticsMode: HapticsMode,
-    onSizeChanged: (Float) -> Unit,
-    onSecondaryChanged: (Float) -> Unit,
-    onTuningFinished: () -> Unit,
-) {
-    var active by rememberSaveable { mutableStateOf(LedgeControl.SIZE) }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = LEDGE_PADDING),
-    ) {
-        BoxWithConstraints(Modifier.weight(1f)) {
-            if (active == LedgeControl.SIZE) {
-                SizeSlider(layout, preset, maxWidth, onSizeChanged, onTuningFinished)
-            } else {
-                SecondarySlider(
-                    layout,
-                    preset,
-                    secondary,
-                    secondaryValue,
-                    hapticsMode,
-                    maxWidth,
-                    onSecondaryChanged,
-                    onTuningFinished,
-                )
-            }
-        }
-        TextButton(
-            onClick = {
-                active = if (active == LedgeControl.SIZE) LedgeControl.SECONDARY else LedgeControl.SIZE
-            },
-            modifier = Modifier.widthIn(min = TOGGLE_MIN_WIDTH),
-        ) {
-            Text(
-                stringResource(
-                    if (active == LedgeControl.SIZE) {
-                        R.string.brush_size
-                    } else {
-                        secondaryLabel(secondary)
-                    },
-                ),
-                maxLines = 1,
-            )
         }
     }
 }
@@ -224,9 +154,6 @@ private fun mirrored(hand: Hand): Modifier {
     return Modifier.graphicsLayer { scaleX = -1f }
 }
 
-private enum class LedgeControl { SIZE, SECONDARY }
-
 private val LEDGE_HEIGHT = 48.dp
 private val LEDGE_PADDING = 8.dp
-private val TOGGLE_MIN_WIDTH = 88.dp
 private const val LEDGE_ALPHA = 0.94f

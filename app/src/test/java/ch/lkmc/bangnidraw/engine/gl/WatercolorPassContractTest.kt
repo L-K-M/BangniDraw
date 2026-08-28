@@ -116,6 +116,10 @@ class WatercolorPassContractTest {
             .substringBefore("    fun finish()", missingDelimiterValue = "")
             .replace(Regex("\\s+"), " ")
 
+        assertTrue(
+            cancel.isNotBlank(),
+            "cancel path extraction failed - check the anchor doc comment and the finish() boundary",
+        )
         val present = cancel.indexOf("restoreWetKey(backup, wetLayer.textures, key)")
         assertTrue(present >= 0, "expected a wet-restore call in the cancel path")
         val failureDrop = cancel.indexOf(

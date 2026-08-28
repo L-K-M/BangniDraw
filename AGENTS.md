@@ -588,6 +588,11 @@ and the contradiction is noted here.
   channel lets the receive loop finish every accepted job before it exits;
   cancelling the worker can strand tile buffers and a coroutine per opened
   painting.
+  The per-Canvas worker starts synchronously in the ViewModel's property
+  initializer and is single-use. `onCleared` detaches the engine session
+  before the final checkpoint, so its readback drain cannot remain pending.
+  Failed-save leave gating owns retry while the screen exists; after teardown
+  no checkpoint producer remains, so retaining the worker cannot recover data.
 - **RMW before-images are captured in memory on first tile touch.** Before
   commit, those pixels may exist only on the GPU, so the open stroke cannot
   use the plan's disk journal literally. Pen-up persists the ordinary history

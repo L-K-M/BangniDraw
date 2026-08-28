@@ -10,19 +10,12 @@ class CanvasTileFlusherLifecycleContractTest {
     @Test
     fun `teardown closes the flusher after its final checkpoint`() {
         val source = source(CANVAS_VIEW_MODEL_PATH)
-        val start = source.indexOf(ON_CLEARED)
-        if (start < 0) fail("missing $ON_CLEARED")
-        val end = source.indexOf(NOTE_CHANGE, start)
-        if (end <= start) fail("missing $NOTE_CHANGE after $ON_CLEARED")
+        val teardown = section(source, ON_CLEARED, NOTE_CHANGE)
 
-        assertTrue(CLOSE_METHOD_CALL in source.substring(start, end))
+        assertTrue(CLOSE_METHOD_CALL in teardown)
 
-        val closeStart = source.indexOf(CLOSE_METHOD)
-        if (closeStart < 0) fail("missing $CLOSE_METHOD")
-        val closeEnd = source.indexOf(CHECKPOINT_METHOD, closeStart)
-        if (closeEnd <= closeStart) fail("missing $CHECKPOINT_METHOD after $CLOSE_METHOD")
+        val closeMethod = section(source, CLOSE_METHOD, CHECKPOINT_METHOD)
 
-        val closeMethod = source.substring(closeStart, closeEnd)
         val checkpointAt = closeMethod.indexOf(LEAVE_CHECKPOINT)
         if (checkpointAt < 0) fail("missing final leave checkpoint")
         val finallyAt = closeMethod.indexOf(FINALLY)
@@ -34,7 +27,40 @@ class CanvasTileFlusherLifecycleContractTest {
         assertTrue(finallyAt < closeAt)
     }
 
+    @Test
+    fun `teardown detaches readbacks before its final checkpoint`() {
+        val source = source(CANVAS_VIEW_MODEL_PATH)
+        val teardown = section(source, ON_CLEARED, NOTE_CHANGE)
+        val detach = teardown.indexOf(SESSION_DETACH)
+        if (detach < 0) fail("missing $SESSION_DETACH")
+        val close = teardown.indexOf(CLOSE_METHOD_CALL)
+        if (close < 0) fail("missing $CLOSE_METHOD_CALL")
+
+        assertTrue(detach < close)
+
+        val awaitReadbacks = section(source, AWAIT_READBACKS, STREAM_TILES)
+        assertTrue(NO_SESSION_COMPLETES in awaitReadbacks)
+    }
+
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
+
+    private fun section(source: String, startMarker: String, endMarker: String): String {
+        val start = uniqueIndexOf(source, startMarker)
+        val end = uniqueIndexOf(source, endMarker)
+        if (end <= start) fail("$endMarker must follow $startMarker")
+
+        return source.substring(start, end)
+    }
+
+    private fun uniqueIndexOf(source: String, marker: String): Int {
+        val first = source.indexOf(marker)
+        if (first < 0) fail("missing $marker")
+        if (source.indexOf(marker, first + marker.length) >= 0) {
+            fail("ambiguous $marker")
+        }
+
+        return first
+    }
 
     private fun repositoryRoot(): File {
         val workingDirectory = File(
@@ -54,11 +80,17 @@ class CanvasTileFlusherLifecycleContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasViewModel.kt"
         const val ON_CLEARED = "override fun onCleared()"
         const val NOTE_CHANGE = "private fun noteChange()"
-        const val CLOSE_METHOD_CALL = "checkpointAndCloseFlusher()"
+        const val CLOSE_METHOD_CALL =
+            "withContext(NonCancellable) { checkpointAndCloseFlusher() }"
         const val CLOSE_METHOD = "private suspend fun checkpointAndCloseFlusher()"
         const val CHECKPOINT_METHOD = "private suspend fun checkpointLocked("
         const val LEAVE_CHECKPOINT = "checkpointLocked(GallerySyncDecision.Trigger.LEAVE)"
         const val FINALLY = "finally"
         const val CLOSE_FLUSHER = "flusher.closeAndJoin()"
+        const val SESSION_DETACH = "session = null"
+        const val AWAIT_READBACKS = "private suspend fun awaitReadbacks()"
+        const val STREAM_TILES = "private suspend fun streamTiles("
+        const val NO_SESSION_COMPLETES =
+            "val engine = session ?: return TileFlusher.ReadbackResult.COMPLETE"
     }
 }

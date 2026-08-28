@@ -240,7 +240,8 @@ class TileFlusher(
     /**
      * Starts the worker: one coroutine, [io] expected to be
      * `Dispatchers.IO.limitedParallelism(1)` (§6.3). Tests skip this and call
-     * [runQueued], so every assertion runs deterministically.
+     * [runQueued], so every assertion runs deterministically. A flusher owns
+     * one single-use channel and therefore starts at most once.
      */
     fun start(scope: CoroutineScope, io: CoroutineDispatcher): Job {
         synchronized(workerLock) {

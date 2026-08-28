@@ -28,6 +28,7 @@ import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
 import ch.lkmc.bangnidraw.engine.core.MultiDrawCompletion
+import ch.lkmc.bangnidraw.engine.core.OverlayRedrawDecision
 import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.PendingBatchDrainScope
 import ch.lkmc.bangnidraw.engine.core.PendingBatchDrainWindow
@@ -45,9 +46,11 @@ import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.TiledPixelSource
 import ch.lkmc.bangnidraw.engine.core.TracingReference
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.engine.core.WatercolorOverlayKernel
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
 import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 internal enum class LayerEditResult { APPLIED, REFUSED }
@@ -112,6 +115,7 @@ class EngineSession(
     private val surfaceView = surface
     private val glRenderer = GLRenderer().apply { start() }
     private val redrawCompletionTracker = RedrawCompletionTracker()
+    private val wetOverlayTickScheduled = AtomicBoolean(false)
 
     @Volatile
     private var released = false
@@ -252,6 +256,10 @@ class EngineSession(
     @Volatile
     private var activeStrokeSpec: StrokeSpec? = null
 
+    /** GL-thread damage retained until a front or scene frame presents it. */
+    private var pendingWetOverlayDirty = IntRect.EMPTY
+    private var wetOverlayPresentationRetries = 0
+
     /** Exactly one completion survives an apply/release race. */
     private val fillResult = AtomicReference<((Boolean) -> Unit)?>(null)
 
@@ -308,7 +316,10 @@ class EngineSession(
             stamp = true,
             scope = PendingBatchDrainScope.FRAME_SNAPSHOT,
         )
-        val dirty = framePlan.dirty(incrementalDirty, renderer.strokePreviewDirty)
+        val dirty = framePlan.dirty(
+            incrementalDirty.union(pendingWetOverlayDirty),
+            renderer.strokePreviewDirty,
+        )
         if (dirty.present.isEmpty) return
 
         val presented = renderer.drawStrokeFrame(
@@ -319,7 +330,12 @@ class EngineSession(
             compositeDirtyCanvas = dirty.composite,
             presentDirtyCanvas = dirty.present,
         )
-        if (presented) renderPolicy.frontFramePresented(framePlan)
+        if (presented) {
+            clearPendingWetOverlay()
+            renderPolicy.frontFramePresented(framePlan)
+        } else {
+            retryWetOverlayPresentation()
+        }
     }
 
     /**
@@ -363,6 +379,7 @@ class EngineSession(
             }
             dabRing.release(next)
         }
+        if (stampedAny && renderer.hasWatercolorOverlay()) pumpWetOverlay()
         return dirty
     }
 
@@ -386,12 +403,17 @@ class EngineSession(
         ensureContext()
         if (!isSupported) return
         renderer.onSurfaceChanged(width, height)
-        renderer.drawFrame(
+        val presented = renderer.drawFrame(
             frameBufferId = bufferInfo.frameBufferId,
             bufferWidth = bufferInfo.width,
             bufferHeight = bufferInfo.height,
             bufferTransform = transform,
         )
+        if (presented) {
+            clearPendingWetOverlay()
+        } else {
+            retryWetOverlayPresentation()
+        }
         // §8.2 says `params` is iterated only to release ring slots. **This
         // implementation must not**, and the difference is a crash.
         //
@@ -1067,6 +1089,67 @@ class EngineSession(
         pollHandler.postDelayed(pollTick, READBACK_POLL_MS)
     }
 
+    /** Redraws the fading cue; monotonic wet timestamps remain authoritative. */
+    private val wetOverlayTick = Runnable {
+        wetOverlayTickScheduled.set(false)
+        if (!isLive()) return@Runnable
+
+        glRenderer.execute {
+            val refresh = renderer.refreshWatercolorOverlay()
+            pendingWetOverlayDirty = pendingWetOverlayDirty.union(refresh.dirty)
+            if (!refresh.dirty.isEmpty) {
+                wetOverlayPresentationRetries = WET_OVERLAY_PRESENT_RETRIES
+            }
+            val presentationRefresh = refresh.copy(dirty = pendingWetOverlayDirty)
+
+            pollHandler.post { applyWetOverlayRefresh(presentationRefresh) }
+        }
+    }
+
+    private fun applyWetOverlayRefresh(
+        refresh: WatercolorOverlayKernel.RefreshResult,
+    ) {
+        if (!isLive()) return
+
+        if (!refresh.dirty.isEmpty) requestWetOverlayRedraw()
+        if (refresh.action == WatercolorOverlayKernel.Refresh.REDRAW_AND_CONTINUE) {
+            pumpWetOverlay()
+        }
+    }
+
+    private fun requestWetOverlayRedraw() {
+        when (renderPolicy.requestOverlayRedraw()) {
+            OverlayRedrawDecision.SCENE -> redrawNow()
+            OverlayRedrawDecision.FRONT -> dispatch(attachmentGate.requestFront())
+            OverlayRedrawDecision.DEFER,
+            OverlayRedrawDecision.COVERED,
+            -> Unit
+        }
+    }
+
+    /** Retries one failed wet presentation, then leaves damage for the next frame. */
+    private fun retryWetOverlayPresentation() {
+        if (pendingWetOverlayDirty.isEmpty) return
+        if (wetOverlayPresentationRetries <= 0) return
+        if (wetOverlayTickScheduled.get()) return
+
+        wetOverlayPresentationRetries -= 1
+        pumpWetOverlay()
+    }
+
+    private fun clearPendingWetOverlay() {
+        pendingWetOverlayDirty = IntRect.EMPTY
+        wetOverlayPresentationRetries = 0
+    }
+
+    private fun pumpWetOverlay() {
+        if (!wetOverlayTickScheduled.compareAndSet(false, true)) return
+        pollHandler.postDelayed(
+            wetOverlayTick,
+            WatercolorOverlayKernel.REFRESH_MILLIS,
+        )
+    }
+
     /** Renders panel thumbnails on the GL thread and returns them on main. */
     internal fun requestLayerThumbnails(
         layers: Collection<LayerId>,
@@ -1245,6 +1328,8 @@ class EngineSession(
         discardDriver()
         abandonRedrawCompletions()
         pollHandler.removeCallbacks(pollTick)
+        pollHandler.removeCallbacks(wetOverlayTick)
+        wetOverlayTickScheduled.set(false)
         // Anything published but never drawn: `cancelPending = true` below
         // means those callbacks will not run, so their slots would stay checked
         // out. Harmless for a session that is going away — except that the ring
@@ -1273,5 +1358,6 @@ class EngineSession(
          * anything slower is a wedged GPU, where polling faster buys nothing.
          */
         const val READBACK_POLL_MS = 17L
+        const val WET_OVERLAY_PRESENT_RETRIES = 1
     }
 }

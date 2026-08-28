@@ -1195,6 +1195,7 @@ object Shaders {
         BLUR_VERTICAL,
         WatercolorShaders.WET,
         WatercolorShaders.COLOR,
+        WatercolorOverlayShaders.SOURCE,
         MERGE,
         TILE_COMPOSITE,
         PREVIEW,

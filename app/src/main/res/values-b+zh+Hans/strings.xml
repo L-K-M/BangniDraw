@@ -13,6 +13,10 @@
     <string name="studio_about">关于</string>
     <string name="studio_settings">设置</string>
     <string name="studio_untitled">草图</string>
+    <string name="studio_painting_unavailable">无法打开的画作</string>
+    <string name="studio_painting_unavailable_badge">无法打开</string>
+    <string name="studio_painting_unreadable">无法读取这张画的信息。</string>
+    <string name="studio_painting_actions">画作操作</string>
     <plurals name="studio_storage">
         <item quantity="other">%1$d 张画 · 占用 %2$s · 可用 %3$s</item>
     </plurals>
@@ -63,6 +67,7 @@
     <string name="paper_gray">灰色纸张</string>
     <string name="paper_black">黑色纸张</string>
     <string name="paper_transparent">透明纸张</string>
+    <string name="paper_transparent_hint">导出时背景为透明。JPEG 会填充为白色；PNG 保留透明。</string>
 
     <string name="canvas_back">返回画室</string>
     <string name="canvas_reset_view">复位视图</string>
@@ -76,11 +81,16 @@
     <string name="panel_blur_opened">模糊设置已打开</string>
     <string name="panel_water_opened">清水设置已打开</string>
     <string name="panel_eyedropper_opened">吸管设置已打开</string>
+    <string name="panel_close">关闭面板</string>
     <string name="canvas_undo">撤销</string>
     <string name="canvas_redo">重做</string>
+    <string name="cd_history_readout">查看历史详情</string>
     <string name="canvas_more">更多操作</string>
     <plurals name="canvas_history_readout">
         <item quantity="other">撤销历史：%1$d 步 · %2$s（上限 %3$s）</item>
+    </plurals>
+    <plurals name="canvas_redo_readout">
+        <item quantity="other">重做：%1$d 步</item>
     </plurals>
     <string name="cd_unavailable">不可用</string>
     <string name="canvas_export_png">导出 PNG</string>
@@ -253,6 +263,8 @@
     <string name="layer_rename_hint">图层名称</string>
     <string name="layer_merge_title">合并这两个图层？</string>
     <string name="layer_merge_body">混合模式将烘焙到一个正常图层中。</string>
+    <string name="layer_clear_title">清除此图层？</string>
+    <string name="layer_clear_body">图层中的像素将被移除。此操作可以撤销。</string>
     <plurals name="layer_flatten_title">
         <item quantity="other">拼合 %1$d 个图层？</item>
     </plurals>
@@ -262,6 +274,7 @@
     </plurals>
     <string name="layer_only">无法删除唯一图层——请改为清除。</string>
     <string name="layer_locked">图层已锁定。</string>
+    <string name="canvas_busy">请稍等——上一步还在处理。</string>
     <string name="layer_hidden">图层已隐藏。笔触仍会添加到图层中。</string>
     <string name="layer_hidden_partner">请显示两个图层后再合并。</string>
     <string name="layer_no_below">下方没有图层。</string>
@@ -334,6 +347,15 @@
     <string name="settings_latency_overlay">延迟叠加层</string>
     <string name="settings_about">关于与许可证</string>
     <string name="settings_close">关闭设置</string>
+    <string name="settings_shortcuts">键盘快捷键</string>
+    <string name="settings_shortcuts_help">连接键盘时可用（DeX、Chromebook、平板）。</string>
+    <string name="shortcut_action_brush">画笔</string>
+    <string name="shortcut_action_size_down">缩小画笔</string>
+    <string name="shortcut_action_size_up">放大画笔</string>
+    <string name="shortcut_action_toggle_controls">显示或隐藏控件</string>
+    <string name="shortcut_action_toggle_layers">图层面板</string>
+    <string name="shortcut_action_toggle_color">颜色面板</string>
+    <string name="shortcut_action_eyedropper_hold">按住时取色</string>
     <string name="about_body">帮你Draw 帮你画画：一款简单、快速的手机和平板速写与绘画应用，为 S Pen 而生。完全离线——不需要任何权限，也不联网。只有在你主动分享或保留相册副本时，画才会离开应用。\n\n几乎完全由 LLM 智能体开发。公有领域（Unlicense）。</string>
     <string name="about_autosave">自动保存会在停笔 %1$d 秒后创建检查点，且最长不会等待超过 %2$d 秒。</string>
     <string name="about_uninstall">卸载会移除应用内的画和撤销历史。相册副本会保留。</string>

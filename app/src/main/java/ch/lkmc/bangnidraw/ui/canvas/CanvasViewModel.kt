@@ -11,6 +11,8 @@ import androidx.navigation.toRoute
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.data.ApplicationScope
 import ch.lkmc.bangnidraw.data.BrushPresetStore
+import ch.lkmc.bangnidraw.data.CheckpointBarrier
+import ch.lkmc.bangnidraw.data.CheckpointResult
 import ch.lkmc.bangnidraw.data.CpuFlatten
 import ch.lkmc.bangnidraw.data.CpuTile
 import ch.lkmc.bangnidraw.data.GalleryExporter
@@ -30,6 +32,7 @@ import ch.lkmc.bangnidraw.data.ShareCache
 import ch.lkmc.bangnidraw.data.TileBufferPool
 import ch.lkmc.bangnidraw.data.TileFlusher
 import ch.lkmc.bangnidraw.data.TileStore
+import ch.lkmc.bangnidraw.data.ThumbnailWriteResult
 import ch.lkmc.bangnidraw.data.Thumbnails
 import ch.lkmc.bangnidraw.data.applyTuning
 import ch.lkmc.bangnidraw.data.highestDefaultNameIn
@@ -90,6 +93,7 @@ import ch.lkmc.bangnidraw.engine.core.MixingDish
 import ch.lkmc.bangnidraw.engine.core.Palette
 import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
 import ch.lkmc.bangnidraw.engine.core.PalettePolicy
+import ch.lkmc.bangnidraw.engine.core.PaintSlotAssignments
 import ch.lkmc.bangnidraw.engine.core.PaletteSwatchPickSession
 import ch.lkmc.bangnidraw.engine.core.PixelOp
 import ch.lkmc.bangnidraw.engine.core.PixelHistoryEntry
@@ -246,8 +250,10 @@ class CanvasViewModel @Inject constructor(
             val historyBytes: Long = 0L,
             val historyMaxSteps: Int = 0,
             val historyMaxBytes: Long = 0L,
+            /** Steps below the journal cursor — the redo long-press readout. */
+            val redoSteps: Int = 0,
             val brushPresets: List<BrushPreset>,
-            val paintBrushId: String,
+            val paintSlots: PaintSlotAssignments,
             val eraserBrushId: String,
             val toolSelection: ToolSelection,
             val color: ColorUiState,
@@ -292,7 +298,7 @@ class CanvasViewModel @Inject constructor(
 
     @Volatile
     private var brushPresets: List<BrushPreset> = listOf(BrushPresets.DEFAULT)
-    private var paintBrushId = BrushPresets.PENCIL_ID
+    private var paintSlots = PaintSlotAssignments.restore(listOf(BrushPresets.PENCIL_ID))
     private var eraserBrushId = BrushPresets.HARD_ERASER_ID
 
     private var penButtonAction = PenButtonAction.Eraser
@@ -318,6 +324,7 @@ class CanvasViewModel @Inject constructor(
         PaletteCatalog.ULTRAMARINE_BLUE_ARGB.toInt(),
         PaletteCatalog.CADMIUM_YELLOW_ARGB.toInt(),
     )
+    private var dishTJob: Job? = null
     private var colorPickSession: ColorPickSession? = null
     private var swatchPickSession: PaletteSwatchPickSession? = null
     private var activeColorMixer = ColorMixerResolver.resolve(
@@ -554,8 +561,13 @@ class CanvasViewModel @Inject constructor(
             .getOrDefault(false)
         if (!hintShown) chrome = CanvasUiPolicy.showHint(chrome)
 
-        val loadedPresets = BrushPresets.railOrder(presetStore.load()).ifEmpty {
-            listOf(BrushPresets.DEFAULT)
+        val orderedPresets = BrushPresets.railOrder(presetStore.load())
+        // A damaged catalogue still needs one paint tool to open the canvas.
+        val loadedPresets = if (orderedPresets.any { !it.eraseMode }) {
+            orderedPresets
+        } else {
+            listOf(BrushPresets.DEFAULT) +
+                orderedPresets.filterNot { it.id == BrushPresets.DEFAULT.id }
         }
         val tunings = runCatching { prefs.brushTunings(loadedPresets.map { it.id }) }
             .onFailure { android.util.Log.w(TAG, "brush tuning could not be loaded", it) }
@@ -575,16 +587,19 @@ class CanvasViewModel @Inject constructor(
             }
         }
         userPalettes = paletteStore.load()
-        val default = brushPresets.firstOrNull { it.id == BrushPresets.PENCIL_ID }
-            ?: brushPresets.first()
-        paintBrushId = default.id
+        val paintPresetIds = paintCatalogueIds()
+        paintSlots = prefs.loadPaintSlots(paintPresetIds)
+        val default = brushPresets.first { it.id == paintSlots.activePresetId }
         eraserBrushId = brushPresets.firstOrNull { it.id == BrushPresets.HARD_ERASER_ID }?.id
             ?: brushPresets.firstOrNull { it.eraseMode }?.id
             ?: BrushPresets.HARD_ERASER_ID
         toolSwitcher.select(ToolKind.Brush(default))
 
         when (val decision = CanvasOpenPolicy.decide(store.load(projectId))) {
-            is CanvasOpenDecision.Open -> openLoaded(decision.project)
+            is CanvasOpenDecision.Open -> {
+                openLoaded(decision.project)
+                observePaintSlots()
+            }
             is CanvasOpenDecision.Reject -> _uiState.value = UiState.Failed(decision.message)
         }
     }
@@ -685,8 +700,9 @@ class CanvasViewModel @Inject constructor(
             historyBytes = j?.stats()?.bytes ?: 0L,
             historyMaxSteps = journalLimits.maxEntries,
             historyMaxBytes = journalLimits.maxBytes,
+            redoSteps = j?.redoDepth ?: 0,
             brushPresets = brushPresets,
-            paintBrushId = paintBrushId,
+            paintSlots = paintSlots,
             eraserBrushId = eraserBrushId,
             toolSelection = toolSwitcher.selection.value,
             color = colorUiState(),
@@ -718,7 +734,7 @@ class CanvasViewModel @Inject constructor(
 
         _uiState.value = state.copy(
             brushPresets = brushPresets,
-            paintBrushId = paintBrushId,
+            paintSlots = paintSlots,
             eraserBrushId = eraserBrushId,
             toolSelection = toolSwitcher.selection.value,
             color = colorUiState(),
@@ -1122,31 +1138,79 @@ class CanvasViewModel @Inject constructor(
         return EncodedPainting(name, bytes)
     }
 
-    fun selectBrush(id: String) {
+    fun selectBrushPreset(id: String) {
         val preset = brushPresets.firstOrNull { it.id == id } ?: return
 
-        if (preset.eraseMode) eraserBrushId = id else paintBrushId = id
+        if (preset.eraseMode) {
+            eraserBrushId = id
+        } else {
+            val updated = prefs.assignPaintSlot(
+                cataloguePresetIds = paintCatalogueIds(),
+                activeIndex = paintSlots.activeIndex,
+                presetId = id,
+            )
+            paintSlots = updated
+        }
+
+        activateBrush(preset)
+    }
+
+    fun selectPaintSlot(index: Int) {
+        val presetId = paintSlots.presetIds.getOrNull(index) ?: return
+        val preset = brushPresets.firstOrNull { it.id == presetId } ?: return
+
+        paintSlots = paintSlots.activate(index)
+        activateBrush(preset)
+    }
+
+    internal fun selectPaintBrush() {
+        selectPaintSlot(paintSlots.activeIndex)
+    }
+
+    internal fun selectEraser() {
+        val preset = brushPresets.firstOrNull { it.id == eraserBrushId && it.eraseMode }
+            ?: resolveEraserPreset()
+        activateBrush(preset)
+    }
+
+    private fun activateBrush(preset: BrushPreset) {
         clearColorPick()
         toolSwitcher.select(ToolKind.Brush(preset))
         updateToolUi()
     }
 
-    internal fun selectPaintBrush() {
-        selectBrush(paintBrushId)
-    }
+    private fun paintCatalogueIds(): List<String> =
+        BrushPresets.paintRailOrder(brushPresets).map(BrushPreset::id)
 
-    internal fun selectEraser() {
-        selectBrush(eraserBrushId)
+    /** Mirrors global assignments while preserving this canvas's active index. */
+    private fun observePaintSlots() {
+        viewModelScope.launch {
+            prefs.paintSlotIds.collect { storedPresetIds ->
+                val restored = PaintSlotAssignments.restore(
+                    paintCatalogueIds(),
+                    storedPresetIds,
+                )
+                val activeIndex = minOf(paintSlots.activeIndex, restored.presetIds.lastIndex)
+                val updated = restored.activate(activeIndex)
+                if (updated.presetIds == paintSlots.presetIds) return@collect
+
+                val preset = brushPresets.firstOrNull { it.id == updated.activePresetId }
+                    ?: return@collect
+                paintSlots = updated
+                toolSwitcher.replaceBasePaintPreset(preset)
+                updateToolUi()
+            }
+        }
     }
 
     /**
      * The rail eraser slot's long-press: swap the rail eraser between the
-     * two shipped erasers. Session state like [selectBrush]; a preset set
+     * two shipped erasers. Session state like [selectBrushPreset]; a preset set
      * with fewer than two erasers has nothing to swap to.
      */
     internal fun toggleEraserPreset() {
         val next = EraserTogglePolicy.next(eraserBrushId, brushPresets) ?: return
-        selectBrush(next)
+        selectBrushPreset(next)
     }
 
     fun selectSmudge() {
@@ -1543,6 +1607,19 @@ class CanvasViewModel @Inject constructor(
         viewModelScope.launch { prefs.setDishWells(dish.a, dish.b) }
     }
 
+    internal fun setDishT(t: Float) {
+        if (t.isNaN()) return
+        val clamped = t.coerceIn(0f, 1f)
+        if (dish.t == clamped) return
+        dish = dish.copy(t = clamped)
+        updateToolUi()
+        dishTJob?.cancel()
+        dishTJob = viewModelScope.launch {
+            delay(200)
+            prefs.setDishT(clamped)
+        }
+    }
+
     private fun editActivePalette(edit: (Palette) -> Palette) {
         val active = colorUiState().activePalette
         if (active.builtIn) return
@@ -1742,7 +1819,10 @@ class CanvasViewModel @Inject constructor(
     }
 
     fun beginStrokeTool(source: StrokeSource, button: ButtonState): ToolSelection? {
-        if (!actionGate.beginStroke()) return null
+        if (!actionGate.beginStroke()) {
+            noteStrokeRefused()
+            return null
+        }
 
         chrome = CanvasUiPolicy.onStrokeBegin(chrome)
         updateInteractionUi()
@@ -1823,6 +1903,7 @@ class CanvasViewModel @Inject constructor(
             canRedo = j.canRedo() && !applyBusy,
             historySteps = j.stats().entries,
             historyBytes = j.stats().bytes,
+            redoSteps = j.redoDepth,
         )
     }
 
@@ -2110,6 +2191,18 @@ class CanvasViewModel @Inject constructor(
             StrokeLayerDecision.DRAW_HIDDEN -> R.string.layer_hidden
             StrokeLayerDecision.REFUSE_LOCKED -> R.string.layer_locked
         }
+        strokeLayerNoticeRevision += 1
+        updateInteractionUi()
+    }
+
+    /**
+     * Pen-down while the gate is busy: the pen would move and nothing would
+     * land, so the existing stroke-notice toast says why — the same channel
+     * locked layers use. The busy window is short by design; the notice is
+     * per attempt, exactly like the locked-layer one.
+     */
+    private fun noteStrokeRefused() {
+        strokeLayerNotice = R.string.canvas_busy
         strokeLayerNoticeRevision += 1
         updateInteractionUi()
     }
@@ -2666,7 +2759,14 @@ class CanvasViewModel @Inject constructor(
             var handedOff = false
             var flushed = false
             try {
-                withContext(NonCancellable) { checkpoint(GallerySyncDecision.Trigger.LEAVE) }
+                val checkpointResult = withContext(NonCancellable) {
+                    checkpoint(GallerySyncDecision.Trigger.LEAVE)
+                }
+                if (checkpointResult == CheckpointResult.DEFERRED) {
+                    withContext(Dispatchers.Main) { noteLeaveFailure() }
+                    return@launch
+                }
+
                 flushed = true
                 withContext(Dispatchers.Main) { afterWrite() }
                 handedOff = true
@@ -2755,6 +2855,15 @@ class CanvasViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        // Flush a debounced dish-t write that has not yet hit disk — the ViewModel
+        // is going away but the child's chosen mix should not.
+        dishTJob?.let { job ->
+            if (job.isActive) {
+                job.cancel()
+                val toPersist = dish.t
+                appScope.launch { runCatching { prefs.setDishT(toPersist) } }
+            }
+        }
         // Belt and braces behind [requestLeave]: whatever is still unwritten when the
         // screen is torn down gets one more drain. The session is gone by now,
         // so there is no readback left to wait on — release() already
@@ -2809,42 +2918,64 @@ class CanvasViewModel @Inject constructor(
         }
     }
 
-    private suspend fun checkpoint(trigger: GallerySyncDecision.Trigger) {
-        val doc = document ?: return
-        checkpointMutex.withLock {
-            if (!dirty && store.exists(doc.id)) return
+    private suspend fun checkpoint(
+        trigger: GallerySyncDecision.Trigger,
+    ): CheckpointResult {
+        val doc = document ?: return CheckpointResult.COMMITTED
+        return checkpointMutex.withLock {
+            if (!dirty && !thumbDirty) {
+                val deletesOutstanding = withContext(Dispatchers.Main) {
+                    pendingDeletes.isNotEmpty()
+                }
+                if (!deletesOutstanding && store.exists(doc.id)) {
+                    return@withLock CheckpointResult.COMMITTED
+                }
+            }
+
             // §5.6's order: (readbacks land) → queued jobs and tiles flushed
             // → project.json last, the commit point → only then the files a
             // truncation or pruning dropped.
-            if (awaitReadbacks() == TileFlusher.ReadbackResult.PENDING) return
+            // Any tile-changing transaction bumps the generation under the
+            // same lock, so a capture taken here goes stale exactly when an
+            // edit races this checkpoint — the flush below must never sweep
+            // in bytes the capture has not folded yet.
             val generation = synchronized(checkpointStateLock) {
                 checkpointGeneration.capture()
             }
-            flusher.checkpointFlush()
-            val now = System.currentTimeMillis()
-            val snapshot = captureCheckpoint(generation, now) ?: return
+            var projectCommitted = false
             try {
-                store.checkpoint(snapshot.document, snapshot.history)
-                // Now — and only now — the dropped entries' files (§5.6).
-                if (snapshot.deletes.isNotEmpty()) {
-                    historyStore?.delete(snapshot.deletes)
+                CheckpointBarrier.commitWhenFlushed(
+                    awaitReadbacks = ::awaitReadbacks,
+                    flushTiles = flusher::checkpointFlush,
+                ) {
+                    val now = System.currentTimeMillis()
+                    val snapshot = captureCheckpoint(generation, now)
+                        ?: return@commitWhenFlushed
+                    store.checkpoint(snapshot.document, snapshot.history)
+                    projectCommitted = true
+                    // Now — and only now — the dropped entries' files (§5.6).
+                    if (snapshot.deletes.isNotEmpty()) {
+                        historyStore?.delete(snapshot.deletes)
+                    }
+                    // The thumbnail follows the checkpoint (06 §6.4): the tiles
+                    // it reads are on disk by the flush above, and only when
+                    // pixels actually changed — never per stroke.
+                    if (snapshot.thumbnailWork == ThumbnailWork.WRITE) {
+                        Thumbnails.write(
+                            snapshot.document,
+                            layerDirFor = { store.layerDir(snapshot.document.id, it) },
+                            target = File(store.projectDir(snapshot.document.id), "thumb.png"),
+                        )
+                    }
+                    withContext(Dispatchers.Main) { finishCheckpoint(snapshot) }
+                    maybeSyncGallery(snapshot.document, trigger, snapshot.timestampMs)
                 }
-                // The thumbnail follows the checkpoint (06 §6.4): the tiles
-                // it reads are on disk by the flush above, and only when
-                // pixels actually changed — never per stroke.
-                if (snapshot.thumbnailWork == ThumbnailWork.WRITE) {
-                    Thumbnails.write(
-                        snapshot.document,
-                        layerDirFor = { store.layerDir(snapshot.document.id, it) },
-                        target = File(store.projectDir(snapshot.document.id), "thumb.png"),
-                    )
-                }
-                withContext(Dispatchers.Main) { finishCheckpoint(snapshot) }
-                maybeSyncGallery(snapshot.document, trigger, snapshot.timestampMs)
+                if (projectCommitted) CheckpointResult.COMMITTED else CheckpointResult.DEFERRED
             } catch (_: java.io.IOException) {
-                // Same family as a failed tile write: the storage-full state
-                // and its retry-on-next-checkpoint own this. `dirty` stays
-                // true, so the next trigger tries again.
+                // The project commit is the save boundary. A failure before
+                // it keeps dirty state for the next checkpoint; thumbnail or
+                // gallery work after it may fail without trapping the user.
+                if (projectCommitted) CheckpointResult.COMMITTED else CheckpointResult.DEFERRED
             }
         }
     }
@@ -3050,8 +3181,8 @@ class CanvasViewModel @Inject constructor(
         withContext(Dispatchers.Main) {
             if (document?.tracingReference?.assetName != reference.assetName) return@withContext
 
-            applyTracingReference(null)
-            dismissPanel()
+            // Keep the private asset recoverable across transient decode failures.
+            // Replace and Remove remain the only destructive reference actions.
             showReferenceNotice(R.string.err_reference_unreadable)
         }
     }

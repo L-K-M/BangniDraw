@@ -7,6 +7,7 @@ import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
@@ -30,6 +31,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -63,6 +65,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -298,7 +302,7 @@ fun StudioScreen(
                                         context.startActivity(
                                             Intent.createChooser(
                                                 send,
-                                                painting.title.ifBlank { untitledName },
+                                                painting.title.orEmpty().ifBlank { untitledName },
                                             ),
                                         )
                                     },
@@ -433,11 +437,21 @@ private fun PaintingCell(
     var renaming by remember { mutableStateOf(false) }
     var sharing by remember { mutableStateOf(false) }
     val view = LocalView.current
-    val title = painting.title.ifBlank { stringResource(R.string.studio_untitled) }
+    val available = painting.availability == StudioViewModel.PaintingAvailability.AVAILABLE
+    val unavailableReason = when (painting.availability) {
+        StudioViewModel.PaintingAvailability.AVAILABLE -> null
+        StudioViewModel.PaintingAvailability.NEWER_VERSION ->
+            stringResource(R.string.canvas_newer_version)
+        StudioViewModel.PaintingAvailability.UNREADABLE ->
+            stringResource(R.string.studio_painting_unreadable)
+    }
+    val title = painting.title?.takeIf { it.isNotBlank() } ?: stringResource(
+        if (available) R.string.studio_untitled else R.string.studio_painting_unavailable,
+    )
     val cellShape = RoundedCornerShape(CELL_RADIUS_DP.dp)
 
-    Column(
-        modifier = Modifier.combinedClickable(
+    val interactionModifier = if (available) {
+        Modifier.combinedClickable(
             onClick = onOpen,
             onLongClick = {
                 if (hapticsMode == HapticsMode.ENABLED) {
@@ -445,8 +459,12 @@ private fun PaintingCell(
                 }
                 menuOpen = true
             },
-        ),
-    ) {
+        )
+    } else {
+        Modifier.semantics(mergeDescendants = true) { disabled() }
+    }
+
+    Column(modifier = interactionModifier) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -464,7 +482,7 @@ private fun PaintingCell(
             // Checkpoints rewrite thumb.png in place, so path alone is stale.
             val thumbKey = StudioThumbnailKey(
                 path = painting.thumbnail?.path,
-                revision = painting.updatedAtMillis,
+                revision = painting.updatedAtMillis ?: UNAVAILABLE_THUMBNAIL_REVISION,
             )
             val bitmap by produceState<android.graphics.Bitmap?>(null, thumbKey) {
                 value = loadThumbnail(thumbKey)
@@ -479,23 +497,52 @@ private fun PaintingCell(
                 )
             }
 
+            if (!available) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant.copy(
+                                alpha = UNAVAILABLE_OVERLAY_ALPHA,
+                            ),
+                        ),
+                ) {
+                    Text(
+                        text = stringResource(R.string.studio_painting_unavailable_badge),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                    IconButton(
+                        onClick = { menuOpen = true },
+                        modifier = Modifier.align(Alignment.TopEnd),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = stringResource(R.string.studio_painting_actions),
+                        )
+                    }
+                }
+            }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.studio_open)) },
-                    onClick = { menuOpen = false; onOpen() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.studio_rename)) },
-                    onClick = { menuOpen = false; renaming = true },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.studio_duplicate)) },
-                    onClick = { menuOpen = false; onDuplicate() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.studio_share)) },
-                    onClick = { menuOpen = false; sharing = true },
-                )
+                if (available) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.studio_open)) },
+                        onClick = { menuOpen = false; onOpen() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.studio_rename)) },
+                        onClick = { menuOpen = false; renaming = true },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.studio_duplicate)) },
+                        onClick = { menuOpen = false; onDuplicate() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.studio_share)) },
+                        onClick = { menuOpen = false; sharing = true },
+                    )
+                }
                 DropdownMenuItem(
                     text = {
                         Text(
@@ -515,11 +562,24 @@ private fun PaintingCell(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(
-            text = DateUtils.getRelativeTimeSpanString(painting.updatedAtMillis).toString(),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (unavailableReason != null) {
+            Text(
+                text = unavailableReason,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else {
+            val updatedAt = painting.updatedAtMillis
+            if (updatedAt != null) {
+                Text(
+                    text = DateUtils.getRelativeTimeSpanString(updatedAt).toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 
     if (confirmDelete) {
@@ -597,7 +657,7 @@ private fun PaintingCell(
     }
 
     if (renaming) {
-        var text by remember { mutableStateOf(painting.title) }
+        var text by remember { mutableStateOf(painting.title.orEmpty()) }
         AlertDialog(
             onDismissRequest = { renaming = false },
             title = { Text(stringResource(R.string.studio_rename)) },
@@ -653,3 +713,5 @@ private const val EMPTY_PAINTING_KEY = "empty-state"
 private const val THUMBNAIL_CHECKER_COLUMNS = 12
 private const val PAINTING_ASPECT = 4f / 3f
 private const val CELL_RADIUS_DP = 4
+private const val UNAVAILABLE_THUMBNAIL_REVISION = 0L
+private const val UNAVAILABLE_OVERLAY_ALPHA = 0.9f

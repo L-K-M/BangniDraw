@@ -40,6 +40,11 @@ class BrushPresetTest {
             ),
             BrushPresets.railOrder(shuffled).map { it.id },
         )
+
+        assertEquals(
+            listOf(BrushPresets.PENCIL_ID, BrushPresets.MARKER_ID, user.id),
+            BrushPresets.paintRailOrder(shuffled).map(BrushPreset::id),
+        )
     }
 
     @Test
@@ -48,13 +53,20 @@ class BrushPresetTest {
             .filterNot { it == BrushPresets.HARD_ERASER_ID || it == BrushPresets.SOFT_ERASER_ID }
             .map { BrushPresets.DEFAULT.copy(id = it) }
 
-        val core = RailSlotPolicy.visible(paints, BrushPresets.MARKER_ID, budget = 5)
-        val specialty = RailSlotPolicy.visible(paints, BrushPresets.PIGMENT_WASH_ID, budget = 5)
+        val defaultAssignments = PaintSlotAssignments.restore(paints.map { it.id })
+        val specialtyAssignments = defaultAssignments
+            .activate(BrushPresets.CORE_PAINT_IDS.lastIndex)
+            .assign(BrushPresets.PIGMENT_WASH_ID)
 
-        assertEquals(BrushPresets.CORE_PAINT_IDS, core.map { it.id })
+        val core = RailSlotPolicy.visibleIndices(defaultAssignments, budget = 5)
+            .map(defaultAssignments.presetIds::get)
+        val specialty = RailSlotPolicy.visibleIndices(specialtyAssignments, budget = 5)
+            .map(specialtyAssignments.presetIds::get)
+
+        assertEquals(BrushPresets.CORE_PAINT_IDS, core)
         assertEquals(
             BrushPresets.CORE_PAINT_IDS.dropLast(1) + BrushPresets.PIGMENT_WASH_ID,
-            specialty.map { it.id },
+            specialty,
         )
     }
 

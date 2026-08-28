@@ -93,4 +93,8 @@ object BrushPresets {
         val rank = RAIL_ORDER.withIndex().associate { (index, id) -> id to index }
         return presets.sortedWith(compareBy({ rank[it.id] ?: Int.MAX_VALUE }, { it.id }))
     }
+
+    /** Paint-only order shared by assignment state and rail rendering. */
+    fun paintRailOrder(presets: List<BrushPreset>): List<BrushPreset> =
+        railOrder(presets).filterNot(BrushPreset::eraseMode)
 }

@@ -8,9 +8,9 @@ import java.nio.ByteBuffer
 /**
  * Premultiplied RGBA (a `CpuFlatten` result) → encoded image bytes
  * (`docs/plan/06-document-and-persistence.md` §9.1): the bytes go into an
- * `ARGB_8888` bitmap byte-for-byte — Android bitmaps are premultiplied, so
- * `copyPixelsFromBuffer` is a memcpy (03 §2.4) — and `Bitmap.compress`
- * writes straight alpha itself.
+ * native-order `ARGB_8888` bitmap. Android bitmaps and GL disagree on channel
+ * order, so [PixelChannelOrder] reorders around the bitmap memcpy;
+ * `Bitmap.compress` then writes straight alpha itself.
  */
 object ImageEncode {
 
@@ -29,7 +29,9 @@ object ImageEncode {
         require(rgba.size == width * height * 4)
         var bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         try {
-            bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(rgba))
+            PixelChannelOrder.withArgb8888Bytes(rgba) { pixels ->
+                bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(pixels))
+            }
             if (format == Format.JPEG) {
                 val matted = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                 val canvas = Canvas(matted)

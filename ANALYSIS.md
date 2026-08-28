@@ -2,17 +2,55 @@
 
 Findings from the full-project review of 2026-08-27 (originally written down
 in `glm.md`), consolidated with the second-pass deep review of the same day
-(`ds.md`) and the third pass (`qwen.md`, merged here and removed). Every
-entry was verified in the source, not inferred from the docs; everything
-marked [fix-now] or **[do]** has landed (see the cleared list); what remains
-is shovel-ready work for a future LLM session, ordered small-to-large
-within each section.
+(`ds.md`) and the third pass (`qwen.md`, merged here and removed), plus the
+fourth deep review of 2026-08-28 (`muse.md`, 8d638d3, 217 Kt files, 14-year-old
+lens). Every entry was verified in the source, not inferred from the docs;
+everything marked [fix-now] or **[do]** has landed (see the cleared list);
+what remains is shovel-ready work for a future LLM session, ordered
+small-to-large within each section.
 
 House rules for picking items up: read PLAN.md's relevant `docs/plan/` file
 first, write the failing test before the fix, keep decision logic in
 `engine/core`, and record what you learn in AGENTS.md.
 
-## Implemented during this review session (2026-08-27)
+## Implemented during this review session (2026-08-28) — in review
+
+Two shovel-ready fixes from `muse.md` landed as separate PRs, each with CI
+green (`testDebugUnitTest lintDebug`), strings in both locales, no manifest
+permission change, and a pure `engine/core` test where decision-shaped. Both
+are currently **open** (hybrid review bootstrap), so they are not yet in the
+cleared list below; they are recorded here so a future session does not
+re-open them.
+
+- PR #104 — **Persist mixing dish slider position** (`DishState.t` durable)
+  (`data/Prefs.kt:173` new `KEY_DISH_T`, `dish` Flow, `setDishT` debounced;
+  `ui/canvas/CanvasViewModel.kt:1522` `setDishT` + `dishTJob` 200 ms trailing
+  debounce flushed on `onCleared` via `appScope`; `ui/canvas/ColorPanel.kt:88`
+  `onDishTChanged` through `MixingDishControls:718` using `state.dish.t`
+  directly; `ui/canvas/CanvasScreen.kt:1602` wiring; `engine/core/DishStateTest.kt`
+  pins default, rejection, copy preservation). Fixes `ANALYSIS#11` /
+  `muse.md#1.1`. GLM round-1 major caught per-frame DataStore writes →
+  debounced; minor caught dead `setDish` helper and misnamed test → fixed.
+  Round-2 flagged redundant NaN double-guard → tidied.
+
+- PR #105 — **Confirm destructive clear-layer action** (`CanvasDialog.ClearLayer`)
+  (`engine/core/CanvasUiPolicy.kt:13`; `ui/canvas/CanvasScreen.kt:1792`
+  `CanvasDialogHost` confirmation with `layer_clear_title/body`;
+  `ui/canvas/LayerPanel.kt:269` overflow Clear now requests dialog, `hint`
+  LAST_LAYER click does too, dead `onClear` param removed;
+  `res/values/strings.xml:283` + `values-b+zh+Hans:255` new strings;
+  `engine/core/CanvasUiStateTest.kt:90` pins mid-stroke parking). Fixes
+  `ANALYSIS#12` / `muse.md#1.2`. GLM round-1 flagged dead `onClear` param
+  and noted no additional `values-*` locales exist to add strings to →
+  applied.
+
+These are cleared from the shovel-ready list in this document (see remaining
+below); the PRs stay open until steady-state per `CLAUDE.md` (no blocking
+feedback in review, or two consecutive hybrid audits with no relevant findings,
+or two consecutive GLM timeouts). Do not re-implement #11 or #12 while #104
+and #105 are open — review them instead.
+
+## Implemented during review session (2026-08-27)
 
 Eight small, well-scoped PRs landed against `main` (merged PRs #55, #57,
 #58/#54 supersession, #59, #60, #61, #63, #65, #66) — the first pass of the
@@ -101,18 +139,23 @@ superseded to avoid duplicate review load.
 - RGB fields stack under font scaling — PR #39 (parallel work). The
   *cursor-reset* problem below is separate — FIXED by PR #65 (`ColorPanel`'s
   `lastReflected` + `syncSiblings` pattern). See `ds.md` §3.1.
+- Mixing dish slider position not durable — PR #104 (open, in review).
+- Clear layer destructive without confirmation — PR #105 (open, in review).
 
 ## Shovel-ready (remaining)
 
 Only #8 (custom paper colour) from the original list is still untouched —
 #6 (curve plot) is in flight as PR #77, #7 landed as PR #68 with #73 as its
-typed-input refinement. Order: #8 (wiring the HSV picker through
-`NewCanvasDialog`) after #77 lands, then the third-pass additions below.
+typed-input refinement, #11 and #12 are now in review as #104 and #105.
+Order below is small-to-large; #8 remains first among the untouched originals,
+then the third-pass additions, then the fourth-pass (`muse.md`) additions.
 
 8. **Custom paper colour at creation.** (`NewCanvasDialog` sixth swatch,
-   `onCreate` passes the colour through)
+   `onCreate` passes the colour through) — still the next original after #77
+   lands.
 
-Third-pass additions (from `qwen.md`, verified in source, none taken yet):
+Third-pass additions (from `qwen.md`, verified in source, none taken yet
+except #11/#12 now in review):
 
 9. **No feedback when a stroke is refused because the document is busy.**
    `beginStrokeTool` returns null while `CanvasActionGate` is busy; the pen
@@ -124,43 +167,81 @@ Third-pass additions (from `qwen.md`, verified in source, none taken yet):
     mentions it; DeX/Chromebook users get zero hints. The table is data —
     a Shortcuts section in Settings or About is nearly free.
     (`ui/home/SettingsSheet.kt`, `engine/core/CanvasShortcut.kt`.)
-11. **The mixing dish's slider position is not durable.** `DishState.t`
-    resets to 0.5 whenever the panel recomposes from scratch, and `Prefs`
-    stores only the wells. Persist `t` beside them — it is exactly the kind
-    of durable setting §12 describes — or key the slider on the wells so a
-    well change recentres it deliberately. (`ColorPanel.kt`, `Prefs.kt`.)
-12. **Clear layer is destructive without confirmation while merge/flatten
-    have dialogs.** Undo covers it, which is why this is a deliberate-call
-    item rather than a defect: "Clear" sits one menu tap from a fat finger
-    and the app already pays for confirmation dialogs on the two
-    scarier-but-recoverable actions. Either confirm or record the asymmetry
-    as deliberate in AGENTS.md. (`LayerPanel`'s `LayerMenu`.)
+<!-- 11 and 12 are now PR #104 and #105 — see Implemented 2026-08-28 above. -->
+
+Fourth-pass additions (from `muse.md:1` + `muse.md:5`/`muse.md:6`, verified
+in source, ordered small-to-large, no duplicates with above):
+
+13. **Left-handed ledge toggle text clips at 200 % font scale.** `SliderLedge.kt:142`
+    `Text(maxLines=1)` in the `88.dp` toggle truncates zh-Hans
+    "不透明度" at large scale instead of falling back to icon+description as
+    `ToolRail` does. (`ui/canvas/SliderLedge.kt`, `R.string.brush_opacity`.)
+14. **Layer opacity inline slider can be stranded when document goes busy.**
+    `LayerPanel.kt:146` `LaunchedEffect(documentBusy)` clears `draggedId` but
+    not `opacityLayer`; a preview that enqueues a `CanvasDocumentAction` can
+    leave the row in editing mode with no commit path. Clear `opacityLayer`
+    and call `onOpacityFinished()`. (`ui/canvas/LayerPanel.kt`.)
+15. **Transparent-paper swatch reads as gray, not see-through.** `NewCanvasDialog.kt:386`
+    and `LayerPanel.kt:814` render `surfaceVariant` with "∅". A child reads
+    gray paper. Replace with a 2×2 checker thumbnail + label "See-through" /
+    "透明". (`ui/home/NewCanvasDialog.kt`, `ui/theme/Color.kt`.)
+16. **Colour panel hex field commits mid-typing "FFF" → white.** `ColorPanel.kt:536`
+    `ColorFields` now preserves cursor (`lastReflected`) but typing "F" → "FF" →
+    "FFF" parses as `#FFFFFF` on the second char and commits. Gate commit on
+    `onFocusChanged` blur or add 300 ms debounce per field. (`ui/canvas/ColorPanel.kt`.)
+17. **Rename painting allows duplicate titles.** `StudioScreen.kt:599` accepts any
+    non-blank, `StudioViewModel.rename` writes verbatim; shelf shows two "Cat"s
+    with only relative time to disambiguate. Add uniqueness guard or visual
+    suffix, or show subtitle with id. (`ui/home/StudioScreen.kt`.)
+18. **BrushSettingsSheet knot sliders recompose whole sheet per pixel.** `BrushSettingsSheet.kt:612`
+    four `SettingSlider` for `p0..p3` call `onPresetChanged` per frame, no
+    debounce. Throttle to `onValueChangeFinished` for the model or debounce
+    the sheet recomposition. (`ui/canvas/BrushSettingsSheet.kt`.)
+19. **Studio shelf cards flat; dock is a slab.** `StudioScreen.kt:355` bordered
+    flat cards; `ToolRail.Dock` full-width slab unrounded. Add 1 dp elevation +
+    radius 12 and round dock's top corners so it reads as one object.
+    (`ui/home/StudioScreen.kt`, `ui/canvas/ToolRail.kt`.)
+20. **Panel close affordance absent on tablet.** Dismiss is scrim-tap or Back;
+    side sheet reads as permanent furniture. Add X in header (~12 lines each:
+    `ColorPanel`, `LayerPanel`, `BrushSettingsSheet`). (`ui/canvas/PanelHost.kt`.)
+21. **Focus handle tiny and faint.** `FocusHandle.kt` 6×48 dp at 35 % opacity.
+    Bump to 8×48, 55 % and add `semantics { onClick }` "Show controls".
+22. **Slider ledge mirrors visually but not for touch when left-handed.**
+    `SliderLedge.kt:222` `mirrored()` does `scaleX = -1f` on `ThinSlider`
+    for `Hand.LEFT`; that flips paint, not `pointerInput` coords, so drag
+    direction inverts. Remove the graphics-layer hack (keep sliders LTR) or
+    mirror via value inversion (`1 - value`). (`ui/canvas/SliderLedge.kt`,
+    `ui/canvas/ThinSlider.kt`.) Needs device verification before merging.
 
 ## Larger ideas (need product judgment or a proposal doc)
 
 Third-pass ordering take: of the post-v1 backlog in `12-roadmap.md` §5,
 **symmetry** is the highest delight-per-effort (size S, every engine seam
 exists, one journal entry) — it changes what people draw, not just how.
-Then image import as layer/reference, then gradient fill.
+Then image import as layer/reference, then gradient fill. Fourth-pass
+(14-year-old lens) lifts **brush "save as new preset"** and **pressure
+scratchpad** higher — they make the tools feel owned and legible to a child.
 
 - **GL band flatten** (`03-canvas-engine.md` §10.4): supersedes both CPU
   flatten call sites (gallery sync ~every 30 s, thumbnail at checkpoints,
   share/export) and removes the ~128 MiB peak ISSUES.md records. This is the
-  single biggest performance item left in v1.
+  single biggest performance item left in v1. Peak is steeper after watercolor
+  wet state → raise priority.
 - **Brush "save as new preset."** Users can mutate the seven built-ins but
   cannot fork one into a new rail slot; `BrushPresetStore` already supports
   arbitrary ids and `railOrder` sorts unknown ids after built-ins. Needs
   rail-overflow UX (the FULL rail budget is exactly 10 slots) and a name
-  dialog.
+  dialog. **Raised: child pressure — kid wants a second pencil.**
 - **History list UI.** The journal is capped and persisted but reachable
   only as linear undo/redo; PR #31 (open at the time of writing) adds an
   undo-depth readout on long-press. A sheet listing recent entries (kind,
   layer, step count against the cap — `readyState` already computes the
-  numbers) is the natural next step.
+  numbers) is the natural next step. Child undo-anxiety makes this higher.
 - **Pressure "scratchpad" in Settings.** The pressure preference is three
   radio buttons; a small scratch canvas drawing a test stroke under the
   current curve (pure Compose Canvas replaying a few saved samples) would
-  make the choice feel real.
+  make the choice feel real. **Raised: child cannot parse "softer/linear/harder"
+  without a doodle.**
 - **Mixing-dish drag-to-mix.** Let a drag on the dish strip smear the mix
   continuously (`MixingDish.gradient` already exists) — a smear gesture
   instead of a form-control slider.
@@ -178,11 +259,11 @@ Then image import as layer/reference, then gradient fill.
   large and dim behind the app name. One image, big polish.
 - **Session playback from the undo journal.** The journal already holds
   every tile delta; replaying entries at intervals is a cheap precursor to
-  the planned time-lapse feature.
+  the planned time-lapse feature. Share value for a child.
 - **Composition guides (rule of thirds + center).** A toggleable, purely
   visual overlay from the canvas overflow menu; no document change, no
   journal entry, ~40 lines. The cheapest high-value drawing aid not yet
-  shipped.
+  shipped. Done but still undiscoverable — consider canvas-hold hint.
 - **Actual-size (100 %) zoom action.** Reset-to-fit exists; the other anchor
   for pixel work is scale = 1. A long-press on the reset pill (or a second
   pill state) jumping to 100 % at the view center is pure `ViewTransform`
@@ -194,7 +275,8 @@ Then image import as layer/reference, then gradient fill.
   every other layer (view filter, journaled per-layer as ordinary
   visibility entries or grouped — needs a small design call).
 - **Export current layer as PNG.** `CpuFlatten` restricted to one layer plus
-  `ImageEncode`'s alpha-preserving PNG; asset makers' favourite.
+  `ImageEncode`'s alpha-preserving PNG; asset makers' favourite. Kid
+  youtuber loves it.
 - **Clear painting (journaled).** A blank restart today means delete +
   create; a whole-document clear as one journal entry is honest and
   undoable.
@@ -203,12 +285,13 @@ Then image import as layer/reference, then gradient fill.
   straight back in. No permissions; the Studio already knows the newest id.
   Pairs with the one-tap promise. (`StudioViewModel`, `BangniApp`.)
 - **HSV picker sized to its panel.** `PICKER_SIZE` is a fixed 220 dp in a
-  panel that reaches 320 dp on tablets; a width-scaled picker (with a cap)
-  is a quiet aesthetic win. (`ColorPanel.kt`.)
+  panel that reaches 320 dp on tablets; a width-scaled picker (with a cap,
+  now `BoxWithConstraints` + `minOf` in `ColorPanel.kt:223`) is a quiet
+  aesthetic win. Consider lifting cap to 280 dp on expanded.
 - **Panel close affordance.** Dismissal is scrim-tap or Back; a side sheet
   on a tablet reads as permanent furniture to a first-time user. A close
   icon in the panel header costs ~12 lines. (`ColorPanel`, `LayerPanel`,
-  `BrushSettingsSheet` headers.)
+  `BrushSettingsSheet` headers.) — also listed as shovel-ready #20.
 - **Checkerboard that scales with zoom.** The transparent-paper checker is
   a fixed 8 dp; at 64× it becomes a shout. Banding `checkerPx` by
   `view.scale` (8/16/32) keeps it a texture — `setCanvasAppearance` already
@@ -225,6 +308,29 @@ Then image import as layer/reference, then gradient fill.
   physicality, especially in dark mode. The "New painting" cell could take
   a `primaryContainer`-tinted fill for the same reason.
   (`StudioScreen.PaintingCell`, `NewPaintingCell`.)
+- **Mascot empty state + ambient polish (14-year-old delight).** Warm the
+  Quiet Studio without repainting: newest `thumb.png` dim behind title,
+  empty state with a brush-stroke cat, focus handle pulse, `NavHost`
+  crossfade 150 ms, transient toast as paint blob. Keeps tokens intact.
+- **Daily doodle prompt (offline, XS).** Roll of 60 prompts in
+  `values/strings.xml`; Studio empty state + overflow "Today's idea". No
+  network, title becomes prompt. From `muse.md#8.6`.
+- **Magic ink: invisible → revealed by Water (S).** New `BrushPreset`
+  "Invisible" writes alpha 0 with hue in G channel; `Water` reveals as soft
+  pigment. No new tool kind, just preset + `BrushModel` flag. From
+  `muse.md#8.2`.
+- **Rainbow brush (XS).** Hue cycles with pressure/distance
+  (`h = (h + step*d) % 360`); pure `DabGenerator` dynamics. From `muse.md#8.3`.
+- **Stamp brush: emoji/star/heart scattered (S).** Custom tip bitmap +
+  jitter, 8 stencils, no new engine. From `muse.md#8.4`.
+- **Shake-to-undo (XS).** `SensorManager` shake → `undo()`, haptic tick.
+  From `muse.md#8.5`.
+- **Tilt-the-table ink drip (M, quirky, opt-in).** Tilt device → ink pools
+  via `WatercolorWetKernel` advection. From `muse.md#8.9`.
+- **Time-lapse from undo journal (M).** Replay tile deltas into `MediaCodec`
+  MP4. From `muse.md#8.7`.
+- **Sound-of-brush (XS, opt-in, off by default).** Pitch maps to pressure
+  via `AudioTrack`. From `muse.md#8.13`.
 
 ## New observations from the second pass (durable notes)
 
@@ -244,6 +350,7 @@ Then image import as layer/reference, then gradient fill.
   immediate attention. Superseded by the GL band flatten either way.
 - **`MixingDish.gradient`** recomputes 9 Mixbox mixes per color-panel
   recomposition — wrap in `remember` when the dish section is next touched.
+  *(Fixed in `ColorPanel.kt:732` via `remember(state.dish.a, state.dish.b)` — muse.md#3.8.)*
 - **`BrushSettingsSheet` preview** allocates a bitmap per 50 ms debounce
   tick while sliders drag — bounded, but reusable bitmaps would remove the
   GC churn.
@@ -257,6 +364,43 @@ Then image import as layer/reference, then gradient fill.
 - **AAPT2 daemon startup failures** (`processDebugResources`) were
   transient in this sandbox; `--stop` + retry clears them. CI is the
   source of truth.
+
+## New observations from the fourth pass (muse.md, 2026-08-28)
+
+- **Mixing dish t is now durable** — `Prefs` stores `t` beside wells, `dishTJob`
+  debounces per-frame slider writes (200 ms) and flushes on `onCleared`. See
+  PR #104. Pattern to watch: any `Slider.onValueChange` wired directly to
+  DataStore will churn disk; debounce or persist on `onValueChangeFinished`.
+- **Clear layer now confirms** — `CanvasDialog.ClearLayer` mirrors
+  `MergeLayers`/`FlattenLayers`, parked mid-stroke via `CanvasUiPolicy`.
+  See PR #105. The asymmetry "Clear needs no confirm because undo covers it"
+  is now resolved as "confirm, because fat-finger on phone".
+- **Slider ledge mirroring bug**: `SliderLedge.mirrored()` uses `scaleX = -1f`
+  which flips paint but not pointerInput Coords. Left-handed DOCK/SHORT drags
+  invert. Fix is to remove the graphics-layer hack or invert value
+  (`1 - value`). Needs device verification (no lint failure).
+- **Layer opacity stranded**: `LayerPanel` clears `draggedId` on `documentBusy`
+  but not `opacityLayer`. A busy enqueue can strand the inline slider.
+- **Transparent-paper UX**: `∅` on `surfaceVariant` reads as gray paper; a
+  2×2 checker thumbnail would read as see-through.
+- **Hex field still commits mid-typing**: `ColorPanel` now preserves cursor
+  (`lastReflected` + `syncSiblings`) but `FFF` still parses to white on the
+  second char. Gate on blur or debounce per field.
+- **Rename duplicate titles**: `StudioViewModel.rename` allows duplicates;
+  shelf shows two "Cat"s. Needs uniqueness guard or subtitle.
+- **Knot sliders churn**: `BrushSettingsSheet` `p0..p3` recompose whole sheet
+  per pixel; throttle to finished or debounce.
+- **Fill eager readback**: `FillTool` eagerly composites + `glReadPixels` per
+  tile before CPU scan; progressive PBO faults per `04-tools.md §7` would
+  be cheaper. Device perf gate still required.
+- **Watercolor retain**: 18.25 MiB grow-only scratch outside `TilePool` is
+  correct per `WatercolorScratchBudget` but invisible to user; consider
+  diagnostics or reclaim on long idle.
+- **Quiet Studio vs child delight**: The theme is coherent and beautiful for
+  an adult studio; a child sees "settings app". One illustration (mascot
+  empty state), one saturated accent beyond saffron (ink ring already tinted),
+  and rounded dock soften without betraying the palette. Recorded as
+  larger-idea "Mascot empty state + ambient polish".
 
 ## Verified clean (do not re-litigate)
 
@@ -275,7 +419,8 @@ closes; the quick-palette popover's auto-dismiss honors screen-reader state
 and scales by the recommended a11y timeout; the closing scrim's focus and
 a11y gating lives outside the gated chrome box; and the theme (warm paper
 light / slate dark, saffron accent) is coherent — no aesthetic changes
-recommended.
+recommended (revisited in fourth pass: coherence holds, but child delight
+needs one illustration/mascot, not a repaint).
 
 The third pass additionally verified: the front-buffered drain/release
 protocol and the `pendingStrokeFallback` CAS chain in `EngineSession`;
@@ -288,3 +433,13 @@ from zh are `translatable="false"` by design); the RMW capture/restore
 ordering through `ResolveCurrent`; and that `CanvasContent`'s
 recomposition-per-navigation-sample is a measured trade (no stroke runs
 during navigation), not a defect — see REVIEW.md R-100's refutation class.
+
+The fourth pass (muse.md, 2026-08-28, 8d638d3) additionally verified: the
+front-buffered drain/release protocol still holds after watercolor; the
+`pendingStrokeFallback` CAS chain; `SandwichCache` ping-pong and
+availability; `CompositePass` batching; `HalfTurn` symmetry; history
+load/recovery/replay and `nextName` floor; `values` / `values-b+zh+Hans`
+completeness (new `layer_clear_*` in both); RMW ordering; and that
+`MixingDish.gradient` is now correctly remembered (`ColorPanel.kt:732`) so
+it no longer recomputes 9 Mixbox mixes per drag frame.
+

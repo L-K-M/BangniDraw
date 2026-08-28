@@ -112,7 +112,6 @@ internal fun LayerPanel(
     onDuplicate: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
     onMergeDown: (Int) -> Unit,
-    onClear: (Int) -> Unit,
     onRequestDialog: (CanvasDialog) -> Unit,
     onOpacityPreview: (Int, Float) -> Boolean,
     onOpacityFinished: () -> Unit,
@@ -266,7 +265,9 @@ internal fun LayerPanel(
                                     onMergeDown(index)
                                 }
                             },
-                            onClear = { onClear(index) },
+                            onClear = {
+                                onRequestDialog(CanvasDialog.ClearLayer(index))
+                            },
                             onToggleAlphaLock = { onToggleAlphaLock(index) },
                             onToggleLock = { onToggleLock(index) },
                             onBlendMode = { onBlendMode(index, it) },
@@ -343,7 +344,9 @@ internal fun LayerPanel(
                             Modifier.clickable {
                                 hint = null
                                 hintRefusal = null
-                                onClear(stack.activeIndex)
+                                onRequestDialog(
+                                    CanvasDialog.ClearLayer(stack.activeIndex),
+                                )
                             }
                         } else {
                             Modifier

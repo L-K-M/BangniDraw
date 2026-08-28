@@ -282,6 +282,8 @@
     <string name="layer_rename_hint">Layer name</string>
     <string name="layer_merge_title">Merge these layers?</string>
     <string name="layer_merge_body">Their blend modes will be baked into a Normal layer.</string>
+    <string name="layer_clear_title">Clear this layer?</string>
+    <string name="layer_clear_body">The layer’s pixels will be removed. You can undo this.</string>
     <plurals name="layer_flatten_title">
         <item quantity="one">Flatten %1$d layer?</item>
         <item quantity="other">Flatten %1$d layers?</item>

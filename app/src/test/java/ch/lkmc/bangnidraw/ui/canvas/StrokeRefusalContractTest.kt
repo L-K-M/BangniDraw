@@ -10,31 +10,48 @@ import kotlin.test.fail
  * toast channel — the same one a locked layer uses. The pen moving with
  * nothing landing and nothing said reads as a dead app (review item glm.md
  * §A.9 / ANALYSIS third-pass #9).
+ *
+ * CanvasViewModel cannot be constructed on the JVM (Hilt + `Context` +
+ * framework stores), so this follows the repo's established source-contract
+ * pattern (`CanvasNavigationContractTest`, `WaterToolUiContractTest`):
+ * assertions scope to whole function *bodies*, never fixed character
+ * windows or brace styles.
  */
 class StrokeRefusalContractTest {
 
     @Test
     fun `a refused stroke notifies instead of returning silently`() {
-        val viewModel = source(CANVAS_VIEW_MODEL_PATH)
-        val begin = viewModel.indexOf(BEGIN_STROKE_TOOL)
-        if (begin < 0) fail("missing $BEGIN_STROKE_TOOL")
-        val gateCheck = viewModel.indexOf(REFUSED_GATE, begin)
-        if (gateCheck < 0) fail("missing $REFUSED_GATE in beginStrokeTool")
+        val body = functionBody(source(CANVAS_VIEW_MODEL_PATH), BEGIN_STROKE_TOOL)
 
-        val branch = viewModel.substring(gateCheck, gateCheck + BRANCH_WINDOW)
-        assertTrue(NOTE_REFUSED in branch, "the refused branch must call $NOTE_REFUSED")
-        assertTrue(SILENT_RETURN !in branch, "the refused branch must not return null silently")
+        val gateCheck = body.indexOf(REFUSED_GATE)
+        if (gateCheck < 0) fail("missing $REFUSED_GATE in beginStrokeTool")
+        val noticeCall = body.indexOf(NOTE_REFUSED)
+        if (noticeCall < 0) fail("missing $NOTE_REFUSED in beginStrokeTool")
+
+        // The notice must belong to the refused branch: it fires before the
+        // stroke's chrome work could ever run.
+        val strokeBegins = body.indexOf(STROKE_BEGINS)
+        if (strokeBegins < 0) fail("missing $STROKE_BEGINS in beginStrokeTool")
+        assertTrue(gateCheck < noticeCall && noticeCall < strokeBegins)
     }
 
     @Test
     fun `the refusal notice rides the stroke-notice channel`() {
-        val viewModel = source(CANVAS_VIEW_MODEL_PATH)
-        val notice = viewModel.indexOf(NOTE_REFUSED_DEFINITION)
-        if (notice < 0) fail("missing $NOTE_REFUSED_DEFINITION")
-        val body = viewModel.substring(notice, notice + BRANCH_WINDOW)
+        val body = functionBody(source(CANVAS_VIEW_MODEL_PATH), NOTE_REFUSED_DEFINITION)
 
         assertTrue(BUSY_NOTICE in body, "the refusal sets the busy string")
         assertTrue(NOTICE_REVISION in body, "the refusal bumps the notice revision")
+    }
+
+    /** [declaration] must name a `fun` on one line; returns its whole body. */
+    private fun functionBody(source: String, declaration: String): String {
+        val start = source.indexOf(declaration)
+        if (start < 0) fail("missing $declaration")
+        val next = NEXT_MEMBER.findAll(source)
+            .map { it.range.first }
+            .firstOrNull { it > start + declaration.length }
+        val end = next ?: source.length
+        return source.substring(start, end)
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
@@ -56,12 +73,14 @@ class StrokeRefusalContractTest {
         const val CANVAS_VIEW_MODEL_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasViewModel.kt"
         const val BEGIN_STROKE_TOOL = "fun beginStrokeTool("
-        const val REFUSED_GATE = "if (!actionGate.beginStroke()) {"
-        const val NOTE_REFUSED = "noteStrokeRefused()"
         const val NOTE_REFUSED_DEFINITION = "private fun noteStrokeRefused()"
-        const val SILENT_RETURN = "} return null"
+        const val REFUSED_GATE = "if (!actionGate.beginStroke())"
+        const val NOTE_REFUSED = "noteStrokeRefused()"
+        const val STROKE_BEGINS = "CanvasUiPolicy.onStrokeBegin"
         const val BUSY_NOTICE = "R.string.canvas_busy"
         const val NOTICE_REVISION = "strokeLayerNoticeRevision += 1"
-        const val BRANCH_WINDOW = 300
+
+        /** The next class member after the one under test, at member indent. */
+        val NEXT_MEMBER = Regex("""\n    (internal |suspend |private |protected )?fun """)
     }
 }

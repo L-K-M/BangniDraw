@@ -686,9 +686,13 @@ and the contradiction is noted here.
   active backup before the epoch advances, so modulo age cannot resurrect
   stale water. Wet state is not persisted or journaled: cancel restores
   touched wet pages, undo/redo/reopen/context loss start dry, and destructive
-  pixel edits clear affected wet layers. Blank Water over
-  transparency changes wet state but creates no colour tile or history
-  entry. `TileContentIndex` tracks alpha occupancy in 4×4 blocks; `UNKNOWN`
+  pixel edits clear affected wet layers. Blank Water over an absent tile
+  changes wet state but creates no colour tile or history entry; over a
+  resident tile the index has not classified, `UNKNOWN` conservatively
+  forces the colour path, so the gesture allocates a slice and journals a
+  no-op entry whose all-zero after-image folds away at the next checkpoint —
+  transient bookkeeping, never a persisted tile. `TileContentIndex` tracks
+  alpha occupancy in 4×4 blocks; `UNKNOWN`
   is conservatively occupied, so Water never skips pigment it has not
   classified. Water transports committed premultiplied pixels from every
   brush model, including Chinese Ink. A preset cannot combine

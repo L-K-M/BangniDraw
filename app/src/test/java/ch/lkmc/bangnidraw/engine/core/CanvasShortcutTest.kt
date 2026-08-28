@@ -31,6 +31,7 @@ class CanvasShortcutTest {
             ShortcutKey.B to CanvasShortcut.BRUSH,
             ShortcutKey.E to CanvasShortcut.ERASER,
             ShortcutKey.S to CanvasShortcut.SMUDGE,
+            ShortcutKey.W to CanvasShortcut.WATER,
             ShortcutKey.G to CanvasShortcut.FILL,
             ShortcutKey.I to CanvasShortcut.EYEDROPPER,
             ShortcutKey.DIGIT_ZERO to CanvasShortcut.RESET_VIEW,

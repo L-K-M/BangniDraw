@@ -15,8 +15,8 @@ enum class StrokeMode {
 }
 
 /**
- * The read-modify-write tools of §7.6, which cannot use a stroke buffer at
- * all: their result at dab *n* depends on the layer as modified by dab *n−1*,
+ * Direct read-modify-write tools cannot use a stroke buffer: their result at
+ * dab *n* depends on the layer as modified by dab *n−1*,
  * so they write the layer directly, dab by dab, in order.
  *
  * Declared here because [StrokeSpec] has to be able to say "this stroke
@@ -48,6 +48,16 @@ sealed interface RmwSpec {
             }
         }
     }
+
+    data class Watercolor(
+        val behavior: WatercolorBehavior,
+        val mixing: RmwMixing,
+    ) : RmwSpec
+
+    data class Water(
+        val behavior: WatercolorBehavior,
+        val mixing: RmwMixing,
+    ) : RmwSpec
 }
 
 /**
@@ -90,11 +100,11 @@ data class StrokeSpec(
         // here rather than at the first dab, where the failure would be a
         // missing stroke buffer and read as a pool bug.
         require(rmw == null || mode != StrokeMode.ERASE) {
-            "ERASE has no read-modify-write form: §7.6 lists smudge and blur only"
+            "ERASE has no read-modify-write form"
         }
     }
 
-    /** §7.6: smudge and blur write the layer directly and never allocate a buffer. */
+    /** Direct tools write the layer in dab order and never allocate a stroke buffer. */
     val usesStrokeBuffer: Boolean get() = rmw == null
 
     /** Replaces pen-down's provisional opacity with the measured stroke peak. */

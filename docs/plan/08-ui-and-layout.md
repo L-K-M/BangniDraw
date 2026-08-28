@@ -59,16 +59,16 @@ asserts each mode's content height against them:
 | --- | --- | --- | --- |
 | SHORT | 6 × 48 (gap and padding collapse to 0; the slot stays 48 dp because a 360 dp phone in landscape has 288 dp of rail: 360 − 48 − 24 status bar) | `SHORT_MIN` = 288 | 288 |
 | GROUPED | 6 × slot + 5 × 4 + 9 + 120 + 24 | `GROUPED_MIN` = 461 | 509 |
-| FULL | 10 × slot + 9 × 4 + 2 × 9 + 160 + 24 | `FULL_MIN` = 718 | 798 |
+| FULL | 10-slot threshold: 10 × slot + 9 × 4 + 2 × 9 + 160 + 24 | `FULL_MIN` = 718 | 798 |
 
-`FULL_MIN` is sized for the v1 catalogue (five paints, one eraser, four
-secondary tools). A larger catalogue does not stretch the rail past the
-window: `LayoutSpec.paintSlotBudget` solves `paints·(slot + gap) + non-paint
-≤ rail height` for the number of paint slots that fit (exactly
-five at each `FULL_MIN`, capped by the loaded paint count), the active preset always keeps a slot
-(`RailSlotPolicy`), and the remaining presets stay reachable through the
-settings sheet's chip row — the same path GROUPED/SHORT/DOCK already use
-for every preset but the active one.
+The FULL rail has six fixed non-paint slots: Eraser, Smudge, Water, Blur,
+Fill, and Eyedropper. `FULL_MIN` remains the ten-slot mode threshold, so it
+fits four paint presets at exactly 718/798 dp; the fifth appears once the
+eleven-slot sum fits. `LayoutSpec.paintSlotBudget` solves
+`paints·(slot + gap) + non-paint ≤ rail height`, the active preset always
+keeps a slot (`RailSlotPolicy`), and remaining presets stay reachable through
+the settings sheet's chip row — the same path GROUPED/SHORT/DOCK use for
+every preset but the active one.
 
 SHORT is the one place the rail keeps 48 dp slots on an expanded width (an
 S-series Ultra in landscape is ≥ 840 dp wide and ~288 dp tall); T1's 56 dp
@@ -79,13 +79,14 @@ Fold inner GROUPED or FULL depending on orientation, phone landscape SHORT,
 phone portrait DOCK. Foldables and multi-window fall out of the same
 function because it is fed the *window*, never the device.
 
-**Grouped slots.** When the rail can't hold ten tools it holds six: **Brush**
-(the current brush preset — pencil, ink pen, paintbrush, airbrush or marker),
-**Eraser**, **Smudge**, **Blur**, **Fill**, **Eyedropper**. Tapping the
-active Brush slot opens the settings sheet whose header is the preset row, so
-switching pencil → marker on a phone is tap-tap. The eraser keeps its own slot
-in every mode because the S Pen's eraser end and button map to it and the user
-needs to *see* that state (`07-input-and-stylus.md`).
+**Grouped slots.** GROUPED, SHORT, and DOCK hold six: **Brush** (the current
+brush preset — pencil, ink pen, Watercolor, airbrush, or marker), **Eraser**,
+**Smudge**, **Water**, **Fill**, and **More**. More contains Blur and
+Eyedropper. Tapping the active Brush slot opens the settings sheet whose
+header is the preset row, so switching pencil → marker on a phone is tap-tap.
+The eraser keeps its own slot in every mode because the S Pen's eraser end and
+button map to it and the user needs to *see* that state
+(`07-input-and-stylus.md`).
 
 ## 2. Studio
 
@@ -405,7 +406,7 @@ strip resolves 360° at 0.8° per dp, half what the ring's circumference gives.
 
 Opens from the active tool's second tap. Same container
 rules as the other panels. Header: the tool name and, in GROUPED/SHORT/DOCK
-modes, the **preset row** (pencil · ink · brush · airbrush · marker as chips).
+modes, the **preset row** (pencil · ink · Watercolor · airbrush · marker).
 The **Eraser** slot's sheet carries its own two-chip preset row (hard ·
 soft) in *every* rail mode — the rail has one eraser slot (PLAN.md §6, S1),
 so the soft eraser is reachable only here: tap Eraser, tap again, tap
@@ -417,22 +418,26 @@ from "what you change every minute" to "what you set once":
 
 | Group | Parameters | Control |
 | --- | --- | --- |
-| Stroke | size, opacity, flow | `ThinSlider`s with numeric readout; mirror the rail sliders |
+| Stroke | size and flow; buffered brushes also expose opacity | `ThinSlider`s with numeric readout; mirror the rail sliders |
 | Tip | hardness, spacing, shape (round / squared, orientation-following) | sliders; shape as segmented buttons |
-| Dynamics | pressure → size / opacity / flow curves; tilt effect; velocity effect; jitter | each curve a `CurveEditor` (a 96 dp square with the four draggable knots of `04-tools.md`'s `Curve`); tilt/velocity/jitter as sliders |
+| Dynamics | pressure → size / flow curves; pressure → opacity for buffered brushes; tilt effect; velocity effect; jitter | each curve a `CurveEditor` (a 96 dp square with the four draggable knots of `04-tools.md`'s `Curve`); tilt/velocity/jitter as sliders |
 | Stabilizer | strength | slider; 0 = off |
-| Mixing | pigment mixing on/off and dilution (brushes); strength and pickup rate (smudge) | switch; sliders. Shown only when the active mixer is pigment (`09-color-and-mixing.md` §4) |
+| Mixing | pigment toggle for buffered brushes, dilution, strength and pickup rate | switch and sliders; pigment controls appear only with the pigment mixer (`09-color-and-mixing.md` §4) |
 
-- A **live stroke preview strip** (full width × 72 dp) sits under the
+- Buffered brushes have a **live stroke preview strip** (full width × 72 dp)
+  under the
   header: a fixed S-curve with a pressure ramp, rendered by the CPU
   reference dab pipeline in `engine/core` (`DabGenerator` → CPU stamping →
   `Composite`) on `Dispatchers.Default`, debounced 50 ms. Using the CPU
   reference rather than the GL engine keeps the preview off the GL thread
   and guarantees it is pinned to the same math the shaders are tested
   against (PLAN.md §7). It renders with the current colour on the paper
-  colour, at 1:1 px with size capped at 48 px in the strip.
-- Tool-kind gating: smudge/blur show Stroke (no opacity), Tip, Dynamics
-  (size only), Stabilizer, Mixing; fill shows tolerance, contiguous/global,
+  colour, at 1:1 px with size capped at 48 px in the strip. Watercolor shows
+  an explanatory hint instead because this preview has no transient wet grid.
+- Tool gating: Watercolor hides stroke opacity and pressure-opacity, fixes
+  pigment mixing on, and adds Water, Spread, Granulation, and Edge darkening.
+  Water has a dedicated Size/Water/Spread sheet. Smudge/blur show Stroke (no
+  opacity), Tip, Dynamics (size only), Stabilizer, Mixing; fill shows tolerance, contiguous/global,
   sample all layers, expand px, anti-alias; eyedropper shows "sample: composite
   / current layer". Absent groups are absent, not disabled.
 - **Reset to preset** at the foot restores the built-in JSON; edits persist

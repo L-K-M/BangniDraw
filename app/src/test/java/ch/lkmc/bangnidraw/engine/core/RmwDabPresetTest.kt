@@ -37,4 +37,25 @@ class RmwDabPresetTest {
         assertEquals(Curve.One, preset.pressureSize)
         assertEquals(Curve.One, preset.pressureOpacity)
     }
+
+    @Test
+    fun `water pressure shapes a normalized flow`() {
+        val params = WaterParams(
+            size = 72f,
+            hardness = 0.2f,
+            spacing = 0.18f,
+            waterLoad = 0.75f,
+            pressureWater = Curve(0.2f, 0.4f, 0.8f, 1f),
+            stabilizer = 0.25f,
+        )
+
+        val preset = RmwDabPreset.water(params)
+
+        assertEquals(params.size, preset.size)
+        assertEquals(params.hardness, preset.hardness)
+        assertEquals(params.spacing, preset.spacing)
+        assertEquals(1f, preset.flow)
+        assertEquals(params.pressureWater, preset.pressureFlow)
+        assertEquals(params.stabilizer, preset.stabilizer)
+    }
 }

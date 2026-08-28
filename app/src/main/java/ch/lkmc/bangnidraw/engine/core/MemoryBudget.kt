@@ -20,6 +20,7 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.THUMB_MIB_LOW_RAM
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.THUMB_MIB_SMALL
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.WET_GESTURE_BACKUP_LAYERS
 
 /**
  * Everything the budget needs about the device, read once (from
@@ -70,6 +71,10 @@ data class CanvasSize(val width: Int, val height: Int) {
     val tilesY: Int get() = tilesFor(height)
     val tilesPerLayer: Long get() = tilesX.toLong() * tilesY
 
+    private val wetTilesX: Int get() = wetTilesFor(width)
+    private val wetTilesY: Int get() = wetTilesFor(height)
+    internal val wetTilesPerLayer: Long get() = wetTilesX.toLong() * wetTilesY
+
     val pixelBytes: Long
         get() {
             if (width <= 0 || height <= 0) return 0L
@@ -90,13 +95,25 @@ data class CanvasSize(val width: Int, val height: Int) {
      * that must never come out of this class.
      */
     val layerBytesWorstCase: Long
-        get() {
-            val tiles = tilesPerLayer
-            return if (tiles > Long.MAX_VALUE / TILE_BYTES) Long.MAX_VALUE else tiles * TILE_BYTES
-        }
+        get() = bytesForTiles(tilesPerLayer)
+
+    /** Quarter-resolution wet state uses the same RGBA8 tile-pool slices. */
+    internal val wetLayerBytesWorstCase: Long
+        get() = bytesForTiles(wetTilesPerLayer)
 
     private companion object {
+        const val CANVAS_PIXELS_PER_WET_TILE = WatercolorKernel.CELL_SIZE * TILE_SIZE
         const val RGBA8_BYTES_PER_PIXEL = 4L
+
+        fun bytesForTiles(tiles: Long): Long =
+            if (tiles > Long.MAX_VALUE / TILE_BYTES) Long.MAX_VALUE else tiles * TILE_BYTES
+
+        /**
+         * One wet tile covers 1024×1024 canvas pixels. Small wet grids are
+         * padded to one physical tile, matching [WatercolorKernel.wetPixels].
+         */
+        fun wetTilesFor(px: Int): Int =
+            if (px <= 0) 0 else tilesFor(px, CANVAS_PIXELS_PER_WET_TILE)
 
         /**
          * `ceil(px / 256)` for a positive side, and **zero** for a side that
@@ -106,7 +123,10 @@ data class CanvasSize(val width: Int, val height: Int) {
          * as if it were 256 px wide.
          */
         fun tilesFor(px: Int): Int =
-            if (px <= 0) 0 else px / TILE_SIZE + if (px % TILE_SIZE != 0) 1 else 0
+            if (px <= 0) 0 else tilesFor(px, TILE_SIZE)
+
+        fun tilesFor(px: Int, divisor: Int): Int =
+            px / divisor + if (px % divisor != 0) 1 else 0
     }
 }
 
@@ -124,6 +144,8 @@ object MemoryBudget {
     data class Result(
         /** The raw tile budget. What the pool can *allocate* is [poolCapacityBytes]. */
         val gpuTileBudgetBytes: Long,
+        /** Worst-case retained watercolor scratch outside the shared tile pool. */
+        val watercolorScratchMaxBytes: Long,
         /**
          * `poolArrayCount × poolArraySlices × TILE_BYTES` — whole arrays only,
          * so up to one array below [gpuTileBudgetBytes]. Every cap here is
@@ -171,16 +193,11 @@ object MemoryBudget {
         maxLayersFor(budget.poolCapacityBytes, canvas)
 
     /**
-     * The raw-capacity form. Prefer the [Result] overload above: the KDoc
-     * below warns that passing `gpuTileBudgetBytes` here "compiles and reads
-     * naturally", and two adjacent `Long` fields is a warning the type system
-     * could be making instead. `internal`, which is as far as the visibility
-     * can be narrowed while `compute`, `CanvasPresets` and the tests that pin
-     * its arithmetic still call it — same-module Kotlin sees `internal`, so
-     * nothing here needed it public. `ui` and `data` reach the [Result]
-     * overload only, which cannot be handed the wrong field.
+     * The raw-capacity form remains public for callers that budget a pool
+     * before a complete [Result] exists. Prefer the typed overload otherwise;
+     * it cannot be handed the adjacent raw-budget field by mistake.
      */
-    internal fun maxLayersFor(poolCapacityBytes: Long, canvas: CanvasSize): Int {
+    fun maxLayersFor(poolCapacityBytes: Long, canvas: CanvasSize): Int {
         // A canvas with no area divides by zero below. It is not this
         // function's job to reject one — `CanvasPresets.custom` does that, and
         // `CanvasSize` exists precisely to describe a size in order to refuse
@@ -189,21 +206,19 @@ object MemoryBudget {
         // to clamp up to MIN_LAYERS and report "1 layer fits" for a pool that
         // holds none — the over-commit this function exists to prevent, arriving
         // silently. compute() cannot produce a non-positive capacity, but this
-        // is public and its KDoc already warns it is easy to feed the wrong field.
+        // is internal and its KDoc already warns it is easy to feed the wrong field.
         require(poolCapacityBytes > 0) { "poolCapacityBytes must be positive, was $poolCapacityBytes" }
         if (canvas.tilesPerLayer <= 0L) return MIN_LAYERS
-        // coerceAtMost before toInt(): a Long quotient past Int.MAX_VALUE
-        // narrows by truncation, and Long.MAX_VALUE / a small canvas lands on
-        // -1, which would answer MIN_LAYERS where the honest answer is the cap.
-        val layersThatFit =
-            (poolCapacityBytes / canvas.layerBytesWorstCase)
-                .coerceAtMost(Int.MAX_VALUE.toLong())
-                .toInt() - STROKE_BUFFER_RESERVE_LAYERS
+
+        for (layers in MAX_LAYERS downTo MIN_LAYERS) {
+            if (requiredPoolBytes(canvas, layers) <= poolCapacityBytes) return layers
+        }
+
         // The upward half of this clamp is a documented contract, not an
         // accident — see the KDoc. For a canvas that clears maxCanvasEdge, the
         // honest cap is enforced where it can be: the pool allocates pages
         // lazily and reports "layer limit reached early" (`10-performance.md` §4).
-        return layersThatFit.coerceIn(MIN_LAYERS, MAX_LAYERS)
+        return MIN_LAYERS
     }
 
     fun compute(device: DeviceMemory, canvas: CanvasSize): Result {
@@ -252,30 +267,30 @@ object MemoryBudget {
         // disagree — so both the cap and the size ceiling come from capacity.
         val poolCapacityBytes = arrays.toLong() * slices * TILE_BYTES
         val maxLayers = maxLayersFor(poolCapacityBytes, canvas)
+        val perLayerLimit = poolCapacityBytes /
+            (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)
+        val transientImageBytes = minOf(canvas.pixelBytes, perLayerLimit)
         // maxCanvasEdge is bounded by memory and by the v1 ceiling, never by
         // glMaxTextureSize: tiles are 256 px, so a big canvas never needs a
-        // big texture. The largest multiple of TILE_SIZE whose square, fully
-        // painted, still holds MIN_USEFUL_LAYERS plus the stroke-buffer
-        // reserve — so a size the dialog offers can always be painted on.
-        val perLayerLimit = poolCapacityBytes / (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS)
-        val transientImageBytes = minOf(canvas.pixelBytes, perLayerLimit)
+        // big texture. The largest multiple of TILE_SIZE holds the minimum
+        // document stack, its wet state, and the larger exclusive gesture
+        // reserve.
         // The loop tests TILE_SIZE + TILE_SIZE and up; the starting value is
         // returned untested, so the "always paintable" promise holds at the
         // floor only through a coupling between the minimum tile budget,
-        // MIN_USEFUL_LAYERS and TILE_BYTES that nothing enforced. Enforce it,
-        // the same way the array-size check above enforces its own three
-        // constants: it cannot fire today (five tiles is 1.25 MiB against a
-        // floor budget in the hundreds), and that is the point — if someone
-        // lowers the budget or raises MIN_USEFUL_LAYERS it fails here rather
-        // than offering a 256 px canvas that cannot hold the minimum stack.
-        check(TILE_BYTES.toLong() * (MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS) <= poolCapacityBytes) {
-            "a pool capacity of $poolCapacityBytes B cannot hold " +
-                "${MIN_USEFUL_LAYERS + STROKE_BUFFER_RESERVE_LAYERS} layers of a ${TILE_SIZE}px canvas"
+        // reserve counts and TILE_BYTES. Enforce it so a constant change fails
+        // here instead of offering an unpaintable 256 px canvas.
+        val minimumCanvas = CanvasSize(TILE_SIZE, TILE_SIZE)
+        check(requiredPoolBytes(minimumCanvas, MIN_USEFUL_LAYERS) <= poolCapacityBytes) {
+            "a pool capacity of $poolCapacityBytes B cannot hold the minimum " +
+                "stack and gesture reserves for a ${TILE_SIZE}px canvas"
         }
         var maxCanvasEdge = TILE_SIZE
         while (maxCanvasEdge + TILE_SIZE <= MAX_CANVAS_EDGE_V1 &&
-            CanvasSize(maxCanvasEdge + TILE_SIZE, maxCanvasEdge + TILE_SIZE)
-                .layerBytesWorstCase <= perLayerLimit
+            requiredPoolBytes(
+                CanvasSize(maxCanvasEdge + TILE_SIZE, maxCanvasEdge + TILE_SIZE),
+                MIN_USEFUL_LAYERS,
+            ) <= poolCapacityBytes
         ) {
             maxCanvasEdge += TILE_SIZE
         }
@@ -291,6 +306,7 @@ object MemoryBudget {
             ).toLong() shl 20
         return Result(
             gpuTileBudgetBytes = gpu,
+            watercolorScratchMaxBytes = WatercolorScratchBudget.MAX_BYTES,
             poolCapacityBytes = poolCapacityBytes,
             maxLayers = maxLayers,
             maxCanvasEdge = maxCanvasEdge,
@@ -302,4 +318,34 @@ object MemoryBudget {
             poolArrayCount = arrays,
         )
     }
+
+    /**
+     * Every advertised layer may be fully painted and fully wet. Ordinary and
+     * wet gestures are exclusive, so the pool reserves whichever gesture
+     * scratch is larger rather than both at once.
+     */
+    private fun requiredPoolBytes(canvas: CanvasSize, layers: Int): Long {
+        val colorBytes = multiplySaturated(canvas.layerBytesWorstCase, layers)
+        val wetBytes = multiplySaturated(canvas.wetLayerBytesWorstCase, layers)
+        val persistentBytes = addSaturated(colorBytes, wetBytes)
+        val strokeReserve = multiplySaturated(
+            canvas.layerBytesWorstCase,
+            STROKE_BUFFER_RESERVE_LAYERS,
+        )
+        val wetReserve = multiplySaturated(
+            canvas.wetLayerBytesWorstCase,
+            WET_GESTURE_BACKUP_LAYERS,
+        )
+
+        return addSaturated(persistentBytes, maxOf(strokeReserve, wetReserve))
+    }
+
+    private fun multiplySaturated(value: Long, count: Int): Long {
+        if (value == 0L || count == 0) return 0L
+
+        return if (value > Long.MAX_VALUE / count) Long.MAX_VALUE else value * count
+    }
+
+    private fun addSaturated(first: Long, second: Long): Long =
+        if (first > Long.MAX_VALUE - second) Long.MAX_VALUE else first + second
 }

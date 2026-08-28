@@ -35,11 +35,14 @@ import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.SampleSource
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
 import ch.lkmc.bangnidraw.engine.core.TileGrid
+import ch.lkmc.bangnidraw.engine.core.RmwSpec
 import ch.lkmc.bangnidraw.engine.core.RmwTouchTracker
 import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
 import ch.lkmc.bangnidraw.engine.core.ReferenceVisibility
 import ch.lkmc.bangnidraw.engine.core.TracingReference
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.engine.core.WatercolorEditPolicy
+import ch.lkmc.bangnidraw.engine.core.WatercolorInvalidation
 import ch.lkmc.bangnidraw.engine.core.ViewportResizeOwner
 import ch.lkmc.bangnidraw.engine.core.ViewportResizePolicy
 import ch.lkmc.bangnidraw.engine.core.ViewportResizeState
@@ -101,7 +104,16 @@ class CanvasRenderer(
      * objects: [release] must map what is still in flight before the PBOs go,
      * and [onContextLost] must forget them without touching dead fences.
      */
-    private val readback: Readback? = onTile?.let { Readback(it) }
+    private val readback: Readback? = onTile?.let { sink ->
+        Readback { layer, key, revision, pixels ->
+            recordTilePresence(layer, key, pixels)
+            sink(layer, key, revision, pixels)
+        }
+    }
+
+    private fun recordTilePresence(layer: LayerId, key: TileKey, pixels: java.nio.ByteBuffer) {
+        layers[layer]?.recordReadback(key, pixels)
+    }
 
     /** In-flight readback chunks, mirrored for the session's poll pump. */
     val readbackPending: Int get() = readback?.pending ?: 0
@@ -180,12 +192,16 @@ class CanvasRenderer(
     private var smudgeAbsorb: GlProgram? = null
     private var blurHorizontal: GlProgram? = null
     private var blurVertical: GlProgram? = null
+    private var watercolorWet: GlProgram? = null
+    private var watercolorColor: GlProgram? = null
     private var smudgeDepositMix: GlProgram? = null
     private var smudgeAbsorbMix: GlProgram? = null
+    private var watercolorColorMix: GlProgram? = null
     private var merge: GlProgram? = null
     private var mergeMix: GlProgram? = null
     private var dabPass: DabPass? = null
     private var smudgePass: SmudgePass? = null
+    private var watercolorPass: WatercolorPass? = null
     private var mergePass: MergePass? = null
     private var preview: GlProgram? = null
     private var previewMix: GlProgram? = null
@@ -353,7 +369,7 @@ class CanvasRenderer(
         // inserting a program above PREVIEW would silently hand the preview
         // pass someone else's shaders. The `onContextLost` comment records that
         // this family of lists has already been wrong twice.
-        val linked = ArrayList<GlProgram>(15)
+        val linked = ArrayList<GlProgram>(18)
         var compositeProgram: GlProgram? = null
         var presentProgram: GlProgram? = null
         var checkerProgram: GlProgram? = null
@@ -363,8 +379,11 @@ class CanvasRenderer(
         var smudgeAbsorbProgram: GlProgram? = null
         var blurHorizontalProgram: GlProgram? = null
         var blurVerticalProgram: GlProgram? = null
+        var watercolorWetProgram: GlProgram? = null
+        var watercolorColorProgram: GlProgram? = null
         var smudgeDepositMixProgram: GlProgram? = null
         var smudgeAbsorbMixProgram: GlProgram? = null
+        var watercolorColorMixProgram: GlProgram? = null
         var mergeProgram: GlProgram? = null
         var mergeMixProgram: GlProgram? = null
         var previewProgram: GlProgram? = null
@@ -380,6 +399,8 @@ class CanvasRenderer(
             smudgeAbsorbProgram = GlProgram.link(Shaders.SMUDGE_ABSORB).also { linked += it }
             blurHorizontalProgram = GlProgram.link(Shaders.BLUR_HORIZONTAL).also { linked += it }
             blurVerticalProgram = GlProgram.link(Shaders.BLUR_VERTICAL).also { linked += it }
+            watercolorWetProgram = GlProgram.link(Shaders.WATERCOLOR_WET).also { linked += it }
+            watercolorColorProgram = GlProgram.link(Shaders.WATERCOLOR_COLOR).also { linked += it }
             mergeProgram = GlProgram.link(Shaders.MERGE).also { linked += it }
             previewProgram = GlProgram.link(Shaders.PREVIEW).also { linked += it }
             val mixboxSource = MixboxShaderSource.load(assets)
@@ -390,6 +411,8 @@ class CanvasRenderer(
                     .link(Shaders.smudgeDepositMix(mixboxSource)).also { linked += it }
                 smudgeAbsorbMixProgram = GlProgram
                     .link(Shaders.smudgeAbsorbMix(mixboxSource)).also { linked += it }
+                watercolorColorMixProgram = GlProgram
+                    .link(Shaders.watercolorColorMix(mixboxSource)).also { linked += it }
                 lutTexture = MixboxLut.upload(assets)
             }
         } catch (e: Exception) {
@@ -408,6 +431,8 @@ class CanvasRenderer(
         checkNotNull(smudgeAbsorbProgram)
         checkNotNull(blurHorizontalProgram)
         checkNotNull(blurVerticalProgram)
+        checkNotNull(watercolorWetProgram)
+        checkNotNull(watercolorColorProgram)
         checkNotNull(mergeProgram)
         checkNotNull(previewProgram)
         composite = compositeProgram
@@ -424,7 +449,7 @@ class CanvasRenderer(
         )
         compositePass = canvasCompositePass
         thumbnailPass = LayerThumbnailPass(canvas, state, canvasCompositePass)
-        val tiles = TilePool(probed, budget)
+        val tiles = TilePool(probed, budget, state)
         pool = tiles
         tracingReference?.let {
             referenceTextures = ReferenceTextures(it.imageWidth, it.imageHeight, tiles)
@@ -436,8 +461,11 @@ class CanvasRenderer(
         smudgeAbsorb = smudgeAbsorbProgram
         blurHorizontal = blurHorizontalProgram
         blurVertical = blurVerticalProgram
+        watercolorWet = watercolorWetProgram
+        watercolorColor = watercolorColorProgram
         smudgeDepositMix = smudgeDepositMixProgram
         smudgeAbsorbMix = smudgeAbsorbMixProgram
+        watercolorColorMix = watercolorColorMixProgram
         merge = mergeProgram
         mergeMix = mergeMixProgram
         previewMix = previewMixProgram
@@ -451,6 +479,15 @@ class CanvasRenderer(
             blurVerticalProgram,
             smudgeDepositMixProgram,
             smudgeAbsorbMixProgram,
+            lutTexture,
+        )
+        watercolorPass = WatercolorPass(
+            canvas,
+            tiles,
+            state,
+            watercolorWetProgram,
+            watercolorColorProgram,
+            watercolorColorMixProgram,
             lutTexture,
         )
         mergePass = MergePass(mergeProgram, state, tiles, mergeQuad, mergeMixProgram, lutTexture)
@@ -473,7 +510,16 @@ class CanvasRenderer(
         if (stroke != null) return false
         val rmw = spec.rmw
         if (rmw == null && strokeBuffer == null) return false
-        if (rmw != null && smudgePass?.begin(rmw) != true) return false
+        if (rmw != null) {
+            state.invalidate()
+            val began = when (rmw) {
+                is RmwSpec.Smudge, is RmwSpec.Blur -> smudgePass?.begin(rmw) == true
+                is RmwSpec.Watercolor, is RmwSpec.Water ->
+                    watercolorPass?.begin(spec.layerId, rmw, clock.nowNanos()) == true
+            }
+            if (!began) return false
+            watercolorPass?.setColor(colorR, colorG, colorB)
+        }
 
         rmwTouches.reset()
         rmwDirty = IntRect.EMPTY
@@ -520,10 +566,20 @@ class CanvasRenderer(
         val committed = batch.committedCount
         val rmw = spec.rmw
         if (rmw != null) {
-            val pass = smudgePass ?: return IntRect.EMPTY
             val textures = textures(spec.layerId) ?: return IntRect.EMPTY
-            val dirty = pass.stamp(batch, textures, rmw, rmwTouches) { keys, count ->
-                onRmwFirstTouch?.invoke(spec, keys, count)
+            val dirty = when (rmw) {
+                is RmwSpec.Smudge, is RmwSpec.Blur -> {
+                    val pass = smudgePass ?: return IntRect.EMPTY
+                    pass.stamp(batch, textures, rmw, rmwTouches) { keys, count ->
+                        onRmwFirstTouch?.invoke(spec, keys, count)
+                    }
+                }
+                is RmwSpec.Watercolor, is RmwSpec.Water -> {
+                    val pass = watercolorPass ?: return IntRect.EMPTY
+                    pass.stamp(
+                        batch, textures, spec, startNs, rmwTouches,
+                    ) { keys, count -> onRmwFirstTouch?.invoke(spec, keys, count) }
+                }
             }
             rmwDirty = rmwDirty.union(dirty)
             pendingStampNs += clock.nowNanos() - startNs
@@ -676,11 +732,19 @@ class CanvasRenderer(
         startNs: Long,
     ): Int {
         clearTail()
+        if (spec.rmw is RmwSpec.Watercolor || spec.rmw is RmwSpec.Water) {
+            watercolorPass?.finish()
+        }
         stroke = null
         val textures = layers[spec.layerId]
         val count = rmwTouches.all(rmwKeyScratch)
         mergedKeys.clear()
-        for (index in 0 until count) mergedKeys += TileKey(rmwKeyScratch[index])
+        for (index in 0 until count) {
+            val key = TileKey(rmwKeyScratch[index])
+            if (spec.rmw is RmwSpec.Water && textures?.mayContainColor(key) == false) continue
+
+            mergedKeys += key
+        }
         onMerged?.invoke(spec, ArrayList(mergedKeys))
 
         if (textures != null && mergedKeys.isNotEmpty()) {
@@ -700,6 +764,10 @@ class CanvasRenderer(
     fun cancelStroke(onRmwCancelled: ((StrokeSpec, List<TileKey>) -> Unit)? = null) {
         val spec = stroke
         if (spec?.rmw != null) {
+            state.invalidate()
+            if (spec.rmw is RmwSpec.Watercolor || spec.rmw is RmwSpec.Water) {
+                watercolorPass?.cancel()
+            }
             val count = rmwTouches.all(rmwKeyScratch)
             val keys = ArrayList<TileKey>(count)
             for (index in 0 until count) keys += TileKey(rmwKeyScratch[index])
@@ -773,7 +841,10 @@ class CanvasRenderer(
         // allocated is how a pool runs dry over a long editing session.
         val live = next.layers.map { it.id }.toSet()
         val gone = layers.keys.filterNot { it in live }
-        for (id in gone) layers.remove(id)?.release()
+        for (id in gone) {
+            layers.remove(id)?.release()
+            watercolorPass?.removeLayer(id)
+        }
         sandwich?.observe(next)
         when {
             previous == null -> sandwich?.invalidate(SandwichPolicy.Op.Select(next.activeIndex), next.activeIndex)
@@ -895,9 +966,11 @@ class CanvasRenderer(
     fun applyPixelOps(
         ops: List<PixelOp>,
         revision: Int,
+        invalidation: SandwichPolicy.Op,
         beforeCommit: () -> Boolean = { true },
     ): Boolean {
         val prepared = ArrayList<PreparedPixelOp>(ops.size)
+
         for (op in ops) {
             val next = when (op) {
                 is PixelOp.Copy -> layerPixelPass?.let { prepareCopy(it, op) }
@@ -918,8 +991,19 @@ class CanvasRenderer(
             return false
         }
 
+        applyWetInvalidation(WatercolorEditPolicy.forEdit(ops, invalidation))
         prepared.forEach { commit(it, revision) }
         return true
+    }
+
+    private fun applyWetInvalidation(invalidation: WatercolorInvalidation) {
+        when (invalidation) {
+            WatercolorInvalidation.Keep -> Unit
+            WatercolorInvalidation.All -> watercolorPass?.dryAll()
+            is WatercolorInvalidation.Layers -> {
+                invalidation.ids.forEach { watercolorPass?.removeLayer(it) }
+            }
+        }
     }
 
     private fun prepareCopy(pass: LayerPixelPass, op: PixelOp.Copy): PreparedPixelOp.Composite? {
@@ -1926,6 +2010,7 @@ class CanvasRenderer(
         referenceTextures?.forgetAll()
         referenceTextures = null
         sandwich?.forgetAll()
+        watercolorPass?.forgetAll()
         // A stroke in progress cannot survive: its buffer's slices went with
         // the context. Forgetting rather than resetting, because resetting
         // would free handles into a pool that no longer exists — §12's rule
@@ -1939,6 +2024,7 @@ class CanvasRenderer(
         dabPass = null
         smudgePass = null
         mergePass = null
+        watercolorPass = null
         layerPixelPass = null
         // EVERY program reference, including the optional pigment variants.
         // The ids died with the context, and `release()` releases each of them;
@@ -1956,8 +2042,11 @@ class CanvasRenderer(
         blurHorizontal = null
         blurVertical = null
         smudgeDepositMix = null
+        watercolorWet = null
+        watercolorColor = null
         smudgeAbsorbMix = null
         merge = null
+        watercolorColorMix = null
         mergeMix = null
         preview = null
         previewMix = null
@@ -1996,6 +2085,7 @@ class CanvasRenderer(
         dabPass?.release()
         smudgePass?.release()
         mergePass?.release()
+        watercolorPass?.release()
         layerPixelPass?.release()
         strokeBuffer?.reset()
         tailBuffer?.reset()
@@ -2012,8 +2102,11 @@ class CanvasRenderer(
         blurHorizontal?.release()
         blurVertical?.release()
         smudgeDepositMix?.release()
+        watercolorWet?.release()
+        watercolorColor?.release()
         smudgeAbsorbMix?.release()
         merge?.release()
+        watercolorColorMix?.release()
         mergeMix?.release()
         preview?.release()
         previewMix?.release()
@@ -2038,6 +2131,7 @@ class CanvasRenderer(
         dabPass = null
         smudgePass = null
         mergePass = null
+        watercolorPass = null
         layerPixelPass = null
         thumbnailPass = null
         isReady = false
@@ -2055,6 +2149,9 @@ class CanvasRenderer(
         append(caps?.describe() ?: "no GL context")
         append(" | pool ").append(pool?.describe() ?: "none")
         append(" | accum ").append(accum.bytes).append(" B")
+        append(" | scratch ").append(scratch.bytes).append(" B")
+        append(" | watercolor ").append(watercolorPass?.scratchBytes ?: 0L)
+        append("/").append(budget.watercolorScratchMaxBytes).append(" B")
     }
 
     private companion object {

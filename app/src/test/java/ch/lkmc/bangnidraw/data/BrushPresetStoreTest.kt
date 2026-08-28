@@ -11,6 +11,7 @@ import ch.lkmc.bangnidraw.engine.core.TiltEffect
 import ch.lkmc.bangnidraw.engine.core.TipOrientation
 import ch.lkmc.bangnidraw.engine.core.TipShape
 import ch.lkmc.bangnidraw.engine.core.VelocityEffect
+import ch.lkmc.bangnidraw.engine.core.WatercolorBehavior
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
@@ -64,8 +65,25 @@ class BrushPresetStoreTest {
             presets.single { it.id == "builtin.pencil" }.grainMode,
         )
         assertEquals(
+            WatercolorBehavior(
+                waterLoad = 0.72f,
+                spread = 0.6f,
+                granulation = 0.32f,
+                edgeDarkening = 0.4f,
+            ),
+            presets.single { it.id == "builtin.paintbrush" }.watercolor,
+        )
+        assertEquals(
             BrushModel.ChineseInk,
             presets.single { it.id == BrushPresets.CALLIGRAPHY_ID }.model,
+        )
+        assertEquals(
+            listOf(BrushPresets.PAINTBRUSH_ID),
+            presets.filter { it.watercolor != null }.map { it.id },
+        )
+        assertEquals(
+            listOf(BrushPresets.CALLIGRAPHY_ID),
+            presets.filter { it.model == BrushModel.ChineseInk }.map { it.id },
         )
         for (id in listOf("builtin.charcoal", "builtin.soft_pastel", "builtin.dry_brush")) {
             assertEquals(GrainMode.Procedural, presets.single { it.id == id }.grainMode, id)
@@ -82,14 +100,14 @@ class BrushPresetStoreTest {
             size = 37f,
             sizeMin = 2f,
             sizeMax = 333f,
-            opacity = 0.72f,
+            opacity = 1f,
             flow = 0.34f,
             hardness = 0.61f,
             spacing = 0.17f,
             tip = TipShape.Flat(0.42f),
             orientation = TipOrientation.Stylus,
             pressureSize = Curve(0.2f, 0.3f, 0.7f, 1f),
-            pressureOpacity = Curve(0.1f, 0.4f, 0.8f, 1f),
+            pressureOpacity = Curve.One,
             pressureFlow = Curve(0.3f, 0.5f, 0.9f, 1f),
             tilt = TiltEffect(1.8f, 0.4f, elongate = true),
             velocity = VelocityEffect(0.8f, 0.7f, 2.5f),
@@ -98,8 +116,14 @@ class BrushPresetStoreTest {
             mixing = true,
             dilution = 0.19f,
             grain = "paper-fine",
-            model = BrushModel.ChineseInk,
+            model = BrushModel.Standard,
             bufferMode = BufferMode.Accumulate,
+            watercolor = WatercolorBehavior(
+                waterLoad = 0.7f,
+                spread = 0.6f,
+                granulation = 0.3f,
+                edgeDarkening = 0.4f,
+            ),
         )
 
         store.save(expected)
@@ -140,6 +164,41 @@ class BrushPresetStoreTest {
         assertEquals(8f, store.load().single().size)
         assertTrue(store.reset(builtIn.id))
         assertEquals(4f, store.load().single().size)
+    }
+
+    @Test
+    fun `legacy paintbrush override adopts watercolor while keeping user tuning`() {
+        val store = BrushPresetStore(
+            root,
+            MapAssets(
+                "paintbrush.json" to
+                    """{"v":1,"id":"builtin.paintbrush","name":"Watercolor","icon":"watercolor","size":48,"sizeMax":400,"opacity":1,"flow":0.45,"mixing":true,"bufferMode":"Accumulate","watercolor":{"waterLoad":0.72,"spread":0.6,"granulation":0.32,"edgeDarkening":0.4}}""",
+            ),
+        )
+        File(root, "builtin.paintbrush.json").writeText(
+            """{"v":1,"id":"builtin.paintbrush","name":"Paintbrush","icon":"paintbrush","size":31,"opacity":0.37,"flow":0.26,"mixing":false,"bufferMode":"Max"}""",
+        )
+
+        val migrated = store.load().single()
+
+        assertEquals(31f, migrated.size)
+        assertEquals(0.26f, migrated.flow)
+        assertEquals(1f, migrated.opacity)
+        assertEquals(Curve.One, migrated.pressureOpacity)
+        assertEquals("watercolor", migrated.icon)
+        assertEquals(true, migrated.mixing)
+        assertEquals(BufferMode.Accumulate, migrated.bufferMode)
+        assertEquals(
+            WatercolorBehavior(
+                waterLoad = 0.72f,
+                spread = 0.6f,
+                granulation = 0.32f,
+                edgeDarkening = 0.4f,
+            ),
+            migrated.watercolor,
+        )
+        assertTrue(File(root, "builtin.paintbrush.json").readText().contains("\"watercolor\""))
+        assertEquals(migrated, store.load().single())
     }
 
     @Test

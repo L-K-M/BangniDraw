@@ -86,6 +86,7 @@
     <string name="panel_fill_opened">Fill settings opened</string>
     <string name="panel_smudge_opened">Smudge settings opened</string>
     <string name="panel_blur_opened">Blur settings opened</string>
+    <string name="panel_water_opened">Water settings opened</string>
     <string name="panel_eyedropper_opened">Eyedropper settings opened</string>
     <string name="canvas_undo">Undo</string>
     <string name="canvas_redo">Redo</string>
@@ -116,7 +117,7 @@
          than localized text, so a language change renames the rail too. -->
     <string name="preset_pencil">Pencil</string>
     <string name="preset_ink_pen">Ink pen</string>
-    <string name="preset_paintbrush">Paintbrush</string>
+    <string name="preset_paintbrush">Watercolor</string>
     <string name="preset_airbrush">Airbrush</string>
     <string name="preset_spray_can">Spray can</string>
     <string name="preset_marker">Marker</string>
@@ -134,6 +135,12 @@
     <string name="tool_eraser">Eraser</string>
     <string name="tool_smudge">Smudge</string>
     <string name="tool_blur">Blur</string>
+    <string name="tool_water">Water</string>
+    <string name="tool_more">More tools</string>
+    <string name="water_amount">Water</string>
+    <string name="water_spread">Spread</string>
+    <string name="water_granulation">Granulation</string>
+    <string name="water_edge_darkening">Edge darkening</string>
     <string name="tool_fill">Fill</string>
     <string name="fill_settings">Fill settings</string>
     <string name="fill_tolerance">Tolerance</string>
@@ -187,6 +194,7 @@
     <string name="brush_size">Size</string>
     <string name="brush_opacity">Opacity</string>
     <string name="brush_flow">Flow</string>
+    <string name="watercolor_preview_hint">Paint on the canvas to preview water flow</string>
     <string name="brush_group_tip">Tip</string>
     <string name="brush_hardness">Hardness</string>
     <string name="brush_spacing">Spacing</string>

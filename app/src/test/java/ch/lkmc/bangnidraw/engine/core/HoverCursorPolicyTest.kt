@@ -63,6 +63,19 @@ class HoverCursorPolicyTest {
     }
 
     @Test
+    fun `water uses a colorless solid ring`() {
+        assertEquals(
+            HoverCursorSpec(4f, HoverRing.Solid, crosshair = true, ink = false),
+            HoverCursorPolicy.resolve(
+                PointerTool.STYLUS,
+                ToolKind.Water(WaterParams(size = 8f)),
+                eraser,
+                canvasToScreenScale = 0.5f,
+            ),
+        )
+    }
+
+    @Test
     fun `eraser end takes precedence over the eyedropper glyph`() {
         assertEquals(
             HoverCursorSpec(20f, HoverRing.Dashed, crosshair = false, ink = false),

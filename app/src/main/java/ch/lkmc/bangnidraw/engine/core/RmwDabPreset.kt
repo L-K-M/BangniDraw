@@ -35,8 +35,26 @@ object RmwDabPreset {
         stabilizer = 0f,
     )
 
+    fun water(params: WaterParams): BrushPreset = BrushPreset(
+        id = WATER_ID,
+        name = WATER_NAME,
+        size = params.size,
+        sizeMin = params.sizeMin,
+        sizeMax = params.sizeMax,
+        opacity = 1f,
+        flow = 1f,
+        hardness = params.hardness,
+        spacing = params.spacing,
+        pressureSize = Curve.One,
+        pressureOpacity = Curve.One,
+        pressureFlow = params.pressureWater,
+        stabilizer = params.stabilizer,
+    )
+
     private const val SMUDGE_ID = "internal.rmw.smudge"
     private const val SMUDGE_NAME = "Smudge"
     private const val BLUR_ID = "internal.rmw.blur"
     private const val BLUR_NAME = "Blur"
+    private const val WATER_ID = "internal.rmw.water"
+    private const val WATER_NAME = "Water"
 }

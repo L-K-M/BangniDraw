@@ -59,6 +59,50 @@ data class BlurParams(
     }
 }
 
+/** Clear water that reactivates and carries pigment without adding color. */
+@Serializable
+data class WaterParams(
+    val size: Float = 72f,
+    val sizeMin: Float = 8f,
+    val sizeMax: Float = 400f,
+    val hardness: Float = 0.2f,
+    val spacing: Float = 0.18f,
+    val waterLoad: Float = 0.75f,
+    val spread: Float = 0.65f,
+    val granulation: Float = 0.2f,
+    val edgeDarkening: Float = 0.3f,
+    val pressureWater: Curve = Curve.Linear,
+    val stabilizer: Float = 0.2f,
+) {
+    init {
+        requireToolSizes("water", size, sizeMin, sizeMax)
+        require(sizeMax <= WatercolorDabPlan.MAX_DIAMETER_PX) {
+            "water size exceeds the GLES scratch bound"
+        }
+        requireUnit("water", "hardness", hardness)
+        requireSpacing("water", spacing)
+        requireUnit("water", "waterLoad", waterLoad)
+        requireUnit("water", "spread", spread)
+        requireUnit("water", "granulation", granulation)
+        requireUnit("water", "edgeDarkening", edgeDarkening)
+        requireUnit("water", "stabilizer", stabilizer)
+    }
+
+    val behavior: WatercolorBehavior
+        get() = WatercolorBehavior(
+            waterLoad = waterLoad,
+            spread = spread,
+            granulation = granulation,
+            edgeDarkening = edgeDarkening,
+        )
+
+    fun withSize(value: Float): WaterParams =
+        copy(size = if (value.isNaN()) size else value.coerceIn(sizeMin, sizeMax))
+
+    fun withWaterLoad(value: Float): WaterParams =
+        copy(waterLoad = if (value.isNaN()) waterLoad else value.coerceIn(0f, 1f))
+}
+
 /** What a fill measures its tolerance against (`docs/plan/04-tools.md` §7). */
 @Serializable
 enum class FillReference { CurrentLayer, Composite }
@@ -137,6 +181,10 @@ sealed interface ToolKind {
     @Serializable
     @SerialName("blur")
     data class Blur(val params: BlurParams = BlurParams()) : ToolKind
+
+    @Serializable
+    @SerialName("water")
+    data class Water(val params: WaterParams = WaterParams()) : ToolKind
 
     @Serializable
     @SerialName("fill")

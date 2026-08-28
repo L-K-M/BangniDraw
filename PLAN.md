@@ -98,18 +98,18 @@ ch.lkmc.bangnidraw
 │     ViewTransform, FitTransform, GestureArbiter
 │     StrokeInput, Stabilizer, PressureCurve, DabGenerator, Dab (+ the
 │     strided DabBatch the hot path actually uses)
-│     BrushPreset, BrushModel, ToolKind, ColorMixer (RgbMixer), Composite
-│     (CPU reference)
+│     BrushPreset, BrushModel, ToolKind, ToolSwitcher, RmwStrokePolicy
+│     ColorMixer (RgbMixer), Composite (CPU reference)
+│     WatercolorDabPlan/Bounds, WatercolorWet/ColorKernel, TileContentIndex
 │     FloodFill, HistoryJournal, HistoryEntry, AutosavePolicy
 │     CanvasPresets, MemoryBudget
 ├── engine/gl/        the GPU: CanvasRenderer (graphics-core callbacks),
 │     TilePool (texture-array pages), LayerTextures, StrokeBuffer, TailBuffer,
-│     DabPass, MergePass, SmudgePass, BlurPass, CompositePass, SandwichCache,
-│     Readback, Shaders
+│     DabPass, MergePass, SmudgePass, BlurPass, WatercolorPass, CompositePass,
+│     SandwichCache, Readback, Shaders
 ├── engine/mixbox/    MixboxMixer (CPU, via the jar) + LUT asset loader
 ├── tools/            Tool + BrushTool (EraserTool = BrushTool pinned to erase
-│                     mode), SmudgeTool, BlurTool, FillTool, EyedropperTool,
-│                     ToolSwitcher (temporary tools: eraser end, pen button)
+│                     mode), SmudgeTool, BlurTool, FillTool, EyedropperTool
 ├── input/            CanvasTouchHandler (MotionEvent → StrokeInput / gestures),
 │                     StylusState (hover/contact timing), PalmRejection
 │                     (pointer policy; the decisions live in GestureArbiter),
@@ -265,9 +265,10 @@ size (presets sized to the device) and a paper color, and a storage
 readout so decisions about deleting are informed. **Canvas**: the painting,
 edge to edge; a slim top strip (back, undo, redo, layers, color, menu) and
 a **tool rail** on the left or right (handedness setting) holding the tools
-plus two thin sliders (size, opacity); when the window is too short for one
-tool per slot, the five brush presets share one Brush slot. Tap the active
-tool again for its settings sheet. Layers and color are modeless panels
+plus two thin sliders (size and the active tool's secondary value: opacity,
+Watercolor Flow, or Water load); when the window is too short for one tool
+per slot, the five brush presets share one Brush slot. Tap the active tool
+again for its settings sheet. Layers and color are modeless panels
 that dismiss with a tap on the canvas (a tap that dismisses never draws)
 and close themselves when a stroke starts on compact widths. A **focus**
 toggle hides all chrome. Persistent chrome never covers the center of the
@@ -310,16 +311,18 @@ competes with the picture.
 7. **JVM-only test suite** — everything that decides something has no
    `android.*` imports (most of it in `engine/core`; the stores take a root
    `File`; `MixboxMixer` wraps a plain jar) and is tested with plain JUnit;
-   a CPU reference compositor and CPU dab/fill implementations pin the
-   shader semantics. No emulator job until something genuinely requires one.
+   CPU reference compositing, dab/fill, and watercolor kernels pin the shader
+   semantics. No emulator job until something genuinely requires one.
 8. **One save path, no prompts** (Meltorama's lesson, PR #45/#46): autosave
    is the save; nothing evicts a painting but the user; the Studio shows
    what the shelf costs.
-9. **Tools are presets over one engine.** Pencil, pen, brush, airbrush,
-   marker and both erasers are `BrushPreset`s over the same dab pipeline
-   (an eraser is a preset in erase mode, not a tool kind); only smudge/blur
-   (RMW), fill (CPU flood, GPU upload) and eyedropper are separate tool
-   kinds. New brushes ship as JSON, not code.
+9. **Tools share one stroke engine, with explicit pixel paths.** Pencil,
+   pen, airbrush, marker and both erasers are `BrushPreset`s over the buffered
+   dab path (an eraser is a preset in erase mode, not a tool kind). A preset
+   with watercolor behaviour stays a `BrushPreset` but routes to direct RMW
+   through `WatercolorPass`; colourless Water is its own `ToolKind` on that
+   pass. Smudge/blur (RMW), fill (CPU flood, GPU upload), and eyedropper are
+   the other separate kinds. New brush presets still ship as JSON, not code.
 10. **Merge down is appearance-preserving only when the lower layer is
     Normal at 100 %**; otherwise the result (mode Normal, opacity 100 %)
     changes the picture, and the app confirms before doing it.
@@ -331,7 +334,7 @@ competes with the picture.
    budget, orientation, paper color); hold a painting → delete (confirm,
    with the gallery-copy question), duplicate, share; storage readout;
    About/Settings entry.
-2. **Canvas** — the editor. Top strip · tool rail with size/opacity
+2. **Canvas** — the editor. Top strip · tool rail with size/secondary-value
    sliders · layer panel · color panel (hue ring + SV square, swatches,
    **mixing dish** where two swatches blend Mixbox-style) · brush settings
    sheet · focus mode · reset-view pill when the view is not identity ·
@@ -347,7 +350,7 @@ competes with the picture.
 | --- | --- | --- |
 | Pencil | preset | grainy hard dab, pressure → opacity (mostly) and a little size; tilt → wider, lighter (shading with the side) |
 | Ink pen | preset | hard round, pressure → size, strong stabilizer, no grain |
-| Paintbrush | preset | round soft-edged, pressure → size + flow, pigment mixing on, bristle-ish texture |
+| Watercolor | preset (RMW) | flat soft-edged pigment brush; pressure → size + flow; water, spread, granulation, dark rims |
 | Airbrush | preset | very soft, low flow, high spacing density |
 | Marker | preset | hard, semi-transparent, builds up to a cap (opacity), squared tip follows orientation |
 | Spray can | preset | scattered soft low-flow dabs across a broad radius |
@@ -359,15 +362,18 @@ competes with the picture.
 | Pigment wash | preset | broad transparent pigment layers; no bloom or diffusion claim |
 | Eraser (hard / soft) | preset (erase mode) | same dab pipeline, subtracts alpha; the S Pen eraser end and button map here |
 | Smudge | RMW | picks up color under the dab and drags it; strength; pigment mixing |
+| Water | RMW | colourless wetting, dilution, and pigment transport; water load + spread |
 | Blur | RMW | softens under the dab |
 | Fill | fill | bucket flood fill: tolerance, contiguous/global, sample current or all layers, expand by N px (no halos under line art), anti-aliased edge |
 | Eyedropper | pick | tap/long-press samples the composite (or current layer) |
-| Post-v1 | | lasso/rect selection + transform (move/scale/rotate), straight-line/shape assist, symmetry guide, gradient fill, watercolor/wet brushes, texture grains, image import as layer, canvas crop/resize |
+| Post-v1 | | lasso/rect selection + transform (move/scale/rotate), straight-line/shape assist, symmetry guide, gradient fill, texture grains, image import as layer, canvas crop/resize |
 
-Every brush exposes: size, opacity, flow, hardness, spacing, pressure
+Buffered brushes expose size, opacity, flow, hardness, spacing, pressure
 curves (size / opacity / flow), tilt effect, velocity effect, jitter,
-stabilizer, pigment mixing on/off, and footprint model. Presets are JSON in
-assets (built-in) and `filesDir/brushes/` (user-edited).
+stabilizer, pigment mixing on/off, and footprint model. Watercolor fixes
+opacity and mixing to its direct-RMW invariants, then exposes water, spread,
+granulation, and edge darkening. Presets are JSON in assets (built-in) and
+`filesDir/brushes/` (user-edited).
 
 ## 7. Testing
 
@@ -380,14 +386,16 @@ assets (built-in) and `filesDir/brushes/` (user-edited).
   `LayerStack` ops (reorder/merge/delete invariants), `HistoryJournal`
   (undo/redo/truncate/prune, round-trip through the on-disk encoding),
   `FloodFill` (tolerance, expand, gap behavior on fixtures), `Composite`
-  (every blend mode against hand-computed pixels), `MemoryBudget`,
-  `AutosavePolicy`, `ColorMixer` (blue + yellow → green through Mixbox;
+  (every blend mode against hand-computed pixels), `WatercolorDabPlan`/
+  `WatercolorDabBounds`, `TileContentIndex`, `WatercolorWetKernel`,
+  `WatercolorColorKernel`, `MemoryBudget`, `AutosavePolicy`, `ColorMixer`
+  (blue + yellow → green through Mixbox;
   `RgbMixer` is a component-wise lerp of the stored sRGB values, so it
   equals the non-mixing GPU path).
 - Shader contract tests: the GLSL sources are parsed for the uniforms and
   declaration order the Kotlin side binds (Meltorama's
-  `GlShaderContractTest` pattern), and the CPU `Composite` is the pinned
-  reference the shaders must match — when one changes, both change.
+  `GlShaderContractTest` pattern), and the matching CPU compositor or
+  watercolor kernel is the pinned reference — when one changes, both change.
 - Lint (`lintDebug`) is a hard CI gate from day one.
 
 ## 8. CI/CD — [CICD.md](CICD.md)
@@ -439,10 +447,11 @@ acceptance tests per step: `docs/plan/12-roadmap.md`.
 | 9 | Adaptive UI polish | compact vs expanded layouts, handedness, focus mode, gesture shortcuts, haptics, hover cursor, first-run hint | usable one-handed on a phone; roomy on a tablet |
 | 10 | v1.0 | Settings/About (licenses), zh-Hans strings, README screenshots, release v1.0.0 | tagged release with APK |
 | 11 | Tracing reference | Photo Picker import into a private project asset; affine two-finger placement beneath paint; opacity, visibility, replace, reset, remove; never exported | reference survives reopen; export pixels are unchanged; no permission added |
+| 12 | Watercolor | proposal 0002: coarse transient wet state, Watercolor preset, colourless Water tool, GLES RMW passes, adaptive controls | wet-on-wet mixing and clear-water transport without tile seams; device acceptance pending |
 
 Post-v1 (each its own proposal in `docs/proposals/`): selections +
-transform, rulers/shape assist, symmetry, gradient fill, wet/watercolor
-brushes, brush grains, import image as layer, canvas crop/resize,
+transform, rulers/shape assist, symmetry, gradient fill, brush grains,
+import image as layer, canvas crop/resize,
 tile residency/eviction (lifts the layer cap), OpenRaster export,
 time-lapse recording.
 

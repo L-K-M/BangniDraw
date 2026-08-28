@@ -9,8 +9,18 @@ class RmwTouchTracker(private val grid: TileGrid) {
     private var touchedCount = 0
 
     /** Writes newly touched packed keys to [out] and returns their count. */
-    fun add(rect: IntRect, out: IntArray): Int {
-        val candidateCount = grid.keysFor(rect, candidates)
+    fun add(rect: IntRect, out: IntArray): Int =
+        add(rect.left, rect.top, rect.right, rect.bottom, out)
+
+    /** Primitive form for direct-to-layer dab loops. */
+    internal fun add(
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+        out: IntArray,
+    ): Int {
+        val candidateCount = grid.keysForBounds(left, top, right, bottom, candidates)
         require(out.size >= candidateCount) {
             "RMW touch output needs $candidateCount slots, got ${out.size}"
         }

@@ -357,9 +357,9 @@ internal data class LayoutSpec(
         private const val SHORT_TOOL_COUNT = 6
         private const val GROUPED_TOOL_COUNT = 6
         private const val DEFAULT_PAINT_COUNT = 5
-        // Mirrors ToolRail.fullSlots: one eraser and four secondary tools.
-        private const val FULL_NON_PAINT_SLOTS = 5
-        private const val FULL_NON_PAINT_GAPS = 4
+        // Mirrors ToolRail.fullSlots: one eraser and five secondary tools.
+        private const val FULL_NON_PAINT_SLOTS = 6
+        private const val FULL_NON_PAINT_GAPS = 5
         private const val GROUPED_GAP_COUNT = 5
         private const val FULL_DIVIDER_COUNT = 2
         private const val TOOL_GAP_DP = 4

@@ -314,7 +314,8 @@ class EngineSessionRenderContractTest {
         const val REDRAW_END = "/** Runs [block] on the GL thread. */"
         const val STAMP_START = "fun stampDabs(batch: DabBatch)"
         const val STAMP_END = "/** The next commit revision"
-        const val END_STROKE_START = "fun endStroke(opacityCeiling: Float)"
+        const val END_STROKE_START =
+            "fun endStroke(opacityCeiling: Float, onCommitted: () -> Unit)"
         const val END_STROKE_END = "/**\n     * §10.1's between-frame poll"
         const val FRONT_DRAW_START = "private fun onDrawFrontBufferedLayer("
         const val FRONT_DRAW_END = "/**\n     * Consumes every published batch"

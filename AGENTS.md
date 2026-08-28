@@ -91,8 +91,9 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - The CPU reference implementations in `engine/core` (`Composite`, the
   mixing formula, dab falloff) and the GLSL must stay trivially close; when
   one changes, change both, and let the unit tests pin the semantics.
-- `DabBounds` owns dab-edge arithmetic. Live `DabBatch` and `DabPass` paths
-  retain primitive edges; do not rebuild `IntRect` per dab.
+- `DabBounds` and `WatercolorDabBounds` own dab-edge arithmetic. Live
+  `DabBatch`, `DabPass`, and `WatercolorPass` paths retain primitive edges;
+  do not rebuild `IntRect` or tile-scissor objects per dab.
 - Sandwich tile passes must ping-pong into a pool page distinct from both
   sampled pages. `Below` supports every blend mode; `Above` is unavailable
   when a visible non-Normal layer breaks source-over associativity. Grouping
@@ -146,8 +147,8 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 - Third-party assets (brush grains, sample art, fonts) must be public
   domain / CC0 with provenance recorded in this file when added. Currently
   none besides Mixbox.
-- Marker, eraser, and spray-can rail glyphs are repo-owned `ImageVector`
-  silhouettes. Material's alternatives depict attention, deletion, or a
+- Marker, eraser, spray-can, and Watercolor rail glyphs are repo-owned
+  `ImageVector` silhouettes. Material's alternatives depict attention, deletion, or a
   chart, not these local drawing tools. Preset glyph roles resolve from the
   stored `BrushPreset.icon` key in `engine/core`; eraser mode always wins, and
   unknown keys use the settings glyph.
@@ -587,7 +588,10 @@ and the contradiction is noted here.
   Viewports use `OffscreenTarget.width`/`height`, shader UVs use
   `capacityWidth`/`capacityHeight`, and `bytes` reports the capacity. Mixing
   those dimensions stretches samples or under-reports GPU memory without
-  producing a GL error.
+  producing a GL error. Watercolor's colour-before, two wet, and backup-copy
+  targets follow the same grow-only rule. Their maximum retained capacity is
+  18.25 MiB outside `TilePool`; `MemoryBudget` reports that ceiling and
+  renderer diagnostics report actual retained bytes.
 - **Generated palette names use a closed token grammar.** Only the four exact
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.
@@ -670,6 +674,28 @@ and the contradiction is noted here.
   through `javaClass.getResourceAsStream("/fixtures/…")`.
   `docs/plan/11-testing.md` §2 names the folder but not its root, and only a
   resources root is on the test classpath.
+
+- **Watercolor wetness is transient, coarse, and gesture-driven.** Each
+  accepted non-zero Watercolor or Water dab performs one direct GLES 3.0 RMW
+  update; there is no background or pen-up settling pass. One wet texel covers
+  4×4 canvas pixels, so one physical 256² RGBA8 pool slice covers 1024² canvas
+  pixels and a full 4096² wet layer costs 4 MiB. G/B store a 100 ms monotonic
+  tick; sampling ages water lazily to dry over 12 seconds, per-page
+  `updatedAtNanos` drives reclamation at the next wet gesture, and tick-epoch
+  rollover prunes expired pages and age-only re-encodes live pages plus the
+  active backup before the epoch advances, so modulo age cannot resurrect
+  stale water. Wet state is not persisted or journaled: cancel restores
+  touched wet pages, undo/redo/reopen/context loss start dry, and destructive
+  pixel edits clear affected wet layers. Blank Water over
+  transparency changes wet state but creates no colour tile or history
+  entry. `TileContentIndex` tracks alpha occupancy in 4×4 blocks; `UNKNOWN`
+  is conservatively occupied, so Water never skips pigment it has not
+  classified. Water transports committed premultiplied pixels from every
+  brush model, including Chinese Ink. A preset cannot combine
+  `WatercolorBehavior` with `BrushModel.ChineseInk`: direct RMW bypasses the
+  tuft/bristle path. Wet grids and their one-gesture backup share `TilePool`;
+  ordinary stroke and wet-backup reserves are mutually exclusive. The budget
+  is `N·colour + N·wet + max(colour reserve, wet reserve)`.
 
 ## CI/CD
 

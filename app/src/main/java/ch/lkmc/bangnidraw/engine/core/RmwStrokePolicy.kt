@@ -6,16 +6,19 @@ import kotlin.math.ceil
 object RmwStrokePolicy {
 
     fun spec(kind: ToolKind, mixer: ColorMixer): RmwSpec? = when (kind) {
+        is ToolKind.Brush -> kind.preset.watercolor?.let {
+            RmwSpec.Watercolor(it, mixer.rmwMixing())
+        }
+        is ToolKind.Water -> RmwSpec.Water(
+            kind.params.behavior,
+            mixer.rmwMixing(),
+        )
         is ToolKind.Smudge -> {
             val params = kind.params
             RmwSpec.Smudge(
                 pickupRate = params.pickupRate,
                 pickupEdge = ceil(params.sizeMax).toInt() + PICKUP_FEATHER_PX,
-                mixing = if (params.mixing && mixer.isPigment) {
-                    RmwMixing.Pigment
-                } else {
-                    RmwMixing.Linear
-                },
+                mixing = if (params.mixing) mixer.rmwMixing() else RmwMixing.Linear,
             )
         }
         is ToolKind.Blur -> RmwSpec.Blur(
@@ -25,4 +28,7 @@ object RmwStrokePolicy {
     }
 
     private const val PICKUP_FEATHER_PX = 2
+
+    private fun ColorMixer.rmwMixing(): RmwMixing =
+        if (isPigment) RmwMixing.Pigment else RmwMixing.Linear
 }

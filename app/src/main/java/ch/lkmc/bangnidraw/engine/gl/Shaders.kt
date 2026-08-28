@@ -1162,6 +1162,9 @@ object Shaders {
 
     /** Builds the pigment pickup variant. */
     fun smudgeAbsorbMix(vendoredGlsl: String): Source = mixingSource(SMUDGE_ABSORB, vendoredGlsl)
+    /** Builds the pigment watercolor variant. */
+    fun watercolorColorMix(vendoredGlsl: String): Source =
+        mixingSource(WatercolorShaders.COLOR, vendoredGlsl)
 
     private fun mixingSource(plain: Source, vendoredGlsl: String): Source {
         require(vendoredGlsl.startsWith(MIXBOX_HEADER)) { "Mixbox license header is missing" }
@@ -1190,6 +1193,8 @@ object Shaders {
         SMUDGE_ABSORB,
         BLUR_HORIZONTAL,
         BLUR_VERTICAL,
+        WatercolorShaders.WET,
+        WatercolorShaders.COLOR,
         MERGE,
         TILE_COMPOSITE,
         PREVIEW,

@@ -31,6 +31,7 @@ import ch.lkmc.bangnidraw.engine.core.SliceHandle
 class TilePool(
     private val caps: GlCaps,
     private val budget: MemoryBudget.Result,
+    private val state: GlState,
 ) {
 
     val slicesPerPage: Int = caps.slicesPerPage
@@ -180,6 +181,8 @@ class TilePool(
         GLES30.glDisable(GLES30.GL_SCISSOR_TEST)
         GLES30.glViewport(0, 0, TILE_SIZE, TILE_SIZE)
         fbo.clear(0f, 0f, 0f, 0f)
+        // Raw GL calls above invalidate the renderer cache before its next pass.
+        state.invalidate()
     }
 
     /** Returns a slice. Its contents stay garbage until something clears them. */

@@ -132,15 +132,15 @@ Degenerate cases, all handled by (1)–(4) without branches except the last:
 | --- | --- | --- | --- |
 | `a_d = 0` (empty pixel) | 1 | `k` | pure paint at coverage `k` — you cannot mix with nothing |
 | `k = 0` (dab does not touch pixel) | 0 | `a_d` | unchanged, bit-exact |
-| `k = 1` (fully opaque paint) | 1 | 1 | pure paint; opaque strokes do not "see through" to mix — matches physical opaque paint at full opacity. Real mixing comes from flow/opacity < 1, which every mixing preset sets (`docs/plan/04-tools.md` §5, Paintbrush) |
+| `k = 1` (fully opaque paint) | 1 | 1 | pure paint; opaque buffered strokes do not "see through" to mix — matches physical opaque paint at full opacity. Their mixing comes from flow/opacity < 1; Watercolor uses the separate direct-RMW colour pass. |
 | `a_d = 0` and `k = 0` | 0/0 | 0 | guard: `a < ε` → write `vec4(0)` |
 
 **Dilution.** The preset's `dilution ∈ [0, 1]` (`docs/plan/04-tools.md`
 §2, `BrushPreset.dilution`) caps the paint's share in (4) without touching (1): `t = (k / a) ·
 (1 − dilution)` when `a_d > 0`, and `t = k / a` unchanged when `a_d = 0`
-(there is nothing to dilute into). `dilution = 0` reproduces (3) exactly;
-the paintbrush preset's 0.15 is what lets an opaque stroke still "see
-through" a little to the paint under it.
+(there is nothing to dilute into). `dilution = 0` reproduces (3) exactly.
+Watercolor's direct-RMW colour pass applies the same destination-present
+reduction with its built-in dilution of 0.40.
 
 GLSL, the body of the mix branch of the merge shader (the smudge deposit
 in §3.2 shares it except for the alpha line):
@@ -352,12 +352,13 @@ activeMixer.isPigment && !preset.eraseMode && preset.mixing
 
 The result selects `merge_stroke_mix` vs `merge_stroke` for the stroke
 (fixed at pen-down; a setting change mid-stroke applies to the next one).
-Built-in presets (04 §5): paintbrush and smudge `true`,
-pencil/ink/marker/airbrush/erasers `false`; a user who wants pencil
-strokes to blend like chalk flips it per preset in the brush settings
-sheet. The mixer switch is in Settings as "Colour mixing: pigment (Mixbox)
-/ RGB" with the license line beneath it. Switching is never destructive:
-pixels already mixed stay as they are.
+Built-in Watercolor and Smudge use pigment mixing; pencil, ink, marker,
+airbrush, and erasers do not. Watercolor fixes mixing on for its direct-RMW
+invariants. A user who wants pencil strokes to blend like chalk can still
+enable it on a non-watercolor preset in the brush settings sheet. The mixer
+switch is in Settings as "Colour mixing: pigment (Mixbox) / RGB" with the
+license line beneath it. Switching is never destructive: pixels already
+mixed stay as they are.
 
 ## 5. LUT asset and GLSL include
 

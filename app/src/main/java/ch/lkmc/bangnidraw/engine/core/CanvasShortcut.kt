@@ -8,6 +8,7 @@ internal enum class ShortcutKey {
     B,
     E,
     S,
+    W,
     G,
     I,
     DIGIT_ZERO,
@@ -33,6 +34,7 @@ internal enum class CanvasShortcut {
     BRUSH,
     ERASER,
     SMUDGE,
+    WATER,
     FILL,
     EYEDROPPER,
     BEGIN_EYEDROPPER,
@@ -81,6 +83,7 @@ internal object CanvasShortcuts {
             ShortcutKey.B -> CanvasShortcut.BRUSH
             ShortcutKey.E -> CanvasShortcut.ERASER
             ShortcutKey.S -> CanvasShortcut.SMUDGE
+            ShortcutKey.W -> CanvasShortcut.WATER
             ShortcutKey.G -> CanvasShortcut.FILL
             ShortcutKey.I -> CanvasShortcut.EYEDROPPER
             ShortcutKey.DIGIT_ZERO -> CanvasShortcut.RESET_VIEW

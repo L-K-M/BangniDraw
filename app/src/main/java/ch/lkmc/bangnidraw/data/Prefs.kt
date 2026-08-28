@@ -1,6 +1,8 @@
 package ch.lkmc.bangnidraw.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
@@ -28,8 +30,6 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-
-internal data class BrushTuning(val size: Float?, val opacity: Float?)
 
 /**
  * The app's few durable settings (`docs/plan/06-document-and-persistence.md`
@@ -210,18 +210,23 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         }
     }
 
-    /** Rail size/opacity live outside preset JSON (`04-tools.md` §5.1). */
+    /** Rail size and brush-specific secondary values live outside preset JSON. */
     internal suspend fun brushTunings(ids: Iterable<String>): Map<String, BrushTuning> {
         val snapshot = dataStore.data.first()
         return ids.associateWith { id ->
-            BrushTuning(snapshot[sizeKey(id)], snapshot[opacityKey(id)])
+            BrushTuning(
+                size = snapshot[sizeKey(id)],
+                opacity = snapshot[opacityKey(id)],
+                flow = snapshot[flowKey(id)],
+            )
         }
     }
 
-    internal suspend fun setBrushTuning(id: String, size: Float, opacity: Float) {
-        dataStore.edit {
-            it[sizeKey(id)] = size
-            it[opacityKey(id)] = opacity
+    internal suspend fun setBrushTuning(id: String, tuning: BrushTuning) {
+        dataStore.edit { stored ->
+            stored.setOrRemove(sizeKey(id), tuning.size)
+            stored.setOrRemove(opacityKey(id), tuning.opacity)
+            stored.setOrRemove(flowKey(id), tuning.flow)
         }
     }
 
@@ -229,12 +234,24 @@ class Prefs @Inject constructor(@ApplicationContext context: Context) {
         dataStore.edit {
             it.remove(sizeKey(id))
             it.remove(opacityKey(id))
+            it.remove(flowKey(id))
         }
     }
 
     private fun sizeKey(id: String) = floatPreferencesKey("brushSize.$id")
 
     private fun opacityKey(id: String) = floatPreferencesKey("brushOpacity.$id")
+
+    private fun flowKey(id: String) = floatPreferencesKey("brushFlow.$id")
+
+    private fun MutablePreferences.setOrRemove(key: Preferences.Key<Float>, value: Float?) {
+        if (value == null) {
+            remove(key)
+            return
+        }
+
+        this[key] = value
+    }
 
     private val pigmentAvailability: PigmentAvailability
         get() = if (BuildConfig.MIXBOX) PigmentAvailability.AVAILABLE else PigmentAvailability.ABSENT

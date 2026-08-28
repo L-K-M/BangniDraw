@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
 import android.view.HapticFeedbackConstants
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,15 +33,18 @@ import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
+import ch.lkmc.bangnidraw.engine.core.ToolSliderSecondary
 
-/** Horizontal size/opacity controls used when the rail cannot hold sliders. */
+/** Horizontal size/secondary controls used when the rail cannot hold sliders. */
 @Composable
 internal fun SliderLedge(
     layout: LayoutSpec,
     preset: BrushPreset,
+    secondary: ToolSliderSecondary,
+    secondaryValue: Float,
     hapticsMode: HapticsMode,
     onSizeChanged: (Float) -> Unit,
-    onOpacityChanged: (Float) -> Unit,
+    onSecondaryChanged: (Float) -> Unit,
     onTuningFinished: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -55,9 +59,11 @@ internal fun SliderLedge(
             CompactLedge(
                 layout,
                 preset,
+                secondary,
+                secondaryValue,
                 hapticsMode,
                 onSizeChanged,
-                onOpacityChanged,
+                onSecondaryChanged,
                 onTuningFinished,
             )
             return@Surface
@@ -79,12 +85,14 @@ internal fun SliderLedge(
                 )
             }
             BoxWithConstraints(Modifier.weight(1f)) {
-                OpacitySlider(
+                SecondarySlider(
                     layout,
                     preset,
+                    secondary,
+                    secondaryValue,
                     hapticsMode,
                     maxWidth,
-                    onOpacityChanged,
+                    onSecondaryChanged,
                     onTuningFinished,
                 )
             }
@@ -96,9 +104,11 @@ internal fun SliderLedge(
 private fun CompactLedge(
     layout: LayoutSpec,
     preset: BrushPreset,
+    secondary: ToolSliderSecondary,
+    secondaryValue: Float,
     hapticsMode: HapticsMode,
     onSizeChanged: (Float) -> Unit,
-    onOpacityChanged: (Float) -> Unit,
+    onSecondaryChanged: (Float) -> Unit,
     onTuningFinished: () -> Unit,
 ) {
     var active by rememberSaveable { mutableStateOf(LedgeControl.SIZE) }
@@ -112,26 +122,31 @@ private fun CompactLedge(
             if (active == LedgeControl.SIZE) {
                 SizeSlider(layout, preset, maxWidth, onSizeChanged, onTuningFinished)
             } else {
-                OpacitySlider(
+                SecondarySlider(
                     layout,
                     preset,
+                    secondary,
+                    secondaryValue,
                     hapticsMode,
                     maxWidth,
-                    onOpacityChanged,
+                    onSecondaryChanged,
                     onTuningFinished,
                 )
             }
         }
         TextButton(
             onClick = {
-                active = if (active == LedgeControl.SIZE) LedgeControl.OPACITY else LedgeControl.SIZE
+                active = if (active == LedgeControl.SIZE) LedgeControl.SECONDARY else LedgeControl.SIZE
             },
             modifier = Modifier.widthIn(min = TOGGLE_MIN_WIDTH),
         ) {
             Text(
                 stringResource(
-                    if (active == LedgeControl.SIZE) R.string.brush_size
-                    else R.string.brush_opacity,
+                    if (active == LedgeControl.SIZE) {
+                        R.string.brush_size
+                    } else {
+                        secondaryLabel(secondary)
+                    },
                 ),
                 maxLines = 1,
             )
@@ -162,29 +177,33 @@ private fun SizeSlider(
 }
 
 @Composable
-private fun OpacitySlider(
+private fun SecondarySlider(
     layout: LayoutSpec,
     preset: BrushPreset,
+    secondary: ToolSliderSecondary,
+    secondaryValue: Float,
     hapticsMode: HapticsMode,
     length: androidx.compose.ui.unit.Dp,
     onChanged: (Float) -> Unit,
     onFinished: () -> Unit,
 ) {
     val view = LocalView.current
-    var previousOpacity by remember(preset.id) { mutableFloatStateOf(preset.opacity) }
+    var previousSecondary by remember(preset.id, secondary) {
+        mutableFloatStateOf(secondaryValue)
+    }
     ThinSlider(
-        value = preset.opacity,
+        value = secondaryValue,
         range = 0f..1f,
         axis = SliderAxis.Horizontal,
-        description = stringResource(R.string.brush_opacity),
+        description = stringResource(secondaryLabel(secondary)),
         onValueChange = { value ->
             if (
                 hapticsMode == HapticsMode.ENABLED &&
-                OpacityMilestone.crossed(previousOpacity, value).isNotEmpty()
+                OpacityMilestone.crossed(previousSecondary, value).isNotEmpty()
             ) {
                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             }
-            previousOpacity = value
+            previousSecondary = value
             onChanged(value)
         },
         onValueChangeFinished = onFinished,
@@ -193,12 +212,19 @@ private fun OpacitySlider(
     )
 }
 
+@StringRes
+private fun secondaryLabel(secondary: ToolSliderSecondary): Int = when (secondary) {
+    ToolSliderSecondary.OPACITY -> R.string.brush_opacity
+    ToolSliderSecondary.FLOW -> R.string.brush_flow
+    ToolSliderSecondary.WATER -> R.string.water_amount
+}
+
 private fun mirrored(hand: Hand): Modifier {
     if (hand == Hand.RIGHT) return Modifier
     return Modifier.graphicsLayer { scaleX = -1f }
 }
 
-private enum class LedgeControl { SIZE, OPACITY }
+private enum class LedgeControl { SIZE, SECONDARY }
 
 private val LEDGE_HEIGHT = 48.dp
 private val LEDGE_PADDING = 8.dp

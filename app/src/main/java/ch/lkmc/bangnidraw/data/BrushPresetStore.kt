@@ -94,11 +94,39 @@ class BrushPresetStore internal constructor(
             }
             if (preset == null) continue
             if (file.nameWithoutExtension == preset.id) {
-                out[preset.id] = preset
+                val migrated = migrateLegacyOverride(preset, out[preset.id])
+                out[preset.id] = migrated
+                if (migrated != preset) persistMigration(file, migrated)
+
                 continue
             }
 
             Log.w(TAG, "user brush ${file.name} has id ${preset.id}; dropped")
+        }
+    }
+
+    /** Old paintbrush overrides predate watercolor and must not mask its replacement. */
+    private fun migrateLegacyOverride(
+        preset: BrushPreset,
+        current: BrushPreset?,
+    ): BrushPreset {
+        if (preset.id != BrushPresets.PAINTBRUSH_ID) return preset
+        if (preset.watercolor != null) return preset
+        if (current?.watercolor == null) return preset
+
+        return current
+            .withSize(preset.size)
+            .copy(flow = preset.flow)
+    }
+
+    private fun persistMigration(file: File, preset: BrushPreset) {
+        try {
+            AtomicFiles.write(
+                file,
+                encode(preset).toByteArray(Charsets.UTF_8),
+            )
+        } catch (e: IOException) {
+            Log.w(TAG, "migrated brush ${preset.id} could not be saved", e)
         }
     }
 

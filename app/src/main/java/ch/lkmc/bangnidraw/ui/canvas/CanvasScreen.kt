@@ -476,6 +476,7 @@ private fun CanvasContent(
                     val preset = when (kind) {
                         is ToolKind.Brush -> kind.preset
                         is ToolKind.Smudge -> RmwDabPreset.smudge(kind.params)
+                        is ToolKind.Water -> RmwDabPreset.water(kind.params)
                         is ToolKind.Blur -> RmwDabPreset.blur(kind.params)
                         is ToolKind.Fill, is ToolKind.Eyedropper -> null
                     }
@@ -660,10 +661,9 @@ private fun CanvasContent(
                     } else {
                         driver.cancel()
                     }
-                    engine.endStroke(driver.opacityCeiling)
-                    // The commit's pixels reach disk through the readback; the
-                    // ViewModel only needs to know the document changed.
-                    viewModel.onStrokeCommitted(colorUsage, strokeColor)
+                    engine.endStroke(driver.opacityCeiling) {
+                        viewModel.onStrokeCommitted(colorUsage, strokeColor)
+                    }
                     viewModel.endStrokeTool(reason, StrokeEndDisposition.AWAIT_COMMIT)
                 }
 
@@ -764,6 +764,7 @@ private fun CanvasContent(
             CanvasShortcut.BRUSH -> viewModel.selectPaintBrush()
             CanvasShortcut.ERASER -> viewModel.selectEraser()
             CanvasShortcut.SMUDGE -> viewModel.selectSmudge()
+            CanvasShortcut.WATER -> viewModel.selectWater()
             CanvasShortcut.FILL -> viewModel.selectFill()
             CanvasShortcut.EYEDROPPER -> viewModel.selectEyedropper()
             CanvasShortcut.BEGIN_EYEDROPPER -> viewModel.beginKeyboardEyedropper()
@@ -1069,6 +1070,10 @@ private fun CanvasContent(
                     viewModel.dismissPanel()
                     viewModel.selectSmudge()
                 },
+                onWaterSelected = {
+                    viewModel.dismissPanel()
+                    viewModel.selectWater()
+                },
                 onBlurSelected = {
                     viewModel.dismissPanel()
                     viewModel.selectBlur()
@@ -1089,7 +1094,7 @@ private fun CanvasContent(
                 },
                 onEraserToggle = viewModel::toggleEraserPreset,
                 onSizeChanged = viewModel::updateActiveToolSize,
-                onOpacityChanged = viewModel::updateActiveToolOpacity,
+                onSecondaryChanged = viewModel::updateActiveToolSecondary,
                 onTuningFinished = viewModel::persistBrushTuning,
                 )
             }
@@ -1410,7 +1415,8 @@ private fun CanvasContent(
             }
 
             val ledgePreset = ToolSliderPreset.forKind(state.toolSelection.kind)
-            if (ledgePreset != null) {
+            val ledgeSecondaryValue = ToolSliderPreset.secondaryValue(state.toolSelection.kind)
+            if (ledgePreset != null && ledgeSecondaryValue != null) {
                 val ledgeModifier = when (layout.railMode) {
                     RailMode.DOCK -> Modifier
                         .align(Alignment.BottomCenter)
@@ -1437,9 +1443,11 @@ private fun CanvasContent(
                     SliderLedge(
                         layout = layout,
                         preset = ledgePreset,
+                        secondary = ToolSliderPreset.secondaryFor(state.toolSelection.kind),
+                        secondaryValue = ledgeSecondaryValue,
                         hapticsMode = state.hapticsMode,
                         onSizeChanged = viewModel::updateActiveToolSize,
-                        onOpacityChanged = viewModel::updateActiveToolOpacity,
+                        onSecondaryChanged = viewModel::updateActiveToolSecondary,
                         onTuningFinished = viewModel::persistBrushTuning,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1616,6 +1624,10 @@ private fun CanvasPanelContent(
                 active = kind.params,
                 onChanged = viewModel::updateSmudgeParams,
             )
+            is ToolKind.Water -> WaterSettingsSheet(
+                active = kind.params,
+                onChanged = viewModel::updateWaterParams,
+            )
             is ToolKind.Blur -> BlurSettingsSheet(
                 active = kind.params,
                 onChanged = viewModel::updateBlurParams,
@@ -1744,6 +1756,7 @@ private fun panelAnnouncement(panel: CanvasPanel?, kind: ToolKind? = null): Stri
     CanvasPanel.COLOR -> stringResource(R.string.panel_color_opened)
     CanvasPanel.BRUSH_SETTINGS -> when (kind) {
         is ToolKind.Smudge -> stringResource(R.string.panel_smudge_opened)
+        is ToolKind.Water -> stringResource(R.string.panel_water_opened)
         is ToolKind.Blur -> stringResource(R.string.panel_blur_opened)
         is ToolKind.Eyedropper -> stringResource(R.string.panel_eyedropper_opened)
         is ToolKind.Fill -> stringResource(R.string.panel_fill_opened)
@@ -1943,6 +1956,7 @@ private fun toolName(tool: ToolKind): String = when (tool) {
         brushPresetName(tool.preset)
     }
     is ToolKind.Smudge -> stringResource(R.string.tool_smudge)
+    is ToolKind.Water -> stringResource(R.string.tool_water)
     is ToolKind.Blur -> stringResource(R.string.tool_blur)
     is ToolKind.Fill -> stringResource(R.string.tool_fill)
     is ToolKind.Eyedropper -> stringResource(R.string.tool_eyedropper)

@@ -137,6 +137,28 @@ enum class GrainMode(val shaderId: Int) {
     Procedural(1),
 }
 
+/** Artist-facing controls for the transient wet-paint simulation. */
+@Serializable
+data class WatercolorBehavior(
+    val waterLoad: Float = 0.7f,
+    val spread: Float = 0.55f,
+    val granulation: Float = 0.25f,
+    val edgeDarkening: Float = 0.35f,
+) {
+    init {
+        requireUnit("waterLoad", waterLoad)
+        requireUnit("spread", spread)
+        requireUnit("granulation", granulation)
+        requireUnit("edgeDarkening", edgeDarkening)
+    }
+
+    private fun requireUnit(field: String, value: Float) {
+        require(value.isFinite() && value in 0f..1f) {
+            "watercolor $field must be 0..1, was $value"
+        }
+    }
+}
+
 /** Stateful footprint model selected once at pen-down. */
 @Serializable
 enum class BrushModel(val shaderId: Int) {
@@ -205,6 +227,8 @@ data class BrushPreset(
     val mixing: Boolean = false,
     /** Mixing only: how much the paint's share yields to what is under it. */
     val dilution: Float = 0f,
+    /** Non-null selects the wet, direct-to-layer pigment path. */
+    val watercolor: WatercolorBehavior? = null,
     /** Reserved `procedural` key now; a tileable asset key when grains land. */
     val grain: String? = null,
     /** [BrushModel.ChineseInk] adds soft-tuft memory, ink load, and split bristles. */
@@ -254,6 +278,28 @@ data class BrushPreset(
         // rather than at the preset that caused it.
         require(!(eraseMode && mixing)) {
             "preset $id: eraseMode and mixing are different merges (04 §3.7, 09 §3.1)"
+        }
+        require(watercolor == null || !eraseMode) {
+            "preset $id: watercolor cannot erase"
+        }
+        // Watercolor bypasses DabPass, so it cannot honor stateful tuft or bristle fields.
+        require(watercolor == null || model == BrushModel.Standard) {
+            "preset $id: watercolor requires the Standard brush model"
+        }
+        require(watercolor == null || mixing) {
+            "preset $id: watercolor requires pigment mixing"
+        }
+        require(watercolor == null || bufferMode == BufferMode.Accumulate) {
+            "preset $id: watercolor requires Accumulate buffering"
+        }
+        require(watercolor == null || pressureOpacity == Curve.One) {
+            "preset $id: watercolor pressure belongs on flow"
+        }
+        require(watercolor == null || opacity == 1f) {
+            "preset $id: watercolor uses flow, not opacity"
+        }
+        require(watercolor == null || sizeMax <= WatercolorDabPlan.MAX_DIAMETER_PX) {
+            "preset $id: watercolor size exceeds the GLES scratch bound"
         }
         require(grain == null || grain.isNotBlank()) {
             "preset $id: grain must be a key or absent, not blank"

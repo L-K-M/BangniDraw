@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.engine.core
 
+import java.nio.ByteBuffer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
@@ -57,6 +58,17 @@ class LayerTileUpdatesTest {
 
         assertEquals(setOf(kept, added), applied.active.tiles)
         assertEquals(applied, reapplied, "the fold and a restore's re-derivation agree")
+    }
+
+    @Test
+    fun `byte-buffer classification preserves its position`() {
+        val empty = ByteBuffer.wrap(byteArrayOf(0, 0, 0)).apply { position(1) }
+        val painted = ByteBuffer.wrap(byteArrayOf(0, 1, 0)).apply { position(1) }
+
+        assertEquals(TilePresence.EMPTY, presenceOf(empty))
+        assertEquals(TilePresence.PAINTED, presenceOf(painted))
+        assertEquals(1, empty.position())
+        assertEquals(1, painted.position())
     }
 
     @Test

@@ -60,7 +60,9 @@ class CustomPaperContractTest {
             """onCreate\(\s*it\.preset\.size,\s*if\s*\(\s*paperIsCustom\s*\)\s*customPaper\s*else\s*paper\s*\)""",
         )
 
-        /** Word-boundary: does not match `paper_custom_preview`. */
-        val PAPER_CUSTOM_LABEL = Regex("""R\.string\.paper_custom\b""")
+        /** Anchored to the swatch's label argument — not any mention of the string. */
+        val PAPER_CUSTOM_LABEL = Regex(
+            """label\s*=\s*stringResource\(R\.string\.paper_custom\)""",
+        )
     }
 }

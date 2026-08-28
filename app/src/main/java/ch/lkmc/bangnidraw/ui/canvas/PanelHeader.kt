@@ -33,11 +33,17 @@ internal fun PanelHeader(title: String, onClose: () -> Unit, modifier: Modifier 
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onClose) {
-            Icon(
-                Icons.Filled.Close,
-                contentDescription = stringResource(R.string.panel_close),
-            )
-        }
+        PanelCloseButton(onClose)
+    }
+}
+
+/** The panels' one close affordance, shared so the icon and label cannot drift. */
+@Composable
+internal fun PanelCloseButton(onClose: () -> Unit) {
+    IconButton(onClick = onClose) {
+        Icon(
+            Icons.Filled.Close,
+            contentDescription = stringResource(R.string.panel_close),
+        )
     }
 }

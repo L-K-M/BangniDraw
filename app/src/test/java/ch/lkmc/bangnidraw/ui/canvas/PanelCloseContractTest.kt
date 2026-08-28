@@ -16,17 +16,17 @@ class PanelCloseContractTest {
     @Test
     fun `every canvas panel header carries the close affordance`() {
         val header = source(PANEL_HEADER_PATH)
-        assertTrue("Icons.Filled.Close" in header)
-        assertTrue("R.string.panel_close" in header)
+        assertTrue("Icons.Filled.Close" in header, "PanelHeader must render Icons.Filled.Close")
+        assertTrue("R.string.panel_close" in header, "PanelHeader must announce R.string.panel_close")
 
         // The shared header covers the tool and colour sheets; the layer
-        // panel's own header uses the same icon and string directly.
+        // panel's own header uses the same affordance through the button.
         mapOf(
             COLOR_PANEL_PATH to "PanelHeader(",
             BRUSH_SHEET_PATH to "PanelHeader(",
             FILL_SHEET_PATH to "PanelHeader(",
             RMW_SHEET_PATH to "PanelHeader(",
-            LAYER_PANEL_PATH to "R.string.panel_close",
+            LAYER_PANEL_PATH to "PanelCloseButton(",
         ).forEach { (path, marker) ->
             assertTrue(marker in source(path), "missing marker [$marker] in $path")
         }
@@ -36,10 +36,16 @@ class PanelCloseContractTest {
     fun `the screen wires every sheet's dismiss`() {
         val screen = source(CANVAS_SCREEN_PATH)
 
-        // One per sheet kind: layers, colour, brush, smudge, water, blur,
-        // eyedropper, and fill twice (tool sheet and settings panel).
+        // Every call site of a dismissable sheet must wire the callback —
+        // counted from the call sites, not a hand-kept constant, so a new
+        // sheet kind cannot silently stay green. TracingReferencePanel is
+        // excluded: it already carries a Done button.
+        val sheetCallSites = SHEET_CALL_SITE.findAll(screen).count()
         val wirings = DISMISS_WIRING.findAll(screen).count()
-        assertTrue(wirings == DISMISS_WIRING_COUNT, "expected $DISMISS_WIRING_COUNT dismiss wirings, found $wirings")
+        assertTrue(
+            wirings == sheetCallSites,
+            "expected every sheet call site ($sheetCallSites) to wire onDismiss, found $wirings",
+        )
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()
@@ -74,6 +80,9 @@ class PanelCloseContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/PanelHeader.kt"
 
         val DISMISS_WIRING = Regex("onDismiss = viewModel::dismissPanel")
-        const val DISMISS_WIRING_COUNT = 9
+        val SHEET_CALL_SITE = Regex(
+            "\\b(ColorPanel|BrushSettingsSheet|SmudgeSettingsSheet|WaterSettingsSheet|" +
+                "BlurSettingsSheet|EyedropperSettingsSheet|FillSettingsSheet|LayerPanel)\\(",
+        )
     }
 }

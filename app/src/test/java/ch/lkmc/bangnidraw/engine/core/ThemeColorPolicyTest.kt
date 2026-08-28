@@ -199,9 +199,10 @@ class ThemeColorPolicyTest {
             for ((role, surface) in surfaces) {
                 val contrast = contrastRatio(iconArgb, surface)
 
+                val iconName = if (theme.tone == ThemeTone.LIGHT) "dark" else "light"
                 assertTrue(
                     contrast >= MIN_ICON_CONTRAST,
-                    "$theme $role cannot support ${theme.tone} system icons: $contrast:1",
+                    "$theme $role cannot support $iconName system icons: $contrast:1",
                 )
             }
         }

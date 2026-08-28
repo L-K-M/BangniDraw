@@ -973,7 +973,7 @@ background; the policy test pins every theme's tone and icon contrast.
  ├─ 11 Tracing reference   ← needs persistence, export, and adaptive UI
  ├─ 12 Watercolor          ← needs 7, the RMW history path, and adaptive UI
  ├─ 13 Application themes  ← needs Settings and adaptive UI
- └─ 14 Extended themes     ← needs 13
+ └─ 14 Darker, louder themes  ← needs 13
 ```
 
 | After this lands | These can run concurrently |

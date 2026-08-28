@@ -605,8 +605,9 @@ Controls stay chunky and tactile; motion is a short spring, never a flourish.
 ### 5.1 Tokens (`ui/theme/`)
 
 `AppTheme` is exactly `SAFFRON`, `CORAL`, `VIOLET`, `TEAL`, `NINETIES`,
-`SYNTHWAVE`, `MIDNIGHT`, or `FOREST`, each with a `ThemeTone` (the first five
-are `LIGHT`, the rest `DARK`). `primary` marks
+`SYNTHWAVE`, `MIDNIGHT`, or `FOREST`, each with a `ThemeTone`: `SAFFRON`,
+`CORAL`, `VIOLET`, `TEAL`, and `NINETIES` are `LIGHT`; the other three are
+`DARK`. `primary` marks
 actions, `primaryContainer` fills active tools, and `secondary` marks
 selection. Surfaces carry a restrained tint from the same palette.
 

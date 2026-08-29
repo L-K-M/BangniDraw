@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep a second gallery copy that includes a visible tracing image, and
+  remove it when the image is hidden or removed.
+- Fix red and blue channels swapping in thumbnails and gallery exports on
+  BGRA devices.
 - Add a Settings option to pick one of eight theme colors: light Saffron,
   Coral, Violet, Teal, and Nineties, or dark Synthwave, Midnight, and Forest.
   The app no longer follows system dark mode; dark chrome is a chosen theme.

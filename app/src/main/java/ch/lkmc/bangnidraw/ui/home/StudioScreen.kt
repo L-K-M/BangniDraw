@@ -323,6 +323,7 @@ fun StudioScreen(
                                     painting.id,
                                     alsoGallery,
                                     painting.galleryUri,
+                                    painting.referenceGalleryUri,
                                 ) { deleted ->
                                     Toast.makeText(
                                         context,
@@ -589,8 +590,8 @@ private fun PaintingCell(
 
     if (confirmDelete) {
         // 08 §2's confirm: no undo-delete exists in v1, which is why the
-        // dialog does. The gallery checkbox appears only once a gallery copy
-        // can exist (step 4 sets galleryUri); it changes nothing today.
+        // dialog does. The gallery checkbox appears once either gallery
+        // copy can exist — the painting's or its reference variant.
         var deleteGalleryToo by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
@@ -598,7 +599,7 @@ private fun PaintingCell(
             text = {
                 Column {
                     Text(stringResource(R.string.studio_delete_body))
-                    if (painting.galleryUri != null) {
+                    if (painting.galleryUri != null || painting.referenceGalleryUri != null) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier

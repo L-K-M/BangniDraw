@@ -104,6 +104,8 @@ class ProjectStore internal constructor(
         val thumbnail: File?,
         val bytes: Long,
         val galleryUri: String?,
+        /** The reference variant's row, for the delete dialog's second copy. */
+        val referenceGalleryUri: String? = null,
         /** For §9.3's staleness rule; null = unavailable, 0 = never synced. */
         val lastGallerySyncAt: Long? = null,
         val availability: ShelfAvailability = ShelfAvailability.AVAILABLE,
@@ -313,6 +315,11 @@ class ProjectStore internal constructor(
                 lastGallerySyncAt = 0L,
                 galleryModifiedAt = 0L,
                 galleryBytes = 0L,
+                // A duplicate owns neither gallery row: two paintings writing
+                // one MediaStore item would fight over its bytes.
+                referenceGalleryUri = null,
+                referenceGalleryModifiedAt = 0L,
+                referenceGalleryBytes = 0L,
                 tracingReference = copiedReference,
             )
             AtomicFiles.write(
@@ -380,6 +387,48 @@ class ProjectStore internal constructor(
             false
         } catch (e: IllegalArgumentException) {
             Log.w(TAG, "project $id: gallery fields skipped, invalid project.json", e)
+            false
+        }
+    }
+
+    /**
+     * Records the reference variant's outcome — the row state half of
+     * [updateGalleryFields] for the Studio's background sync; the shared
+     * `lastGallerySyncAt` is written by that call in the same sweep. A null
+     * [referenceGalleryUri] forgets a withdrawn row.
+     */
+    fun updateReferenceGalleryFields(
+        id: String,
+        referenceGalleryUri: String?,
+        referenceGalleryModifiedAt: Long,
+        referenceGalleryBytes: Long,
+    ): Boolean {
+        if (!isValidId(id)) return false
+        val jsonFile = File(projectDir(id), ProjectFile.FILE_NAME)
+        if (!jsonFile.isFile) return false
+        return try {
+            val file = json.decodeFromString(
+                ProjectFile.serializer(),
+                jsonFile.readText(Charsets.UTF_8),
+            )
+            val bytes = json.encodeToString(
+                ProjectFile.serializer(),
+                file.copy(
+                    referenceGalleryUri = referenceGalleryUri,
+                    referenceGalleryModifiedAt = referenceGalleryModifiedAt,
+                    referenceGalleryBytes = referenceGalleryBytes,
+                ),
+            ).toByteArray(Charsets.UTF_8)
+            AtomicFiles.write(jsonFile, bytes)
+            true
+        } catch (e: SerializationException) {
+            Log.w(TAG, "project $id: reference gallery fields skipped, unreadable project.json", e)
+            false
+        } catch (e: IOException) {
+            Log.w(TAG, "project $id: reference gallery fields write failed", e)
+            false
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "project $id: reference gallery fields skipped, invalid project.json", e)
             false
         }
     }
@@ -453,6 +502,9 @@ class ProjectStore internal constructor(
                 lastGallerySyncAt = file.lastGallerySyncAt,
                 galleryModifiedAt = file.galleryModifiedAt,
                 galleryBytes = file.galleryBytes,
+                referenceGalleryUri = file.referenceGalleryUri,
+                referenceGalleryModifiedAt = file.referenceGalleryModifiedAt,
+                referenceGalleryBytes = file.referenceGalleryBytes,
                 createdAt = file.createdAt,
                 updatedAt = file.updatedAt,
             )
@@ -613,6 +665,7 @@ class ProjectStore internal constructor(
                 thumbnail = File(dir, THUMB_NAME).takeIf { it.isFile },
                 bytes = folderBytes(dir),
                 galleryUri = file.galleryUri,
+                referenceGalleryUri = file.referenceGalleryUri,
                 lastGallerySyncAt = file.lastGallerySyncAt,
                 availability = availability,
             )

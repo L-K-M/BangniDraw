@@ -24,4 +24,19 @@ internal object GalleryNames {
             .trim()
         return cleaned.ifEmpty { fallback }
     }
+
+    /**
+     * The reference variant's name: [base] (already sanitized) plus the
+     * localized [suffix], which carries any leading space itself. The base
+     * is shortened first so the cut falls on it — the suffix is what tells
+     * the two rows apart. A suffix at least as long as the cap is kept
+     * whole, so in that extreme the pair exceeds [MAX_DISPLAY_CHARS]; no
+     * locale approaches it (" (with reference)" is 17 of 80).
+     */
+    fun withReferenceSuffix(base: String, suffix: String): String {
+        val room = MAX_DISPLAY_CHARS - suffix.length
+        if (room <= 0) return base + suffix
+
+        return base.take(room).trimEnd() + suffix
+    }
 }

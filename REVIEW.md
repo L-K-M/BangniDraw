@@ -2091,3 +2091,146 @@ touchscreen hover too, not only a pen.
   case that returns.** Applied verbatim. The round-2 boundary assertion
   was re-posted against the commit that already applied it; treated as a
   stale anchor, not a new finding.
+
+## PR #152 — gallery variant with the tracing image (2026-08-28)
+
+- **R-148 🟠 Round 1: `withdraw` never checked row ownership.** Applied.
+  `!row.owned` joins the guard; the KDoc and AGENTS.md both promised
+  "ours and untampered", and a recycled row id with 0/0 recorded state
+  must not be deletable on the tamper half's say-so alone.
+
+- **R-149 🟠 Round 1: flat decode double-materializes the reference.**
+  Partially applied. The premise is wrong — import normalizes the asset
+  to ≤ canvas pixel bytes (`TracingReferencePolicy.normalizedSize`), so
+  no 50 MP decode exists — but the size check ran *after* the allocation,
+  so a replaced/hand-mangled asset file could balloon first. Bounds are
+  now decoded (`inJustDecodeBounds`) and compared before any pixel
+  allocation. The `BitmapRegionDecoder` streaming rewrite is declined:
+  the offline path is bounded and debounced, and the canvas's own
+  `streamTiles` already exists for the per-frame side.
+
+- **R-150 🟠 Round 1: unsettled withdrawal cleared the recorded URI.**
+  Applied in both ViewModels. `withdraw` now returns whether the row is
+  settled (gone, or no longer ours to touch); a retryable delete failure
+  keeps the URI and leaves the variant due, so the row cannot be
+  orphaned in the gallery or duplicated when a reference returns.
+
+- **R-151 🟠 Round 1 (as minor a/c/d/f + test g/h/i): the surrounding
+  hardening.** Applied: `ensureActive` after the reference decode, a
+  failed clean copy no longer aborts a pending variant/withdrawal, the
+  contract test pins its own delimiters (which immediately caught this
+  PR's own false-pass — `private fun sync(` never existed), the
+  suffix-cap KDoc tells the truth, the shadowed `reference` local is
+  `placed`, and the policy suite pins OR semantics plus floor-past
+  staleness.
+
+- **R-152 ⏸️ Round 1: a permanently undecodable reference re-encodes the
+  painting on every sweep.** Declined. The state requires the app-private
+  asset to be externally deleted or mangled *after* commit — the loader
+  drops an unreadable reference at open, so the sweep sees it only
+  through a race window — and the sweep is human-triggered (Studio
+  show/return), not a loop. Settling would freeze a stale variant row;
+  eventual retry is the cheaper wrong.
+
+- **R-153 ⏸️ Round 1, info: make reference publication opt-in beyond the
+  visibility/opacity gate.** Declined. The product owner directed the
+  auto-store; the settings help string discloses it. An opt-in toggle is
+  a separate product decision for the owner, not a review fix.
+
+- **R-154 ⏸️ Round 1, info: two writers own the reference gallery
+  fields.** Refuted as a new hazard. It is the `galleryUri` pattern
+  exactly, and the interleaving it fears is closed by the leave gate:
+  the Studio's sweep only runs on refresh, and navigation returns only
+  after the canvas's final checkpoint completed.
+
+- **R-155 ⏸️ Round 1, info: share the tile pass between the two
+  flattens; ViewModel tests for the staleness gate.** Declined. The
+  double flatten is the AGENTS-accepted "seconds on IO" cost, debounced
+  30 s / leave; the ViewModel split follows the repo's stated rule
+  (decisions pure and tested, MediaStore/VM orchestration untested —
+  AGENTS.md's gallery-debounce precedent).
+
+- **R-156 🟢 Round 2, minor: contract test pinned delimiter existence, not
+  order; `ReferenceComposite.includes` duplicated the policy gate; a missing
+  asset logged as dimension drift.** All three applied — the probe window is
+  now bounded by construction, the composite delegates to
+  `ReferenceGalleryPolicy.includes`, and the gone-asset case gets its own
+  log line.
+
+- **R-157 🟠 Round 3: AAPT would trim the suffix's leading space; a
+  permanently undecodable asset churned the sweep forever.** Both applied.
+  The resource is quoted (`" (with reference)"` — verified it survives into
+  `packaged_res`), and `syncReferenceVariant` settles on a null decode: the
+  loader already drops a *missing* asset at open (so the sweep's withdraw
+  branch owns that case), leaving only corruption or the load→decode race,
+  neither of which heals — re-encoding the clean copy every sweep for them
+  was the R-152 cost with no payoff. This narrows R-152's decline: the
+  settle applies to the undecodable asset, while retry still governs
+  row-write and withdrawal failures.
+
+- **R-158 🟢 Round 4, minor: the withdrawal test pinned two of three
+  fields.** Applied — the withdrawn byte count is asserted too.
+
+- **R-159 🟠 Round 5: a transient probe failure forgot the reference row.**
+  Applied. The probe's outer catch now retries like the delete path does —
+  an orphaned "with reference" row is the privacy-sensitive failure this
+  feature exists to avoid — with one carve-out: `IllegalArgumentException`
+  (a URI the provider will never accept) stays settled, because that probe
+  can never succeed and retrying it is the R-157 churn pattern.
+
+- **R-160 🟠 Round 6: `variantDue` never settled on reference-less
+  paintings.** Applied. `ReferenceGalleryPolicy.variantInvolved` (pure,
+  tested) short-circuits the due check when there is no reference to mirror
+  and no row to reconcile, so a plain painting's pixel revisions cannot
+  relaunch a no-op gallery job forever; the Main block also skips the
+  equal-copy document write and the dirty flag when a run settled nothing.
+
+- **R-161 🟡 Round 7: the early return might skip trailing cleanup.**
+  Verified and refuted — the Main block after the guard contains only the
+  outcome-gated counters, the document copy, and `markDirty`, in that
+  order, and ends there; no flags, observers, or in-flight guards exist
+  on this path. The finding's own escape clause ("if the block truly
+  ends with the outcome-gated persistence, the change is correct")
+  was checked statement by statement and holds.
+
+- **R-162 🟠 Round 9: the variant branch ran whenever the job opened.**
+  Applied. `variantDue` now gates the sync and withdraw branches, not just
+  the combined early return — a clean-copy retry can no longer re-encode
+  identical variant pixels and churn the row's modified date.
+
+- **R-163 🟡 Round 9, audit: CHANGELOG missed the channel-swap fix.**
+  Applied — the Unreleased section now records the BGRA export/thumbnail
+  correction the merge carries, beside this PR's variant entry.
+
+- **R-164 ⏸️ Round 9, audit: void bands on an empty canvas; band tile-set
+  resubmission; unguarded contract-test markers.** Declined for scope —
+  all three sit in PR #153's renderer and test code, already landed on
+  main with its own review rounds; touching the frame-budget hot path
+  here would ship changes their device gate never saw. Re-raise them on
+  the next audit round or a dedicated follow-up.
+
+- **R-165 🟡 Round 10: the duplicate test pinned one of three variant
+  fields.** Applied — the stamp and byte count resets are asserted too,
+  matching the withdrawal test's convention.
+
+- **R-166 🟢 Round 11, info: an assertion message named u where the row
+  index pinned v.** Applied — diagnostic only, but the message now points
+  at the axis the coordinate actually left.
+
+- **R-167 🟢 Round 12, info: duplicate probe-refusal log line.** Applied —
+  `probeRow` already logs the refusal with its stack; the decision shows in
+  the insert that follows.
+
+- **R-168 🟡 Round 13: a pending withdrawal seemed stranded after process
+  death.** Refuted by the search the finding itself prescribes: the Studio
+  sweep reconciles it on every app start — a reference edit bumps
+  `updatedAt`, an unsettled withdrawal leaves `lastGallerySyncAt` behind,
+  so `updatedAt > lastGallerySyncAt` holds and `syncReferenceVariant`
+  retries the withdrawal without needing any edit in the document. The
+  session counters gate only the in-canvas fast path.
+
+- **R-169 🟡 Round 13: one checkbox governs two gallery entries.** The
+  two-checkbox UI is declined — the rows are one feature, and per-row
+  toggles over-UI a rare combination — but the label no longer promises a
+  single copy: "Also delete the gallery copies" (zh already
+  number-neutral).

@@ -18,6 +18,9 @@ data class ReferenceTransform(
     val tx: Float,
     val ty: Float,
 ) {
+    /** Cached: the inverse map reads it once per pixel in `ReferenceComposite`. */
+    private val determinant: Float = xx * yy - xy * yx
+
     init {
         require(
             xx.isFinite() && xy.isFinite() && yx.isFinite() && yy.isFinite() &&
@@ -28,8 +31,6 @@ data class ReferenceTransform(
         }
         require(effectiveScale.isFinite()) { "reference scale must be finite" }
     }
-
-    private val determinant: Float get() = xx * yy - xy * yx
 
     val xScale: Float get() = hypot(xx, yx)
 
@@ -50,6 +51,14 @@ data class ReferenceTransform(
         xx * x + xy * y + tx,
         yx * x + yy * y + ty,
     )
+
+    /** The inverse map's x — scalar pair, so per-pixel callers allocate nothing. */
+    fun inverseX(x: Float, y: Float): Float =
+        (yy * (x - tx) - xy * (y - ty)) / determinant
+
+    /** The inverse map's y. */
+    fun inverseY(x: Float, y: Float): Float =
+        (-yx * (x - tx) + xx * (y - ty)) / determinant
 
     /** Applies a canvas-space two-finger similarity after the current mapping. */
     fun gesture(
@@ -141,12 +150,6 @@ data class ReferenceTransform(
         return if (left >= right || top >= bottom) IntRect.EMPTY
         else IntRect(left, top, right, bottom)
     }
-
-    private fun inverseX(x: Float, y: Float): Float =
-        (yy * (x - tx) - xy * (y - ty)) / determinant
-
-    private fun inverseY(x: Float, y: Float): Float =
-        (-yx * (x - tx) + xx * (y - ty)) / determinant
 
     /**
      * Canvas-space AABB of the placed image, unclamped by the canvas.

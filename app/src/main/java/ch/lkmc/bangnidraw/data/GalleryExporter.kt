@@ -36,6 +36,54 @@ class GalleryExporter @Inject constructor(
         val bytes: Long,
     )
 
+    /** What a probe of one recorded row found. */
+    private class RowState(
+        val present: Boolean,
+        val owned: Boolean,
+        val modifiedByOther: Boolean,
+        val threw: Boolean,
+    )
+
+    /**
+     * §9.2's probe: is the recorded row still there, still ours, and still
+     * byte-for-byte what we last wrote? A `SecurityException` from the query
+     * is recorded as [RowState.threw] — a row that became inaccessible is no
+     * longer safe to touch.
+     */
+    private fun probeRow(
+        uri: Uri,
+        recordedModifiedAt: Long,
+        recordedBytes: Long,
+    ): RowState {
+        try {
+            context.contentResolver.query(
+                uri,
+                arrayOf(
+                    MediaStore.Images.Media.OWNER_PACKAGE_NAME,
+                    MediaStore.Images.Media.DATE_MODIFIED,
+                    MediaStore.Images.Media.SIZE,
+                ),
+                null,
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val isOwner = cursor.getString(0) == context.packageName
+                    val rowModified = cursor.getLong(1)
+                    val rowBytes = cursor.getLong(2)
+                    // 0/0 recorded = unknown (pre-rule folders): treated as
+                    // ours (§9.2).
+                    val modifiedByOther = recordedModifiedAt != 0L && recordedBytes != 0L &&
+                        (rowModified != recordedModifiedAt || rowBytes != recordedBytes)
+                    return RowState(true, isOwner, modifiedByOther, threw = false)
+                }
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "gallery probe refused", e)
+            return RowState(present = true, owned = false, modifiedByOther = false, threw = true)
+        }
+        return RowState(present = false, owned = false, modifiedByOther = false, threw = false)
+    }
+
     /**
      * Mirrors [png] per §9.2's table. [recordedUri]/[recordedModifiedAt]/
      * [recordedBytes] are the document's last-known row state; null on total
@@ -57,34 +105,11 @@ class GalleryExporter @Inject constructor(
         var modifiedByOther = false
         var probeThrew = false
         if (uri != null) {
-            try {
-                resolver.query(
-                    uri,
-                    arrayOf(
-                        MediaStore.Images.Media.OWNER_PACKAGE_NAME,
-                        MediaStore.Images.Media.DATE_MODIFIED,
-                        MediaStore.Images.Media.SIZE,
-                    ),
-                    null,
-                    null,
-                )?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        uriPresent = true
-                        isOwner = cursor.getString(0) == context.packageName
-                        val rowModified = cursor.getLong(1)
-                        val rowBytes = cursor.getLong(2)
-                        // 0/0 recorded = unknown (pre-rule folders): treated as
-                        // ours (§9.2).
-                        modifiedByOther = recordedModifiedAt != 0L && recordedBytes != 0L &&
-                            (rowModified != recordedModifiedAt || rowBytes != recordedBytes)
-                    }
-                }
-            } catch (e: SecurityException) {
-                // A recorded row that became inaccessible is no longer safe to rewrite.
-                Log.w(TAG, "gallery probe refused; inserting a fresh item", e)
-                uriPresent = true
-                probeThrew = true
-            }
+            val row = probeRow(uri, recordedModifiedAt, recordedBytes)
+            uriPresent = row.present
+            isOwner = row.owned
+            modifiedByOther = row.modifiedByOther
+            probeThrew = row.threw
         }
 
         var action = GallerySyncDecision.decide(
@@ -154,6 +179,57 @@ class GalleryExporter @Inject constructor(
         } catch (e: SecurityException) {
             Log.w(TAG, "gallery delete refused; the item is the user's now", e)
         }
+    }
+
+    /**
+     * Withdraws the reference variant — the second item a painting kept
+     * while its tracing image was visible — once the image stops qualifying.
+     * The mirror's own rule inverted: the row is deleted only while it is
+     * still ours and untampered; an edit by another app, or a row we can no
+     * longer probe, is the user's and stays.
+     *
+     * Returns whether the row is **settled**: gone, or no longer ours to
+     * touch — in both cases the caller may forget the URI, exactly as a
+     * REINSERT forgets. False means the delete failed in a way worth
+     * retrying, and the recorded URI must survive for the next attempt.
+     */
+    fun withdraw(
+        recordedUri: String?,
+        recordedModifiedAt: Long,
+        recordedBytes: Long,
+    ): Boolean {
+        val uri = recordedUri?.let(Uri::parse) ?: return true
+        val row = try {
+            probeRow(uri, recordedModifiedAt, recordedBytes)
+        } catch (e: IllegalArgumentException) {
+            // A URI the provider will never accept is permanent: the row it
+            // names can be neither probed nor deleted, so forgetting is the
+            // only exit, not an orphaned retry loop.
+            Log.w(TAG, "gallery withdraw probe refused a malformed URI", e)
+            return true
+        } catch (e: RuntimeException) {
+            // The same containment as the delete below: an unexpected
+            // provider failure is retryable, not a reason to orphan an
+            // owned row — this one can hold the reference photo.
+            Log.w(TAG, "gallery withdraw probe failed; will retry", e)
+            return false
+        }
+        // Ownership joins the guard: with 0/0 recorded state the tamper half
+        // is forced false, and a row id MediaStore recycled after our item
+        // vanished must not be deletable just because it sits there.
+        if (!row.present || !row.owned || row.threw || row.modifiedByOther) return true
+
+        try {
+            context.contentResolver.delete(uri, null, null)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "gallery withdraw refused; the item is the user's now", e)
+        } catch (e: RuntimeException) {
+            // The same containment as the probe's: an unexpected provider
+            // failure is retryable, not a reason to orphan the row.
+            Log.w(TAG, "gallery withdraw failed; will retry", e)
+            return false
+        }
+        return true
     }
 
     private fun rewrite(uri: Uri, displayName: String, png: ByteArray): Outcome {

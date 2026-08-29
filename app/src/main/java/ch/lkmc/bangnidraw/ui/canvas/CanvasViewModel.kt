@@ -111,6 +111,7 @@ import ch.lkmc.bangnidraw.engine.core.PenButtonAction
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.PressurePreference
 import ch.lkmc.bangnidraw.engine.core.ReadbackDrainResult
+import ch.lkmc.bangnidraw.engine.core.ReferenceGalleryPolicy
 import ch.lkmc.bangnidraw.engine.core.ReferenceImportDecision
 import ch.lkmc.bangnidraw.engine.core.ReferenceLayerReserve
 import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
@@ -435,6 +436,25 @@ class CanvasViewModel @Inject constructor(
     /** The [revisions] value the gallery last mirrored (06 §9.3's counter). */
     @Volatile
     private var lastSyncedRevision = 0
+
+    /**
+     * Reference edits since open — the variant's half of the gallery's
+     * due check, because a transform or opacity change moves no pixel
+     * revision but changes the variant's pixels.
+     */
+    private val referenceEdits = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /**
+     * The revisions the *variant* last mirrored — its own pixel counter,
+     * not [lastSyncedRevision]: a clean copy that succeeded while the
+     * variant's row write failed must leave the variant due, or it would
+     * ride the clean copy's freshness and stay stale until the next edit.
+     */
+    @Volatile
+    private var variantLastPixels = 0
+
+    @Volatile
+    private var variantLastReference = 0
 
     private var gallerySyncJob: Job? = null
 
@@ -1046,8 +1066,16 @@ class CanvasViewModel @Inject constructor(
         val doc = document ?: return
         if (doc.tracingReference == reference) return
 
-        val next = doc.copy(tracingReference = reference)
+        // updatedAt moves with the metadata: the gallery variant mirrors
+        // reference edits, so the Studio's on-disk staleness rule must see
+        // them after reopen too. `fold` preserves it on metadata-only
+        // checkpoints (content wins when both moved).
+        val next = doc.copy(
+            tracingReference = reference,
+            updatedAt = System.currentTimeMillis(),
+        )
         document = next
+        referenceEdits.incrementAndGet()
         layerCap = TracingReferencePolicy.layerCap(
             layerCount = next.stack.layers.size,
             maxLayers = budgetLayerCap,
@@ -3078,7 +3106,10 @@ class CanvasViewModel @Inject constructor(
      * §9's mirror, after a checkpoint: the tiles it flattens are on disk by
      * the flush that just ran. The §9.3 debounce is [GallerySyncDecision]'s;
      * a newer sync cancels a running one (conflated), and a failed sync
-     * changes nothing — the next trigger retries.
+     * changes nothing — the next trigger retries. The reference variant —
+     * the second item kept while a tracing image is visible — rides the
+     * same job under [ReferenceGalleryPolicy]'s due rule, and is withdrawn
+     * once the image stops qualifying.
      */
     private suspend fun maybeSyncGallery(
         doc: Document,
@@ -3087,44 +3118,150 @@ class CanvasViewModel @Inject constructor(
     ) {
         if (!prefs.gallerySync.first()) return
         val pixelRevision = revisions.get()
-        val due = GallerySyncDecision.isDue(
+        val referenceEditCount = referenceEdits.get()
+        val cleanDue = GallerySyncDecision.isDue(
             trigger = trigger,
             pixelRevision = pixelRevision,
             lastSyncedRevision = lastSyncedRevision,
             nowMs = now,
             lastSyncAtMs = doc.lastGallerySyncAt,
         )
-        if (!due) return
+        val variantDue = ReferenceGalleryPolicy.variantInvolved(
+            doc.tracingReference,
+            doc.referenceGalleryUri,
+        ) && ReferenceGalleryPolicy.isDue(
+            trigger = trigger,
+            pixelRevision = pixelRevision,
+            referenceRevision = referenceEditCount,
+            lastSyncedPixelRevision = variantLastPixels,
+            lastSyncedReferenceRevision = variantLastReference,
+            nowMs = now,
+            lastSyncAtMs = doc.lastGallerySyncAt,
+        )
+        if (!cleanDue && !variantDue) return
         gallerySyncJob?.cancel()
         gallerySyncJob = appScope.launch {
-            val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
-            coroutineContext.ensureActive()
-            val png = ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
-            coroutineContext.ensureActive()
-            val name = GalleryNames.sanitizeDisplayName(
-                doc.title,
-                context.getString(R.string.studio_untitled),
-            )
-            val outcome = exporter.sync(
-                recordedUri = doc.galleryUri,
-                recordedModifiedAt = doc.galleryModifiedAt,
-                recordedBytes = doc.galleryBytes,
-                displayName = name,
-                png = png,
-            ) ?: return@launch
+            var galleryOutcome: GalleryExporter.Outcome? = null
+            var variant: VariantOutcome? = null
+            var syncedAt: Long? = null
+
+            if (cleanDue) {
+                val rgba = CpuFlatten.flatten(doc) { store.layerDir(doc.id, it) }
+                coroutineContext.ensureActive()
+                val png = ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
+                coroutineContext.ensureActive()
+                val name = GalleryNames.sanitizeDisplayName(
+                    doc.title,
+                    context.getString(R.string.studio_untitled),
+                )
+                val outcome = exporter.sync(
+                    recordedUri = doc.galleryUri,
+                    recordedModifiedAt = doc.galleryModifiedAt,
+                    recordedBytes = doc.galleryBytes,
+                    displayName = name,
+                    png = png,
+                )
+                // Not an early return: a clean-copy failure must not strand a
+                // pending variant sync or withdrawal — the variant's own
+                // bookkeeping decides what settled, and the clean copy stays
+                // due for the next trigger either way.
+                if (outcome != null) {
+                    galleryOutcome = outcome
+                    syncedAt = outcome.syncedAt
+                }
+            }
+
+            // The variant: decoded, composited under the paint, mirrored as
+            // its own row; a no-longer-qualifying reference withdraws ours.
+            // `variantDue` gates the work too: a settled variant must not
+            // re-encode identical pixels because an unrelated clean-copy
+            // retry opened the job.
+            val reference = doc.tracingReference
+            if (variantDue && ReferenceGalleryPolicy.includes(reference) && reference != null) {
+                val flat = referenceImageCodec.decodeFlatReference(doc.id, reference)
+                coroutineContext.ensureActive()
+                if (flat != null) {
+                    val rgba = CpuFlatten.flatten(doc, flat) { store.layerDir(doc.id, it) }
+                    coroutineContext.ensureActive()
+                    val png = ImageEncode.encode(rgba, doc.width, doc.height, ImageEncode.Format.PNG)
+                    coroutineContext.ensureActive()
+                    val name = GalleryNames.withReferenceSuffix(
+                        GalleryNames.sanitizeDisplayName(
+                            doc.title,
+                            context.getString(R.string.studio_untitled),
+                        ),
+                        context.getString(R.string.gallery_reference_suffix),
+                    )
+                    val outcome = exporter.sync(
+                        recordedUri = doc.referenceGalleryUri,
+                        recordedModifiedAt = doc.referenceGalleryModifiedAt,
+                        recordedBytes = doc.referenceGalleryBytes,
+                        displayName = name,
+                        png = png,
+                    )
+                    if (outcome != null) {
+                        variant = VariantOutcome.Synced(outcome)
+                        syncedAt = outcome.syncedAt
+                    }
+                }
+            } else if (variantDue && doc.referenceGalleryUri != null) {
+                val settled = exporter.withdraw(
+                    recordedUri = doc.referenceGalleryUri,
+                    recordedModifiedAt = doc.referenceGalleryModifiedAt,
+                    recordedBytes = doc.referenceGalleryBytes,
+                )
+                // An unsettled withdrawal keeps the recorded URI: forgetting
+                // it here would orphan the row in the gallery forever and
+                // duplicate it when a reference returns.
+                if (settled) variant = VariantOutcome.Withdrawn
+            }
+
             withContext(Dispatchers.Main) {
-                lastSyncedRevision = pixelRevision
-                document = document?.copy(
-                    galleryUri = outcome.galleryUri,
-                    lastGallerySyncAt = outcome.syncedAt,
-                    galleryModifiedAt = outcome.modifiedAt,
-                    galleryBytes = outcome.bytes,
+                // Nothing settled (a failed run) leaves the model alone too:
+                // an equal copy plus a dirty flag is a spurious checkpoint.
+                if (galleryOutcome == null && variant == null) {
+                    return@withContext
+                }
+                if (galleryOutcome != null) {
+                    lastSyncedRevision = pixelRevision
+                }
+                if (variant != null) {
+                    variantLastPixels = pixelRevision
+                    variantLastReference = referenceEditCount
+                }
+                val current = document
+                document = current?.copy(
+                    galleryUri = galleryOutcome?.galleryUri ?: current.galleryUri,
+                    lastGallerySyncAt = syncedAt ?: current.lastGallerySyncAt,
+                    galleryModifiedAt = galleryOutcome?.modifiedAt ?: current.galleryModifiedAt,
+                    galleryBytes = galleryOutcome?.bytes ?: current.galleryBytes,
+                    referenceGalleryUri = when (val settled = variant) {
+                        is VariantOutcome.Synced -> settled.outcome.galleryUri
+                        VariantOutcome.Withdrawn -> null
+                        null -> current.referenceGalleryUri
+                    },
+                    referenceGalleryModifiedAt = when (val settled = variant) {
+                        is VariantOutcome.Synced -> settled.outcome.modifiedAt
+                        VariantOutcome.Withdrawn -> 0L
+                        null -> current.referenceGalleryModifiedAt
+                    },
+                    referenceGalleryBytes = when (val settled = variant) {
+                        is VariantOutcome.Synced -> settled.outcome.bytes
+                        VariantOutcome.Withdrawn -> 0L
+                        null -> current.referenceGalleryBytes
+                    },
                 )
                 // Metadata only: the next checkpoint persists it, and
                 // updatedAt stays put — a sync is looking, not painting.
                 markDirty(DirtyKind.METADATA)
             }
         }
+    }
+
+    /** One gallery job's reference-variant result, applied once on Main. */
+    private sealed interface VariantOutcome {
+        class Synced(val outcome: GalleryExporter.Outcome) : VariantOutcome
+        object Withdrawn : VariantOutcome
     }
 
     /**

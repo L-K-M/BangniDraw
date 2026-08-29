@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.ColorSpace
 import android.graphics.ImageDecoder
 import android.net.Uri
+import android.util.Log
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Composite
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
@@ -85,6 +86,69 @@ class ReferenceImageCodec @Inject constructor(
         }
     }
 
+    /**
+     * Decodes the private PNG as straight (non-premultiplied) ARGB for a
+     * gallery-variant flatten — the same asset `streamTiles` uploads, so a
+     * variant never shows pixels the canvas cannot. Null when the asset is
+     * missing or its size no longer matches the metadata; the caller treats
+     * that as "no variant this round", never a failed sync of the painting.
+     */
+    internal fun decodeFlatReference(
+        projectId: String,
+        reference: TracingReference,
+    ): CpuFlatten.FlatReference? {
+        val file = store.referenceFile(projectId, reference.assetName)
+
+        // Its own line: a missing asset is the externally-deleted case, and
+        // the bounds probe below would only log it as "-1x-1" drift.
+        if (!file.isFile) {
+            Log.w(TAG, "reference variant asset is gone: ${file.absolutePath}")
+            return null
+        }
+
+        // Bounds before pixels: the asset is capped at import
+        // (`TracingReferencePolicy.normalizedSize`), but the file is
+        // app-storage, and a replaced or hand-mangled one must be refused
+        // before the decode allocates, not after.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth != reference.imageWidth || bounds.outHeight != reference.imageHeight) {
+            Log.w(
+                TAG,
+                "reference variant asset drifted: " +
+                    "${bounds.outWidth}x${bounds.outHeight} vs " +
+                    "${reference.imageWidth}x${reference.imageHeight}",
+            )
+            return null
+        }
+
+        val bitmap = BitmapFactory.decodeFile(
+            file.absolutePath,
+            BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 },
+        )
+        if (bitmap == null) {
+            Log.w(TAG, "reference variant decode failed: $file")
+            return null
+        }
+        try {
+            if (bitmap.width != reference.imageWidth || bitmap.height != reference.imageHeight) {
+                Log.w(
+                    TAG,
+                    "reference variant size drifted: " +
+                        "${bitmap.width}x${bitmap.height} vs ${reference.imageWidth}x${reference.imageHeight}",
+                )
+                return null
+            }
+            val argb = IntArray(bitmap.width * bitmap.height)
+            // getPixels un-premultiplies, which is the straight form
+            // ReferenceComposite's Source expects.
+            bitmap.getPixels(argb, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            return CpuFlatten.FlatReference(reference, argb)
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
     /** Decodes the private PNG into premultiplied RGBA tile batches. */
     fun streamTiles(
         projectId: String,
@@ -156,5 +220,6 @@ class ReferenceImageCodec @Inject constructor(
 
     private companion object {
         const val CHANNELS = 4
+        const val TAG = "ReferenceImageCodec"
     }
 }

@@ -10,12 +10,20 @@ class GalleryExporterContractTest {
     @Test
     fun `recorded row probe contains lost provider access`() {
         val exporter = File(repositoryRoot(), EXPORTER_PATH).readText()
-        val probe = exporter
-            .substringAfter("if (uri != null) {")
-            .substringBefore("var action = GallerySyncDecision.decide")
+        // substringAfter/Before degrade to the whole file when a delimiter
+        // disappears, and the whole file can satisfy both asserts — so pin
+        // the opening delimiter, then that the closing one follows it.
+        check("private fun probeRow(" in exporter) {
+            "probeRow delimiter not found — probe would match the whole file"
+        }
+        val afterProbe = exporter.substringAfter("private fun probeRow(")
+        check("fun sync(" in afterProbe) {
+            "'fun sync(' must appear after probeRow — otherwise the probe window is unbounded"
+        }
+        val probe = afterProbe.substringBefore("fun sync(")
 
         assertTrue("catch (e: SecurityException)" in probe)
-        assertTrue("probeThrew = true" in probe)
+        assertTrue("threw = true" in probe)
     }
 
     private fun repositoryRoot(): File {

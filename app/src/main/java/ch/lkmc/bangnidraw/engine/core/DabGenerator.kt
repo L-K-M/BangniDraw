@@ -240,7 +240,7 @@ class DabGenerator(
                 interpolated.travel = inkSample.travel
                 interpolated.bristleAlong = inkSample.bristleAlong
             }
-            interpolated.pathAngle = if (ink == null) 0f else segmentPathAngle
+            interpolated.pathAngle = laneAngle(segmentPathAngle)
             if (!emit(x, y, interpolated, out)) return emitted
 
             emitted++
@@ -433,6 +433,9 @@ class DabGenerator(
         return emit(x, y, interpolated, out)
     }
 
+    /** Non-ink dabs carry no lane frame; the neutral value lives in one place. */
+    private fun laneAngle(raw: Float): Float = if (inkDynamics == null) 0f else raw
+
     private fun emit(x: Float, y: Float, sample: InterpolatedSample, out: DabBatch): Boolean {
         val p = sample.pressure
         notePressure(p)
@@ -466,7 +469,7 @@ class DabGenerator(
 
         val ok = out.add(
             px, py, finalRadius, flow, preset.hardness, angle, aspect, dabSeed, wetness,
-            bristleAlong, if (ink == null) 0f else sample.pathAngle,
+            bristleAlong, laneAngle(sample.pathAngle),
         )
         if (!ok) return false
         dabIndex++

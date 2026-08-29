@@ -2234,3 +2234,15 @@ touchscreen hover too, not only a pen.
   toggles over-UI a rare combination — but the label no longer promises a
   single copy: "Also delete the gallery copies" (zh already
   number-neutral).
+
+## PR #154 — Chinese ink brush stroke shape and drying (2026-08-29)
+
+- **R-170 🟡 Round 4: "nothing pins the splay easing itself."** Declined —
+  factually wrong. `the Chinese ink tuft eases from a round touch into its
+  splay` (DabGeneratorTest, first commit) pins the whole property the
+  finding asks for: first dab round, second dab still above the snap
+  midpoint, last dab converged on the tip aspect. It fails if `travel`
+  stops propagating (every dab stays round) or if `settle` is removed
+  (dab 2 snaps), which is the finding's own verification recipe. The
+  suggested `next.aspect < first.aspect` inside the turn fixture would
+  duplicate it weaker and pressure-confounded.

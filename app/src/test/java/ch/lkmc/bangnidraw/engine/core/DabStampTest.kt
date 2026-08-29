@@ -321,6 +321,7 @@ class DabStampTest {
             y = 0f,
             radius = 20f,
             hardness = 1f,
+            angle = 0f,
             aspect = 0.7f,
             seed = 0.37f,
             wetness = 0.24f,

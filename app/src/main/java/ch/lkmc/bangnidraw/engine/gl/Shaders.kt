@@ -384,7 +384,7 @@ object Shaders {
     const val ATTR_DAB_SEED = 7
     const val ATTR_DAB_WETNESS = 8
     const val ATTR_DAB_BRISTLE_ALONG = 9
-    const val ATTR_DAB_BRISTLE_ACROSS = 10
+    const val ATTR_DAB_PATH_ANGLE = 10
 
     /**
      * §7.3's `dab.vert`: one instanced quad per dab, in canvas px, mapped into
@@ -413,7 +413,7 @@ object Shaders {
         layout(location = $ATTR_DAB_SEED)     in float i_seed;
         layout(location = $ATTR_DAB_WETNESS)  in float i_wetness;
         layout(location = $ATTR_DAB_BRISTLE_ALONG)  in float i_bristleAlong;
-        layout(location = $ATTR_DAB_BRISTLE_ACROSS) in float i_bristleAcross;
+        layout(location = $ATTR_DAB_PATH_ANGLE) in float i_pathAngle;
         uniform vec2 u_tileOrigin;
         uniform vec3 u_color;
         out vec2 v_local;
@@ -425,7 +425,7 @@ object Shaders {
         flat out float v_seed;
         flat out float v_wetness;
         flat out float v_bristleAlong;
-        flat out float v_bristleAcross;
+        flat out float v_pathAngle;
         flat out vec4  v_color;
         void main() {
             float r = max(i_radius, 1.0);
@@ -444,7 +444,7 @@ object Shaders {
             v_seed = i_seed;
             v_wetness = i_wetness;
             v_bristleAlong = i_bristleAlong;
-            v_bristleAcross = i_bristleAcross;
+            v_pathAngle = i_pathAngle;
             float area = i_radius < 1.0 ? i_radius * i_radius : 1.0;
             v_color = vec4(u_color, 1.0) * (i_flow * area);
             vec2 t = (p - u_tileOrigin) / float($TILE_SIZE);
@@ -478,7 +478,7 @@ object Shaders {
         flat in float v_seed;
         flat in float v_wetness;
         flat in float v_bristleAlong;
-        flat in float v_bristleAcross;
+        flat in float v_pathAngle;
         flat in vec4  v_color;
         out vec4 o_color;
 
@@ -538,7 +538,7 @@ object Shaders {
             float seedPhase,
             float wetness,
             float bristleAlong,
-            float bristleAcross
+            float pathAngle
         ) {
 
             float edge = smoothstep(${InkBrushMask.EDGE_DRY_START}, 1.0, normalizedDistance);
@@ -549,10 +549,14 @@ object Shaders {
             );
             if (dry <= ${InkBrushMask.LOADED_DRYNESS}) return 1.0;
 
-            vec2 axisMinor = vec2(-axisMajor.y, axisMajor.x);
+            // The lanes live in the path frame, not the tuft frame: fly-white
+            // channels are drag channels and follow the stroke direction even
+            // when the tuft axis trails through a turn.
+            vec2 laneMajor = vec2(cos(pathAngle), sin(pathAngle));
+            vec2 laneMinor = vec2(-laneMajor.y, laneMajor.x);
             vec2 local = canvas - center;
-            float across = bristleAcross + dot(local, axisMinor);
-            float along = bristleAlong + dot(local, axisMajor);
+            float across = dot(local, laneMinor);
+            float along = bristleAlong + dot(local, laneMajor);
             uint seed = inkSeedKey(seedPhase);
 
             float fiber = inkValueNoise2(
@@ -611,7 +615,7 @@ object Shaders {
                     v_seed,
                     v_wetness,
                     v_bristleAlong,
-                    v_bristleAcross
+                    v_pathAngle
                 );
             }
             o_color = v_color * m;

@@ -44,7 +44,7 @@ class DabGeneratorGoldenTest {
         val seed: Float,
         val wetness: Float,
         val bristleAlong: Float,
-        val bristleAcross: Float,
+        val pathAngle: Float,
     )
 
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
@@ -145,7 +145,7 @@ class DabGeneratorGoldenTest {
                 val d = b[it]
                 GoldenDab(
                     d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed, d.wetness,
-                    d.bristleAlong, d.bristleAcross,
+                    d.bristleAlong, d.pathAngle,
                 )
             }
         }
@@ -167,12 +167,12 @@ class DabGeneratorGoldenTest {
         appendLine("# these values by ~1e-7, four orders of magnitude inside that. A diff")
         appendLine("# here is a real change in the stroke, not a change of JDK.")
         appendLine("#")
-        appendLine("# x y radius flow hardness angle aspect seed wetness bristleAlong bristleAcross")
+        appendLine("# x y radius flow hardness angle aspect seed wetness bristleAlong pathAngle")
         for (d in dabs) {
             appendLine(
                 listOf(
                     d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed, d.wetness,
-                    d.bristleAlong, d.bristleAcross,
+                    d.bristleAlong, d.pathAngle,
                 )
                     .joinToString(" ") { fixed(it) },
             )
@@ -235,7 +235,7 @@ class DabGeneratorGoldenTest {
             assertClose(e.seed, a.seed, "dab $i seed")
             assertClose(e.wetness, a.wetness, "dab $i wetness")
             assertClose(e.bristleAlong, a.bristleAlong, "dab $i bristle-along phase")
-            assertClose(e.bristleAcross, a.bristleAcross, "dab $i bristle-across phase")
+            assertClose(e.pathAngle, a.pathAngle, "dab $i path angle")
         }
     }
 

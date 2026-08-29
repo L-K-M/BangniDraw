@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Follow the stroke direction with the Chinese ink brush's fly-white
+  streaks instead of letting them cross the stroke on curves.
+
 ## 1.2.1 - 2026-08-29
 
 - Rework the Chinese ink brush feel: shaped stroke entries instead of a

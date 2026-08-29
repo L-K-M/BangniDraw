@@ -107,7 +107,7 @@ class WatercolorPassContractTest {
         assertFalse("stroke.brushModel" in stamp)
         assertFalse("batch.wetness" in stamp)
         assertFalse("batch.bristleAlong" in stamp)
-        assertFalse("batch.bristleAcross" in stamp)
+        assertFalse("batch.pathAngle" in stamp)
     }
 
     @Test

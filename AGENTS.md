@@ -293,10 +293,18 @@ and the contradiction is noted here.
   depletes `Dab.wetness` by swept distance rather than dab count. One seed
   persists for the stroke. CPU and GLSL derive the same stroke-local
   split-bristle lanes; dry gaps are zero coverage while surviving hairs stay
-  dark. Paper tooth is one canvas-fixed hash shared by every stroke. Both
-  phase coordinates integrate centre motion in the lagged tuft
-  frame; a scalar arc length cannot preserve lanes when the tuft moves across
-  its own axis. Prediction must copy all of that state. `StrokeDriver` selects
+  dark. Paper tooth is one canvas-fixed hash shared by every stroke.
+  **The mask uses two frames per dab.** The footprint (ellipse distance,
+  edge ramp) uses the lagged tuft axis `dab.angle`; the hair lanes use the
+  stroke tangent `dab.pathAngle` with a plain arc-length along phase.
+  Fly-white channels are drag channels: they must hug the stroke direction
+  even when the tuft trails `atan(responseLength/R)` behind on a curve —
+  the earlier single-frame model let lanes cross the stroke near
+  perpendicularly on hand-drawn spirals and waves, on both the pre- and
+  post-retune builds. In the path frame the centre never crosses its own
+  lanes, so the across phase is identically zero and `pathAngle` took the
+  dab's eleventh slot from the deleted `bristleAcross`. Prediction must copy
+  all of that state. `StrokeDriver` selects
   the dynamics-aware stabilizer
   gate only for `ChineseInk`; `Standard` keeps its position-only sampling.
   This procedural mask adds no third-party asset, and `wetness` is ink load,

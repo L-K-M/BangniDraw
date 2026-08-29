@@ -556,7 +556,7 @@ class StrokeSpec(                   // fixed for the whole stroke
 /** A dab is a slot in a DabBatch (SoA FloatArrays, 02 §3.2); the eleven fields are
  *  x, y, radius, flow, hardness, angle, aspect,
  *  seed (per dab for Standard; stroke-fixed for ChineseInk), wetness,
- *  bristleAlong, bristleAcross
+ *  bristleAlong, pathAngle (the lane frame; ordinary dabs use 0)
  *  = DAB_STRIDE (10 §4).
  *  Colour, stroke opacity and brush model are per stroke (uniforms), never per dab.
  *  No Dab objects exist at runtime. */
@@ -639,8 +639,8 @@ layout(location = 5) in float i_angle;     // radians, orientation of the major 
 layout(location = 6) in float i_aspect;    // minor/major, 0 < aspect ≤ 1
 layout(location = 7) in float i_seed;      // per-dab Standard / stroke-fixed ChineseInk phase
 layout(location = 8) in float i_wetness;   // contacted-tuft ink load; ordinary dabs use 1
-layout(location = 9) in float i_bristleAlong;  // transported material phase; ordinary dabs use 0
-layout(location = 10) in float i_bristleAcross;
+layout(location = 9) in float i_bristleAlong;  // transported arc-length phase; ordinary dabs use 0
+layout(location = 10) in float i_pathAngle;     // stroke tangent: the ink mask's lane frame
 uniform vec2 u_tileOrigin;                 // canvas px of this slice's (0,0)
 uniform vec3 u_color;                      // straight sRGB, fixed for the stroke
 out vec2 v_local;                          // dab-local, "major-axis px" (ellipse unwarped to a circle)
@@ -652,7 +652,7 @@ flat out vec2 v_center;
 flat out float v_seed;
 flat out float v_wetness;
 flat out float v_bristleAlong;
-flat out float v_bristleAcross;
+flat out float v_pathAngle;
 flat out vec4  v_color;                    // premultiplied color × flow
 
 void main() {
@@ -671,7 +671,7 @@ void main() {
     v_seed = i_seed;
     v_wetness = i_wetness;
     v_bristleAlong = i_bristleAlong;
-    v_bristleAcross = i_bristleAcross;
+    v_pathAngle = i_pathAngle;
     float area = i_radius < 1.0 ? i_radius * i_radius : 1.0;
     v_color = vec4(u_color, 1.0) * (i_flow * area);
     vec2 t = (p - u_tileOrigin) / 256.0;
@@ -692,7 +692,7 @@ flat in vec2 v_center;
 flat in float v_seed;
 flat in float v_wetness;
 flat in float v_bristleAlong;
-flat in float v_bristleAcross;
+flat in float v_pathAngle;
 flat in vec4  v_color;
 uniform int u_brushModel;
 out vec4 o_color;
@@ -707,7 +707,7 @@ void main() {
     if (u_brushModel == 1) {                 // BrushModel.ChineseInk.shaderId
         m *= inkBrushMask(
             v_canvas, v_center, v_axisMajor, d / r, v_seed, v_wetness,
-            v_bristleAlong, v_bristleAcross
+            v_bristleAlong, v_pathAngle
         );
     }
     o_color = v_color * m;                     // premultiplied; blended ONE, ONE_MINUS_SRC_ALPHA

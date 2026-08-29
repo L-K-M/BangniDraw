@@ -396,7 +396,7 @@ class StrokeShaderContractTest {
         assertTrue(vertex.contains("i_seed"), "the CPU stroke seed must reach each ink dab")
         assertTrue(vertex.contains("i_wetness"), "distance-based ink load must reach each ink dab")
         assertTrue(vertex.contains("i_bristleAlong"), "lane phase needs transported along motion")
-        assertTrue(vertex.contains("i_bristleAcross"), "lane phase needs transported cross motion")
+        assertTrue(vertex.contains("i_pathAngle"), "the lanes need the stroke's own tangent")
         assertTrue(vertex.contains("v_axisMajor = axisMajor"), "bristle lanes need the transported brush axis")
         assertTrue(vertex.contains("v_center = i_center"), "the mask must use dab-local coordinates")
         assertTrue(
@@ -405,7 +405,8 @@ class StrokeShaderContractTest {
             "the specialized mask must be selected from the preset model",
         )
         assertTrue(fragment.contains("v_bristleAlong"), "turns must transport along phase")
-        assertTrue(fragment.contains("v_bristleAcross"), "lagged turns must transport cross phase")
+        assertTrue(fragment.contains("v_pathAngle"), "the lanes must follow the path frame")
+        assertTrue(fragment.contains("laneMajor"), "the lane frame is the path, not the tuft")
         assertTrue(fragment.contains("canvas - center"), "axis changes must not rotate a global field")
         assertTrue(fragment.contains("inkBrushMask("), "Chinese ink needs its procedural contact mask")
         assertTrue(fragment.contains("${InkBrushMask.BRISTLE_WIDTH_PX}"))

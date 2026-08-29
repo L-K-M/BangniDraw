@@ -214,8 +214,8 @@ class Dab(   // conceptually; eleven parallel FloatArrays in DabBatch
     val aspect: Float,               // 1 = round
     val seed: Float,                 // per-dab Standard phase; fixed per Chinese-ink stroke
     val wetness: Float,              // contacted-tuft ink load, 0..1; ordinary dabs use 1
-    val bristleAlong: Float,         // transported material coordinates
-    val bristleAcross: Float,        // ordinary dabs use 0 for both
+    val bristleAlong: Float,         // transported arc-length phase; ordinary dabs use 0
+    val pathAngle: Float,            // stroke tangent: the ink mask's lane frame
 )
 
 class DabGenerator(preset: BrushPreset, seed: Long) {
@@ -266,8 +266,10 @@ dab, so changing spacing cannot change how soon the brush runs dry. Constant
 flow keeps retained hairs ink-black; pressure changes contact geometry. Its
 velocity curve permits only a 4 % width taper; speed primarily dries the
 mark. The CPU oracle and shader derive the split-bristle mask from local
-position plus along/across material phases integrated in the lagged tuft
-frame. As wetness falls,
+position in two frames per dab: the footprint (edge ramp) uses the lagged
+tuft axis, while the hair lanes use the stroke tangent (`pathAngle`) with an
+arc-length along phase — fly-white channels are drag channels, so they
+follow the path even when the tuft trails through a turn. As wetness falls,
 coherent lanes become zero-alpha paper gaps while surviving hairs stay
 ink-dark. Generator copies used for the predicted tail copy this state exactly
 and never advance the real stroke.

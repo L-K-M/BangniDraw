@@ -46,10 +46,10 @@ class DabStampTest {
         seed: Float = 0f,
         wetness: Float = 1f,
         bristleAlong: Float = 0f,
-        bristleAcross: Float = 0f,
+        pathAngle: Float = 0f,
     ) = Dab(
         x, y, radius, flow, hardness, angle, aspect, seed, wetness,
-        bristleAlong, bristleAcross,
+        bristleAlong, pathAngle,
     )
 
     // ------------------------------------------------------------- falloff
@@ -304,7 +304,7 @@ class DabStampTest {
             hardness = 1f,
             aspect = 0.6f,
             wetness = 1f,
-            bristleAcross = 100f,
+            pathAngle = 100f,
         )
 
         assertEquals(1f, InkBrushMask.weight(0f, 0f, shifted), 1e-6f)
@@ -427,6 +427,9 @@ class DabStampTest {
 
     @Test
     fun `Chinese ink transports bristle lanes across a fixed axis`() {
+        // Both dabs sit on a path running straight down (+y) while the lagged
+        // tuft axis (angle = 0) still points along x — the extreme case of a
+        // lane frame that differs from the footprint frame.
         val first = dab(
             x = 40f,
             y = 38f,
@@ -435,11 +438,17 @@ class DabStampTest {
             aspect = 0.6f,
             seed = 0.61f,
             wetness = 0.2f,
+            pathAngle = (PI / 2).toFloat(),
         )
-        val next = first.copy(y = 42f, bristleAcross = 4f)
+        val next = first.copy(
+            y = 42f,
+            pathAngle = (PI / 2).toFloat(),
+            bristleAlong = first.bristleAlong + 4f,
+        )
 
         // At the overlap midline, both ellipses have equal coverage. The
-        // transported cross-axis phase must make their hairs equal too.
+        // path-frame transport must make their hairs equal too: the second
+        // dab moved 4 px down the lane direction and carries 4 px of arc.
         for (x in 30..50) {
             val px = x + 0.5f
             val py = 40f
@@ -448,6 +457,54 @@ class DabStampTest {
 
             assertEquals(a, b, 1e-6f, "lane at x=$px swam under cross-axis motion")
         }
+    }
+
+    @Test
+    fun `Chinese ink lanes follow the path tangent, not the lagged tuft axis`() {
+        // A tuft trailing 60° behind the path: fly-white channels are drag
+        // channels, so the contact pattern must key on the path frame. Two
+        // dabs differing only in the tuft axis must mask identically near
+        // the centre; two differing only in the path angle must not.
+        val base = dab(
+            x = 40f,
+            y = 40f,
+            radius = 20f,
+            hardness = 1f,
+            aspect = 0.6f,
+            angle = 0f,
+            seed = 0.53f,
+            wetness = 0.2f,
+            pathAngle = 0f,
+        )
+        val tuftTurned = base.copy(angle = (PI / 3).toFloat())
+        val pathTurned = base.copy(pathAngle = (PI / 3).toFloat())
+
+        var compared = 0
+        var tuftSame = 0
+        var pathSame = 0
+        for (y in 36..44) {
+            for (x in 36..44) {
+                val px = x + 0.5f
+                val py = y + 0.5f
+                // Inside the inner region of both ellipses, where the
+                // legitimately tuft-driven edge ramp plays no role.
+                val nearCentre = DabStamp.localDistance(px, py, 40f, 40f, 0f, 0.6f) < 8f &&
+                    DabStamp.localDistance(px, py, 40f, 40f, (PI / 3).toFloat(), 0.6f) < 8f
+                if (!nearCentre) continue
+
+                val w0 = InkBrushMask.weight(px, py, base) >= 0.5f
+                compared++
+                if ((InkBrushMask.weight(px, py, tuftTurned) >= 0.5f) == w0) tuftSame++
+                if ((InkBrushMask.weight(px, py, pathTurned) >= 0.5f) == w0) pathSame++
+            }
+        }
+
+        assertTrue(compared > 50, "the fixture needs a broad interior, had $compared")
+        assertEquals(compared, tuftSame, "the tuft axis must not move the hair lanes")
+        assertTrue(
+            pathSame < compared * 2 / 3,
+            "the path tangent must steer the hair lanes, $pathSame/$compared stayed",
+        )
     }
 
     @Test
@@ -465,7 +522,7 @@ class DabStampTest {
             y = 2_000.08f,
             angle = 0.02f,
             bristleAlong = 4.0006f,
-            bristleAcross = 0.04f,
+            pathAngle = 0.02f,
         )
         var compared = 0
         var matching = 0

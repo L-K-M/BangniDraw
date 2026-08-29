@@ -245,7 +245,7 @@ class DabPass(
             instanceData[o++] = batch.seed[i]
             instanceData[o++] = batch.wetness[i]
             instanceData[o++] = batch.bristleAlong[i]
-            instanceData[o] = batch.bristleAcross[i]
+            instanceData[o] = batch.pathAngle[i]
             n++
         }
         return n
@@ -372,7 +372,7 @@ class DabPass(
             Shaders.ATTR_DAB_SEED to 1,
             Shaders.ATTR_DAB_WETNESS to 1,
             Shaders.ATTR_DAB_BRISTLE_ALONG to 1,
-            Shaders.ATTR_DAB_BRISTLE_ACROSS to 1,
+            Shaders.ATTR_DAB_PATH_ANGLE to 1,
         )
     }
 }

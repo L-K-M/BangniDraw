@@ -28,9 +28,7 @@ internal class InkBrushDynamics(
     private var responseLength = MIN_RESPONSE_PX
 
     private var bristleAlong = 0f
-    private var bristleAcross = 0f
     private var segmentBristleAlongStart = 0f
-    private var segmentBristleAcrossStart = 0f
 
     private var inkUse = 0f
     private var segmentInkStart = 0f
@@ -51,9 +49,7 @@ internal class InkBrushDynamics(
         segmentPathAngle = 0f
         responseLength = MIN_RESPONSE_PX
         bristleAlong = 0f
-        bristleAcross = 0f
         segmentBristleAlongStart = 0f
-        segmentBristleAcrossStart = 0f
         inkUse = 0f
         segmentInkStart = 0f
         segmentInkEnd = 0f
@@ -93,7 +89,6 @@ internal class InkBrushDynamics(
         segmentDistance = distance
         segmentPathAngle = pathAngle
         segmentBristleAlongStart = bristleAlong
-        segmentBristleAcrossStart = bristleAcross
         responseLength = maxOf(
             MIN_RESPONSE_PX,
             radius * (RESPONSE_BASE + RESPONSE_PRESSURE * normalizedPressure(pressure)),
@@ -141,19 +136,13 @@ internal class InkBrushDynamics(
     /** Writes the tuft orientation, ink load, and transported material phase. */
     fun writeSampleAt(fraction: Float, out: InkBrushSample) {
         val f = fraction.coerceIn(0f, 1f)
-        val sampleAngle = angleAt(f)
-        // Project centre travel through the midpoint axis. This transports the
-        // material field even when a lagged tuft moves partly across itself.
-        val middleAngle = segmentAxisStart +
-            axisDelta(segmentAxisStart, sampleAngle) * 0.5f
-        val relativeAngle = segmentPathAngle - middleAngle
-        val travel = segmentDistance * f
-
-        out.angle = sampleAngle
+        // The hair lanes live in the path frame: fly-white channels are drag
+        // channels, so their material coordinate is plain arc length. The
+        // lagged tuft axis in [angleAt] drives only the footprint.
+        out.angle = angleAt(f)
         out.wetness = wetnessAt(f)
         out.travel = strokeTravelled + segmentDistance * f
-        out.bristleAlong = segmentBristleAlongStart + travel * cos(relativeAngle)
-        out.bristleAcross = segmentBristleAcrossStart + travel * sin(relativeAngle)
+        out.bristleAlong = segmentBristleAlongStart + segmentDistance * f
     }
 
     fun currentAngle(): Float = if (axisReady) axis else 0f
@@ -169,12 +158,12 @@ internal class InkBrushDynamics(
 
     fun currentBristleAlong(): Float = bristleAlong
 
-    fun currentBristleAcross(): Float = bristleAcross
+    /** The current segment's tangent, for a resting dab's lane frame. */
+    fun currentPathAngle(): Float = if (axisReady) segmentPathAngle else 0f
 
     fun finishSegment(pressure: Float) {
         writeSampleAt(1f, segmentEndSample)
         bristleAlong = segmentEndSample.bristleAlong
-        bristleAcross = segmentEndSample.bristleAcross
         axis = segmentEndSample.angle
         inkUse = segmentInkEnd
         strokeTravelled += segmentDistance
@@ -199,9 +188,7 @@ internal class InkBrushDynamics(
         other.segmentPathAngle = segmentPathAngle
         other.responseLength = responseLength
         other.bristleAlong = bristleAlong
-        other.bristleAcross = bristleAcross
         other.segmentBristleAlongStart = segmentBristleAlongStart
-        other.segmentBristleAcrossStart = segmentBristleAcrossStart
         other.inkUse = inkUse
         other.segmentInkStart = segmentInkStart
         other.segmentInkEnd = segmentInkEnd
@@ -266,5 +253,4 @@ internal class InkBrushSample {
     var wetness = 1f
     var travel = 0f
     var bristleAlong = 0f
-    var bristleAcross = 0f
 }

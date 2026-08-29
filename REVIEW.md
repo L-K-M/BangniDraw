@@ -2220,3 +2220,17 @@ touchscreen hover too, not only a pen.
 - **R-167 🟢 Round 12, info: duplicate probe-refusal log line.** Applied —
   `probeRow` already logs the refusal with its stack; the decision shows in
   the insert that follows.
+
+- **R-168 🟡 Round 13: a pending withdrawal seemed stranded after process
+  death.** Refuted by the search the finding itself prescribes: the Studio
+  sweep reconciles it on every app start — a reference edit bumps
+  `updatedAt`, an unsettled withdrawal leaves `lastGallerySyncAt` behind,
+  so `updatedAt > lastGallerySyncAt` holds and `syncReferenceVariant`
+  retries the withdrawal without needing any edit in the document. The
+  session counters gate only the in-canvas fast path.
+
+- **R-169 🟡 Round 13: one checkbox governs two gallery entries.** The
+  two-checkbox UI is declined — the rows are one feature, and per-row
+  toggles over-UI a rare combination — but the label no longer promises a
+  single copy: "Also delete the gallery copies" (zh already
+  number-neutral).

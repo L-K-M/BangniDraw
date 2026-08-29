@@ -31,7 +31,7 @@
     <string name="studio_delete">Delete</string>
     <string name="studio_delete_title">Delete “%1$s”?</string>
     <string name="studio_delete_body">The painting and its undo history are removed from this device.</string>
-    <string name="studio_delete_gallery_too">Also delete the copy in the gallery</string>
+    <string name="studio_delete_gallery_too">Also delete the gallery copies</string>
     <string name="studio_deleted">Deleted</string>
     <string name="studio_delete_failed">Couldn’t delete</string>
     <string name="studio_create_failed">Couldn’t create the painting</string>

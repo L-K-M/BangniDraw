@@ -433,7 +433,11 @@ class DabGenerator(
         return emit(x, y, interpolated, out)
     }
 
-    /** Non-ink dabs carry no lane frame; the neutral value lives in one place. */
+    /**
+     * Non-ink dabs carry no lane frame; the neutral value lives in one place.
+     * `inkDynamics` is the only ink marker — the `ink` locals at the call
+     * sites are direct aliases of it, never an independent state.
+     */
     private fun laneAngle(raw: Float): Float = if (inkDynamics == null) 0f else raw
 
     private fun emit(x: Float, y: Float, sample: InterpolatedSample, out: DabBatch): Boolean {

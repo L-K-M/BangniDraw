@@ -352,7 +352,7 @@ class DabGeneratorTest {
                 abs(next.x - first.x) < pxEps,
                 "seed $seed: the fixture must move across the incoming axis",
             )
-            assertTrue(next.y > first.y)
+            assertTrue(next.y > first.y, "seed $seed: the fixture must move down the incoming leg")
             assertTrue(first.angle < 0.35f, "seed $seed: the tuft must still face along the incoming segment")
 
             val centreX = ((first.x + next.x) * 0.5f).toInt()

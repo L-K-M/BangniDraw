@@ -2216,3 +2216,7 @@ touchscreen hover too, not only a pen.
 - **R-166 🟢 Round 11, info: an assertion message named u where the row
   index pinned v.** Applied — diagnostic only, but the message now points
   at the axis the coordinate actually left.
+
+- **R-167 🟢 Round 12, info: duplicate probe-refusal log line.** Applied —
+  `probeRow` already logs the refusal with its stack; the decision shows in
+  the insert that follows.

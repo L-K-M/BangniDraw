@@ -110,11 +110,6 @@ class GalleryExporter @Inject constructor(
             isOwner = row.owned
             modifiedByOther = row.modifiedByOther
             probeThrew = row.threw
-            if (probeThrew) {
-                // Kept as the historical log line: a recorded row that
-                // became inaccessible is no longer safe to rewrite.
-                Log.w(TAG, "gallery probe refused; inserting a fresh item")
-            }
         }
 
         var action = GallerySyncDecision.decide(

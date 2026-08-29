@@ -329,56 +329,66 @@ class DabGeneratorTest {
     @Test
     fun `Chinese ink bristle contact stays correlated through a sharp turn`() {
         val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
-        // Seed 50 lands this turn's lanes in the mixed regime: enough hairs
-        // and enough gaps for the agreement check below to have teeth.
-        val generator = DabGenerator(brush, seed = 50L)
-        val batch = DabBatch()
 
-        generator.begin(sample(2_000f, 2_000f, pressure = 1f), batch)
-        generator.advance(sample(2_100f, 2_000f, pressure = 1f, timeMs = 80), batch)
-        val turnStart = batch.count
-        generator.advance(sample(2_100f, 2_100f, pressure = 1f, timeMs = 160), batch)
+        // The correlation property must hold for typical lane placements, not
+        // one hand-picked seed in the mixed regime; with coherent lanes any
+        // single seed may legitimately land all-solid or all-gap, so the
+        // mixed-regime guard applies to the seed set as a whole.
+        var mixedSeeds = 0
+        for (seed in 48L..52L) {
+            val generator = DabGenerator(brush, seed = seed)
+            val batch = DabBatch()
 
-        val turn = (turnStart until batch.count).map(batch::get)
-        assertTrue(turn.size > 4, "the turn needs several overlapping dabs")
-        val first = turn.first().copy(wetness = 0.24f)
-        val next = turn[3].copy(wetness = first.wetness)
-        assertTrue(abs(next.x - first.x) < pxEps, "the fixture must move across the incoming axis")
-        assertTrue(next.y > first.y)
-        assertTrue(first.angle < 0.35f, "the tuft must still face along the incoming segment")
+            generator.begin(sample(2_000f, 2_000f, pressure = 1f), batch)
+            generator.advance(sample(2_100f, 2_000f, pressure = 1f, timeMs = 80), batch)
+            val turnStart = batch.count
+            generator.advance(sample(2_100f, 2_100f, pressure = 1f, timeMs = 160), batch)
 
-        val centreX = ((first.x + next.x) * 0.5f).toInt()
-        val centreY = ((first.y + next.y) * 0.5f).toInt()
-        var compared = 0
-        var matching = 0
-        var firstContacts = 0
+            val turn = (turnStart until batch.count).map(batch::get)
+            assertTrue(turn.size > 4, "the turn needs several overlapping dabs")
+            val first = turn.first().copy(wetness = 0.24f)
+            val next = turn[3].copy(wetness = first.wetness)
+            assertTrue(abs(next.x - first.x) < pxEps, "the fixture must move across the incoming axis")
+            assertTrue(next.y > first.y)
+            assertTrue(first.angle < 0.35f, "the tuft must still face along the incoming segment")
 
-        for (y in centreY - 8..centreY + 8) {
-            for (x in centreX - 16..centreX + 16) {
-                val px = x + 0.5f
-                val py = y + 0.5f
-                val firstInterior = DabStamp.localDistance(
-                    px, py, first.x, first.y, first.angle, first.aspect,
-                ) < first.radius * 0.6f
-                val nextInterior = DabStamp.localDistance(
-                    px, py, next.x, next.y, next.angle, next.aspect,
-                ) < next.radius * 0.6f
-                if (!firstInterior || !nextInterior) continue
+            val centreX = ((first.x + next.x) * 0.5f).toInt()
+            val centreY = ((first.y + next.y) * 0.5f).toInt()
+            var compared = 0
+            var matching = 0
+            var firstContacts = 0
 
-                val a = InkBrushMask.weight(px, py, first) >= 0.5f
-                val b = InkBrushMask.weight(px, py, next) >= 0.5f
-                compared++
-                if (a) firstContacts++
-                if (a == b) matching++
+            for (y in centreY - 8..centreY + 8) {
+                for (x in centreX - 16..centreX + 16) {
+                    val px = x + 0.5f
+                    val py = y + 0.5f
+                    val firstInterior = DabStamp.localDistance(
+                        px, py, first.x, first.y, first.angle, first.aspect,
+                    ) < first.radius * 0.6f
+                    val nextInterior = DabStamp.localDistance(
+                        px, py, next.x, next.y, next.angle, next.aspect,
+                    ) < next.radius * 0.6f
+                    if (!firstInterior || !nextInterior) continue
+
+                    val a = InkBrushMask.weight(px, py, first) >= 0.5f
+                    val b = InkBrushMask.weight(px, py, next) >= 0.5f
+                    compared++
+                    if (a) firstContacts++
+                    if (a == b) matching++
+                }
             }
+
+            assertTrue(compared > 100, "the fixture needs a broad shared interior, had $compared samples")
+            if (firstContacts > compared / 10 && firstContacts < compared * 9 / 10) mixedSeeds++
+            assertTrue(
+                matching.toFloat() / compared > 0.75f,
+                "seed $seed: the sharp turn changed ${compared - matching} of $compared bristle contacts",
+            )
         }
 
-        assertTrue(compared > 100, "the fixture needs a broad shared interior, had $compared samples")
-        assertTrue(firstContacts > compared / 10, "the first dab must retain visible hairs")
-        assertTrue(firstContacts < compared * 9 / 10, "the first dab must retain visible gaps")
         assertTrue(
-            matching.toFloat() / compared > 0.75f,
-            "the sharp turn changed ${compared - matching} of $compared bristle contacts",
+            mixedSeeds >= 2,
+            "the seed set must exercise both hairs and gaps, only $mixedSeeds mixed",
         )
     }
 

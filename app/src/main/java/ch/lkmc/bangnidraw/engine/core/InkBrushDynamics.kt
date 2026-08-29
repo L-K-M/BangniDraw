@@ -240,7 +240,7 @@ internal class InkBrushDynamics(
         const val STYLUS_AXIS_WEIGHT = 0.45f
 
         const val LIGHT_CONTACT_ASPECT = 0.9f
-        const val DEFAULT_FULL_CONTACT_ASPECT = 0.58f
+        const val DEFAULT_FULL_CONTACT_ASPECT = 0.72f
         const val TILT_ASPECT_LOSS = 0.08f
 
         const val MIN_INK_CONTACT = 0.25f

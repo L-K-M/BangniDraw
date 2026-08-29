@@ -231,12 +231,14 @@ class DabGenerator(
             if (ink == null) {
                 interpolated.strokeAngle = segmentPathAngle
                 interpolated.wetness = 1f
+                interpolated.travel = 0f
                 interpolated.bristleAlong = 0f
                 interpolated.bristleAcross = 0f
             } else {
                 ink.writeSampleAt(segmentT, inkSample)
                 interpolated.strokeAngle = inkSample.angle
                 interpolated.wetness = inkSample.wetness
+                interpolated.travel = inkSample.travel
                 interpolated.bristleAlong = inkSample.bristleAlong
                 interpolated.bristleAcross = inkSample.bristleAcross
             }
@@ -405,6 +407,7 @@ class DabGenerator(
         var orientation = 0f
         var strokeAngle = 0f
         var wetness = 1f
+        var travel = 0f
         var bristleAlong = 0f
         var bristleAcross = 0f
     }
@@ -425,6 +428,7 @@ class DabGenerator(
         val ink = inkDynamics
         interpolated.strokeAngle = ink?.currentAngle() ?: 0f
         interpolated.wetness = ink?.currentWetness(velocityFraction()) ?: 1f
+        interpolated.travel = ink?.currentTravel() ?: 0f
         interpolated.bristleAlong = ink?.currentBristleAlong() ?: 0f
         interpolated.bristleAcross = ink?.currentBristleAcross() ?: 0f
         return emit(x, y, interpolated, out)
@@ -457,7 +461,7 @@ class DabGenerator(
             sample.strokeAngle
         }
         val finalRadius = (radius * elongation).coerceIn(minRadius, maxRadius)
-        val aspect = ink?.aspectAt(p, tiltFraction(sample.tilt)) ?: aspectFor(elongation)
+        val aspect = ink?.aspectAt(p, tiltFraction(sample.tilt), sample.travel) ?: aspectFor(elongation)
         val wetness = if (ink == null) 1f else sample.wetness
         val bristleAlong = if (ink == null) 0f else sample.bristleAlong
         val bristleAcross = if (ink == null) 0f else sample.bristleAcross

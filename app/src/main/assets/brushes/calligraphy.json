@@ -9,7 +9,7 @@
   "flow": 1.0,
   "hardness": 0.92,
   "spacing": 0.08,
-  "tip": { "type": "flat", "aspect": 0.58 },
+  "tip": { "type": "flat", "aspect": 0.72 },
   "orientation": "StrokeDirection",
   "pressureSize": { "p0": 0.05, "p1": 0.22, "p2": 0.62, "p3": 1.0 },
   "velocity": { "sizeAtFast": 0.96, "opacityAtFast": 1.0, "fastPxPerMs": 2.5 },

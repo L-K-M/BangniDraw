@@ -311,6 +311,46 @@ class DabStampTest {
     }
 
     @Test
+    fun `Chinese ink hair lanes persist along the pull`() {
+        // Two dabs 80 px apart on one straight pull, the second carrying the
+        // transported along phase. Dry enough to split, the contact pattern on
+        // a hair lane must survive the travel — real fly-white streaks run
+        // the length of the sweep, they do not break every few tuft-widths.
+        val first = dab(
+            x = 0f,
+            y = 0f,
+            radius = 20f,
+            hardness = 1f,
+            angle = 0f,
+            aspect = 0.7f,
+            seed = 0.37f,
+            wetness = 0.24f,
+        )
+        val later = first.copy(x = 80f, bristleAlong = first.bristleAlong + 80f)
+
+        var compared = 0
+        var agreeing = 0
+        for (lane in -10..10) {
+            val y = lane + 0.5f
+            if (DabStamp.localDistance(0.5f, y, first.x, first.y, first.angle, first.aspect) >
+                first.radius * 0.6f
+            ) {
+                continue
+            }
+            val a = InkBrushMask.weight(0.5f, y, first) >= 0.5f
+            val b = InkBrushMask.weight(80.5f, y, later) >= 0.5f
+            compared++
+            if (a == b) agreeing++
+        }
+
+        assertTrue(compared >= 10, "the fixture needs enough lanes, had $compared")
+        assertTrue(
+            agreeing.toFloat() / compared > 0.75f,
+            "hair lanes broke apart over 80 px of pull: $agreeing/$compared agree",
+        )
+    }
+
+    @Test
     fun `Chinese ink contains a non-finite pattern seed`() {
         val reference = dab(
             radius = 20f,

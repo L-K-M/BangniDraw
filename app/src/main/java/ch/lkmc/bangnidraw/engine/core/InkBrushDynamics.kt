@@ -37,6 +37,9 @@ internal class InkBrushDynamics(
     private var segmentInkEnd = 0f
     private var segmentDrying = 1f
     private var stationaryPressurePeak = 0f
+
+    /** Path length covered since pen-down; the splay settles in over it. */
+    private var strokeTravelled = 0f
     private val segmentEndSample = InkBrushSample()
 
     fun reset(pressure: Float) {
@@ -56,6 +59,7 @@ internal class InkBrushDynamics(
         segmentInkEnd = 0f
         segmentDrying = 1f
         stationaryPressurePeak = normalizedPressure(pressure)
+        strokeTravelled = 0f
     }
 
     fun prepareSegment(
@@ -113,14 +117,20 @@ internal class InkBrushDynamics(
         return segmentAxisStart + axisDelta(segmentAxisStart, segmentAxisTarget) * response
     }
 
-    fun aspectAt(pressure: Float, tiltFraction: Float): Float {
+    fun aspectAt(pressure: Float, tiltFraction: Float, travelPx: Float): Float {
         if (!axisReady) return 1f
 
         val splay = sqrt(normalizedPressure(pressure))
         val pressureAspect = LIGHT_CONTACT_ASPECT +
             (fullContactAspect - LIGHT_CONTACT_ASPECT) * splay
-        return (pressureAspect - TILT_ASPECT_LOSS * tiltFraction)
+        val target = (pressureAspect - TILT_ASPECT_LOSS * tiltFraction)
             .coerceIn(TipShape.Flat.MIN_ASPECT, 1f)
+        // A directionless first touch is round, but snapping to the splayed
+        // footprint on the very next dab reads as a balloon on a ribbon. The
+        // splay settles with the same response length as the tuft axis, so
+        // the entry shapes itself over the first tuft lengths of travel.
+        val settle = 1f - exp(-travelPx.coerceAtLeast(0f) / responseLength)
+        return 1f + (target - 1f) * settle
     }
 
     fun wetnessAt(fraction: Float): Float {
@@ -141,6 +151,7 @@ internal class InkBrushDynamics(
 
         out.angle = sampleAngle
         out.wetness = wetnessAt(f)
+        out.travel = strokeTravelled + segmentDistance * f
         out.bristleAlong = segmentBristleAlongStart + travel * cos(relativeAngle)
         out.bristleAcross = segmentBristleAcrossStart + travel * sin(relativeAngle)
     }
@@ -148,7 +159,10 @@ internal class InkBrushDynamics(
     fun currentAngle(): Float = if (axisReady) axis else 0f
 
     fun currentAspect(pressure: Float, tiltFraction: Float): Float =
-        aspectAt(pressure, tiltFraction)
+        aspectAt(pressure, tiltFraction, strokeTravelled)
+
+    /** Distance covered since pen-down, for the splay settle of a resting dab. */
+    fun currentTravel(): Float = strokeTravelled
 
     fun currentWetness(speedFraction: Float): Float =
         loadedFraction(inkUse) * (1f - FAST_DRYING * normalizedUnit(speedFraction))
@@ -163,6 +177,7 @@ internal class InkBrushDynamics(
         bristleAcross = segmentEndSample.bristleAcross
         axis = segmentEndSample.angle
         inkUse = segmentInkEnd
+        strokeTravelled += segmentDistance
         stationaryPressurePeak = normalizedPressure(pressure)
     }
 
@@ -192,6 +207,7 @@ internal class InkBrushDynamics(
         other.segmentInkEnd = segmentInkEnd
         other.segmentDrying = segmentDrying
         other.stationaryPressurePeak = stationaryPressurePeak
+        other.strokeTravelled = strokeTravelled
     }
 
     private fun loadedFraction(use: Float): Float = 1f / (1f + use / INK_CAPACITY)
@@ -214,7 +230,7 @@ internal class InkBrushDynamics(
         return t * t * (3f - 2f * t)
     }
 
-    private companion object {
+    internal companion object {
         const val PI_FLOAT = PI.toFloat()
         const val HALF_PI = (PI / 2.0).toFloat()
 
@@ -223,12 +239,20 @@ internal class InkBrushDynamics(
         const val RESPONSE_PRESSURE = 1.4f
         const val STYLUS_AXIS_WEIGHT = 0.45f
 
-        const val LIGHT_CONTACT_ASPECT = 0.82f
-        const val DEFAULT_FULL_CONTACT_ASPECT = 0.58f
+        const val LIGHT_CONTACT_ASPECT = 0.9f
+        const val DEFAULT_FULL_CONTACT_ASPECT = 0.72f
         const val TILT_ASPECT_LOSS = 0.08f
 
         const val MIN_INK_CONTACT = 0.25f
-        const val INK_CAPACITY = 8f
+
+        /**
+         * Ink lasts this many `baseRadius` units of swept contact before the
+         * load halves. Measured against reference calligraphy: a tuft lays
+         * down a few tuft-widths of solid line, then split hairs build over
+         * the next dozen widths into full fly-white — texture must develop
+         * *within* one ordinary stroke, since every stroke starts loaded.
+         */
+        const val INK_CAPACITY = 5f
         const val FAST_DRYING = 0.38f
         const val PUSH_DRYING = 0.12f
         const val MIN_DRYING = 0.42f
@@ -240,6 +264,7 @@ internal class InkBrushDynamics(
 internal class InkBrushSample {
     var angle = 0f
     var wetness = 1f
+    var travel = 0f
     var bristleAlong = 0f
     var bristleAcross = 0f
 }

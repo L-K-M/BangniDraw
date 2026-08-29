@@ -250,8 +250,10 @@ canvas px, which is the "invariant under resolution" test in PLAN §7.
 
 **Chinese ink state.** `BrushModel.ChineseInk` gives `builtin.calligraphy`
 (the stable stored id retained from the display rename) a flexible tuft rather
-than a rigid chisel. A directionless first touch is round. Once the stroke moves,
-its target axis follows the stabilized path,
+than a rigid chisel. A directionless first touch is round; the splay then
+settles in with the same response length as the tuft axis, so the entry shapes
+itself instead of snapping to the moving footprint on the second dab. Once the
+stroke moves, its target axis follows the stabilized path,
 nudged toward stylus azimuth as tilt rises; the tuft eases toward that target
 and preserves its incoming direction through a turn. Pressure splays the tuft
 from point to belly. A pressure increase at zero path length emits a new dab

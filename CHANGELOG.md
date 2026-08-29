@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.2 - 2026-08-29
 
 - Follow the stroke direction with the Chinese ink brush's fly-white
   streaks instead of letting them cross the stroke on curves.

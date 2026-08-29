@@ -206,11 +206,18 @@ class GalleryExporter @Inject constructor(
         val uri = recordedUri?.let(Uri::parse) ?: return true
         val row = try {
             probeRow(uri, recordedModifiedAt, recordedBytes)
-        } catch (e: RuntimeException) {
-            // A probe that dies outside its own containment is no reason to
-            // keep a recorded URI the next round cannot trust either.
-            Log.w(TAG, "gallery withdraw probe failed", e)
+        } catch (e: IllegalArgumentException) {
+            // A URI the provider will never accept is permanent: the row it
+            // names can be neither probed nor deleted, so forgetting is the
+            // only exit, not an orphaned retry loop.
+            Log.w(TAG, "gallery withdraw probe refused a malformed URI", e)
             return true
+        } catch (e: RuntimeException) {
+            // The same containment as the delete below: an unexpected
+            // provider failure is retryable, not a reason to orphan an
+            // owned row — this one can hold the reference photo.
+            Log.w(TAG, "gallery withdraw probe failed; will retry", e)
+            return false
         }
         // Ownership joins the guard: with 0/0 recorded state the tamper half
         // is forced false, and a row id MediaStore recycled after our item

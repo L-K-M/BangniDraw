@@ -2092,3 +2092,10 @@ touchscreen hover too, not only a pen.
 
 - **R-146 🟢 Round 4, minor: the withdrawal test pinned two of three
   fields.** Applied — the withdrawn byte count is asserted too.
+
+- **R-147 🟠 Round 5: a transient probe failure forgot the reference row.**
+  Applied. The probe's outer catch now retries like the delete path does —
+  an orphaned "with reference" row is the privacy-sensitive failure this
+  feature exists to avoid — with one carve-out: `IllegalArgumentException`
+  (a URI the provider will never accept) stays settled, because that probe
+  can never succeed and retrying it is the R-145 churn pattern.

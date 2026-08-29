@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Rework the Chinese ink brush feel: shaped stroke entries instead of a
+  round blob, fly-white that builds within one stroke in long streaks, and
+  bristly edges even on a full ink load.
+
 ## 1.2.0 - 2026-08-29
 
 - Keep a second gallery copy that includes a visible tracing image, and

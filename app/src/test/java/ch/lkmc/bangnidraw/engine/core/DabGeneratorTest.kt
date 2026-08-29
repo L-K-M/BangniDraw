@@ -246,16 +246,58 @@ class DabGeneratorTest {
     }
 
     @Test
+    fun `a Chinese ink stroke develops split hairs within ordinary travel`() {
+        val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
+        // Reference calligraphy shows a few tuft-widths of solid line, then
+        // growing fly-white: the dry look must arrive *within* one stroke,
+        // because every stroke starts loaded.
+        val dabs = run(
+            brush,
+            straightPath(0f, 800f, steps = 80, pressure = 0.7f, msPerStep = 16L),
+            seed = 31L,
+        )
+
+        val early = dabs.first { it.x >= 80f }
+        assertTrue(
+            early.wetness > 0.5f,
+            "the first tuft-widths must still read loaded, was ${early.wetness}",
+        )
+        assertTrue(
+            dabs.last().wetness < 0.25f,
+            "split hairs must show by the end of an ordinary stroke, ended at ${dabs.last().wetness}",
+        )
+    }
+
+    @Test
+    fun `the Chinese ink tuft eases from a round touch into its splay`() {
+        val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
+        val target = (brush.tip as TipShape.Flat).aspect
+        val dabs = run(
+            brush,
+            straightPath(0f, 400f, steps = 40, pressure = 1f, msPerStep = 12L),
+            seed = 37L,
+        )
+
+        assertEquals(1f, dabs.first().aspect, pxEps)
+        val early = dabs[1]
+        assertTrue(
+            early.aspect > (1f + target) / 2f,
+            "the splay must ease in over the response length, was $early",
+        )
+        assertEquals(target, dabs.last().aspect, 0.05f)
+    }
+
+    @Test
     fun `stationary Chinese ink retains its depleted tuft state`() {
         val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
         val generator = DabGenerator(brush, seed = 13L)
         val batch = DabBatch(4096)
 
-        generator.begin(sample(0f, 0f, pressure = 0.35f), batch)
-        generator.advance(sample(500f, 0f, pressure = 0.35f, timeMs = 600), batch)
-        generator.advance(sample(500f, 120f, pressure = 0.35f, timeMs = 800), batch)
+        generator.begin(sample(0f, 0f, pressure = 0.6f), batch)
+        generator.advance(sample(1400f, 0f, pressure = 0.6f, timeMs = 600), batch)
+        generator.advance(sample(1400f, 120f, pressure = 0.6f, timeMs = 800), batch)
         val beforePress = batch.count
-        generator.advance(sample(500f, 120f, pressure = 0.9f, timeMs = 816), batch)
+        generator.advance(sample(1400f, 120f, pressure = 0.9f, timeMs = 816), batch)
 
         assertEquals(beforePress + 1, batch.count, "the pressure rise must stamp once")
         val pressed = batch[batch.count - 1]
@@ -274,7 +316,7 @@ class DabGeneratorTest {
         generator.begin(sample(0f, 0f, pressure = 1f), batch)
         generator.advance(sample(100f, 0f, pressure = 1f, timeMs = 80), batch)
         val turnStart = batch.count
-        generator.advance(sample(100f, 100f, pressure = 1f, timeMs = 160), batch)
+        generator.advance(sample(100f, 300f, pressure = 1f, timeMs = 320), batch)
 
         val turn = (turnStart until batch.count).map(batch::get)
         assertTrue(turn.size > 4, "the turn needs enough dabs to observe the tuft response")
@@ -287,7 +329,9 @@ class DabGeneratorTest {
     @Test
     fun `Chinese ink bristle contact stays correlated through a sharp turn`() {
         val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
-        val generator = DabGenerator(brush, seed = 17L)
+        // Seed 50 lands this turn's lanes in the mixed regime: enough hairs
+        // and enough gaps for the agreement check below to have teeth.
+        val generator = DabGenerator(brush, seed = 50L)
         val batch = DabBatch()
 
         generator.begin(sample(2_000f, 2_000f, pressure = 1f), batch)

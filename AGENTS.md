@@ -301,6 +301,20 @@ and the contradiction is noted here.
   gate only for `ChineseInk`; `Standard` keeps its position-only sampling.
   This procedural mask adds no third-party asset, and `wetness` is ink load,
   not the post-v1 per-layer water/diffusion channel.
+  **Tuning, measured against reference calligraphy and CPU renders of the
+  user's own finger gestures:** the splay *eases in* from the round first
+  touch over the tuft response length (`strokeTravelled`); snapping to the
+  pressure aspect on the second dab read as a balloon-on-ribbon head, and the
+  turn test's full-splay assertion therefore runs over a 300 px leg.
+  `INK_CAPACITY` is 5 `baseRadius` units of swept contact per halving —
+  because every stroke starts loaded (the plan fixes that), fly-white must
+  develop *within* one ordinary stroke, not after several.
+  `BREAK_LENGTH_PX` 256 keeps hair lanes coherent for long streaks; 32 broke
+  them into dashes every couple of tuft-widths. `EDGE_DRYING` 0.5 frays the
+  rim even when loaded — a vector-clean edge reads as a marker, not a brush.
+  The tip's full-contact aspect is 0.72 (head:body ≈ 1.4), not the
+  chisel-like 0.58. The mask constants are interpolated into `dab.frag` from
+  `InkBrushMask`, so these values move CPU and GLSL together.
 
 - **`maxCanvasEdge` is not bounded by `GL_MAX_TEXTURE_SIZE`.**
   `docs/plan/11-testing.md` §3.11 lists `maxCanvasEdge <= glMaxTextureSize`

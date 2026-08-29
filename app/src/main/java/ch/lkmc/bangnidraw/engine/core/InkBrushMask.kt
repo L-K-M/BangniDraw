@@ -11,7 +11,10 @@ internal object InkBrushMask {
 
     /**
      * A wet tuft joins into one mass. As ink falls, its fixed hair lanes and
-     * paper tooth cross the contact threshold and expose real paper.
+     * paper tooth cross the contact threshold and expose real paper. Lanes
+     * are stable over [BREAK_LENGTH_PX] of pull: the along-axis noise cell is
+     * long, so a streak persists for the sweep instead of breaking into
+     * dashes every few tuft-widths.
      */
     fun weight(px: Float, py: Float, dab: Dab): Float {
         val c = cos(dab.angle)
@@ -99,7 +102,13 @@ internal object InkBrushMask {
     private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
 
     const val BRISTLE_WIDTH_PX = 3.6f
-    const val BREAK_LENGTH_PX = 32f
+
+    /**
+     * Hair lanes decorrelate over this many px of pull. Real fly-white
+     * streaks run the length of a sweep — the noise cell must span many
+     * tuft-widths, or lanes break into dashes.
+     */
+    const val BREAK_LENGTH_PX = 256f
     const val DRY_THRESHOLD_MAX = 0.38f
 
     const val TUFT_WIDTH_PX = 12f
@@ -109,7 +118,13 @@ internal object InkBrushMask {
     const val TUFT_PHASE = 19f
     const val TUFT_WEIGHT = 0.42f
     const val EDGE_DRY_START = 0.72f
-    const val EDGE_DRYING = 0.22f
+
+    /**
+     * Extra dryness toward the dab rim, where hair density physically drops.
+     * Strong enough that even a loaded tuft leaves a bristly edge rather than
+     * a vector-clean outline; a drying one fully frays.
+     */
+    const val EDGE_DRYING = 0.5f
     const val PAPER_TOOTH_DEPTH = 0.1f
     const val DRY_THRESHOLD_MIN = 0.06f
     const val DRY_THRESHOLD_POWER = 1.35f

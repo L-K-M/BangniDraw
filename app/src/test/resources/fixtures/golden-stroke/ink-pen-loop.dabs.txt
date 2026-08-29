@@ -7,7 +7,7 @@
 # these values by ~1e-7, four orders of magnitude inside that. A diff
 # here is a real change in the stroke, not a change of JDK.
 #
-# x y radius flow hardness angle aspect seed wetness bristleAlong bristleAcross
+# x y radius flow hardness angle aspect seed wetness bristleAlong pathAngle
 300.0000 315.0000 0.5000 1.0000 1.0000 0.0000 1.0000 0.6683 1.0000 0.0000 0.0000
 300.4705 314.8307 0.5000 1.0000 1.0000 0.0000 1.0000 0.6110 1.0000 0.0000 0.0000
 300.9409 314.6614 0.5000 1.0000 1.0000 0.0000 1.0000 0.3237 1.0000 0.0000 0.0000

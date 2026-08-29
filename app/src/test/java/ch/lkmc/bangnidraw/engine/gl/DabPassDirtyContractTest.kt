@@ -22,11 +22,11 @@ class DabPassDirtyContractTest {
         assertTrue("instanceData[o++]=batch.seed[i]" in compact)
         assertTrue("instanceData[o++]=batch.wetness[i]" in compact)
         assertTrue("instanceData[o++]=batch.bristleAlong[i]" in compact)
-        assertTrue("instanceData[o]=batch.bristleAcross[i]" in compact)
+        assertTrue("instanceData[o]=batch.pathAngle[i]" in compact)
         assertTrue("Shaders.ATTR_DAB_SEEDto1" in compact)
         assertTrue("Shaders.ATTR_DAB_WETNESSto1" in compact)
         assertTrue("Shaders.ATTR_DAB_BRISTLE_ALONGto1" in compact)
-        assertTrue("Shaders.ATTR_DAB_BRISTLE_ACROSSto1" in compact)
+        assertTrue("Shaders.ATTR_DAB_PATH_ANGLEto1" in compact)
         assertTrue("program.uniform1i(\"u_brushModel\",brushModel.shaderId)" in compact)
     }
 

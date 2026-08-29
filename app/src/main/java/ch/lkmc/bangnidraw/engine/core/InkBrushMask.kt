@@ -15,6 +15,11 @@ internal object InkBrushMask {
      * are stable over [BREAK_LENGTH_PX] of pull: the along-axis noise cell is
      * long, so a streak persists for the sweep instead of breaking into
      * dashes every few tuft-widths.
+     *
+     * Two frames per dab: the footprint (edge ramp, ellipse distance) uses
+     * the lagged tuft axis `dab.angle`, but the hair lanes use the path
+     * tangent `dab.pathAngle` — fly-white channels are drag channels, so they
+     * follow the stroke direction even when the tuft trails through a turn.
      */
     fun weight(px: Float, py: Float, dab: Dab): Float {
         val c = cos(dab.angle)
@@ -23,8 +28,6 @@ internal object InkBrushMask {
         val dy = py - dab.y
         val localMajor = dx * c + dy * s
         val localMinor = -dx * s + dy * c
-        val across = dab.bristleAcross + localMinor
-        val along = dab.bristleAlong + localMajor
 
         val minor = localMinor / dab.aspect
         val normalizedDistance = sqrt(localMajor * localMajor + minor * minor) /
@@ -34,6 +37,11 @@ internal object InkBrushMask {
             1f - dab.wetness.coerceIn(0f, 1f) + edge * EDGE_DRYING
             ).coerceIn(0f, 1f)
         if (dry <= LOADED_DRYNESS) return 1f
+
+        val lc = cos(dab.pathAngle)
+        val ls = sin(dab.pathAngle)
+        val across = -dx * ls + dy * lc
+        val along = dab.bristleAlong + dx * lc + dy * ls
 
         // Anisotropic value noise yields irregular hair clusters without the
         // mechanical comb pattern of equally spaced stripes.

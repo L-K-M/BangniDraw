@@ -233,15 +233,14 @@ class DabGenerator(
                 interpolated.wetness = 1f
                 interpolated.travel = 0f
                 interpolated.bristleAlong = 0f
-                interpolated.bristleAcross = 0f
             } else {
                 ink.writeSampleAt(segmentT, inkSample)
                 interpolated.strokeAngle = inkSample.angle
                 interpolated.wetness = inkSample.wetness
                 interpolated.travel = inkSample.travel
                 interpolated.bristleAlong = inkSample.bristleAlong
-                interpolated.bristleAcross = inkSample.bristleAcross
             }
+            interpolated.pathAngle = laneAngle(segmentPathAngle)
             if (!emit(x, y, interpolated, out)) return emitted
 
             emitted++
@@ -409,7 +408,7 @@ class DabGenerator(
         var wetness = 1f
         var travel = 0f
         var bristleAlong = 0f
-        var bristleAcross = 0f
+        var pathAngle = 0f
     }
 
     private val inkSample = InkBrushSample()
@@ -430,9 +429,16 @@ class DabGenerator(
         interpolated.wetness = ink?.currentWetness(velocityFraction()) ?: 1f
         interpolated.travel = ink?.currentTravel() ?: 0f
         interpolated.bristleAlong = ink?.currentBristleAlong() ?: 0f
-        interpolated.bristleAcross = ink?.currentBristleAcross() ?: 0f
+        interpolated.pathAngle = ink?.currentPathAngle() ?: 0f
         return emit(x, y, interpolated, out)
     }
+
+    /**
+     * Non-ink dabs carry no lane frame; the neutral value lives in one place.
+     * `inkDynamics` is the only ink marker — the `ink` locals at the call
+     * sites are direct aliases of it, never an independent state.
+     */
+    private fun laneAngle(raw: Float): Float = if (inkDynamics == null) 0f else raw
 
     private fun emit(x: Float, y: Float, sample: InterpolatedSample, out: DabBatch): Boolean {
         val p = sample.pressure
@@ -464,11 +470,10 @@ class DabGenerator(
         val aspect = ink?.aspectAt(p, tiltFraction(sample.tilt), sample.travel) ?: aspectFor(elongation)
         val wetness = if (ink == null) 1f else sample.wetness
         val bristleAlong = if (ink == null) 0f else sample.bristleAlong
-        val bristleAcross = if (ink == null) 0f else sample.bristleAcross
 
         val ok = out.add(
             px, py, finalRadius, flow, preset.hardness, angle, aspect, dabSeed, wetness,
-            bristleAlong, bristleAcross,
+            bristleAlong, laneAngle(sample.pathAngle),
         )
         if (!ok) return false
         dabIndex++

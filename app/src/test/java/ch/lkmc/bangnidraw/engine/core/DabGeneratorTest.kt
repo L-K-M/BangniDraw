@@ -321,7 +321,12 @@ class DabGeneratorTest {
         assertTrue(pressed.wetness < 0.8f, "a stationary press must not reload the tuft")
         assertTrue(abs(pressed.angle) > 0.1f, "a stationary press must retain the turned tuft axis")
         assertTrue(pressed.bristleAlong > 100f, "a stationary press must retain material phase")
-        assertTrue(abs(pressed.bristleAcross) > 1f, "a turned tuft must retain its cross phase")
+        assertEquals(
+            (PI / 2).toFloat(),
+            pressed.pathAngle,
+            0.01f,
+            "a stationary press must retain the last segment's tangent",
+        )
     }
 
     @Test
@@ -340,6 +345,12 @@ class DabGeneratorTest {
         assertTrue(turn.first().angle < 0.35f, "the first turning dab must retain the incoming axis")
         assertTrue(turn.last().angle > turn.first().angle + 0.35f, "the tuft must rotate through the turn")
         assertTrue(turn.last().angle < PI.toFloat() / 2f, "the soft tuft must still trail the new tangent")
+        assertEquals(
+            PI.toFloat() / 2f,
+            turn.last().pathAngle,
+            pxEps,
+            "the lane frame must follow the new segment's tangent exactly",
+        )
         assertEquals((brush.tip as TipShape.Flat).aspect, turn.last().aspect, pxEps)
     }
 
@@ -432,8 +443,8 @@ class DabGeneratorTest {
         )
         assertTrue(dense.last().bristleAlong > 500f, "the phase must follow the whole stroke")
         assertTrue(
-            dense.all { abs(it.bristleAcross) < pxEps },
-            "a horizontal stroke must not drift across its tuft",
+            dense.all { abs(it.pathAngle) < pxEps },
+            "a horizontal stroke must keep its lane frame on the path",
         )
     }
 
@@ -490,7 +501,6 @@ class DabGeneratorTest {
             assertTrue(ink.angle.isFinite(), "${contact.label} poisoned the tuft angle")
             assertTrue(ink.wetness.isFinite(), "${contact.label} poisoned the ink load")
             assertTrue(ink.bristleAlong.isFinite(), "${contact.label} poisoned the along phase")
-            assertTrue(ink.bristleAcross.isFinite(), "${contact.label} poisoned the across phase")
             assertTrue(dynamics.currentAngle().isFinite(), "${contact.label} poisoned later segments")
         }
     }

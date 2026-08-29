@@ -44,7 +44,7 @@ class DabGeneratorGoldenTest {
         val seed: Float,
         val wetness: Float,
         val bristleAlong: Float,
-        val bristleAcross: Float,
+        val pathAngle: Float,
     )
 
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
@@ -145,7 +145,7 @@ class DabGeneratorGoldenTest {
                 val d = b[it]
                 GoldenDab(
                     d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed, d.wetness,
-                    d.bristleAlong, d.bristleAcross,
+                    d.bristleAlong, d.pathAngle,
                 )
             }
         }
@@ -167,12 +167,12 @@ class DabGeneratorGoldenTest {
         appendLine("# these values by ~1e-7, four orders of magnitude inside that. A diff")
         appendLine("# here is a real change in the stroke, not a change of JDK.")
         appendLine("#")
-        appendLine("# x y radius flow hardness angle aspect seed wetness bristleAlong bristleAcross")
+        appendLine(GOLDEN_HEADER)
         for (d in dabs) {
             appendLine(
                 listOf(
                     d.x, d.y, d.radius, d.flow, d.hardness, d.angle, d.aspect, d.seed, d.wetness,
-                    d.bristleAlong, d.bristleAcross,
+                    d.bristleAlong, d.pathAngle,
                 )
                     .joinToString(" ") { fixed(it) },
             )
@@ -219,6 +219,9 @@ class DabGeneratorGoldenTest {
         val text = checkNotNull(
             javaClass.getResourceAsStream("/$GOLDEN_RESOURCE")?.bufferedReader()?.use { it.readText() },
         ) { "missing golden $GOLDEN_RESOURCE — regenerate with -Dbangni.updateGolden=true" }
+        require(text.lineSequence().any { it == GOLDEN_HEADER }) {
+            "the golden's header must name the current dab fields — regenerate with -Dbangni.updateGolden=true"
+        }
         val expected: List<GoldenDab> = parse(text)
 
         assertEquals(expected.size, actual.size, "the stroke's dab count changed")
@@ -235,7 +238,7 @@ class DabGeneratorGoldenTest {
             assertClose(e.seed, a.seed, "dab $i seed")
             assertClose(e.wetness, a.wetness, "dab $i wetness")
             assertClose(e.bristleAlong, a.bristleAlong, "dab $i bristle-along phase")
-            assertClose(e.bristleAcross, a.bristleAcross, "dab $i bristle-across phase")
+            assertClose(e.pathAngle, a.pathAngle, "dab $i path angle")
         }
     }
 
@@ -296,6 +299,9 @@ class DabGeneratorGoldenTest {
         const val PX_EPS = 1e-3f
 
         const val GOLDEN_FIELD_COUNT = 11
+
+        const val GOLDEN_HEADER =
+            "# x y radius flow hardness angle aspect seed wetness bristleAlong pathAngle"
 
         const val INPUT_RESOURCE = "fixtures/golden-stroke/ink-pen-loop.json"
         const val GOLDEN_RESOURCE = "fixtures/golden-stroke/ink-pen-loop.dabs.txt"

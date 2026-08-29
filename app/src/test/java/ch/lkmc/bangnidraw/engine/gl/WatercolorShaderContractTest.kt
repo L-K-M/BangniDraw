@@ -133,7 +133,7 @@ class WatercolorShaderContractTest {
         assertFalse("u_brushModel" in body)
         assertFalse("i_wetness" in body)
         assertFalse("i_bristleAlong" in body)
-        assertFalse("i_bristleAcross" in body)
+        assertFalse("i_pathAngle" in body)
     }
 
     @Test

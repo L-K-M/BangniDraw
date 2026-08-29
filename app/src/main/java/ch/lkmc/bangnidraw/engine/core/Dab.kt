@@ -29,9 +29,14 @@ data class Dab(
     val seed: Float,
     /** Ink remaining in the contacted tuft; 1 for ordinary dabs. */
     val wetness: Float = 1f,
-    /** Transported bristle-field coordinates at the dab centre. */
+    /** Transported along-path arc length at the dab centre, for lane continuity. */
     val bristleAlong: Float = 0f,
-    val bristleAcross: Float = 0f,
+    /**
+     * The stroke tangent at the dab. The ink mask's hair lanes live in this
+     * frame — fly-white channels are drag channels, so they follow the path,
+     * not the lagged tuft axis in [angle] (which drives only the footprint).
+     */
+    val pathAngle: Float = 0f,
 ) {
     companion object {
         /**
@@ -70,7 +75,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
     val seed = FloatArray(capacity)
     val wetness = FloatArray(capacity)
     val bristleAlong = FloatArray(capacity)
-    val bristleAcross = FloatArray(capacity)
+    val pathAngle = FloatArray(capacity)
 
     var count = 0
         private set
@@ -153,7 +158,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         seed: Float,
         wetness: Float = 1f,
         bristleAlong: Float = 0f,
-        bristleAcross: Float = 0f,
+        pathAngle: Float = 0f,
     ): Boolean {
         // [Dab]'s documented range, enforced where it is written rather than
         // only promised. An oversized radius is not a wrong-looking dab, it is
@@ -163,13 +168,13 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         require(radius >= Dab.MIN_RADIUS && radius <= Dab.MAX_RADIUS) {
             "dab radius $radius is outside ${Dab.MIN_RADIUS}..${Dab.MAX_RADIUS}"
         }
-        requireExtendedState(seed, wetness, bristleAlong, bristleAcross)
+        requireExtendedState(seed, wetness, bristleAlong, pathAngle)
         DabBounds.requireValid(x, y, radius)
         if (isFull) return false
         val i = count
         write(
             i, x, y, radius, flow, hardness, angle, aspect, seed, wetness,
-            bristleAlong, bristleAcross,
+            bristleAlong, pathAngle,
         )
         count = i + 1
         includeDirtyDab(x, y, radius)
@@ -189,18 +194,18 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         seed: Float,
         wetness: Float = 1f,
         bristleAlong: Float = 0f,
-        bristleAcross: Float = 0f,
+        pathAngle: Float = 0f,
     ) {
         require(index in 0 until count) { "index $index is outside 0..${count - 1}" }
         require(radius in Dab.MIN_RADIUS..Dab.MAX_RADIUS) {
             "dab radius $radius is outside ${Dab.MIN_RADIUS}..${Dab.MAX_RADIUS}"
         }
-        requireExtendedState(seed, wetness, bristleAlong, bristleAcross)
+        requireExtendedState(seed, wetness, bristleAlong, pathAngle)
         DabBounds.requireValid(x, y, radius)
 
         write(
             index, x, y, radius, flow, hardness, angle, aspect, seed, wetness,
-            bristleAlong, bristleAcross,
+            bristleAlong, pathAngle,
         )
         includeDirtyDab(x, y, radius)
     }
@@ -209,7 +214,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         seed: Float,
         wetness: Float,
         bristleAlong: Float,
-        bristleAcross: Float,
+        pathAngle: Float,
     ) {
         require(seed.isFinite() && seed in 0f..1f) {
             "dab seed must be 0..1, was $seed"
@@ -217,8 +222,8 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         require(wetness.isFinite() && wetness in 0f..1f) {
             "dab wetness must be 0..1, was $wetness"
         }
-        require(bristleAlong.isFinite() && bristleAcross.isFinite()) {
-            "dab bristle coordinates must be finite, were $bristleAlong, $bristleAcross"
+        require(bristleAlong.isFinite() && pathAngle.isFinite()) {
+            "dab bristle coordinate and path angle must be finite, were $bristleAlong, $pathAngle"
         }
     }
 
@@ -254,7 +259,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         seed: Float,
         wetness: Float,
         bristleAlong: Float,
-        bristleAcross: Float,
+        pathAngle: Float,
     ) {
         val i = index
         this.x[i] = x
@@ -267,12 +272,12 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         this.seed[i] = seed
         this.wetness[i] = wetness
         this.bristleAlong[i] = bristleAlong
-        this.bristleAcross[i] = bristleAcross
+        this.pathAngle[i] = pathAngle
     }
 
     fun add(dab: Dab): Boolean = add(
         dab.x, dab.y, dab.radius, dab.flow, dab.hardness, dab.angle, dab.aspect, dab.seed,
-        dab.wetness, dab.bristleAlong, dab.bristleAcross,
+        dab.wetness, dab.bristleAlong, dab.pathAngle,
     )
 
     /** Dab [index] as a value. Off the hot path — for tests and diagnostics. */
@@ -281,7 +286,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {
         return Dab(
             x[index], y[index], radius[index], flow[index],
             hardness[index], angle[index], aspect[index], seed[index], wetness[index],
-            bristleAlong[index], bristleAcross[index],
+            bristleAlong[index], pathAngle[index],
         )
     }
 

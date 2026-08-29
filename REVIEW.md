@@ -2246,3 +2246,13 @@ touchscreen hover too, not only a pen.
   (dab 2 snaps), which is the finding's own verification recipe. The
   suggested `next.aspect < first.aspect` inside the turn fixture would
   duplicate it weaker and pressure-confounded.
+
+## PR #155 — ink lanes follow the path frame (2026-08-29)
+
+- **R-171 🟡 Round 4: "laneAngle silently swapped the predicate from `ink`
+  to `inkDynamics`."** Refuted: there is no second field. `inkDynamics` is
+  the class's only ink state (line 36); the `ink` at both call sites is a
+  local `val ink = inkDynamics` alias (lines 230/427/446), so the
+  predicates are identical by construction and no divergent-nullity path
+  exists. A comment at `laneAngle` now states the aliasing so the next
+  reader does not have to re-derive it.

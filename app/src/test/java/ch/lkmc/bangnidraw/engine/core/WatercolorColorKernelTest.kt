@@ -163,7 +163,7 @@ class WatercolorColorKernelTest {
             seed = 0.42f,
             wetness = 1f,
             bristleAlong = 17f,
-            bristleAcross = 3f,
+            pathAngle = 3f,
         )
         val stroke = DabStamp.contribution(
             px = 0f,

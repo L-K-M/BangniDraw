@@ -180,7 +180,7 @@ class DabBatch(capacity: Int = DAB_BATCH_CAPACITY) {   // SoA; eleven fields, 10
     val hardness = FloatArray(capacity); val angle = FloatArray(capacity)
     val aspect = FloatArray(capacity); val seed = FloatArray(capacity)
     val wetness = FloatArray(capacity); val bristleAlong = FloatArray(capacity)
-    val bristleAcross = FloatArray(capacity)
+    val pathAngle = FloatArray(capacity)
     // color, opacity and brush model are per stroke
     var count = 0
     var strokeId = 0L; var predictedFrom = -1   // index of the first predicted dab

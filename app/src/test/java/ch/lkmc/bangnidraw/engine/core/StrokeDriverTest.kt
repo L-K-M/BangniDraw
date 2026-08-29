@@ -408,10 +408,10 @@ class StrokeDriverTest {
                 "dab $i bristle along: $what",
             )
             assertEquals(
-                expected.bristleAcross[i],
-                actual.bristleAcross[i],
+                expected.pathAngle[i],
+                actual.pathAngle[i],
                 0f,
-                "dab $i bristle across: $what",
+                "dab $i path angle: $what",
             )
         }
     }
@@ -524,7 +524,7 @@ class StrokeDriverTest {
             tail.bristleAlong[0] >= tailWarmup.bristleAlong[tailWarmup.count - 1],
             "an overdue first tail dab may share, but not rewind, its along phase",
         )
-        assertTrue(tail.bristleAcross[0] > 0.01f, "the turning tail must transport across-axis motion")
+        assertTrue(tail.pathAngle[0] > 0.01f, "the turning tail must carry the new tangent")
         assertTrue(tail.wetness[0] < 1f, "the tail must continue the real stroke's ink load")
         assertSameDabs(real, tail, "Chinese ink prediction must copy every stateful field")
     }

@@ -269,6 +269,18 @@ class DabGeneratorTest {
     }
 
     @Test
+    fun `the calligraphy preset uses the tuned full-contact aspect`() {
+        // One authoritative value: the stored preset and the dynamics
+        // fallback must not drift apart on the next feel-tuning pass.
+        val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
+        assertEquals(
+            InkBrushDynamics.DEFAULT_FULL_CONTACT_ASPECT,
+            (brush.tip as TipShape.Flat).aspect,
+            1e-6f,
+        )
+    }
+
+    @Test
     fun `the Chinese ink tuft eases from a round touch into its splay`() {
         val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
         val target = (brush.tip as TipShape.Flat).aspect

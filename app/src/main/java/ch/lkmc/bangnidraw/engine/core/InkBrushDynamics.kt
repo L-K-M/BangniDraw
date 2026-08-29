@@ -230,7 +230,7 @@ internal class InkBrushDynamics(
         return t * t * (3f - 2f * t)
     }
 
-    private companion object {
+    internal companion object {
         const val PI_FLOAT = PI.toFloat()
         const val HALF_PI = (PI / 2.0).toFloat()
 

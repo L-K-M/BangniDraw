@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 - 2026-08-29
 
 - Keep a second gallery copy that includes a visible tracing image, and
   remove it when the image is hidden or removed.

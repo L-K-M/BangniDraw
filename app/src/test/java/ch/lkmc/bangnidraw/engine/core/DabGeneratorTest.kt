@@ -8,6 +8,7 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 
@@ -273,9 +274,11 @@ class DabGeneratorTest {
         // One authoritative value: the stored preset and the dynamics
         // fallback must not drift apart on the next feel-tuning pass.
         val brush = builtIns.getValue(BrushPresets.CALLIGRAPHY_ID)
+        val flat = brush.tip as? TipShape.Flat
+        assertNotNull(flat, "the calligraphy tip must stay Flat for the aspect pin to apply")
         assertEquals(
             InkBrushDynamics.DEFAULT_FULL_CONTACT_ASPECT,
-            (brush.tip as TipShape.Flat).aspect,
+            flat.aspect,
             1e-6f,
         )
     }

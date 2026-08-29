@@ -2192,3 +2192,19 @@ touchscreen hover too, not only a pen.
   on this path. The finding's own escape clause ("if the block truly
   ends with the outcome-gated persistence, the change is correct")
   was checked statement by statement and holds.
+
+- **R-162 🟠 Round 9: the variant branch ran whenever the job opened.**
+  Applied. `variantDue` now gates the sync and withdraw branches, not just
+  the combined early return — a clean-copy retry can no longer re-encode
+  identical variant pixels and churn the row's modified date.
+
+- **R-163 🟡 Round 9, audit: CHANGELOG missed the channel-swap fix.**
+  Applied — the Unreleased section now records the BGRA export/thumbnail
+  correction the merge carries, beside this PR's variant entry.
+
+- **R-164 ⏸️ Round 9, audit: void bands on an empty canvas; band tile-set
+  resubmission; unguarded contract-test markers.** Declined for scope —
+  all three sit in PR #153's renderer and test code, already landed on
+  main with its own review rounds; touching the frame-budget hot path
+  here would ship changes their device gate never saw. Re-raise them on
+  the next audit round or a dedicated follow-up.

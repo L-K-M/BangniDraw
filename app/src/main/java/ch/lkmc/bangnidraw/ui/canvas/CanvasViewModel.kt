@@ -3173,8 +3173,11 @@ class CanvasViewModel @Inject constructor(
 
             // The variant: decoded, composited under the paint, mirrored as
             // its own row; a no-longer-qualifying reference withdraws ours.
+            // `variantDue` gates the work too: a settled variant must not
+            // re-encode identical pixels because an unrelated clean-copy
+            // retry opened the job.
             val reference = doc.tracingReference
-            if (ReferenceGalleryPolicy.includes(reference) && reference != null) {
+            if (variantDue && ReferenceGalleryPolicy.includes(reference) && reference != null) {
                 val flat = referenceImageCodec.decodeFlatReference(doc.id, reference)
                 coroutineContext.ensureActive()
                 if (flat != null) {
@@ -3201,7 +3204,7 @@ class CanvasViewModel @Inject constructor(
                         syncedAt = outcome.syncedAt
                     }
                 }
-            } else if (doc.referenceGalleryUri != null) {
+            } else if (variantDue && doc.referenceGalleryUri != null) {
                 val settled = exporter.withdraw(
                     recordedUri = doc.referenceGalleryUri,
                     recordedModifiedAt = doc.referenceGalleryModifiedAt,

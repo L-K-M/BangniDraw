@@ -151,7 +151,7 @@ class ReferenceCompositeTest {
 
         assertEquals(0xFF00FF00.toInt(), tile[0])
         assertEquals(0xFF00FF00.toInt(), tile[3 * TILE + 3])
-        assertEquals(Composite.TRANSPARENT, tile[4 * TILE], "u = 4 is past the quad")
+        assertEquals(Composite.TRANSPARENT, tile[4 * TILE], "v = 4 is past the quad")
     }
 
     private companion object {

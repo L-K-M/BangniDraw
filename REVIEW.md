@@ -2212,3 +2212,7 @@ touchscreen hover too, not only a pen.
 - **R-165 🟡 Round 10: the duplicate test pinned one of three variant
   fields.** Applied — the stamp and byte count resets are asserted too,
   matching the withdrawal test's convention.
+
+- **R-166 🟢 Round 11, info: an assertion message named u where the row
+  index pinned v.** Applied — diagnostic only, but the message now points
+  at the axis the coordinate actually left.

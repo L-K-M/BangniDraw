@@ -215,7 +215,7 @@ class Dab(   // conceptually; eleven parallel FloatArrays in DabBatch
     val seed: Float,                 // per-dab Standard phase; fixed per Chinese-ink stroke
     val wetness: Float,              // contacted-tuft ink load, 0..1; ordinary dabs use 1
     val bristleAlong: Float,         // transported arc-length phase; ordinary dabs use 0
-    val pathAngle: Float,            // stroke tangent: the ink mask's lane frame
+    val pathAngle: Float,            // stroke tangent, the ink mask's lane frame; ordinary dabs use 0
 )
 
 class DabGenerator(preset: BrushPreset, seed: Long) {

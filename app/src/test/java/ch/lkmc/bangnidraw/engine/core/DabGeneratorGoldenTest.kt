@@ -219,6 +219,11 @@ class DabGeneratorGoldenTest {
         val text = checkNotNull(
             javaClass.getResourceAsStream("/$GOLDEN_RESOURCE")?.bufferedReader()?.use { it.readText() },
         ) { "missing golden $GOLDEN_RESOURCE — regenerate with -Dbangni.updateGolden=true" }
+        require(
+            text.lineSequence().any {
+                it.startsWith("# x y radius flow hardness angle aspect seed wetness bristleAlong pathAngle")
+            },
+        ) { "the golden's header must name the current dab fields — regenerate with -Dbangni.updateGolden=true" }
         val expected: List<GoldenDab> = parse(text)
 
         assertEquals(expected.size, actual.size, "the stroke's dab count changed")

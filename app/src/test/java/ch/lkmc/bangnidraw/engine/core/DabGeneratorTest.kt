@@ -325,7 +325,7 @@ class DabGeneratorTest {
             (PI / 2).toFloat(),
             pressed.pathAngle,
             0.01f,
-            "a stationary press must retain the turned lane frame",
+            "a stationary press must retain the last segment's tangent",
         )
     }
 

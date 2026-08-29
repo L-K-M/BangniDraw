@@ -142,6 +142,10 @@ internal class InkBrushDynamics(
         out.angle = angleAt(f)
         out.wetness = wetnessAt(f)
         out.travel = strokeTravelled + segmentDistance * f
+        // Plain arc length: numerically identical to `travel` by construction
+        // (zeroed together, advanced by segmentDistance together). Kept as a
+        // separate field so the lane phase stays decoupled from travel
+        // semantics — a future rescale of one must not silently move the other.
         out.bristleAlong = segmentBristleAlongStart + segmentDistance * f
     }
 
@@ -159,7 +163,7 @@ internal class InkBrushDynamics(
     fun currentBristleAlong(): Float = bristleAlong
 
     /** The current segment's tangent, for a resting dab's lane frame. */
-    fun currentPathAngle(): Float = if (axisReady) segmentPathAngle else 0f
+    fun currentPathAngle(): Float = segmentPathAngle
 
     fun finishSegment(pressure: Float) {
         writeSampleAt(1f, segmentEndSample)

@@ -304,7 +304,7 @@ class DabStampTest {
             hardness = 1f,
             aspect = 0.6f,
             wetness = 1f,
-            pathAngle = 100f,
+            pathAngle = (PI / 3).toFloat(),
         )
 
         assertEquals(1f, InkBrushMask.weight(0f, 0f, shifted), 1e-6f)

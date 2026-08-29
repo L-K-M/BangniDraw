@@ -2208,3 +2208,7 @@ touchscreen hover too, not only a pen.
   main with its own review rounds; touching the frame-budget hot path
   here would ship changes their device gate never saw. Re-raise them on
   the next audit round or a dedicated follow-up.
+
+- **R-165 🟡 Round 10: the duplicate test pinned one of three variant
+  fields.** Applied — the stamp and byte count resets are asserted too,
+  matching the withdrawal test's convention.

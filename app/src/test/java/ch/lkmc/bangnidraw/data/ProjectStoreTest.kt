@@ -665,6 +665,8 @@ class ProjectStoreTest {
         assertEquals(null, copy.galleryUri)
         assertEquals(0, copy.lastGallerySyncAt)
         assertEquals(null, copy.referenceGalleryUri, "a duplicate owns neither gallery row")
+        assertEquals(0L, copy.referenceGalleryModifiedAt, "a duplicate carries no variant baseline")
+        assertEquals(0L, copy.referenceGalleryBytes, "a duplicate carries no variant byte count")
         assertEquals(0, copy.historyCursor)
         assertEquals(HistoryRecord(), assertIs<ProjectStore.LoadResult.Loaded>(store.load(newId)).history)
         assertTrue(!File(store.projectDir(newId), "history").exists(), "history is not copied")

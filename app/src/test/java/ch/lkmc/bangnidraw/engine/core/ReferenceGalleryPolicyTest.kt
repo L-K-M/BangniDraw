@@ -29,6 +29,22 @@ class ReferenceGalleryPolicyTest {
     }
 
     @Test
+    fun `involvement requires a reference to mirror or a row to reconcile`() {
+        assertTrue(ReferenceGalleryPolicy.variantInvolved(reference(), recordedUri = null))
+        assertTrue(ReferenceGalleryPolicy.variantInvolved(null, recordedUri = "content://media/9"))
+        assertFalse(
+            ReferenceGalleryPolicy.variantInvolved(null, recordedUri = null),
+            "no reference, no row: the due check must short-circuit",
+        )
+        assertFalse(
+            ReferenceGalleryPolicy.variantInvolved(
+                reference(visibility = ReferenceVisibility.HIDDEN),
+                recordedUri = null,
+            ),
+        )
+    }
+
+    @Test
     fun `a reference-only edit is due`() {
         // The pixel revision stood still; the variant's pixels moved anyway.
         assertTrue(

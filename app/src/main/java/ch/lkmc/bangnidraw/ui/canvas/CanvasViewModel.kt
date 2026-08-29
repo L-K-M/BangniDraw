@@ -3126,7 +3126,10 @@ class CanvasViewModel @Inject constructor(
             nowMs = now,
             lastSyncAtMs = doc.lastGallerySyncAt,
         )
-        val variantDue = ReferenceGalleryPolicy.isDue(
+        val variantDue = ReferenceGalleryPolicy.variantInvolved(
+            doc.tracingReference,
+            doc.referenceGalleryUri,
+        ) && ReferenceGalleryPolicy.isDue(
             trigger = trigger,
             pixelRevision = pixelRevision,
             referenceRevision = referenceEditCount,
@@ -3211,6 +3214,11 @@ class CanvasViewModel @Inject constructor(
             }
 
             withContext(Dispatchers.Main) {
+                // Nothing settled (a failed run) leaves the model alone too:
+                // an equal copy plus a dirty flag is a spurious checkpoint.
+                if (galleryOutcome == null && variant == null) {
+                    return@withContext
+                }
                 if (galleryOutcome != null) {
                     lastSyncedRevision = pixelRevision
                 }

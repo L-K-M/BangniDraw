@@ -2099,3 +2099,10 @@ touchscreen hover too, not only a pen.
   feature exists to avoid — with one carve-out: `IllegalArgumentException`
   (a URI the provider will never accept) stays settled, because that probe
   can never succeed and retrying it is the R-145 churn pattern.
+
+- **R-148 🟠 Round 6: `variantDue` never settled on reference-less
+  paintings.** Applied. `ReferenceGalleryPolicy.variantInvolved` (pure,
+  tested) short-circuits the due check when there is no reference to mirror
+  and no row to reconcile, so a plain painting's pixel revisions cannot
+  relaunch a no-op gallery job forever; the Main block also skips the
+  equal-copy document write and the dirty flag when a run settled nothing.

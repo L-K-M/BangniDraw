@@ -10,6 +10,16 @@ package ch.lkmc.bangnidraw.engine.core
 object ReferenceGalleryPolicy {
 
     /**
+     * Whether the reference variant is *involved* at all: a qualifying
+     * reference to mirror, or a recorded row left to update or withdraw.
+     * When neither holds there is no variant work — the due check is
+     * short-circuited so a reference-less painting's advancing pixel
+     * revision can never make the variant permanently "due".
+     */
+    fun variantInvolved(reference: TracingReference?, recordedUri: String?): Boolean =
+        includes(reference) || recordedUri != null
+
+    /**
      * Whether the gallery keeps a variant that includes the tracing image:
      * a reference that exists, is shown, and has opacity above zero — the
      * same gate `CanvasRenderer`'s reference draw applies, so the variant

@@ -345,12 +345,15 @@ class DabGeneratorTest {
             generator.advance(sample(2_100f, 2_100f, pressure = 1f, timeMs = 160), batch)
 
             val turn = (turnStart until batch.count).map(batch::get)
-            assertTrue(turn.size > 4, "the turn needs several overlapping dabs")
+            assertTrue(turn.size > 4, "seed $seed: the turn needs several overlapping dabs")
             val first = turn.first().copy(wetness = 0.24f)
             val next = turn[3].copy(wetness = first.wetness)
-            assertTrue(abs(next.x - first.x) < pxEps, "the fixture must move across the incoming axis")
+            assertTrue(
+                abs(next.x - first.x) < pxEps,
+                "seed $seed: the fixture must move across the incoming axis",
+            )
             assertTrue(next.y > first.y)
-            assertTrue(first.angle < 0.35f, "the tuft must still face along the incoming segment")
+            assertTrue(first.angle < 0.35f, "seed $seed: the tuft must still face along the incoming segment")
 
             val centreX = ((first.x + next.x) * 0.5f).toInt()
             val centreY = ((first.y + next.y) * 0.5f).toInt()
@@ -378,7 +381,10 @@ class DabGeneratorTest {
                 }
             }
 
-            assertTrue(compared > 100, "the fixture needs a broad shared interior, had $compared samples")
+            assertTrue(
+                compared > 100,
+                "seed $seed: the fixture needs a broad shared interior, had $compared samples",
+            )
             if (firstContacts > compared / 10 && firstContacts < compared * 9 / 10) mixedSeeds++
             assertTrue(
                 matching.toFloat() / compared > 0.75f,

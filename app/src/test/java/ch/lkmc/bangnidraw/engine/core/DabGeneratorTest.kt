@@ -278,7 +278,7 @@ class DabGeneratorTest {
             seed = 37L,
         )
 
-        assertEquals(1f, dabs.first().aspect, pxEps)
+        assertEquals(1f, dabs.first().aspect, 1e-4f)
         val early = dabs[1]
         assertTrue(
             early.aspect > (1f + target) / 2f,

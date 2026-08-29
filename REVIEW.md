@@ -2106,3 +2106,11 @@ touchscreen hover too, not only a pen.
   and no row to reconcile, so a plain painting's pixel revisions cannot
   relaunch a no-op gallery job forever; the Main block also skips the
   equal-copy document write and the dirty flag when a run settled nothing.
+
+- **R-149 🟡 Round 7: the early return might skip trailing cleanup.**
+  Verified and refuted — the Main block after the guard contains only the
+  outcome-gated counters, the document copy, and `markDirty`, in that
+  order, and ends there; no flags, observers, or in-flight guards exist
+  on this path. The finding's own escape clause ("if the block truly
+  ends with the outcome-gated persistence, the change is correct")
+  was checked statement by statement and holds.

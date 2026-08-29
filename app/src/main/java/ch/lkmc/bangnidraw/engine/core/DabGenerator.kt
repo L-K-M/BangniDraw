@@ -240,7 +240,7 @@ class DabGenerator(
                 interpolated.travel = inkSample.travel
                 interpolated.bristleAlong = inkSample.bristleAlong
             }
-            interpolated.pathAngle = segmentPathAngle
+            interpolated.pathAngle = if (ink == null) 0f else segmentPathAngle
             if (!emit(x, y, interpolated, out)) return emitted
 
             emitted++
@@ -466,7 +466,7 @@ class DabGenerator(
 
         val ok = out.add(
             px, py, finalRadius, flow, preset.hardness, angle, aspect, dabSeed, wetness,
-            bristleAlong, sample.pathAngle,
+            bristleAlong, if (ink == null) 0f else sample.pathAngle,
         )
         if (!ok) return false
         dabIndex++

@@ -167,7 +167,7 @@ class DabGeneratorGoldenTest {
         appendLine("# these values by ~1e-7, four orders of magnitude inside that. A diff")
         appendLine("# here is a real change in the stroke, not a change of JDK.")
         appendLine("#")
-        appendLine("# x y radius flow hardness angle aspect seed wetness bristleAlong pathAngle")
+        appendLine(GOLDEN_HEADER)
         for (d in dabs) {
             appendLine(
                 listOf(
@@ -219,11 +219,9 @@ class DabGeneratorGoldenTest {
         val text = checkNotNull(
             javaClass.getResourceAsStream("/$GOLDEN_RESOURCE")?.bufferedReader()?.use { it.readText() },
         ) { "missing golden $GOLDEN_RESOURCE — regenerate with -Dbangni.updateGolden=true" }
-        require(
-            text.lineSequence().any {
-                it.startsWith("# x y radius flow hardness angle aspect seed wetness bristleAlong pathAngle")
-            },
-        ) { "the golden's header must name the current dab fields — regenerate with -Dbangni.updateGolden=true" }
+        require(text.lineSequence().any { it == GOLDEN_HEADER }) {
+            "the golden's header must name the current dab fields — regenerate with -Dbangni.updateGolden=true"
+        }
         val expected: List<GoldenDab> = parse(text)
 
         assertEquals(expected.size, actual.size, "the stroke's dab count changed")
@@ -301,6 +299,9 @@ class DabGeneratorGoldenTest {
         const val PX_EPS = 1e-3f
 
         const val GOLDEN_FIELD_COUNT = 11
+
+        const val GOLDEN_HEADER =
+            "# x y radius flow hardness angle aspect seed wetness bristleAlong pathAngle"
 
         const val INPUT_RESOURCE = "fixtures/golden-stroke/ink-pen-loop.json"
         const val GOLDEN_RESOURCE = "fixtures/golden-stroke/ink-pen-loop.dabs.txt"

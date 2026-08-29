@@ -8,8 +8,9 @@ import java.nio.ByteBuffer
 /**
  * Premultiplied RGBA (a `CpuFlatten` result) → encoded image bytes
  * (`docs/plan/06-document-and-persistence.md` §9.1): the bytes go into an
- * native-order `ARGB_8888` bitmap. Android bitmaps and GL disagree on channel
- * order, so [PixelChannelOrder] reorders around the bitmap memcpy;
+ * `ARGB_8888` bitmap whose memory layout is probed per device — modern Skia
+ * stores R,G,B,A exactly like GL, older builds store B,G,R,A, so
+ * [PixelChannelOrder] reorders around the bitmap memcpy when they differ;
  * `Bitmap.compress` then writes straight alpha itself.
  */
 object ImageEncode {
@@ -29,7 +30,7 @@ object ImageEncode {
         require(rgba.size == width * height * 4)
         var bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         try {
-            PixelChannelOrder.withArgb8888Bytes(rgba) { pixels ->
+            PixelChannelOrder.withArgb8888Bytes(rgba, BitmapLayoutProbe.layout) { pixels ->
                 bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(pixels))
             }
             if (format == Format.JPEG) {

@@ -360,6 +360,10 @@
     <string name="settings_theme_coral">Coral</string>
     <string name="settings_theme_violet">Violet</string>
     <string name="settings_theme_teal">Teal</string>
+    <string name="settings_theme_nineties">Nineties</string>
+    <string name="settings_theme_synthwave">Synthwave</string>
+    <string name="settings_theme_midnight">Midnight</string>
+    <string name="settings_theme_forest">Forest</string>
     <string name="settings_drawing">Drawing</string>
     <string name="settings_handedness">Drawing hand</string>
     <string name="settings_hand_right">Right</string>

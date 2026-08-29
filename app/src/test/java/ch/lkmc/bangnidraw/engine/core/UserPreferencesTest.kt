@@ -34,6 +34,10 @@ class UserPreferencesTest {
                 AppTheme.CORAL,
                 AppTheme.VIOLET,
                 AppTheme.TEAL,
+                AppTheme.NINETIES,
+                AppTheme.SYNTHWAVE,
+                AppTheme.MIDNIGHT,
+                AppTheme.FOREST,
             ),
             AppTheme.entries.toList(),
         )

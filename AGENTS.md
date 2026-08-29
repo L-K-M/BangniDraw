@@ -97,9 +97,13 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   not. The checkpoint's no-op path must also admit outstanding thumbnail and
   history-delete maintenance, and a retry flag clears only after its work
   succeeds.
-- GL and tile storage use RGBA bytes; Android `ARGB_8888` bitmap buffers use
-  native-order packed ARGB. Route bitmap copies through `PixelChannelOrder`;
-  a byte-for-byte RGBA copy swaps red and blue on little-endian devices.
+- GL and tile storage use RGBA bytes. An `ARGB_8888` bitmap's memory order
+  is **probed per device** (`BitmapLayoutProbe`): modern Skia (API ~30+)
+  stores R,G,B,A exactly like GL, older port-configured builds store
+  B,G,R,A. Route bitmap copies through `PixelChannelOrder` with the probed
+  layout — never assume either order, and never trust a version threshold
+  over the measurement. (v1.1.4 assumed BGRA unconditionally and swapped
+  red/blue in thumbnails and exports on every current device.)
 - `DabBounds` and `WatercolorDabBounds` own dab-edge arithmetic. Live
   `DabBatch`, `DabPass`, and `WatercolorPass` paths retain primitive edges;
   do not rebuild `IntRect` or tile-scissor objects per dab.
@@ -158,8 +162,11 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   Material colours. Screen chrome never uses ad-hoc
   `Color(0x…)`; `DebugOverlay`'s fixed diagnostic signal colors are the sole
   exception and stay palette-independent. `AppTheme` is a persisted choice
-  among fixed-light Saffron (default), Coral, Violet, and Teal palettes; system
-  dark mode and dynamic color are deliberately ignored. Its enum names are
+  among light Saffron (default), Coral, Violet, Teal, and Nineties palettes
+  and dark Synthwave, Midnight, and Forest ones; system dark mode and dynamic
+  color are deliberately ignored. Each theme declares a `ThemeTone`, which
+  picks the system-bar icon appearance, the tone's neutral canvas void, and
+  the tone's error roles. Its enum names are
   stored values, so renaming or removing one silently resets affected users to
   Saffron unless a migration rewrites the stored names.
   The canvas void stays neutral.
@@ -168,10 +175,13 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   reset a corrupted preference file with `ReplaceFileCorruptionHandler`
   before flows retry; otherwise observation and writes can remain blocked
   forever.
-- The launch window cannot read DataStore. Keep its background and system-bar
-  appearance fixed light, set `android:forceDarkAllowed` to `false`, and add no
+- The launch window cannot read DataStore. Cold starts keep the background
+  and system-bar appearance fixed light; recreation seeds the bars from the
+  retained ViewModel's tone. Set `android:forceDarkAllowed` to
+  `false`, and add no
   `values-night` override. The fixed launch window remains while the root theme
-  owner withholds navigation until the first preference emission. Log the first
+  owner withholds navigation until the first preference emission; the resolved
+  theme's tone then re-applies the bar appearance. Log the first
   `IOException`; if it precedes any successful load, emit Saffron once. Retry
   I/O with backoff, at most five attempts, never replacing a loaded theme; a
   persistent failure ends the flow on the current theme. Cancellation and
@@ -211,7 +221,15 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   enter thumbnails, sharing, export, or painting undo. Flattens omit them by
   default; the gallery's reference variant is the one exception (its
   deviation entry below).
-  The cached reference base draws into tile-array FBOs, where logical y = 0
+  The reference is **not canvas-bounded**: enlarged or dragged past the canvas
+  border it keeps drawing over the void (`drawReferenceAcrossVoid`), matching
+  the direct composite that has never clipped it. The void pass scissorses
+  four rect bands around the canvas instead of drawing unclipped, because an
+  unclipped draw would composite the reference a second time inside the
+  canvas wherever Below is transparent (transparent paper), and rect bands
+  cannot cut a rotated hole — a freely rotated view keeps the clip while
+  snapped right angles stay exact. Do not "simplify" the bands away without
+  solving the transparent-paper double draw. The cached reference base draws into tile-array FBOs, where logical y = 0
   must land in GL row zero; its tile projection is therefore `orthoYUp`.
   `orthoYDown` flips each 256 px strip even though the direct viewport path
   looks correct.

@@ -323,6 +323,10 @@
     <string name="settings_theme_coral">珊瑚红</string>
     <string name="settings_theme_violet">紫罗兰</string>
     <string name="settings_theme_teal">青绿</string>
+    <string name="settings_theme_nineties">九十年代</string>
+    <string name="settings_theme_synthwave">合成波</string>
+    <string name="settings_theme_midnight">午夜</string>
+    <string name="settings_theme_forest">森林</string>
     <string name="settings_drawing">绘画</string>
     <string name="settings_handedness">惯用手</string>
     <string name="settings_hand_right">右手</string>

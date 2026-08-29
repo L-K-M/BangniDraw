@@ -79,6 +79,29 @@ class TracingReferenceTest {
     }
 
     @Test
+    fun `image canvas bounds report whether the reference leaves the canvas`() {
+        val fitted = ReferenceTransform.fit(1_000, 500, 2_000, 2_000)
+
+        // Fitted: the whole image sits inside the canvas rect.
+        assertEquals(IntRect(0, 500, 2_000, 1_500), fitted.imageCanvasBounds(1_000, 500))
+
+        // Enlarged about the canvas centre: the bounds escape on every side,
+        // which is the state the renderer must keep drawing over the void.
+        val magnified = fitted.gesture(
+            pivotX = 1_000f,
+            pivotY = 1_000f,
+            panX = 0f,
+            panY = 0f,
+            zoom = 2f,
+            rotationDelta = 0f,
+        )
+
+        assertEquals(IntRect(-1_000, 0, 3_000, 2_000), magnified.imageCanvasBounds(1_000, 500))
+
+        assertEquals(IntRect.EMPTY, ReferenceTransform.IDENTITY.imageCanvasBounds(0, 100))
+    }
+
+    @Test
     fun `crop and resize mappings preserve reference alignment`() {
         val reference = ReferenceTransform(
             xx = 1f,

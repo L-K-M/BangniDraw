@@ -2014,14 +2014,92 @@ touchscreen hover too, not only a pen.
   (`Hand`, `TouchDrawingMode`, `AppTheme`, …); `data/Prefs` only persists
   them. The tree entry mirrors the real package.
 
+## PR #151 — probed bitmap byte order (2026-08-28)
+
+- **R-136 ⏸️ Round 3, info: add an instrumented round-trip test for
+  `BitmapLayoutProbe.probe()`.** Declined. The suite is JVM-only by design
+  (AGENTS.md): no androidTest directory exists, and adding one means adding
+  the emulator CI job too. The device-dependent half is three framework
+  calls around `classify`, which the JVM tests pin for both layouts plus
+  the loud no-match failure; the probe cannot drift without a framework
+  change no test here could anticipate anyway.
+
+## PR #150 — darker and louder themes (2026-08-28)
+
+- **R-137 🟢 Round 1, minor: bar icons flash light on Activity recreation
+  with a dark theme.** Applied. Cold starts still begin light (DataStore is
+  unreadable), but recreation now seeds the bar style from the retained
+  ViewModel's tone; the contract pins the seeding and the tone-to-style
+  wiring.
+
+- **R-138 ⏸️ Round 1, minor: dark palettes inherit light-baseline defaults
+  for unmapped M3 roles.** Refuted. `bangniColorScheme` calls the complete
+  `ColorScheme` constructor — no parameter is defaulted — which R-113
+  introduced and `scheme construction cannot inherit Material baseline roles`
+  plus `BangniColorSchemeTest`'s role-by-role mapping pin.
+
+- **R-139 🟢 Round 1, minor: error expectations came from the code under
+  test.** Applied. `ThemeColorPolicyTest` now pins the exact light/dark
+  Material error baselines as literals, so `BangniColorSchemeTest` is a pure
+  wiring test again.
+
+- **R-140 🟢 Round 1, info: stale "shared error" wording and the roadmap
+  graph.** Applied. 11-testing says per-tone error content; §4's graph gains
+  step 14 depending on 13.
+## PR #153 — tracing references beyond the canvas (2026-08-29)
+
+- **R-141 ⛔ Round 1, major: gate `drawReferenceAcrossVoid` on `useSandwich`
+  or the void composites the reference twice in transitional states.**
+  Refuted. `useSandwich` is defined two lines above as
+  `readyCache != null`, so the suggested guard is a tautology; no state
+  exists where the branch runs without Below, and `belowIsCacheable`
+  accepts every blend mode while `rebuild` never skips the base draw —
+  Below always carries the baked reference there. The reviewer's own
+  fallback (document the invariant beside the call) is applied as a
+  comment.
+
+- **R-142 🟢 Round 1, minor: document the fractional-scale abutment
+  caveat on `rawScreenBoundsOf`.** Applied to the KDoc. At non-integer
+  mapped edges `ceil` can leave a sub-pixel sliver of true void uncovered
+  beside the canvas; accepted and documented rather than snipping band
+  edges into the canvas, which would double-composite the border column
+  over transparent paper.
+
+- **R-143 🟢 Round 1, minor: the four-band arithmetic is untested.**
+  Applied. Extracted as `voidBandsAround(canvas, clip)` in
+  `engine/core` with JVM tests for the suggested cases: covered clip,
+  canvas past one edge, canvas inside the clip (disjoint, union equals
+  clip minus canvas), and partial overlap.
+
+- **R-144 🟢 Round 1, minor: assert the exact magnified bounds rect.**
+  Applied; the loose inequalities are gone.
+
+- **R-145 🟢 Round 1, info: the absolute axis-alignment epsilon is
+  zoom-dependent.** Applied as the relative form
+  `min(|a|, |b|) >= AXIS_ALIGNED_EPS * max(|a|, |b|)`, which reads as the
+  rotation's tangent and is invariant under zoom. The degenerate
+  all-zero basis skips the pass, which is correct — nothing renders at
+  scale zero.
+
+- **R-146 🟢 Round 2, minor: the canvas-equals-clip boundary case is
+  untested.** Applied. Exact equality walks all four band conditions on
+  their strict `<` boundaries, which is the only guard — the draw loop no
+  longer filters empty bands — keeping degenerate rects away from
+  `glScissor`.
+
+- **R-147 🟢 Round 3, minor: reword the rotation-guard comment to name the
+  case that returns.** Applied verbatim. The round-2 boundary assertion
+  was re-posted against the commit that already applied it; treated as a
+  stale anchor, not a new finding.
+
 ## PR #152 — gallery variant with the tracing image (2026-08-28)
 
-- **R-136 🟠 Round 1: `withdraw` never checked row ownership.** Applied.
+- **R-148 🟠 Round 1: `withdraw` never checked row ownership.** Applied.
   `!row.owned` joins the guard; the KDoc and AGENTS.md both promised
   "ours and untampered", and a recycled row id with 0/0 recorded state
   must not be deletable on the tamper half's say-so alone.
 
-- **R-137 🟠 Round 1: flat decode double-materializes the reference.**
+- **R-149 🟠 Round 1: flat decode double-materializes the reference.**
   Partially applied. The premise is wrong — import normalizes the asset
   to ≤ canvas pixel bytes (`TracingReferencePolicy.normalizedSize`), so
   no 50 MP decode exists — but the size check ran *after* the allocation,
@@ -2031,13 +2109,13 @@ touchscreen hover too, not only a pen.
   the offline path is bounded and debounced, and the canvas's own
   `streamTiles` already exists for the per-frame side.
 
-- **R-138 🟠 Round 1: unsettled withdrawal cleared the recorded URI.**
+- **R-150 🟠 Round 1: unsettled withdrawal cleared the recorded URI.**
   Applied in both ViewModels. `withdraw` now returns whether the row is
   settled (gone, or no longer ours to touch); a retryable delete failure
   keeps the URI and leaves the variant due, so the row cannot be
   orphaned in the gallery or duplicated when a reference returns.
 
-- **R-139 🟠 Round 1 (as minor a/c/d/f + test g/h/i): the surrounding
+- **R-151 🟠 Round 1 (as minor a/c/d/f + test g/h/i): the surrounding
   hardening.** Applied: `ensureActive` after the reference decode, a
   failed clean copy no longer aborts a pending variant/withdrawal, the
   contract test pins its own delimiters (which immediately caught this
@@ -2046,7 +2124,7 @@ touchscreen hover too, not only a pen.
   `placed`, and the policy suite pins OR semantics plus floor-past
   staleness.
 
-- **R-140 ⏸️ Round 1: a permanently undecodable reference re-encodes the
+- **R-152 ⏸️ Round 1: a permanently undecodable reference re-encodes the
   painting on every sweep.** Declined. The state requires the app-private
   asset to be externally deleted or mangled *after* commit — the loader
   drops an unreadable reference at open, so the sweep sees it only
@@ -2054,60 +2132,60 @@ touchscreen hover too, not only a pen.
   show/return), not a loop. Settling would freeze a stale variant row;
   eventual retry is the cheaper wrong.
 
-- **R-141 ⏸️ Round 1, info: make reference publication opt-in beyond the
+- **R-153 ⏸️ Round 1, info: make reference publication opt-in beyond the
   visibility/opacity gate.** Declined. The product owner directed the
   auto-store; the settings help string discloses it. An opt-in toggle is
   a separate product decision for the owner, not a review fix.
 
-- **R-142 ⏸️ Round 1, info: two writers own the reference gallery
+- **R-154 ⏸️ Round 1, info: two writers own the reference gallery
   fields.** Refuted as a new hazard. It is the `galleryUri` pattern
   exactly, and the interleaving it fears is closed by the leave gate:
   the Studio's sweep only runs on refresh, and navigation returns only
   after the canvas's final checkpoint completed.
 
-- **R-143 ⏸️ Round 1, info: share the tile pass between the two
+- **R-155 ⏸️ Round 1, info: share the tile pass between the two
   flattens; ViewModel tests for the staleness gate.** Declined. The
   double flatten is the AGENTS-accepted "seconds on IO" cost, debounced
   30 s / leave; the ViewModel split follows the repo's stated rule
   (decisions pure and tested, MediaStore/VM orchestration untested —
   AGENTS.md's gallery-debounce precedent).
 
-- **R-144 🟢 Round 2, minor: contract test pinned delimiter existence, not
+- **R-156 🟢 Round 2, minor: contract test pinned delimiter existence, not
   order; `ReferenceComposite.includes` duplicated the policy gate; a missing
   asset logged as dimension drift.** All three applied — the probe window is
   now bounded by construction, the composite delegates to
   `ReferenceGalleryPolicy.includes`, and the gone-asset case gets its own
   log line.
 
-- **R-145 🟠 Round 3: AAPT would trim the suffix's leading space; a
+- **R-157 🟠 Round 3: AAPT would trim the suffix's leading space; a
   permanently undecodable asset churned the sweep forever.** Both applied.
   The resource is quoted (`" (with reference)"` — verified it survives into
   `packaged_res`), and `syncReferenceVariant` settles on a null decode: the
   loader already drops a *missing* asset at open (so the sweep's withdraw
   branch owns that case), leaving only corruption or the load→decode race,
   neither of which heals — re-encoding the clean copy every sweep for them
-  was the R-140 cost with no payoff. This narrows R-140's decline: the
+  was the R-152 cost with no payoff. This narrows R-152's decline: the
   settle applies to the undecodable asset, while retry still governs
   row-write and withdrawal failures.
 
-- **R-146 🟢 Round 4, minor: the withdrawal test pinned two of three
+- **R-158 🟢 Round 4, minor: the withdrawal test pinned two of three
   fields.** Applied — the withdrawn byte count is asserted too.
 
-- **R-147 🟠 Round 5: a transient probe failure forgot the reference row.**
+- **R-159 🟠 Round 5: a transient probe failure forgot the reference row.**
   Applied. The probe's outer catch now retries like the delete path does —
   an orphaned "with reference" row is the privacy-sensitive failure this
   feature exists to avoid — with one carve-out: `IllegalArgumentException`
   (a URI the provider will never accept) stays settled, because that probe
-  can never succeed and retrying it is the R-145 churn pattern.
+  can never succeed and retrying it is the R-157 churn pattern.
 
-- **R-148 🟠 Round 6: `variantDue` never settled on reference-less
+- **R-160 🟠 Round 6: `variantDue` never settled on reference-less
   paintings.** Applied. `ReferenceGalleryPolicy.variantInvolved` (pure,
   tested) short-circuits the due check when there is no reference to mirror
   and no row to reconcile, so a plain painting's pixel revisions cannot
   relaunch a no-op gallery job forever; the Main block also skips the
   equal-copy document write and the dirty flag when a run settled nothing.
 
-- **R-149 🟡 Round 7: the early return might skip trailing cleanup.**
+- **R-161 🟡 Round 7: the early return might skip trailing cleanup.**
   Verified and refuted — the Main block after the guard contains only the
   outcome-gated counters, the document copy, and `markDirty`, in that
   order, and ends there; no flags, observers, or in-flight guards exist

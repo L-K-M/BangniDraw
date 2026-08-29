@@ -277,10 +277,12 @@ canvas; panels are side sheets on compact and medium widths and floating
 cards on expanded widths. All of that is decided by window size class, not
 device type — foldables and multi-window just work.
 
-Design language: an expressive studio. The user chooses one of four curated
-light palettes — Saffron, Coral, Violet, or Teal — with subtly tinted chrome
-and chunky tactile controls. The canvas void stays neutral, system dark mode
-is ignored (rationale in proposal 0003), and decoration never competes with
+Design language: an expressive studio. The user chooses one of eight curated
+palettes — light Saffron, Coral, Violet, Teal, or Nineties, dark Synthwave,
+Midnight, or Forest — with subtly tinted chrome
+and chunky tactile controls. The canvas void stays neutral within each tone,
+system dark mode
+is ignored (rationale in proposals 0003/0004), and decoration never competes with
 the picture.
 
 ## 4. Key design decisions
@@ -451,6 +453,7 @@ acceptance tests per step: `docs/plan/12-roadmap.md`.
 | 11 | Tracing reference | Photo Picker import into a private project asset; affine two-finger placement beneath paint; opacity, visibility, replace, reset, remove; never exported | reference survives reopen; export pixels are unchanged; no permission added |
 | 12 | Watercolor | proposal 0002: coarse transient wet state, Watercolor preset, colourless Water tool, GLES RMW passes, adaptive controls | wet-on-wet mixing and clear-water transport without tile seams; device acceptance pending |
 | 13 | Application themes | proposal 0003: fixed-light Saffron, Coral, Violet, and Teal palettes; persisted Settings choice; app-owned system-bar tone | choice applies immediately, survives restart, and ignores system dark mode |
+| 14 | Extended theme set | proposal 0004: per-theme `ThemeTone`; loud Nineties joins the light set; dark Synthwave, Midnight, and Forest palettes; tone-aware system bars, canvas void, and error roles | every palette passes the contrast gates; bars and void follow the chosen tone, never the system |
 
 Post-v1 (each its own proposal in `docs/proposals/`): selections +
 transform, rulers/shape assist, symmetry, gradient fill, brush grains,

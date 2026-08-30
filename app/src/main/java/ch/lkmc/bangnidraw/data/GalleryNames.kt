@@ -49,6 +49,10 @@ internal object GalleryNames {
      * promise the class KDoc makes: CJK titles pass through.
      */
     private fun String.takeWholeCharacters(count: Int): String {
+        // String.take semantics for the degenerate cap: empty, never a
+        // negative index. Unreachable through today's callers (both guard
+        // their counts), kept so a future caller cannot crash sanitization.
+        if (count <= 0) return ""
         if (length <= count) return this
         val end = if (Character.isHighSurrogate(this[count - 1])) count - 1 else count
         return substring(0, end)

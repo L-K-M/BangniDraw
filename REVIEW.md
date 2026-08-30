@@ -2298,3 +2298,15 @@ touchscreen hover too, not only a pen.
   convention. The round's two matching-robustness fixes (whitespace
   normalization; asserting the draft's declaration rather than its seeding
   expression) were applied.
+
+## PR #170 — surrogate-safe gallery names (2026-08-30)
+
+- **R-182 ℹ️ Round 1 (outside diff): "no tests for surrogate-boundary
+  truncation."** Refuted by the diff itself: `GalleryNamesTest` ships
+  three tests in this same PR — the cap never splitting a pair, the
+  reference-suffix cut never splitting a pair, and a whole emoji
+  surviving inside the cap. The review's own coverage note explains the
+  miss ("no patch returned by GitHub" for the test file), so the finding
+  was raised blind to the file that answers it. The round's real Minor —
+  `takeWholeCharacters` indexing at -1 for a non-positive count — was
+  applied as a `count <= 0` guard with String.take semantics.

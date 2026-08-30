@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.ui.home
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +38,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
@@ -66,6 +68,7 @@ import ch.lkmc.bangnidraw.engine.core.NewCanvasLayoutPolicy
 import ch.lkmc.bangnidraw.engine.core.SizeRefusal
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.ui.common.InfoButton
+import ch.lkmc.bangnidraw.ui.common.drawQuadrantChecker
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchCustomDefault
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchGray
@@ -555,30 +558,23 @@ private fun PaperSwatch(color: Color, label: String, selected: Boolean, onSelect
             .semantics(mergeDescendants = true) { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
-        Box(
+        // Transparent shows the shared 2×2 quadrant checker — see-through's
+        // one visual language across the app. Four large cells stay legible
+        // where the canvas's fine 28 dp checker read as noise, which is what
+        // the old "∅ on surfaceVariant" stand-in was working around.
+        val checkerA = MaterialTheme.colorScheme.surface
+        val checkerB = MaterialTheme.colorScheme.surfaceVariant
+        Canvas(
             modifier = Modifier
                 .size(NewCanvasLayoutPolicy.PAPER_VISUAL_DP.dp)
-                .border(if (selected) 2.dp else 1.dp, border, CircleShape)
-                .background(
-                    // The transparent swatch shows the surface variant as its
-                    // "checkerboard" stand-in — an actual checker at 28 dp reads
-                    // as noise.
-                    if (color == Color.Transparent) {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    } else {
-                        color
-                    },
-                    CircleShape,
-                ),
-            contentAlignment = Alignment.Center,
+                .clip(CircleShape)
+                .border(if (selected) 2.dp else 1.dp, border, CircleShape),
         ) {
-            if (color == Color.Transparent) {
-                Text(
-                    stringResource(R.string.paper_transparent_symbol),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            // Checker under every color, exactly like LayerPanel's swatch:
+            // an opaque color hides it and any partial alpha previews the
+            // same way in both pickers.
+            drawQuadrantChecker(checkerA, checkerB)
+            drawRect(color)
         }
     }
 }

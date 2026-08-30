@@ -26,12 +26,16 @@ class CommittedFrameCullingContractTest {
         if (end <= start) fail("missing $STROKE_FRAME_START after drawFrame")
         val frame = renderer.substring(start, end)
 
+        // Both matches tolerate the optional space the whitespace collapse
+        // leaves after a multiline call's opening paren — the negative one
+        // especially, since a reintroduced fullCanvasRect would most likely
+        // come back multiline and an exact single-line needle would miss it.
         assertTrue(
-            "compositeIntoAccum( current, screenTransform, pass, visibleCanvasRect(screenTransform), null, null, )" in frame,
+            CULLED_CALL.containsMatchIn(frame),
             "the committed frame must cull to the visible canvas rect",
         )
         assertTrue(
-            "compositeIntoAccum(current, screenTransform, pass, fullCanvasRect" !in frame,
+            !FULL_CANVAS_CALL.containsMatchIn(frame),
             "fullCanvasRect in drawFrame is the canvas-size-scaling regression this pins against",
         )
     }
@@ -41,7 +45,7 @@ class CommittedFrameCullingContractTest {
         val renderer = ContractTestSources.read(RENDERER_PATH).replace(WHITESPACE, " ")
         val start = renderer.indexOf(VISIBLE_RECT_START)
         if (start < 0) fail("missing $VISIBLE_RECT_START")
-        val body = renderer.substring(start, start + VISIBLE_RECT_SPAN)
+        val body = renderer.drop(start).take(VISIBLE_RECT_SPAN)
 
         // Degenerate transforms compose everything rather than nothing.
         assertTrue("return IntRect(0, 0, canvas.width, canvas.height)" in body)
@@ -58,5 +62,8 @@ class CommittedFrameCullingContractTest {
         const val VISIBLE_RECT_START = "private fun visibleCanvasRect("
         const val VISIBLE_RECT_SPAN = 2_000
         val WHITESPACE = Regex("\\s+")
+        val CULLED_CALL =
+            Regex("compositeIntoAccum\\( ?current, screenTransform, pass, visibleCanvasRect\\(screenTransform\\)")
+        val FULL_CANVAS_CALL = Regex("compositeIntoAccum\\( ?current, screenTransform, pass, fullCanvasRect")
     }
 }

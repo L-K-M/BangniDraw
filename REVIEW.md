@@ -2265,3 +2265,18 @@ touchscreen hover too, not only a pen.
   carry no decision logic (a state boolean and a pass-through string), so
   there is nothing JVM-testable; the existing source-marker contract tests
   already cover the call sites they restructure.
+
+## PR #167 — committed frames cull to the visible rect (2026-08-30)
+
+- **R-178 🟠 Round 1 (outside diff): "visibleCanvasRect rotation and
+  empty-rect contract unverified."** Refuted against the implementation,
+  per the finding's own if-then framing. Rotation: the function walks all
+  four viewport corners (a 2×2 loop over the edges) through the inverse
+  transform and accumulates min/max, so a rotated viewport's bounding box
+  is exact by construction — there is no two-corner shortcut to fix.
+  Empty rect: `compositeIntoAccum` returns false only when binding the
+  Accum FBO fails; the cull rect is consumed by the tile loops, so an
+  off-screen canvas culls every tile draw, leaves paper/reference in
+  their viewport-space passes, and returns true — no per-frame failure
+  path exists. The round's three in-diff test-robustness fixes (regex
+  tolerance for both pins, a clamped source window) were applied.

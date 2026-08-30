@@ -319,20 +319,198 @@ shelf-art lift, F-8's dock corners, the one OFL display face for Studio
 headers. The launcher icon, hover ring, and focus-handle language all hold
 together.
 
-## 10. Session plan
+## 10. Deep-sweep findings (three targeted passes)
+
+Three focused sweeps — Studio/theme/settings UI, the GL rendering layer, and
+the data layer — ran alongside the main-line read. Items marked ✅ were
+re-verified in source by the main pass; others carry the sweep's own
+confidence and must be re-verified before code.
+
+### Studio, theme, settings (G-series)
+
+- **G-1 ✅ — The Layer panel header can squeeze out its own Close button.**
+  LayerPanel.kt:381–426 lays out unweighted title + count, a weighted
+  spacer, then FOUR 48 dp buttons (the #156 InfoButton made it four). Row
+  starves trailing children, so on ≤320 dp panels or at large font the
+  `PanelCloseButton` (#120's whole point) measures toward zero.
+  `PanelHeader` (PanelHeader.kt:38) already does it right — weight on the
+  title. [PR]
+- **G-2 ✅ — Studio card dialogs don't survive rotation.** `menuOpen`,
+  `confirmDelete`, `renaming`, `sharing`, `deleteGalleryToo` and the rename
+  draft are plain `remember` (StudioScreen.kt:446–449, 600); the screen's own
+  `showSettings`/`showNewCanvas` are `rememberSaveable`, so this is drift
+  from the app's own convention. A mid-rename rotation silently loses the
+  text. [PR]
+- **G-9 ✅ — Same for every (i) help popup** (InfoHelp.kt:35 `remember`) and
+  the canvas overflow's Help dialog (TopStrip.kt). One-word fixes. [PR, with
+  G-2]
+- **G-3 ✅ — `help_studio_body` promises a ⋮ that normal cards don't have.**
+  The MoreVert button exists only inside the unavailable-painting overlay
+  (StudioScreen.kt:527); available cards are long-press-only, which also
+  leaves keyboard users with no route to rename/duplicate/share/delete.
+  ANALYSIS's delight list already endorses "visible card overflow". [PR]
+- **G-4 — Cold start always paints the Saffron-light launch window**, so the
+  three dark themes flash cream on every launch (themes.xml pins
+  `windowBackground`; the ViewModel's tone is null until DataStore emits).
+  Fix needs a synchronously readable tone mirror. [ready, M]
+- **G-5 ✅ — zh-Hans names the tracing image three ways** (描图图像 in the
+  panel, 参考图 in Settings help, 描摹图 in the two #156 help bodies), plus a
+  stray space in `help_storage_body`. The gallery *suffix* 参考图 is a stored
+  MediaStore display-name component — leave it; unify the prose on the
+  panel's term. [PR]
+- **G-6 ✅ — The #156 help bodies are British English** ("colour", 24×) in an
+  otherwise American app ("Theme color"); `help_brush_paint_body` mixes both
+  in one paragraph. [PR, with G-5]
+- **G-7 — Shelf thumbnails letterbox onto the transparency checkerboard**, so
+  every non-4:3 painting appears to have a see-through border
+  (StudioScreen.kt:479–508). Constrain the checker to the artwork rect.
+  [ready, S]
+- **G-8 — Unavailable-painting ⋮ may be unreachable under TalkBack** through
+  `semantics(mergeDescendants=true){disabled()}`. Unverified: an IconButton
+  is its own merging node, so it likely survives; needs a semantics-tree
+  check, and G-3's visible ⋮ mostly moots it. [verify]
+- **G-10 ✅ — Only `appTheme` survives a DataStore IO failure.** Ten other
+  preference flows are bare `dataStore.data.map{}`; an `IOException`
+  reaches handler-less collectors and crashes. `PreferenceFlowRecovery`
+  exists and is used exactly once. [PR]
+- **G-11 — The eight-row Appearance section pushes every other setting below
+  the fold**, and nothing on the rows says the last three repaint the app
+  dark. A swatch FlowRow and/or Light/Dark sub-headings. [ready, S]
+- **G-12 — Canvas help is the ninth item of the ⋮ menu** — the least
+  discoverable placement for the screen with the least discoverable
+  gestures. [idea]
+- **G-13 — "New sketch" opens a dialog titled "New painting"** (zh: 新建草图
+  → 新画布); one noun per language would do. [PR, minimal title fix with
+  G-5/G-6]
+
+### GL rendering layer (GL-series)
+
+- **GL-1 — Every committed (non-stroke) frame composites the whole canvas,
+  not the visible rect.** `drawFrame` passes `fullCanvasRect` into
+  `compositeIntoAccum`, so pan/zoom redraw cost scales with canvas size and
+  paint coverage — up to ~256 quads per layer per frame on a worked 4096²
+  document, at gesture rate, directly against `CompositePass`'s own
+  bounded-by-output contract (which only the front-buffered path honors).
+  `visibleCanvasRect(screenTransform)` already exists one call above. One
+  trap: the tracing reference is deliberately not canvas-bounded, so it
+  needs its own viewport-derived rect rather than inheriting the culled one.
+  [PR — the session's big performance swing]
+- **GL-2 — A watercolor stroke leaves a 10 Hz full-scene redraw running for
+  48 s** regardless of actual water load (prune keys on the fixed
+  `MAX_DRY_NANOS`, not on the water actually written; light washes are
+  visually dry after ~12 s but redraw for 36 more). Track a per-tile upper
+  bound of written water at `writeWet` time and expire on it. GL-1 shrinks
+  each tick's cost; this shrinks the tail. [ready, M]
+- **GL-3 — The wet-overlay damage rect grows monotonically within a
+  gesture** (one AABB unioned per dab, cleared only when fully dry), so
+  late-stroke fade frames approach full-viewport size. Needs bucketed
+  per-tile damage, not a simple clear. [ready, M]
+- **GL-4 — `SmudgePass` shares one `FullRectQuad` across three draw sizes**,
+  re-uploading 30 floats per size alternation per dab into a buffer the
+  previous draw may still read (no orphaning) — the exact tiler stall
+  CompositePass documents and defends against. Give absorb/blur their own
+  quads. [PR]
+- **GL-5 — Between-frame GL entry points (`applyPixelOps`, thumbnail pumps,
+  overlay refresh) never invalidate the `GlState` shadow**; correctness
+  currently rests on `presentToWindow` happening to end scissor-off. The
+  sharpest latent case: `TileCopyPass` blits with no scissor call at all, and
+  a stale-enabled scissor would silently truncate a layer duplicate that
+  then persists. [ready, S — an `invalidate()` per entry point]
+- **GL-6 — `SandwichCache`'s stale flags can never clear on a
+  larger-than-viewport canvas** (they wait for the *whole grid* to be built),
+  so every frame re-walks visible keys through boxing `HashSet<Int>`
+  lookups — an `Integer` per visible tile per half per frame. A dense
+  `BooleanArray` fixes both. [PR]
+- **GL-7 — Assorted per-present allocations** not in the D6 table:
+  `Mat4.orthoYUp` array per present, `ScreenTransform.of`'s boxed `Pair` per
+  frame, an unconditional `FitTransform` per front frame, void-band
+  `IntRect`s/ArrayList per reference frame, two `IntRect`s per overlay draw.
+  [ready, S, batch]
+- **GL-8 — `CanvasRenderer.onContextLost()` has no caller** — the §12
+  recovery path is dead code, and three `forgetAll`s don't reset their
+  `GlFbo`s so it would misbehave even if wired. Needs a decision on who
+  detects context loss. [ready/verify, M]
+- **GL-9 — An eyedropper pick at radius 4 issues 81 synchronous 1×1
+  `glReadPixels`**, each a pipeline stall on the GL thread. One block read
+  (or one per touched tile) would be a single stall. [ready, S-M]
+- **GL-10 — `TilePool.clear` wipes the whole GlState shadow per fresh tile**
+  on the stroke path; it could update just the two fields it changes.
+  [ready, tiny]
+
+### Data layer (DL-series)
+
+- **DL-1 — The checkpoint's `.tmp` sweep races concurrent writers** (the
+  flusher's next job after the barrier; a tracing-reference import on
+  another dispatcher) and can delete their in-flight temp files — surfacing
+  as a spurious storage-full banner or a failed import. Sweep on `load`
+  only, or skip young files. [ready, S-M — verify the barrier window first]
+- **DL-2 ✅(fingerprint) — `ThumbnailWriteResult` is unwired.** `Thumbnails.
+  write` returns FAILED and promises the checkpoint keeps its retry flag;
+  the only call site discards the result, `finishCheckpoint` clears
+  `thumbDirty` unconditionally, and the dead import in CanvasViewModel is
+  the tell. A failed thumbnail is never retried until an unrelated edit.
+  [PR]
+- **DL-3 — A paint-slot DataStore read failure is indistinguishable from
+  first run**, and the defaults are then *written back over* the user's
+  saved rail arrangement. The exact hazard `PreferenceFlowRecovery` guards
+  `appTheme` against, with a persistent overwrite on top. [PR, with G-10]
+- **DL-4 — `appScope` has no `CoroutineExceptionHandler`**, and gallery
+  sync/share/export run flatten+encode+MediaStore work on it with no
+  containment; a `DISPLAY_NAME` conflict or bitmap failure kills the
+  process. [ready, S]
+- **DL-5 — `history/` is the one project directory never swept for `.tmp`**,
+  and a kill between an entry delete and its redo delete orphans `.redo`
+  files forever. Both bounded, both cheap to sweep at load. [PR]
+- **DL-6 — `GalleryExporter.delete` lacks `withdraw`'s URI containment**
+  (R-159's hardening), and a malformed stored URI aborts the whole
+  project-delete path before `store.delete` — the painting silently
+  survives. Contain it; the delete *ordering* stays R6's open question.
+  [ready, S]
+- **DL-7 — `TileFlusher.enqueue` after `closeAndJoin` throws into the
+  handler-less app scope** from two ungated call sites (layer edit racing a
+  fast back-navigation). One guard. [ready, S]
+- **DL-8 — `Thumbnails.write` re-reads and re-inflates every tile of every
+  visible layer at every pixel-dirty checkpoint, under the checkpoint
+  mutex** (~8 k reads / ~2 GiB inflate at the dense ceiling). Distinct from
+  R5/D6; wants dirty-tile tracking or the band flattener. [ready, M]
+- **DL-9 — A vanished/failed post-write gallery query manufactures the
+  legacy "0/0 = ours" tamper state**, permanently disabling §9.2's tamper
+  check for that row — the hole R-148 closed, reopened from the other side.
+  [ready, S]
+- **DL-10 — `committedReferenceName` re-reads and re-parses `project.json`
+  on every checkpoint** even for the majority of projects with no reference;
+  one `exists()` short-circuit. [ready, tiny]
+- **DL-11 — `GalleryNames` truncation can split a surrogate pair**, sending
+  an unpaired surrogate to MediaStore for long emoji/CJK titles. Two lines.
+  [PR]
+- **DL-12 — `TileFlusher.latestRevision` never prunes deleted layers'
+  keys.** Bounded (~1 MB worst case); free to fix alongside
+  `DeleteLayerDir`. [ready, tiny]
+
+## 11. Session plan
 
 Implemented this session, each on its own branch with its own PR, per the
-review-loop policy in docs/EXECUTION.md:
+review-loop policy in docs/EXECUTION.md — ordered by impact, cut from the
+bottom if review latency bites:
 
 1. F-1 mouse-wheel/trackpad zoom at the cursor.
-2. F-2 transparent-paper quadrant checker (three sites).
-3. F-3 custom paper colour in the Layer panel's paper menu.
-4. F-8 dock top-corner rounding.
-5. F-9 HSV marker two-tone halo.
-6. F-12 transient tool-name chip for hidden-tool selection.
-7. F-10 watercolor CPU preview in the brush sheet.
-8. F-26 Studio empty-state drawing prompts.
+2. F-8 dock top-corner rounding.
+3. F-2 transparent-paper quadrant checker.
+4. DL-2 wire the thumbnail-write retry.
+5. G-2+G-9 rotation-safe transient dialogs.
+6. G-1 Layer panel header weight fix.
+7. G-10+DL-3 preference-flow IO resilience.
+8. GL-4 SmudgePass per-size quads.
+9. GL-6 SandwichCache dense built-flags.
+10. GL-1 visible-rect culling for committed frames.
+11. DL-5 history tmp/redo sweep. + DL-11 surrogate-safe names.
+12. G-3 Studio card ⋮ for every card.
+13. G-5+G-6+G-13 help-string polish (zh terms, en spelling, dialog title).
+14. F-9 HSV marker halo. F-3 custom paper in the Layer panel.
+15. F-12 hidden-tool name chip. F-10 watercolor preview. F-26 idea sparks.
 
 Held back deliberately: F-16/F-22 (brush-feel changes without a device),
 F-19/F-20/F-23 (wet-kernel changes deserve a proposal doc + shader-twin
-review), A1/A2 (large), U5/U6 (architectural), everything marked [verify].
+review), A1/A2 (large), U5/U6 (architectural), GL-2/GL-3/GL-8, DL-1/DL-4/
+DL-6/DL-8/DL-9, G-4 — all real, all recorded above with their shapes, none
+safely landable in one session without measurement or a design pass.

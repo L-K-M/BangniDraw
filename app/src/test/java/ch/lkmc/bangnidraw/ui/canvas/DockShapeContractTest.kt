@@ -14,11 +14,21 @@ class DockShapeContractTest {
     @Test
     fun `the dock rounds its top corners and keeps the bottom flush`() {
         val rail = ContractTestSources.read(TOOL_RAIL_PATH)
-        val dock = rail.substringAfter("private fun Dock(").substringBefore("@Composable")
+        // An absent delimiter must fail loudly as "Dock moved", not let the
+        // whole file masquerade as the snippet and fail on a shape message.
+        val dock = rail.substringAfter("private fun Dock(", missingDelimiterValue = "")
+            .substringBefore("@Composable")
+        assertTrue(dock.isNotBlank(), "Dock composable not found in ToolRail.kt — was it renamed?")
 
         assertTrue("shape = MaterialTheme.shapes.large.copy(" in dock, "dock derives its shape from the shared large shape")
         assertTrue("bottomStart = CornerSize(0.dp)" in dock, "the bottom start corner stays flush with the window edge")
         assertTrue("bottomEnd = CornerSize(0.dp)" in dock, "the bottom end corner stays flush with the window edge")
+        // The other half of the contract: squaring the TOP corners too would
+        // regress to the slab this shape exists to retire.
+        assertTrue(
+            "topStart" !in dock && "topEnd" !in dock,
+            "the top corners keep the shared large radius",
+        )
     }
 
     private companion object {

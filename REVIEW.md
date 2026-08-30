@@ -2284,3 +2284,17 @@ touchscreen hover too, not only a pen.
   round's two test-robustness notes (whitespace normalization per the house
   rule; a comment distinguishing the two clear constants, which are both
   used) were applied.
+
+## PR #161 — rotation-safe transient dialogs (2026-08-30)
+
+- **R-175 ℹ️ Round 1: "scan every ui/ file for AlertDialog flags using plain
+  `remember`."** Declined as a design suggestion (the review marked it
+  as such). A repo-wide scanner needs an allowlist of legitimately transient
+  state (menus, popovers, focus flags, drag state), and that allowlist is
+  exactly the judgment the scanner was meant to remove — each new false
+  positive would be resolved by growing the list until the test asserts the
+  list. The convention lives in this test's KDoc and the three fixed files
+  pin the pattern; new dialogs are reviewed against it like any other
+  convention. The round's two matching-robustness fixes (whitespace
+  normalization; asserting the draft's declaration rather than its seeding
+  expression) were applied.

@@ -444,9 +444,12 @@ private fun PaintingCell(
     onDelete: (alsoGallery: Boolean) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf(false) }
-    var renaming by remember { mutableStateOf(false) }
-    var sharing by remember { mutableStateOf(false) }
+    // Dialogs are saveable so a rotation mid-flow keeps them, matching the
+    // screen's own showSettings/showNewCanvas; the menu stays transient like
+    // every platform menu.
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    var renaming by rememberSaveable { mutableStateOf(false) }
+    var sharing by rememberSaveable { mutableStateOf(false) }
     val view = LocalView.current
     val available = painting.availability == StudioViewModel.PaintingAvailability.AVAILABLE
     val unavailableReason = when (painting.availability) {
@@ -597,7 +600,7 @@ private fun PaintingCell(
         // 08 §2's confirm: no undo-delete exists in v1, which is why the
         // dialog does. The gallery checkbox appears once either gallery
         // copy can exist — the painting's or its reference variant.
-        var deleteGalleryToo by remember { mutableStateOf(false) }
+        var deleteGalleryToo by rememberSaveable { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text(stringResource(R.string.studio_delete_title, title)) },
@@ -677,7 +680,7 @@ private fun PaintingCell(
     }
 
     if (renaming) {
-        var text by remember { mutableStateOf(painting.title.orEmpty()) }
+        var text by rememberSaveable { mutableStateOf(painting.title.orEmpty()) }
         AlertDialog(
             onDismissRequest = { renaming = false },
             title = { Text(stringResource(R.string.studio_rename)) },

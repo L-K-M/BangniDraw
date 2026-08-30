@@ -527,71 +527,79 @@ private fun PaintingCell(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.align(Alignment.Center),
                     )
-                    IconButton(
-                        onClick = { menuOpen = true },
-                        modifier = Modifier.align(Alignment.TopEnd),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.MoreVert,
-                            contentDescription = stringResource(R.string.studio_painting_actions),
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        // The ⋮ lives on EVERY card, not only unavailable ones: the long
+        // press it mirrors is invisible to a first-time user and unreachable
+        // from a keyboard, and the Studio help already promises the button.
+        // Beside the title rather than over the artwork — the shelf stays
+        // artwork-led.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (unavailableReason != null) {
+                    Text(
+                        text = unavailableReason,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else {
+                    val updatedAt = painting.updatedAtMillis
+                    if (updatedAt != null) {
+                        Text(
+                            text = DateUtils.getRelativeTimeSpanString(updatedAt).toString(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                if (available) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.studio_open)) },
-                        onClick = { menuOpen = false; onOpen() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.studio_rename)) },
-                        onClick = { menuOpen = false; renaming = true },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.studio_duplicate)) },
-                        onClick = { menuOpen = false; onDuplicate() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.studio_share)) },
-                        onClick = { menuOpen = false; sharing = true },
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = stringResource(R.string.studio_painting_actions),
                     )
                 }
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            stringResource(R.string.studio_delete),
-                            color = MaterialTheme.colorScheme.error,
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (available) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.studio_open)) },
+                                onClick = { menuOpen = false; onOpen() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.studio_rename)) },
+                                onClick = { menuOpen = false; renaming = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.studio_duplicate)) },
+                                onClick = { menuOpen = false; onDuplicate() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.studio_share)) },
+                                onClick = { menuOpen = false; sharing = true },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    stringResource(R.string.studio_delete),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            onClick = { menuOpen = false; confirmDelete = true },
                         )
-                    },
-                    onClick = { menuOpen = false; confirmDelete = true },
-                )
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (unavailableReason != null) {
-            Text(
-                text = unavailableReason,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        } else {
-            val updatedAt = painting.updatedAtMillis
-            if (updatedAt != null) {
-                Text(
-                    text = DateUtils.getRelativeTimeSpanString(updatedAt).toString(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                    }
             }
         }
     }

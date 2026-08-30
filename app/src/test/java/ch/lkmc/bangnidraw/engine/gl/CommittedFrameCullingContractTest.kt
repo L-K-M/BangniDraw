@@ -48,11 +48,13 @@ class CommittedFrameCullingContractTest {
         val body = renderer.drop(start).take(VISIBLE_RECT_SPAN)
 
         // Degenerate transforms compose everything rather than nothing.
-        assertTrue("return IntRect(0, 0, canvas.width, canvas.height)" in body)
+        // The same "\\( ?" tolerance as the culling pins: the whitespace
+        // collapse leaves a space after a multiline call's opening paren.
+        assertTrue(Regex("return IntRect\\( ?0, 0, canvas\\.width, canvas\\.height").containsMatchIn(body))
         // And the result never leaves the canvas, so tile selection sees the
         // same clamped domain fullCanvasRect provided.
-        assertTrue(".coerceIn(0, canvas.width)" in body)
-        assertTrue(".coerceIn(0, canvas.height)" in body)
+        assertTrue(Regex("\\.coerceIn\\( ?0, canvas\\.width\\)").containsMatchIn(body))
+        assertTrue(Regex("\\.coerceIn\\( ?0, canvas\\.height\\)").containsMatchIn(body))
     }
 
     private companion object {

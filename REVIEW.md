@@ -2334,6 +2334,20 @@ touchscreen hover too, not only a pen.
   review's other two findings (accept `SOURCE_TOUCHPAD`, sum historical
   scroll samples) were applied in the same round.
 
+## PR #161 addendum — the round-2 stable-keys claim (2026-08-30)
+
+- **R-176 🟡 Round 2 (post-steady-state): "positional `rememberSaveable`
+  restore could attach a delete dialog to the wrong painting."** Refuted —
+  the shelf grid already supplies stable keys:
+  `items(state.paintings, key = { it.id })` (StudioScreen.kt), with named
+  keys for the fixed New/empty cells, so saveable state inside
+  `PaintingCell` is keyed to the painting's id, not its position, and a
+  reorder between save and restore cannot re-attach an open dialog. The
+  review's own prompt for the finding ends "If a stable key is already
+  present, no change is required" — it is. Answered on the PR before the
+  merge because an unanswered wrong-painting-delete claim would have
+  misled the merge decision.
+
 ## PR #162 — the layer header stops starving its buttons (2026-08-30)
 
 - **R-181 🟠 Round 1: "`TextOverflow` import isn't anywhere in the diff"
@@ -2396,3 +2410,27 @@ touchscreen hover too, not only a pen.
   their viewport-space passes, and returns true — no per-frame failure
   path exists. The round's three in-diff test-robustness fixes (regex
   tolerance for both pins, a clamped source window) were applied.
+
+## PR #170 — surrogate-safe gallery names (2026-08-30)
+
+- **R-182 ℹ️ Round 1 (outside diff): "no tests for surrogate-boundary
+  truncation."** Refuted by the diff itself: `GalleryNamesTest` ships
+  three tests in this same PR — the cap never splitting a pair, the
+  reference-suffix cut never splitting a pair, and a whole emoji
+  surviving inside the cap. The review's own coverage note explains the
+  miss ("no patch returned by GitHub" for the test file), so the finding
+  was raised blind to the file that answers it. The round's real Minor —
+  `takeWholeCharacters` indexing at -1 for a non-positive count — was
+  applied as a `count <= 0` guard with String.take semantics.
+
+- **R-184 ℹ️ Round 2: "hoist `takeWholeCharacters` to a top-level
+  internal extension so the `count <= 0` guard becomes testable."**
+  Declined. The guard is deliberate armor for a branch unreachable
+  through every caller — both public paths bound their counts first —
+  and widening a private member extension to module visibility purely to
+  execute dead-defense code inverts the smallest-surface preference for
+  no live-behavior coverage. This differs from PR #165's BuiltFlags test
+  (applied): there the extracted logic carries reachable, render-
+  correctness invariants; here the three-line guard's contract is
+  readable at a glance and the surrogate behavior it protects is already
+  pinned by three tests through the public API.

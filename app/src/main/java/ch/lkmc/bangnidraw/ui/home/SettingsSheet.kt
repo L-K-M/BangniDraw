@@ -63,6 +63,7 @@ import ch.lkmc.bangnidraw.engine.core.PressurePreference
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcutCatalog
 import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
+import ch.lkmc.bangnidraw.ui.common.InfoButton
 import ch.lkmc.bangnidraw.ui.theme.themePreviewColor
 
 /** One-level preference sheet; About/licenses is its only child. */
@@ -115,7 +116,7 @@ internal fun SettingsSheet(
                 .heightIn(max = SETTINGS_MAX_HEIGHT),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp),
         ) {
-            item { SectionTitle(R.string.settings_appearance) }
+            item { SectionTitle(R.string.settings_appearance, R.string.help_appearance_body) }
             item {
                 Column(Modifier.selectableGroup()) {
                     SettingLabel(R.string.settings_theme_color)
@@ -139,7 +140,7 @@ internal fun SettingsSheet(
                 }
             }
 
-            item { SectionTitle(R.string.settings_drawing) }
+            item { SectionTitle(R.string.settings_drawing, R.string.help_drawing_body) }
             item {
                 Column(Modifier.selectableGroup()) {
                     SettingLabel(R.string.settings_handedness)
@@ -221,7 +222,7 @@ internal fun SettingsSheet(
                 )
             }
 
-            item { SectionTitle(R.string.settings_feedback) }
+            item { SectionTitle(R.string.settings_feedback, R.string.help_feedback_body) }
             item {
                 SwitchRow(
                     title = R.string.settings_haptics,
@@ -232,7 +233,7 @@ internal fun SettingsSheet(
                 )
             }
 
-            item { SectionTitle(R.string.settings_storage) }
+            item { SectionTitle(R.string.settings_storage, R.string.help_storage_body) }
             item {
                 SwitchRow(
                     title = R.string.settings_gallery_sync,
@@ -253,7 +254,7 @@ internal fun SettingsSheet(
             }
 
             if (BuildConfig.MIXBOX) {
-                item { SectionTitle(R.string.settings_color) }
+                item { SectionTitle(R.string.settings_color, R.string.help_mixer_body) }
                 item {
                     Column(Modifier.selectableGroup()) {
                         SettingLabel(R.string.settings_mixer)
@@ -288,7 +289,7 @@ internal fun SettingsSheet(
                 }
             }
 
-            item { SectionTitle(R.string.settings_shortcuts) }
+            item { SectionTitle(R.string.settings_shortcuts, R.string.help_shortcuts_body) }
             item {
                 Text(
                     text = stringResource(R.string.settings_shortcuts_help),
@@ -326,16 +327,25 @@ internal fun SettingsSheet(
 }
 
 @Composable
-private fun SectionTitle(title: Int) {
-    Text(
-        text = stringResource(title),
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
+private fun SectionTitle(title: Int, @StringRes helpBody: Int? = null) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 8.dp)
-            .semantics { heading() },
-    )
+            .padding(start = 24.dp, end = 8.dp, top = 20.dp, bottom = 8.dp),
+    ) {
+        Text(
+            text = stringResource(title),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .weight(1f)
+                .semantics { heading() },
+        )
+        if (helpBody != null) {
+            InfoButton(title = stringResource(title), body = helpBody)
+        }
+    }
 }
 
 @Composable

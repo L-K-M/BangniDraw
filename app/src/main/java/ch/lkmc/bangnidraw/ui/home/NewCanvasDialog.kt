@@ -65,6 +65,7 @@ import ch.lkmc.bangnidraw.engine.core.NewCanvasDefaultsPolicy
 import ch.lkmc.bangnidraw.engine.core.NewCanvasLayoutPolicy
 import ch.lkmc.bangnidraw.engine.core.SizeRefusal
 import ch.lkmc.bangnidraw.engine.core.TileGrid
+import ch.lkmc.bangnidraw.ui.common.InfoButton
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchCustomDefault
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchGray
@@ -141,7 +142,18 @@ fun NewCanvasDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.new_canvas_title)) },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stringResource(R.string.new_canvas_title),
+                    modifier = Modifier.weight(1f),
+                )
+                InfoButton(
+                    title = stringResource(R.string.new_canvas_title),
+                    body = R.string.help_new_canvas_body,
+                )
+            }
+        },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),

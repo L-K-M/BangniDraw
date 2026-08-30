@@ -85,6 +85,7 @@ import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.PanelMode
 import ch.lkmc.bangnidraw.engine.core.Refusal
+import ch.lkmc.bangnidraw.ui.common.InfoButton
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchGray
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWarm
@@ -395,6 +396,10 @@ private fun LayerPanelHeader(
             modifier = Modifier.padding(start = 8.dp),
         )
         Spacer(Modifier.weight(1f))
+        InfoButton(
+            title = stringResource(R.string.layers_title),
+            body = R.string.help_layers_body,
+        )
         IconButton(onClick = onAdd) {
             Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.layer_add))
         }

@@ -77,6 +77,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.data.ImageEncode
+import ch.lkmc.bangnidraw.ui.common.InfoButton
 import ch.lkmc.bangnidraw.data.GalleryExportOutcome
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
@@ -159,6 +160,10 @@ fun StudioScreen(
                     style = MaterialTheme.typography.headlineMedium,
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.weight(1f),
+                )
+                InfoButton(
+                    title = stringResource(R.string.app_name),
+                    body = R.string.help_studio_body,
                 )
                 IconButton(onClick = { showSettings = true }) {
                     Icon(

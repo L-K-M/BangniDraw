@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -44,7 +45,11 @@ internal fun SmudgeSettingsSheet(
     onChanged: (SmudgeParams) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ToolSheetScaffold(title = stringResource(R.string.tool_smudge), onClose = onDismiss) {
+    ToolSheetScaffold(
+        title = stringResource(R.string.tool_smudge),
+        helpBody = R.string.help_smudge_body,
+        onClose = onDismiss,
+    ) {
         val percent: @Composable (Float) -> String = {
             stringResource(R.string.brush_value_percent, it * PERCENT)
         }
@@ -119,7 +124,11 @@ internal fun WaterSettingsSheet(
     onChanged: (WaterParams) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ToolSheetScaffold(title = stringResource(R.string.tool_water), onClose = onDismiss) {
+    ToolSheetScaffold(
+        title = stringResource(R.string.tool_water),
+        helpBody = R.string.help_water_body,
+        onClose = onDismiss,
+    ) {
         val percent: @Composable (Float) -> String = {
             stringResource(R.string.brush_value_percent, it * PERCENT)
         }
@@ -152,7 +161,11 @@ internal fun BlurSettingsSheet(
     onChanged: (BlurParams) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ToolSheetScaffold(title = stringResource(R.string.tool_blur), onClose = onDismiss) {
+    ToolSheetScaffold(
+        title = stringResource(R.string.tool_blur),
+        helpBody = R.string.help_blur_body,
+        onClose = onDismiss,
+    ) {
         val percent: @Composable (Float) -> String = {
             stringResource(R.string.brush_value_percent, it * PERCENT)
         }
@@ -199,7 +212,11 @@ internal fun EyedropperSettingsSheet(
     onChanged: (EyedropperParams) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ToolSheetScaffold(title = stringResource(R.string.tool_eyedropper), onClose = onDismiss) {
+    ToolSheetScaffold(
+        title = stringResource(R.string.tool_eyedropper),
+        helpBody = R.string.help_eyedropper_body,
+        onClose = onDismiss,
+    ) {
         Text(
             text = stringResource(R.string.eyedropper_sample),
             style = MaterialTheme.typography.titleSmall,
@@ -231,6 +248,7 @@ internal fun EyedropperSettingsSheet(
 @Composable
 private fun ToolSheetScaffold(
     title: String,
+    @StringRes helpBody: Int?,
     onClose: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -245,7 +263,7 @@ private fun ToolSheetScaffold(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = SHEET_PADDING),
         ) {
-            PanelHeader(title = title, onClose = onClose)
+            PanelHeader(title = title, onClose = onClose, helpBody = helpBody)
             content()
             Spacer(Modifier.height(SHEET_BOTTOM_GAP))
         }

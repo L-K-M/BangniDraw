@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
@@ -13,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.ui.common.InfoButton
 
 /**
  * A panel's title row with a visible way out beside it.
@@ -20,10 +22,15 @@ import ch.lkmc.bangnidraw.R
  * Panels dismiss on a scrim tap or Back (08 §4.1), which a first-time user
  * cannot see; the close icon is the same affordance the Settings sheet's
  * header already carries. Dismissal never destroys state — the panel keeps
- * its edits either way.
+ * its edits either way. [helpBody] adds the (i) popup explaining the panel.
  */
 @Composable
-internal fun PanelHeader(title: String, onClose: () -> Unit, modifier: Modifier = Modifier) {
+internal fun PanelHeader(
+    title: String,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    @StringRes helpBody: Int? = null,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier.fillMaxWidth(),
@@ -33,6 +40,9 @@ internal fun PanelHeader(title: String, onClose: () -> Unit, modifier: Modifier 
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.weight(1f),
         )
+        if (helpBody != null) {
+            InfoButton(title = title, body = helpBody)
+        }
         PanelCloseButton(onClose)
     }
 }

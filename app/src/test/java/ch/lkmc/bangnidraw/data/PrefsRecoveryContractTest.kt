@@ -23,7 +23,7 @@ class PrefsRecoveryContractTest {
         // chain the shared helper (or appTheme's bespoke, contract-tested
         // call). The declaration ends where the next member begins.
         val declaration = Regex(
-            """val (\w+): Flow<[^=]*=\s*(?:dataStore\.data|paintSlotState)[\s\S]*?(?=\n    (?:va|in|pr|su|/\*)|\n\}\n)""",
+            """val (\w+): Flow<[^=]*=\s*(?:dataStore\.data|paintSlotState)[\s\S]*?(?=\n    (?:va|in|pr|su|fu|co|ov|@|/\*)|\n\}\n)""",
         )
         val offenders = ArrayList<String>()
         var flows = 0
@@ -63,7 +63,11 @@ class PrefsRecoveryContractTest {
     private companion object {
         const val PREFS_PATH = "app/src/main/java/ch/lkmc/bangnidraw/data/Prefs.kt"
 
-        /** 16 read flows existed when this was written; fewer means the regex broke. */
-        const val MIN_EXPECTED_FLOWS = 14
+        /**
+         * The exact count in Prefs.kt today: fewer means the regex went
+         * stale (a flow refactored past its anchors escapes the contract),
+         * and the intentional removal of a flow updates this alongside it.
+         */
+        const val MIN_EXPECTED_FLOWS = 17
     }
 }

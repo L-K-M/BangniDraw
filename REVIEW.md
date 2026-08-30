@@ -2265,3 +2265,21 @@ touchscreen hover too, not only a pen.
   carry no decision logic (a state boolean and a pass-through string), so
   there is nothing JVM-testable; the existing source-marker contract tests
   already cover the call sites they restructure.
+
+## PR #163 — preference reads recover instead of crashing (2026-08-30)
+
+- **R-179 🟡 Round 1 (outside diff): "verify `loadPaintSlots` callers
+  cannot run while `paintSlotState.value` is null."** Verified and closed
+  as no-change, per the finding's own if-then framing: the gate it asks
+  callers to add already lives inside the API. `loadPaintSlots` opens
+  with `paintSlotIds.first()` on `paintSlotState.filterNotNull()`, so it
+  suspends through the whole retry window; the sole external call site
+  (`CanvasViewModel`'s open path) goes through it, and `assignPaintSlot`
+  is reachable only from slot UI that renders off `paintSlotIds`
+  emissions — which exist only after the state is non-null. A longer
+  retry window therefore lengthens a suspension, never a
+  `requireLoadedPaintSlotIds` crash. The round's three in-diff fixes
+  (no pause after the final attempt; widened member-start terminators —
+  `@`-annotated members already exist at that indent; the staleness
+  floor raised to the true count of 17, which the old "16" comment
+  itself miscounted) were applied.

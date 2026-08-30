@@ -92,7 +92,9 @@ class Prefs @Inject constructor(
                     Log.w(TAG, "paint slots could not be loaded", it)
                 }.getOrNull()
                 if (stored != null) break
-                preferenceRetryPause(attempt)
+                // Between retries only: pausing after the final failure
+                // would just delay the degraded fallback.
+                if (attempt < MAX_RETRY_ATTEMPTS) preferenceRetryPause(attempt)
             }
 
             synchronized(paintSlotLock) {

@@ -30,7 +30,13 @@ class LayerPanelHeaderContractTest {
             "modifier = Modifier.weight(1f)," in header,
             "the text group must own the flexible slot",
         )
-        assertTrue("overflow = TextOverflow.Ellipsis" in header, "the title yields by ellipsizing")
+        // Scoped before the weight anchor: the count Text ellipsizes too
+        // now, and its ellipsis alone must not satisfy the title's check.
+        assertTrue(
+            "overflow = TextOverflow.Ellipsis" in
+                header.substringBefore("Modifier.weight(1f, fill = false)"),
+            "the title yields by ellipsizing",
+        )
         // Any weighted Spacer spelling — named argument, fill = false —
         // is the same regression.
         assertTrue(
@@ -41,6 +47,7 @@ class LayerPanelHeaderContractTest {
         // yielding title's own modifier anchors it so a future weighted
         // element elsewhere in the header cannot hijack the check.
         val weighted = header.indexOf("Modifier.weight(1f, fill = false)")
+        if (weighted < 0) fail("missing the yielding title's weight anchor")
         for (action in listOf("InfoButton(", "onClick = onAdd", "onMenuChange(true)", "PanelCloseButton(onClose)")) {
             val at = header.indexOf(action)
             if (at < 0) fail("missing $action in the header")
@@ -52,7 +59,9 @@ class LayerPanelHeaderContractTest {
         const val LAYER_PANEL_PATH = "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/LayerPanel.kt"
         const val HEADER_START = "private fun LayerPanelHeader("
         const val HEADER_END = "private fun LayerRow("
-        val WEIGHTED_SPACER = Regex("Spacer\\([^)]*weight")
+        // One level of nested parens, so a chained spelling like
+        // Spacer(Modifier.padding(8.dp).weight(1f)) is still banned.
+        val WEIGHTED_SPACER = Regex("Spacer\\((?:[^()]|\\([^()]*\\))*weight")
         val WHITESPACE = Regex("\\s+")
     }
 }

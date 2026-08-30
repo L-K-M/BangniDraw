@@ -3030,14 +3030,16 @@ class CanvasViewModel @Inject constructor(
                 // The thumbnail follows the checkpoint (06 §6.4): the tiles
                 // it reads are on disk by the flush above, and only when
                 // pixels actually changed — never per stroke.
-                if (snapshot.thumbnailWork == ThumbnailWork.WRITE) {
+                val thumbnailResult = if (snapshot.thumbnailWork == ThumbnailWork.WRITE) {
                     Thumbnails.write(
                         snapshot.document,
                         layerDirFor = { store.layerDir(snapshot.document.id, it) },
                         target = File(store.projectDir(snapshot.document.id), "thumb.png"),
                     )
+                } else {
+                    null
                 }
-                withContext(Dispatchers.Main) { finishCheckpoint(snapshot) }
+                withContext(Dispatchers.Main) { finishCheckpoint(snapshot, thumbnailResult) }
                 maybeSyncGallery(snapshot.document, trigger, snapshot.timestampMs)
             }
             if (projectCommitted) CheckpointResult.COMMITTED else CheckpointResult.DEFERRED
@@ -3087,7 +3089,10 @@ class CanvasViewModel @Inject constructor(
     }
 
     /** Clears only work still owned by this checkpoint's model revision. */
-    private fun finishCheckpoint(snapshot: CheckpointSnapshot) {
+    private fun finishCheckpoint(
+        snapshot: CheckpointSnapshot,
+        thumbnailResult: ThumbnailWriteResult?,
+    ) {
         if (snapshot.deletes.isNotEmpty()) {
             pendingDeletes.removeAll(snapshot.deletes.toSet())
         }
@@ -3097,7 +3102,11 @@ class CanvasViewModel @Inject constructor(
             }
             dirty = false
             contentDirty = false
-            thumbDirty = false
+            // FAILED returns unthrown, so the generation guard alone cannot
+            // tell it from success: clearing here anyway is what left a
+            // failed thumbnail stale until some unrelated later edit. A null
+            // result is a checkpoint that owed no write.
+            if (thumbnailResult != ThumbnailWriteResult.FAILED) thumbDirty = false
             dirtySinceMs = null
         }
     }

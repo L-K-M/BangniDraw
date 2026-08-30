@@ -1269,9 +1269,17 @@ class CanvasTouchHandler(
 
     /**
      * Wheel and trackpad scroll — the one generic-motion event the canvas
-     * consumes. Restricted to pointer-class sources: a rotary encoder or a
-     * joystick also delivers `ACTION_SCROLL`, but carries no cursor position
+     * consumes. Pointer-class sources zoom about the cursor. `SOURCE_TOUCHPAD`
+     * is position-class, not pointer-class, so it is accepted by name: most
+     * touchpads scroll through a synthesized mouse pointer, but one that
+     * reports directly carries pad-relative coordinates — the viewport centre
+     * is the only honest pivot there. A rotary encoder or joystick also
+     * delivers `ACTION_SCROLL` and stays refused: no cursor, no pad, nothing
      * to zoom about.
+     *
+     * Historical samples are summed with the current one — a batching device
+     * folds several movements into one event, and dropping them under-zooms a
+     * fling. The per-event tick bound applies to the sum.
      *
      * `AXIS_VSCROLL` is positive with the wheel rolled away from the user,
      * which zooms in — the shared convention of maps and every desktop
@@ -1281,9 +1289,26 @@ class CanvasTouchHandler(
     override fun onGenericMotion(v: View?, event: MotionEvent?): Boolean {
         val e = event ?: return false
         if (e.actionMasked != MotionEvent.ACTION_SCROLL) return false
-        if (!e.isFromSource(InputDevice.SOURCE_CLASS_POINTER)) return false
+        val pointerClass = e.isFromSource(InputDevice.SOURCE_CLASS_POINTER)
+        if (!pointerClass && !e.isFromSource(InputDevice.SOURCE_TOUCHPAD)) return false
 
-        return handleScroll(e.x, e.y, e.getAxisValue(MotionEvent.AXIS_VSCROLL))
+        var ticks = 0f
+        for (h in 0 until e.historySize) {
+            ticks += e.getHistoricalAxisValue(MotionEvent.AXIS_VSCROLL, h)
+        }
+        ticks += e.getAxisValue(MotionEvent.AXIS_VSCROLL)
+
+        val f = fit
+        val pivotX: Float
+        val pivotY: Float
+        if (pointerClass || f == null) {
+            pivotX = e.x
+            pivotY = e.y
+        } else {
+            pivotX = f.viewWidth / 2f
+            pivotY = f.viewHeight / 2f
+        }
+        return handleScroll(pivotX, pivotY, ticks)
     }
 
     /**

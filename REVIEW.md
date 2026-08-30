@@ -2265,3 +2265,16 @@ touchscreen hover too, not only a pen.
   carry no decision logic (a state boolean and a pass-through string), so
   there is nothing JVM-testable; the existing source-marker contract tests
   already cover the call sites they restructure.
+
+## PR #157 — mouse-wheel zoom at the cursor (2026-08-30)
+
+- **R-173 ℹ️ PR #157 round 1: "test `onGenericMotion` itself with Robolectric
+  or androidTest."** Declined — the suite is JVM-only by policy (AGENTS.md:
+  no `androidTest` directory exists, and adding one means adding the emulator
+  CI job; `MotionEvent` cannot be constructed on the JVM). The test file's
+  own header states this exact boundary: `onTouch`/`onHover`'s translation is
+  device-only and named rather than mocked, and `onGenericMotion` joins that
+  list. Everything the handler *decides* is reachable through `handleScroll`
+  and fully tested. Same disposition as R-172's Compose-UI-test ask. The
+  review's other two findings (accept `SOURCE_TOUCHPAD`, sum historical
+  scroll samples) were applied in the same round.

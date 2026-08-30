@@ -23,7 +23,7 @@ class PrefsRecoveryContractTest {
         // chain the shared helper (or appTheme's bespoke, contract-tested
         // call). The declaration ends where the next member begins.
         val declaration = Regex(
-            """val (\w+): Flow<[^=]*=\s*(?:dataStore\.data|paintSlotState)[\s\S]*?(?=\n    (?:va|in|pr|su|fu|co|ov|@|/\*)|\n\}\n)""",
+            """val (\w+): Flow<[^=]*=\s*(?:dataStore\.data|paintSlotState)[\s\S]*?(?=\n    (?:va|in|pr|su|fu|co|ov|op|ty|ob|cl|en|la|@|/\*)|\n\}\n)""",
         )
         val offenders = ArrayList<String>()
         var flows = 0

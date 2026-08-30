@@ -40,12 +40,12 @@
     <string name="save_to_gallery">导出为相册新图片</string>
     <string name="studio_saved_to_gallery">已添加到相册</string>
     <string name="studio_save_failed">无法添加到相册</string>
-    <string name="gallery_reference_suffix">（含参考图）</string>
+    <string name="gallery_reference_suffix">（含描图图像）</string>
 
     <string name="new_canvas_title">新建草图</string>
     <string name="new_canvas_create">创建</string>
     <string name="new_canvas_cancel">取消</string>
-    <string name="canvas_preset_phone">手机速写</string>
+    <string name="canvas_preset_phone">手机草图</string>
     <string name="canvas_preset_square">方形 2048</string>
     <string name="canvas_preset_tablet">平板</string>
     <string name="canvas_preset_large">大幅 4096</string>
@@ -385,7 +385,7 @@
     <string name="help_storage_body">同步到相册会在相册（Pictures/帮你Draw）中为每幅画保留一份副本，随绘画更新。带有可见描图图像的画会额外保留一份包含它的副本。删除画时可一并删除相册副本。\n\n撤销上限：每幅画的撤销历史可保留的步数与存储空间。</string>
     <string name="help_mixer_body">颜料混色像真实的颜料：蓝加黄得到绿，颜色越混越深。RGB 像屏幕上的光一样混合——更快，但混色容易发灰。颜料混色由 Mixbox 提供（CC BY-NC 4.0）。</string>
     <string name="help_shortcuts_body">连接键盘后可用——DeX、Chromebook 或带键盘套的平板。</string>
-    <string name="help_studio_body">绘画全程自动保存——没有保存按钮。\n\n点 + 新建绘画。长按一幅画（或点 ⋮）可打开、重命名、复制、分享、存入相册或删除——删除时可一并删除相册副本。</string>
+    <string name="help_studio_body">绘画全程自动保存——没有保存按钮。\n\n点 + 新建草图。长按一幅画（或点 ⋮）可打开、重命名、复制、分享、存入相册或删除——删除时可一并删除相册副本。</string>
     <string name="help_new_canvas_body">选择尺寸预设，或用“自定义”输入尺寸。“可容纳 N 个图层”是这台设备在该尺寸下的内存预算：画布越大，可用图层越少。\n\n纸张决定背景色。透明背景导出时保持透明——PNG 保留透明，JPEG 会填充白色。</string>
     <string name="help_brush_sheet_body">这里的设置修改当前选中的画笔预设，会一直保留，直到你重置。上方长条预览笔画；“重置”恢复出厂调校。\n\n提示：再次点按已选中的画笔即可打开此面板。</string>
     <string name="help_brush_stroke_body">尺寸：画笔直径（像素）。\n\n不透明度：完成的笔画透出多少纸面。\n\n流量：每个笔点落下多少颜料；低流量需要在同一处反复涂抹才逐渐加深。</string>

@@ -2256,3 +2256,12 @@ touchscreen hover too, not only a pen.
   predicates are identical by construction and no divergent-nullity path
   exists. A comment at `laneAngle` now states the aliasing so the next
   reader does not have to re-derive it.
+
+## PR #156 — in-app (i) documentation (2026-08-30)
+
+- **R-172 ℹ️ Round 1: "add a Compose UI test for InfoButton."** Declined —
+  per AGENTS.md the suite is JVM-only and no androidTest directory exists;
+  adding one means adding the emulator CI job too. InfoButton/InfoDialog
+  carry no decision logic (a state boolean and a pass-through string), so
+  there is nothing JVM-testable; the existing source-marker contract tests
+  already cover the call sites they restructure.

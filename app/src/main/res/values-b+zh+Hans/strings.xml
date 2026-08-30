@@ -379,10 +379,10 @@
     <string name="help_button_cd">帮助：%1$s</string>
     <string name="canvas_help">帮助</string>
     <string name="help_canvas_title">画布</string>
-    <string name="help_appearance_body">选择应用的配色：五个浅色、三个深色主题。选择是固定的——应用不跟随系统深色模式或壁纸取色。</string>
+    <string name="help_appearance_body">选择应用的配色：多个浅色与深色主题。选择是固定的——应用不跟随系统深色模式或壁纸取色。</string>
     <string name="help_drawing_body">左右手：工具栏在画布的哪一侧。\n\n仅触控笔：只有笔可以绘画；手指仍可用于移动、缩放和旋转画布。\n\n笔侧键：触控笔侧键的作用——切换到橡皮，或按住时拾取颜色。\n\n橡皮端：笔尾橡皮使用哪种橡皮刷。\n\n压感：笔压力如何映射到画笔。“更软”较早达到满压；“更硬”需要用力按压。\n\n对齐直角：双指旋转时吸附到 0°、90°、180°、270°。</string>
     <string name="help_feedback_body">触感反馈：撤销、滑过刻度、取色或拖动图层时的轻微振动。</string>
-    <string name="help_storage_body">同步到相册会在 相册/帮你Draw 中为每幅画保留一份副本，随绘画更新。带有可见描摹图的画会额外保留一份包含描摹图的副本。删除画时可一并删除相册副本。\n\n撤销上限：每幅画的撤销历史可保留的步数与存储空间。</string>
+    <string name="help_storage_body">同步到相册会在 相册（Pictures/帮你Draw）中为每幅画保留一份副本，随绘画更新。带有可见描摹图的画会额外保留一份包含描摹图的副本。删除画时可一并删除相册副本。\n\n撤销上限：每幅画的撤销历史可保留的步数与存储空间。</string>
     <string name="help_mixer_body">颜料混色像真实的颜料：蓝加黄得到绿，颜色越混越深。RGB 像屏幕上的光一样混合——更快，但混色容易发灰。颜料混色由 Mixbox 提供（CC BY-NC 4.0）。</string>
     <string name="help_shortcuts_body">连接键盘后可用——DeX、Chromebook 或带键盘套的平板。</string>
     <string name="help_studio_body">绘画全程自动保存——没有保存按钮。\n\n点 + 新建绘画。长按一幅画（或点 ⋮）可打开、重命名、复制、分享、存入相册或删除——删除时可一并删除相册副本。</string>

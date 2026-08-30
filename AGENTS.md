@@ -204,6 +204,8 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   the same change — MissingTranslation makes the second locale a hard gate.
   Bodies are one blank-line-separated paragraph per control, and must state
   the non-obvious interaction (long-press, second-tap) the surface hides.
+  The canvas overflow's Help is the one surface with no section string of
+  its own; its dialog title is `help_canvas_title`.
 - **Greyscale ARGB cannot encode hue.** `ColorPanel` keeps an `HsvSelection`;
   panel-originated ARGB echoes must not reconstruct HSV, while external colors
   must. Do not key the selection state directly to the current ARGB.

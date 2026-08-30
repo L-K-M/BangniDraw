@@ -248,7 +248,7 @@ internal fun EyedropperSettingsSheet(
 @Composable
 private fun ToolSheetScaffold(
     title: String,
-    @StringRes helpBody: Int?,
+    @StringRes helpBody: Int,
     onClose: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {

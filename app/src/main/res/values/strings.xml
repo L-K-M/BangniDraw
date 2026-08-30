@@ -417,7 +417,7 @@
     <string name="help_button_cd">About %1$s</string>
     <string name="canvas_help">Help</string>
     <string name="help_canvas_title">Canvas</string>
-    <string name="help_appearance_body">Pick the app\u2019s colour scheme: five light and three dark palettes. The choice is fixed \u2014 the app does not follow the system\u2019s dark mode or wallpaper colours.</string>
+    <string name="help_appearance_body">Pick the app\u2019s colour scheme from the light and dark palettes. The choice is fixed \u2014 the app does not follow the system\u2019s dark mode or wallpaper colours.</string>
     <string name="help_drawing_body">Handedness: which side of the canvas the tool rail sits on.\n\nStylus only: only the pen draws; fingers still move, zoom, and rotate the canvas.\n\nPen button: what the stylus side button does \u2014 switch to the eraser, or pick a colour while held.\n\nEraser end: which eraser the pen\u2019s eraser tip uses.\n\nPressure: how pen pressure maps to the brush. Softer reaches full effect early; Harder needs a firm press.\n\nSnap right angles: two-finger rotation clicks into 0\u00b0, 90\u00b0, 180\u00b0, and 270\u00b0.</string>
     <string name="help_feedback_body">Haptics: brief vibrations when you undo, cross slider marks, pick colours, or reorder layers.</string>
     <string name="help_storage_body">Gallery sync keeps a copy of every painting in Pictures/\u5e2e\u4f60Draw, updated as you paint. A painting with a visible tracing image keeps a second copy that includes it. Deleting a painting can take its gallery copies along.\n\nUndo limit: how many steps and how much storage each painting\u2019s undo history may keep.</string>

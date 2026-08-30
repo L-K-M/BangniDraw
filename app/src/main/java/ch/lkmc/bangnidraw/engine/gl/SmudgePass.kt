@@ -31,7 +31,16 @@ class SmudgePass(
     private var pickupWrite = OffscreenTarget("Smudge pickup B")
     private val readFbo = GlFbo()
     private val drawFbo = GlFbo()
-    private val quad = FullRectQuad()
+    // One quad per draw size — the rule AGENTS.md records for the present
+    // quad, applied here: FullRectQuad caches only its LAST geometry, so one
+    // shared instance alternating pickup/work/tile sizes re-uploaded its 30
+    // floats on nearly every draw of every dab, each upload a fresh array on
+    // the GL thread and a glBufferSubData into a buffer the previous draw
+    // may still be reading (no orphaning — the implicit-sync stall
+    // CompositePass documents). Per-size quads make steady state bind+draw.
+    private val pickupQuad = FullRectQuad()
+    private val workQuad = FullRectQuad()
+    private val tileQuad = FullRectQuad()
     private var firstSmudgeDab = true
 
     private var sourceKeys = IntArray(0)
@@ -203,7 +212,7 @@ class SmudgePass(
         state.viewport(0, 0, spec.pickupEdge, spec.pickupEdge)
         state.scissorOff()
         state.blendOff()
-        quad.draw(spec.pickupEdge.toFloat(), spec.pickupEdge.toFloat())
+        pickupQuad.draw(spec.pickupEdge.toFloat(), spec.pickupEdge.toFloat())
 
         val previous = pickupRead
         pickupRead = pickupWrite
@@ -237,7 +246,7 @@ class SmudgePass(
         )
         blurHorizontal.uniform1i("u_radius", spec.radius)
         bindTexture(BEFORE_UNIT, before.texture)
-        quad.draw(work.width.toFloat(), work.height.toFloat())
+        workQuad.draw(work.width.toFloat(), work.height.toFloat())
 
         state.useProgram(blurVertical)
         blurVertical.uniform1i("u_before", BEFORE_UNIT)
@@ -291,7 +300,7 @@ class SmudgePass(
             )
             state.blendOff()
             bindTile(program, key)
-            quad.draw(TILE_SIZE.toFloat(), TILE_SIZE.toFloat())
+            tileQuad.draw(TILE_SIZE.toFloat(), TILE_SIZE.toFloat())
         }
     }
 
@@ -355,7 +364,9 @@ class SmudgePass(
         pickupWrite.release(state)
         readFbo.release()
         drawFbo.release()
-        quad.release()
+        pickupQuad.release()
+        workQuad.release()
+        tileQuad.release()
     }
 
     private companion object {

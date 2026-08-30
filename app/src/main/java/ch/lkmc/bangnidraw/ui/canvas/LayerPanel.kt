@@ -85,6 +85,7 @@ import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.PanelMode
 import ch.lkmc.bangnidraw.engine.core.Refusal
 import ch.lkmc.bangnidraw.ui.common.InfoButton
+import ch.lkmc.bangnidraw.ui.common.drawQuadrantChecker
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchGray
 import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWarm
@@ -850,9 +851,12 @@ private fun PaperRow(
 
 @Composable
 private fun PaperSwatch(color: Color) {
-    val checker = MaterialTheme.colorScheme.surfaceVariant
+    // The checker only shows through a transparent paper choice; a flat
+    // surfaceVariant fill there read as gray paper, not as see-through.
+    val checkerA = MaterialTheme.colorScheme.surface
+    val checkerB = MaterialTheme.colorScheme.surfaceVariant
     Canvas(Modifier.size(PAPER_SWATCH)) {
-        drawRect(checker)
+        drawQuadrantChecker(checkerA, checkerB)
         drawRect(color)
     }
 }

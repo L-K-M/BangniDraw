@@ -92,7 +92,10 @@ class StudioUnavailablePaintingContractTest {
         const val PAINTING_CELL_START = "private fun PaintingCell("
         const val PAINTING_CELL_END = "private fun ThumbnailCheckerboard()"
         const val MENU_START = "DropdownMenu(expanded = menuOpen"
-        const val MENU_END = "Spacer(Modifier.height(4.dp))"
+        // The menu moved into the footer row beside the title (its visible ⋮
+        // anchor); the delete-confirmation block is the first stable marker
+        // after it.
+        const val MENU_END = "if (confirmDelete) {"
         const val AVAILABLE_ACTIONS_START = "if (available)"
         const val DELETE_ACTION = "confirmDelete = true"
         const val UNAVAILABLE_BADGE = "R.string.studio_painting_unavailable_badge"

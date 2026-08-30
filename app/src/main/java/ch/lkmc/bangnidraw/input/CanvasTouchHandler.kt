@@ -1273,7 +1273,8 @@ class CanvasTouchHandler(
      * is position-class, not pointer-class, so it is accepted by name: most
      * touchpads scroll through a synthesized mouse pointer, but one that
      * reports directly carries pad-relative coordinates — the viewport centre
-     * is the only honest pivot there. A rotary encoder or joystick also
+     * is the only honest pivot there, and before layout has provided one
+     * the event is dropped rather than zoomed about pad coordinates. A rotary encoder or joystick also
      * delivers `ACTION_SCROLL` and stays refused: no cursor, no pad, nothing
      * to zoom about.
      *
@@ -1299,16 +1300,14 @@ class CanvasTouchHandler(
         ticks += e.getAxisValue(MotionEvent.AXIS_VSCROLL)
 
         val f = fit
-        val pivotX: Float
-        val pivotY: Float
-        if (pointerClass || f == null) {
-            pivotX = e.x
-            pivotY = e.y
-        } else {
-            pivotX = f.viewWidth / 2f
-            pivotY = f.viewHeight / 2f
-        }
-        return handleScroll(pivotX, pivotY, ticks)
+        val pivot = ScrollZoom.pivot(
+            pointerClass = pointerClass,
+            eventX = e.x,
+            eventY = e.y,
+            viewWidth = f?.viewWidth,
+            viewHeight = f?.viewHeight,
+        ) ?: return false
+        return handleScroll(pivot.first, pivot.second, ticks)
     }
 
     /**

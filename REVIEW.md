@@ -2275,6 +2275,8 @@ touchscreen hover too, not only a pen.
   own header states this exact boundary: `onTouch`/`onHover`'s translation is
   device-only and named rather than mocked, and `onGenericMotion` joins that
   list. Everything the handler *decides* is reachable through `handleScroll`
-  and fully tested. Same disposition as R-172's Compose-UI-test ask. The
+  and `ScrollZoom.pivot` (round 2 extracted the touchpad-vs-cursor pivot
+  choice into that pure helper precisely so this stays true) and fully
+  tested. Same disposition as R-172's Compose-UI-test ask. The
   review's other two findings (accept `SOURCE_TOUCHPAD`, sum historical
   scroll samples) were applied in the same round.

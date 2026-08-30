@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.engine.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ScrollZoomTest {
@@ -36,5 +37,46 @@ class ScrollZoomTest {
         val cap = ScrollZoom.factor(ScrollZoom.MAX_TICKS_PER_EVENT)
         assertEquals(cap, ScrollZoom.factor(100f))
         assertEquals(1f / cap, ScrollZoom.factor(-100f), 1e-6f)
+    }
+
+    @Test
+    fun `pointer-class events pivot at the cursor`() {
+        assertEquals(
+            3f to 7f,
+            ScrollZoom.pivot(
+                pointerClass = true,
+                eventX = 3f,
+                eventY = 7f,
+                viewWidth = 800f,
+                viewHeight = 600f,
+            ),
+        )
+    }
+
+    @Test
+    fun `touchpad events pivot at the viewport centre`() {
+        assertEquals(
+            400f to 300f,
+            ScrollZoom.pivot(
+                pointerClass = false,
+                eventX = 3f,
+                eventY = 7f,
+                viewWidth = 800f,
+                viewHeight = 600f,
+            ),
+        )
+    }
+
+    @Test
+    fun `a touchpad event before layout is dropped, not pivoted at pad coordinates`() {
+        assertNull(
+            ScrollZoom.pivot(
+                pointerClass = false,
+                eventX = 3f,
+                eventY = 7f,
+                viewWidth = null,
+                viewHeight = null,
+            ),
+        )
     }
 }

@@ -34,4 +34,25 @@ object ScrollZoom {
 
         return STEP_PER_NOTCH.pow(ticks.coerceIn(-MAX_TICKS_PER_EVENT, MAX_TICKS_PER_EVENT))
     }
+
+    /**
+     * View-space pivot for one scroll event, or null when the event carries
+     * no honest one. Pointer-class sources pivot at the cursor. A
+     * directly-reporting touchpad's coordinates are pad-relative, so it
+     * pivots at the viewport centre — and before layout has provided a view
+     * size, the event is dropped rather than zoomed about a fabricated
+     * point.
+     */
+    fun pivot(
+        pointerClass: Boolean,
+        eventX: Float,
+        eventY: Float,
+        viewWidth: Float?,
+        viewHeight: Float?,
+    ): Pair<Float, Float>? {
+        if (pointerClass) return eventX to eventY
+        if (viewWidth == null || viewHeight == null) return null
+
+        return viewWidth / 2f to viewHeight / 2f
+    }
 }

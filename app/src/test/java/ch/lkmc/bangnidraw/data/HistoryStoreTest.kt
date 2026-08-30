@@ -84,10 +84,13 @@ class HistoryStoreTest {
             ),
         )
         // A pair broken before delete() removed the sidecar first — or by
-        // any partial delete: the entry went, the redo stayed.
+        // any partial delete: the entry went, the redo stayed. nextSeq = 3
+        // keeps the record's story consistent: seq 2 was committed before
+        // the partial delete, so the sweep fires on the missing entry file,
+        // not on any out-of-window housekeeping.
         assertTrue(store.entryFile(2).delete())
 
-        store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
+        store.load(HistoryRecord(cursor = 1, nextSeq = 3, oldestSeq = 1))
 
         assertTrue(!store.hasRedo(2), "an orphan sidecar must be swept at load")
         assertTrue(store.hasRedo(1), "a sidecar whose entry survives must stay")

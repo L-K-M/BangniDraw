@@ -18,7 +18,7 @@ internal object GalleryNames {
             .filterNot { it == '/' || it == '\\' || it.isISOControl() }
             .joinToString("")
             .trim()
-            .take(MAX_DISPLAY_CHARS)
+            .takeWholeCharacters(MAX_DISPLAY_CHARS)
             // A cap that lands on trailing whitespace would leave a name
             // Win32-style copies mangle (the LayerId lesson); trim again.
             .trim()
@@ -37,6 +37,20 @@ internal object GalleryNames {
         val room = MAX_DISPLAY_CHARS - suffix.length
         if (room <= 0) return base + suffix
 
-        return base.take(room).trimEnd() + suffix
+        return base.takeWholeCharacters(room).trimEnd() + suffix
+    }
+
+    /**
+     * [String.take] that never splits a surrogate pair. Both caps count
+     * UTF-16 units, and a cut landing inside a supplementary-plane character
+     * — an emoji, rare CJK, exactly what a child titles a painting — would
+     * hand MediaStore an unpaired surrogate that UTF-8 encoding turns into a
+     * replacement character. Dropping the dangling high surrogate keeps the
+     * promise the class KDoc makes: CJK titles pass through.
+     */
+    private fun String.takeWholeCharacters(count: Int): String {
+        if (length <= count) return this
+        val end = if (Character.isHighSurrogate(this[count - 1])) count - 1 else count
+        return substring(0, end)
     }
 }

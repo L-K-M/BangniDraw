@@ -2299,6 +2299,26 @@ touchscreen hover too, not only a pen.
   normalization; asserting the draft's declaration rather than its seeding
   expression) were applied.
 
+## PR #158 — dock corners sit flush on the bottom edge (2026-08-30)
+
+- **R-177 🔴 Round 2: "`Shape` has no `copy(...)` — the dock shape call
+  likely does not compile."** Refuted with the resolved dependencies and
+  the CI run on the flagged head. The premise ("`Shapes.large` is
+  statically typed as `Shape`") is wrong for Material 3: in
+  `material3-android:1.4.0` (this project's resolved artifact),
+  `Shapes.getLarge()` returns
+  `androidx.compose.foundation.shape.CornerBasedShape`, and
+  `foundation-android:1.12.0` declares
+  `CornerBasedShape.copy(topStart, topEnd, bottomEnd, bottomStart:
+  CornerSize)` — so `MaterialTheme.shapes.large.copy(bottomStart = …,
+  bottomEnd = …)` resolves without any cast or project-local extension.
+  The `android` job on the exact flagged head `5fb8bfd` compiled the
+  module and ran `DockShapeContractTest` (which pins this very line)
+  green. The suggested `as RoundedCornerShape` cast would *narrow* the
+  contract for no gain: `copy` is defined on the `CornerBasedShape` the
+  theme already exposes, and casting would break if a theme ever supplied
+  a `CutCornerShape`.
+
 ## PR #157 — mouse-wheel zoom at the cursor (2026-08-30)
 
 - **R-173 ℹ️ PR #157 round 1: "test `onGenericMotion` itself with Robolectric
@@ -2313,3 +2333,66 @@ touchscreen hover too, not only a pen.
   tested. Same disposition as R-172's Compose-UI-test ask. The
   review's other two findings (accept `SOURCE_TOUCHPAD`, sum historical
   scroll samples) were applied in the same round.
+
+## PR #162 — the layer header stops starving its buttons (2026-08-30)
+
+- **R-181 🟠 Round 1: "`TextOverflow` import isn't anywhere in the diff"
+  (possible unresolved reference).** Refuted by the file and the build:
+  `LayerPanel.kt` has imported
+  `androidx.compose.ui.text.style.TextOverflow` since the layer rows
+  began ellipsizing (line 593 uses it), which is why the diff did not
+  need to add it and why the `android` job compiled this head green. Per
+  the finding's own "if it is already present, no change is needed". The
+  round's other points were applied: the count label ellipsizes, the
+  weighted-spacer ban matches any spelling, the trailing-actions anchor
+  moved to the yielding title's own modifier, and the count's
+  unweighted-by-intent priority is now stated in a comment.
+
+## PR #163 — preference reads recover instead of crashing (2026-08-30)
+
+- **R-179 🟡 Round 1 (outside diff): "verify `loadPaintSlots` callers
+  cannot run while `paintSlotState.value` is null."** Verified and closed
+  as no-change, per the finding's own if-then framing: the gate it asks
+  callers to add already lives inside the API. `loadPaintSlots` opens
+  with `paintSlotIds.first()` on `paintSlotState.filterNotNull()`, so it
+  suspends through the whole retry window; the sole external call site
+  (`CanvasViewModel`'s open path) goes through it, and `assignPaintSlot`
+  is reachable only from slot UI that renders off `paintSlotIds`
+  emissions — which exist only after the state is non-null. A longer
+  retry window therefore lengthens a suspension, never a
+  `requireLoadedPaintSlotIds` crash. The round's three in-diff fixes
+  (no pause after the final attempt; widened member-start terminators —
+  `@`-annotated members already exist at that indent; the staleness
+  floor raised to the true count of 17, which the old "16" comment
+  itself miscounted) were applied.
+
+## PR #165 — dense built-flags for the sandwich rebuild (2026-08-30)
+
+- **R-180 🟠 Round 1: "dense built-flags pin `grid.tileCount` at
+  construction time" (crash-class if the grid resizes).** Refuted: the
+  bound cannot move. `TileGrid` is a data class whose `tilesX`/`tilesY`
+  are vals derived from immutable constructor vals, so `tileCount` is
+  constant per instance; `CanvasRenderer.grid` is a `private val` built
+  once from the canvas size, and the cache captures that same instance
+  for life — a resize is a new renderer and a new cache. `grid.index` is
+  total for every key `grid.keysFor` emits because both derive from the
+  same immutable dimensions. The `invalidateScratch` growth the finding
+  read as a resize hint is first-use sizing against that same constant.
+  The round's two Minors — the `!below && !above` early return (the
+  common active-layer-only edit) and the `BuiltFlags` holder that fuses
+  each flag array with its count — were applied.
+
+## PR #167 — committed frames cull to the visible rect (2026-08-30)
+
+- **R-178 🟠 Round 1 (outside diff): "visibleCanvasRect rotation and
+  empty-rect contract unverified."** Refuted against the implementation,
+  per the finding's own if-then framing. Rotation: the function walks all
+  four viewport corners (a 2×2 loop over the edges) through the inverse
+  transform and accumulates min/max, so a rotated viewport's bounding box
+  is exact by construction — there is no two-corner shortcut to fix.
+  Empty rect: `compositeIntoAccum` returns false only when binding the
+  Accum FBO fails; the cull rect is consumed by the tile loops, so an
+  off-screen canvas culls every tile draw, leaves paper/reference in
+  their viewport-space passes, and returns true — no per-frame failure
+  path exists. The round's three in-diff test-robustness fixes (regex
+  tolerance for both pins, a clamped source window) were applied.

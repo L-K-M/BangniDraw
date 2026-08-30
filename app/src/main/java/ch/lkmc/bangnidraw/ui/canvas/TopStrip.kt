@@ -34,6 +34,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -379,7 +380,9 @@ private fun OverflowMenu(
     onSettings: (() -> Unit)?,
 ) {
     var open by remember { mutableStateOf(false) }
-    var showHelp by remember { mutableStateOf(false) }
+    // The dialog is saveable (a rotation must not dismiss it); the menu
+    // stays transient like every platform menu.
+    var showHelp by rememberSaveable { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) {
             Icon(

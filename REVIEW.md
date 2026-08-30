@@ -2266,6 +2266,39 @@ touchscreen hover too, not only a pen.
   there is nothing JVM-testable; the existing source-marker contract tests
   already cover the call sites they restructure.
 
+## PR #160 — thumbnail write retry (2026-08-30)
+
+- **R-174 🟡 Round 1: "gate `maybeSyncGallery` on the thumbnail result" and
+  "nothing re-runs a checkpoint on `thumbDirty` alone."** Both refuted
+  against the code, per the review's own if-then framing. Gallery sync never
+  consumes `thumb.png`: `maybeSyncGallery` flattens the flushed tiles through
+  `CpuFlatten`/`ImageEncode` and mirrors that PNG — the shelf thumbnail is a
+  separate artifact — so a failed thumbnail cannot stale the gallery and the
+  gate would only delay an unrelated mirror. And the retry does not depend on
+  a new edit: leave and `ON_STOP` checkpoints run unconditionally
+  (`checkpointNow`), and `checkpointLocked`'s fast path exempts
+  `thumbDirty` (`!dirty && !thumbDirty`), so a kept flag forces the full
+  path at exactly the moment the shelf is next seen. The remaining window —
+  a failed write with the app simply left open — closes at the next quiet/
+  ceiling checkpoint after any edit, which is the pre-existing cadence. The
+  round's two test-robustness notes (whitespace normalization per the house
+  rule; a comment distinguishing the two clear constants, which are both
+  used) were applied.
+
+## PR #161 — rotation-safe transient dialogs (2026-08-30)
+
+- **R-175 ℹ️ Round 1: "scan every ui/ file for AlertDialog flags using plain
+  `remember`."** Declined as a design suggestion (the review marked it
+  as such). A repo-wide scanner needs an allowlist of legitimately transient
+  state (menus, popovers, focus flags, drag state), and that allowlist is
+  exactly the judgment the scanner was meant to remove — each new false
+  positive would be resolved by growing the list until the test asserts the
+  list. The convention lives in this test's KDoc and the three fixed files
+  pin the pattern; new dialogs are reviewed against it like any other
+  convention. The round's two matching-robustness fixes (whitespace
+  normalization; asserting the draft's declaration rather than its seeding
+  expression) were applied.
+
 ## PR #165 — dense built-flags for the sandwich rebuild (2026-08-30)
 
 - **R-180 🟠 Round 1: "dense built-flags pin `grid.tileCount` at

@@ -2265,3 +2265,19 @@ touchscreen hover too, not only a pen.
   carry no decision logic (a state boolean and a pass-through string), so
   there is nothing JVM-testable; the existing source-marker contract tests
   already cover the call sites they restructure.
+
+## PR #165 — dense built-flags for the sandwich rebuild (2026-08-30)
+
+- **R-180 🟠 Round 1: "dense built-flags pin `grid.tileCount` at
+  construction time" (crash-class if the grid resizes).** Refuted: the
+  bound cannot move. `TileGrid` is a data class whose `tilesX`/`tilesY`
+  are vals derived from immutable constructor vals, so `tileCount` is
+  constant per instance; `CanvasRenderer.grid` is a `private val` built
+  once from the canvas size, and the cache captures that same instance
+  for life — a resize is a new renderer and a new cache. `grid.index` is
+  total for every key `grid.keysFor` emits because both derive from the
+  same immutable dimensions. The `invalidateScratch` growth the finding
+  read as a resize hint is first-use sizing against that same constant.
+  The round's two Minors — the `!below && !above` early return (the
+  common active-layer-only edit) and the `BuiltFlags` holder that fuses
+  each flag array with its count — were applied.

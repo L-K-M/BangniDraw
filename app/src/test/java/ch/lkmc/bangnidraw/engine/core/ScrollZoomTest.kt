@@ -68,7 +68,7 @@ class ScrollZoomTest {
     }
 
     @Test
-    fun `a touchpad event before layout is dropped, not pivoted at pad coordinates`() {
+    fun `a touchpad event before layout yields no pivot`() {
         assertNull(
             ScrollZoom.pivot(
                 pointerClass = false,

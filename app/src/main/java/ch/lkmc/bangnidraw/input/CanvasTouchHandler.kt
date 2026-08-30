@@ -1274,8 +1274,8 @@ class CanvasTouchHandler(
      * touchpads scroll through a synthesized mouse pointer, but one that
      * reports directly carries pad-relative coordinates — the viewport centre
      * is the only honest pivot there, and before layout has provided one
-     * the event is dropped rather than zoomed about pad coordinates. A rotary encoder or joystick also
-     * delivers `ACTION_SCROLL` and stays refused: no cursor, no pad, nothing
+     * the event is dropped rather than zoomed about pad coordinates. A
+     * rotary encoder or joystick also delivers `ACTION_SCROLL` and stays refused: no cursor, no pad, nothing
      * to zoom about.
      *
      * Historical samples are summed with the current one — a batching device

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -385,17 +384,30 @@ private fun LayerPanelHeader(
             .height(HEADER_HEIGHT)
             .padding(start = 16.dp),
     ) {
-        Text(
-            text = stringResource(R.string.layers_title),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text = stringResource(R.string.layers_count, count, cap),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 8.dp),
-        )
-        Spacer(Modifier.weight(1f))
+        // The texts take the WEIGHTED slot so the four 48 dp buttons after
+        // them always measure in full. A Row starves its trailing children,
+        // so with unweighted texts a narrow panel or a large font squeezed
+        // out the LAST button — the close affordance #120 exists to provide.
+        // The texts ellipsize instead; PanelHeader made the same call.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f),
+        ) {
+            Text(
+                text = stringResource(R.string.layers_title),
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Text(
+                text = stringResource(R.string.layers_count, count, cap),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
         InfoButton(
             title = stringResource(R.string.layers_title),
             body = R.string.help_layers_body,

@@ -86,7 +86,7 @@ class CanvasCheckpointConcurrencyContractTest {
         const val INSTALL_DOCUMENT = "document = folded"
         const val FRESHNESS_CHECK = "checkpointGeneration.freshness(snapshot.generation)"
         const val CLEAR_DIRTY = "dirty = false"
-        const val FINISH_CALL = "finishCheckpoint(snapshot)"
+        const val FINISH_CALL = "finishCheckpoint(snapshot, thumbnailResult)"
         const val GALLERY_CALL = "maybeSyncGallery(snapshot.document"
     }
 }

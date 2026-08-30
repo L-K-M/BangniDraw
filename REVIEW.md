@@ -2310,3 +2310,15 @@ touchscreen hover too, not only a pen.
   was raised blind to the file that answers it. The round's real Minor —
   `takeWholeCharacters` indexing at -1 for a non-positive count — was
   applied as a `count <= 0` guard with String.take semantics.
+
+- **R-184 ℹ️ Round 2: "hoist `takeWholeCharacters` to a top-level
+  internal extension so the `count <= 0` guard becomes testable."**
+  Declined. The guard is deliberate armor for a branch unreachable
+  through every caller — both public paths bound their counts first —
+  and widening a private member extension to module visibility purely to
+  execute dead-defense code inverts the smallest-surface preference for
+  no live-behavior coverage. This differs from PR #165's BuiltFlags test
+  (applied): there the extracted logic carries reachable, render-
+  correctness invariants; here the three-line guard's contract is
+  readable at a glance and the surrogate behavior it protects is already
+  pinned by three tests through the public API.

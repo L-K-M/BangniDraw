@@ -55,6 +55,7 @@ object ScrollZoom {
         if (!eventX.isFinite() || !eventY.isFinite()) return null
         if (pointerClass) return eventX to eventY
         if (viewWidth == null || viewHeight == null) return null
+        if (!viewWidth.isFinite() || !viewHeight.isFinite()) return null
 
         return viewWidth / 2f to viewHeight / 2f
     }

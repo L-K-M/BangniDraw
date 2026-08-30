@@ -89,6 +89,25 @@ class ScrollZoomTest {
                 ),
             )
         }
+        // The centre pivot's own inputs get the same contract.
+        assertNull(
+            ScrollZoom.pivot(
+                pointerClass = false,
+                eventX = 3f,
+                eventY = 7f,
+                viewWidth = Float.NaN,
+                viewHeight = 600f,
+            ),
+        )
+        assertNull(
+            ScrollZoom.pivot(
+                pointerClass = false,
+                eventX = 3f,
+                eventY = 7f,
+                viewWidth = 800f,
+                viewHeight = Float.POSITIVE_INFINITY,
+            ),
+        )
     }
 
     @Test

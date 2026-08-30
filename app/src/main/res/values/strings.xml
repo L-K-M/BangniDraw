@@ -414,7 +414,7 @@
     <string name="about_mixbox">MIXBOX 2.0 (c) 2022 Secret Weapons. All rights reserved. License: Creative Commons Attribution-NonCommercial 4.0. Authors: Sarka Sochorova and Ondrej Jamriska. https://creativecommons.org/licenses/by-nc/4.0/. Unmodified; used for pigment-style color mixing. This makes the app non-commercial as distributed.</string>
     <string name="about_mixbox_license">Open CC BY-NC 4.0 license</string>
     <string name="about_close">Close</string>
-    <string name="help_button_cd">About %1$s</string>
+    <string name="help_button_cd">Help: %1$s</string>
     <string name="canvas_help">Help</string>
     <string name="help_canvas_title">Canvas</string>
     <string name="help_appearance_body">Pick the app\u2019s colour scheme from the light and dark palettes. The choice is fixed \u2014 the app does not follow the system\u2019s dark mode or wallpaper colours.</string>

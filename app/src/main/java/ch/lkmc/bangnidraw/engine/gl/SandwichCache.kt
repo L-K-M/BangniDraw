@@ -74,9 +74,53 @@ class SandwichCache(
     private var belowStale = true
     private var aboveStale = true
 
-    /** Which tiles of a stale half have already been brought up to date. */
-    private val belowBuilt = HashSet<Int>()
-    private val aboveBuilt = HashSet<Int>()
+    /**
+     * Which tiles of a stale half have already been brought up to date —
+     * dense flags indexed by [TileGrid.index], with a count for the
+     * fully-built check. A `HashSet<Int>` here boxed an `Integer` per
+     * visible tile per half per frame in the standing configuration where a
+     * half stays stale (a canvas larger than the viewport can never build
+     * every tile of the grid, so the stale flag never clears and rebuild
+     * re-walks the visible keys each frame; see [rebuild]).
+     */
+    private val belowBuilt = BuiltFlags(grid.tileCount)
+    private val aboveBuilt = BuiltFlags(grid.tileCount)
+
+    /**
+     * The flags and their count as one invariant: every toggle site used to
+     * pair a `BooleanArray` write with a hand-maintained counter across four
+     * reset paths, and one missed edit would skew the fully-built check
+     * silently. [TileGrid] dimensions are fixed per instance (vals derived
+     * from vals) and this cache holds one grid for life, so the capacity
+     * never moves under the arrays.
+     */
+    internal class BuiltFlags(private val capacity: Int) {
+        private val flags = BooleanArray(capacity)
+        private var count = 0
+
+        fun isBuilt(index: Int): Boolean = flags[index]
+
+        fun markBuilt(index: Int) {
+            if (!flags[index]) {
+                flags[index] = true
+                count++
+            }
+        }
+
+        fun unbuild(index: Int) {
+            if (flags[index]) {
+                flags[index] = false
+                count--
+            }
+        }
+
+        fun reset() {
+            flags.fill(false)
+            count = 0
+        }
+
+        val isComplete: Boolean get() = count >= capacity
+    }
 
     /**
      * False when a non-normal layer sits above the active one, so `Above`
@@ -129,11 +173,15 @@ class SandwichCache(
      * every visible one.
      */
     fun invalidateTiles(rect: IntRect, below: Boolean, above: Boolean) {
+        // The common per-stroke case — an edit on the active layer changes
+        // neither composite — walks no keys at all.
+        if (!below && !above) return
         if (invalidateScratch.size < grid.tileCount) invalidateScratch = IntArray(grid.tileCount)
         val count = grid.keysFor(rect, invalidateScratch)
         for (i in 0 until count) {
-            if (below) belowBuilt.remove(invalidateScratch[i])
-            if (above) aboveBuilt.remove(invalidateScratch[i])
+            val index = grid.index(TileKey(invalidateScratch[i]))
+            if (below) belowBuilt.unbuild(index)
+            if (above) aboveBuilt.unbuild(index)
         }
         if (below) belowStale = true
         if (above) aboveStale = true
@@ -141,12 +189,12 @@ class SandwichCache(
 
     private fun markBelowStale() {
         belowStale = true
-        belowBuilt.clear()
+        belowBuilt.reset()
     }
 
     private fun markAboveStale() {
         aboveStale = true
-        aboveBuilt.clear()
+        aboveBuilt.reset()
     }
 
     /**
@@ -177,7 +225,8 @@ class SandwichCache(
         val count = fillKeys(rect)
         for (i in 0 until count) {
             val key = TileKey(keyScratch[i])
-            if (belowPending && key.packed !in belowBuilt) {
+            val index = grid.index(key)
+            if (belowPending && !belowBuilt.isBuilt(index)) {
                 val built = buildTile(
                     key,
                     target = below,
@@ -189,9 +238,9 @@ class SandwichCache(
                     sampleBasePages = sampleBelowBasePages,
                     drawBase = drawBelowBase,
                 )
-                if (built) belowBuilt.add(key.packed)
+                if (built) belowBuilt.markBuilt(index)
             }
-            if (abovePending && key.packed !in aboveBuilt) {
+            if (abovePending && !aboveBuilt.isBuilt(index)) {
                 val built = buildTile(
                     key,
                     target = above,
@@ -204,11 +253,11 @@ class SandwichCache(
                     sampleBasePages = null,
                     drawBase = null,
                 )
-                if (built) aboveBuilt.add(key.packed)
+                if (built) aboveBuilt.markBuilt(index)
             }
         }
-        if (belowBuilt.size >= grid.tileCount) belowStale = false
-        if (aboveBuilt.size >= grid.tileCount) aboveStale = false
+        if (belowBuilt.isComplete) belowStale = false
+        if (aboveBuilt.isComplete) aboveStale = false
     }
 
     /**
@@ -288,8 +337,8 @@ class SandwichCache(
         above.release()
         pass.release()
         fbo.release()
-        belowBuilt.clear()
-        aboveBuilt.clear()
+        belowBuilt.reset()
+        aboveBuilt.reset()
         belowStale = true
         aboveStale = true
         // Derived from a stack this cache has not seen since the context went
@@ -322,8 +371,8 @@ class SandwichCache(
     fun forgetAll() {
         below.forgetAll()
         above.forgetAll()
-        belowBuilt.clear()
-        aboveBuilt.clear()
+        belowBuilt.reset()
+        aboveBuilt.reset()
         belowStale = true
         aboveStale = true
         // Derived from a stack this cache has not seen since the context went

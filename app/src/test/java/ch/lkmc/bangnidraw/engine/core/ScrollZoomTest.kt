@@ -68,6 +68,30 @@ class ScrollZoomTest {
     }
 
     @Test
+    fun `non-finite coordinates yield no pivot for either source class`() {
+        for (pointerClass in listOf(true, false)) {
+            assertNull(
+                ScrollZoom.pivot(
+                    pointerClass = pointerClass,
+                    eventX = Float.NaN,
+                    eventY = 7f,
+                    viewWidth = 800f,
+                    viewHeight = 600f,
+                ),
+            )
+            assertNull(
+                ScrollZoom.pivot(
+                    pointerClass = pointerClass,
+                    eventX = 3f,
+                    eventY = Float.POSITIVE_INFINITY,
+                    viewWidth = 800f,
+                    viewHeight = 600f,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun `a touchpad event before layout yields no pivot`() {
         assertNull(
             ScrollZoom.pivot(

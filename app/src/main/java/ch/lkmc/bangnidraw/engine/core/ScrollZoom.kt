@@ -50,6 +50,9 @@ object ScrollZoom {
         viewWidth: Float?,
         viewHeight: Float?,
     ): Pair<Float, Float>? {
+        // Malformed coordinates are dropped like factor()'s non-finite
+        // ticks: a NaN pivot would poison the view transform's arithmetic.
+        if (!eventX.isFinite() || !eventY.isFinite()) return null
         if (pointerClass) return eventX to eventY
         if (viewWidth == null || viewHeight == null) return null
 

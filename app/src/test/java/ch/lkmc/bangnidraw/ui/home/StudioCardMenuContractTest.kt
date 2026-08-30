@@ -23,15 +23,17 @@ class StudioCardMenuContractTest {
         // button directly after it means an `if (...) {` wrapper — any
         // conditional reintroduction — breaks the match, keeping the
         // "unconditional" in the test's name actually asserted.
+        // Space-free like every needle here, so an interior line wrap
+        // cannot false-fail the pin.
         assertTrue(
-            "} Box { IconButton(onClick = { menuOpen = true })" in studio,
+            "}Box{IconButton(onClick={menuOpen=true})" in studio.replace(" ", ""),
             "every card's footer must carry the actions button, unconditionally",
         )
-        // Space-free so the retirement check is formatting-independent; the
-        // menuOpen fragment keeps it specific to this button.
+        // Exactly one menu-opening button, in any argument order or
+        // formatting: the retired overlay — or any second affordance —
+        // shifts this count.
         assertTrue(
-            "IconButton(onClick={menuOpen=true},modifier=Modifier.align(Alignment.TopEnd)" !in
-                studio.replace(" ", ""),
+            studio.replace(" ", "").split("onClick={menuOpen=true}").size == 2,
             "the unavailable-only overlay button is retired; one affordance serves every card",
         )
         // The help text's promise stays true: the button opens the same menu

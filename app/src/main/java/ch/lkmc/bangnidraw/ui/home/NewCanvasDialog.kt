@@ -38,8 +38,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
@@ -570,11 +570,11 @@ private fun PaperSwatch(color: Color, label: String, selected: Boolean, onSelect
                 .clip(CircleShape)
                 .border(if (selected) 2.dp else 1.dp, border, CircleShape),
         ) {
-            if (color == Color.Transparent) {
-                drawQuadrantChecker(checkerA, checkerB)
-            } else {
-                drawRect(color)
-            }
+            // Checker under every color, exactly like LayerPanel's swatch:
+            // an opaque color hides it and any partial alpha previews the
+            // same way in both pickers.
+            drawQuadrantChecker(checkerA, checkerB)
+            drawRect(color)
         }
     }
 }

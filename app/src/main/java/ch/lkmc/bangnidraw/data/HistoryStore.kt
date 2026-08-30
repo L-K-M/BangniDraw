@@ -99,8 +99,12 @@ internal class HistoryStore(private val dir: File) {
     /** Deletes `<seq>.entry` and `<seq>.redo` — truncation and pruning (§5.6). */
     fun delete(seqs: List<Long>) {
         for (seq in seqs) {
-            entryFile(seq).delete()
+            // Sidecar first: a kill between the two leaves an entry with no
+            // redo — a normal state — never an orphan sidecar. The load-time
+            // sweep below stays as defense for pairs broken before this
+            // ordering existed.
             redoFile(seq).delete()
+            entryFile(seq).delete()
         }
     }
 
@@ -132,7 +136,9 @@ internal class HistoryStore(private val dir: File) {
         // §2's loader sweep, which history/ alone was missing: a kill between
         // an entry's fsync and its rename leaves `<seq>.entry.tmp` forever —
         // nothing else lists temp files here, and their payloads are real
-        // tile bytes. Load time is the one moment with no concurrent writer.
+        // tile bytes. Load time is the one moment with no concurrent writer;
+        // callers must uphold that — a concurrent append's in-flight temp
+        // would be swept here and its rename would then fail.
         AtomicFiles.sweepTmp(dir)
         val listed = dir.listFiles() ?: return Loaded(emptyList(), 0)
         val present = HashMap<Long, File>()
@@ -206,8 +212,9 @@ internal class HistoryStore(private val dir: File) {
     }
 
     /**
-     * [delete] removes `<seq>.entry` then `<seq>.redo`; a kill between the
-     * two orphans a sidecar nothing ever lists or deletes again. Swept after
+     * [delete] now removes the sidecar before the entry, but pairs broken
+     * under the old order — or by any partial delete — leave a sidecar
+     * nothing ever lists or deletes again. Swept after
      * the load's own deletions so a pair those just broke is caught too. A
      * sidecar whose entry file still exists — readable or not — is kept:
      * corrupt entries stay on disk as support questions, and their redo
@@ -218,8 +225,11 @@ internal class HistoryStore(private val dir: File) {
         for (name in names) {
             val seq = name.removeSuffix(REDO_SUFFIX).toLongOrNull() ?: continue
             if (entryFile(seq).isFile) continue
-            Log.w(TAG, "history: sweeping orphan sidecar $name")
-            File(dir, name).delete()
+            if (File(dir, name).delete()) {
+                Log.w(TAG, "history: swept orphan sidecar $name")
+            } else {
+                Log.w(TAG, "history: failed to delete orphan sidecar $name")
+            }
         }
     }
 

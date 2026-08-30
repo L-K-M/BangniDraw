@@ -83,13 +83,35 @@ class HistoryStoreTest {
                 ),
             ),
         )
-        // A kill between delete's two removals: the entry went, the redo stayed.
+        // A pair broken before delete() removed the sidecar first — or by
+        // any partial delete: the entry went, the redo stayed.
         assertTrue(store.entryFile(2).delete())
 
         store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
 
         assertTrue(!store.hasRedo(2), "an orphan sidecar must be swept at load")
         assertTrue(store.hasRedo(1), "a sidecar whose entry survives must stay")
+    }
+
+    @Test
+    fun `load keeps a redo sidecar beside a corrupt entry`() {
+        val entry = putStroke(1)
+        store.writeRedo(
+            entry,
+            listOf(
+                HistoryStore.Payload(
+                    a, TileKey(1, 1),
+                    TileCodec.encode(Random(43).nextBytes(TILE_BYTES)),
+                ),
+            ),
+        )
+        // Present but unreadable: corrupt entries stay on disk as support
+        // questions, and their redo belongs with them.
+        store.entryFile(1).writeBytes(ByteArray(0))
+
+        store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
+
+        assertTrue(store.hasRedo(1), "a sidecar beside a corrupt-but-present entry must stay")
     }
 
     @Test

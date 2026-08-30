@@ -2265,3 +2265,17 @@ touchscreen hover too, not only a pen.
   carry no decision logic (a state boolean and a pass-through string), so
   there is nothing JVM-testable; the existing source-marker contract tests
   already cover the call sites they restructure.
+
+## PR #162 — the layer header stops starving its buttons (2026-08-30)
+
+- **R-181 🟠 Round 1: "`TextOverflow` import isn't anywhere in the diff"
+  (possible unresolved reference).** Refuted by the file and the build:
+  `LayerPanel.kt` has imported
+  `androidx.compose.ui.text.style.TextOverflow` since the layer rows
+  began ellipsizing (line 593 uses it), which is why the diff did not
+  need to add it and why the `android` job compiled this head green. Per
+  the finding's own "if it is already present, no change is needed". The
+  round's other points were applied: the count label ellipsizes, the
+  weighted-spacer ban matches any spelling, the trailing-actions anchor
+  moved to the yielding title's own modifier, and the count's
+  unweighted-by-intent priority is now stated in a comment.

@@ -400,11 +400,16 @@ private fun LayerPanelHeader(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
+            // Unweighted by intent: the short count ("12 / 20") is the
+            // informative half and keeps its width; the title yields first.
+            // The ellipsis covers the extreme where even the count cannot
+            // fit its slot.
             Text(
                 text = stringResource(R.string.layers_count, count, cap),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 8.dp),
             )
         }

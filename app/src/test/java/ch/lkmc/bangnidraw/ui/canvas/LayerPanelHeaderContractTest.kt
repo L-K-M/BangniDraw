@@ -17,7 +17,9 @@ class LayerPanelHeaderContractTest {
 
     @Test
     fun `the header's texts are weighted so its buttons cannot be starved`() {
-        val panel = ContractTestSources.read(LAYER_PANEL_PATH)
+        // Whitespace-normalized per the house rule for source-contract
+        // tests, so a mechanical reformat cannot fail a behavioral pin.
+        val panel = ContractTestSources.read(LAYER_PANEL_PATH).replace(WHITESPACE, " ")
         val start = panel.indexOf(HEADER_START)
         if (start < 0) fail("missing $HEADER_START")
         val end = panel.indexOf(HEADER_END, start)
@@ -29,12 +31,16 @@ class LayerPanelHeaderContractTest {
             "the text group must own the flexible slot",
         )
         assertTrue("overflow = TextOverflow.Ellipsis" in header, "the title yields by ellipsizing")
+        // Any weighted Spacer spelling — named argument, fill = false —
+        // is the same regression.
         assertTrue(
-            "Spacer(Modifier.weight(1f))" !in header,
+            !WEIGHTED_SPACER.containsMatchIn(header),
             "a weighted spacer after unweighted texts is what starved the buttons",
         )
-        // All four trailing actions live after the weighted group.
-        val weighted = header.indexOf("modifier = Modifier.weight(1f),")
+        // All four trailing actions live after the weighted group; the
+        // yielding title's own modifier anchors it so a future weighted
+        // element elsewhere in the header cannot hijack the check.
+        val weighted = header.indexOf("Modifier.weight(1f, fill = false)")
         for (action in listOf("InfoButton(", "onClick = onAdd", "onMenuChange(true)", "PanelCloseButton(onClose)")) {
             val at = header.indexOf(action)
             if (at < 0) fail("missing $action in the header")
@@ -46,5 +52,7 @@ class LayerPanelHeaderContractTest {
         const val LAYER_PANEL_PATH = "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/LayerPanel.kt"
         const val HEADER_START = "private fun LayerPanelHeader("
         const val HEADER_END = "private fun LayerRow("
+        val WEIGHTED_SPACER = Regex("Spacer\\([^)]*weight")
+        val WHITESPACE = Regex("\\s+")
     }
 }

@@ -2298,3 +2298,17 @@ touchscreen hover too, not only a pen.
   convention. The round's two matching-robustness fixes (whitespace
   normalization; asserting the draft's declaration rather than its seeding
   expression) were applied.
+
+## PR #161 addendum — the round-2 stable-keys claim (2026-08-30)
+
+- **R-176 🟡 Round 2 (post-steady-state): "positional `rememberSaveable`
+  restore could attach a delete dialog to the wrong painting."** Refuted —
+  the shelf grid already supplies stable keys:
+  `items(state.paintings, key = { it.id })` (StudioScreen.kt), with named
+  keys for the fixed New/empty cells, so saveable state inside
+  `PaintingCell` is keyed to the painting's id, not its position, and a
+  reorder between save and restore cannot re-attach an open dialog. The
+  review's own prompt for the finding ends "If a stable key is already
+  present, no change is required" — it is. Answered on the PR before the
+  merge because an unanswered wrong-painting-delete claim would have
+  misled the merge decision.

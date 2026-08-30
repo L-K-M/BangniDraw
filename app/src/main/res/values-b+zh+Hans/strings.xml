@@ -42,7 +42,7 @@
     <string name="studio_save_failed">无法添加到相册</string>
     <string name="gallery_reference_suffix">（含参考图）</string>
 
-    <string name="new_canvas_title">新画布</string>
+    <string name="new_canvas_title">新建草图</string>
     <string name="new_canvas_create">创建</string>
     <string name="new_canvas_cancel">取消</string>
     <string name="canvas_preset_phone">手机速写</string>
@@ -348,7 +348,7 @@
     <string name="settings_haptics">触觉反馈</string>
     <string name="settings_storage">存储</string>
     <string name="settings_gallery_sync">相册副本</string>
-    <string name="settings_gallery_sync_help">在相册（Pictures/帮你Draw）中保留每张画的副本。参考图可见时会额外保留一份包含它的副本。</string>
+    <string name="settings_gallery_sync_help">在相册（Pictures/帮你Draw）中保留每张画的副本。描图图像可见时会额外保留一份包含它的副本。</string>
     <string name="settings_undo_limit">撤销历史</string>
     <string name="settings_undo_limit_value">最多 %1$d 步 · %2$d MB</string>
     <string name="settings_color">颜色</string>
@@ -382,7 +382,7 @@
     <string name="help_appearance_body">选择应用的配色：多个浅色与深色主题。选择是固定的——应用不跟随系统深色模式或壁纸取色。</string>
     <string name="help_drawing_body">左右手：工具栏在画布的哪一侧。\n\n仅触控笔：只有笔可以绘画；手指仍可用于移动、缩放和旋转画布。\n\n笔侧键：触控笔侧键的作用——切换到橡皮，或按住时拾取颜色。\n\n橡皮端：笔尾橡皮使用哪种橡皮刷。\n\n压感：笔压力如何映射到画笔。“更软”较早达到满压；“更硬”需要用力按压。\n\n对齐直角：双指旋转时吸附到 0°、90°、180°、270°。</string>
     <string name="help_feedback_body">触感反馈：撤销、滑过刻度、取色或拖动图层时的轻微振动。</string>
-    <string name="help_storage_body">同步到相册会在 相册（Pictures/帮你Draw）中为每幅画保留一份副本，随绘画更新。带有可见描摹图的画会额外保留一份包含描摹图的副本。删除画时可一并删除相册副本。\n\n撤销上限：每幅画的撤销历史可保留的步数与存储空间。</string>
+    <string name="help_storage_body">同步到相册会在相册（Pictures/帮你Draw）中为每幅画保留一份副本，随绘画更新。带有可见描图图像的画会额外保留一份包含它的副本。删除画时可一并删除相册副本。\n\n撤销上限：每幅画的撤销历史可保留的步数与存储空间。</string>
     <string name="help_mixer_body">颜料混色像真实的颜料：蓝加黄得到绿，颜色越混越深。RGB 像屏幕上的光一样混合——更快，但混色容易发灰。颜料混色由 Mixbox 提供（CC BY-NC 4.0）。</string>
     <string name="help_shortcuts_body">连接键盘后可用——DeX、Chromebook 或带键盘套的平板。</string>
     <string name="help_studio_body">绘画全程自动保存——没有保存按钮。\n\n点 + 新建绘画。长按一幅画（或点 ⋮）可打开、重命名、复制、分享、存入相册或删除——删除时可一并删除相册副本。</string>
@@ -399,6 +399,6 @@
     <string name="help_eyedropper_body">从画布上取色到画笔。\n\n“合成”取整幅画面的颜色；“当前图层”只取本层。半径取一片区域的平均色——0 取精确的单个像素。\n\n小技巧：手指按住画布不动，随时可以取色。</string>
     <string name="help_layers_body">颜料按图层叠放，列表最上方是最前面。点按某一行在该层作画。\n\n眼睛图标隐藏图层。百分比打开不透明度滑杆。把手图标拖动排序。长按某一行（或点 ⋮）可重命名、复制、向下合并、清空或删除——以及两个锁：“锁定透明像素”只在已有颜料处作画；“锁定图层”防止一切修改。混合模式改变本层为下层画面着色的方式。\n\n纸张设置背景色。标题栏的 ⋮ 菜单把所有图层合并为一层。图层上限取决于画布大小和设备内存。</string>
     <string name="help_color_body">圆环选色相，方块定饱和度和明度。用滑杆微调，或直接输入十六进制与 RGB 数值。\n\n长按当前颜色加入色板；点按上一个颜色可换回。\n\n色板保存常用颜色——点 + 新建自己的色板。长按色块可替换、拾取、移动或删除。\n\n调色盘混合两种颜色：设定 A、B 两个色井，拖动滑杆得到中间色阶，点按某一级即可使用。</string>
-    <string name="help_reference_body">把照片别在画上，用于描摹或对照；双指在画布上移动、缩放、旋转它。\n\n描摹图永远不会进入分享或导出。开启相册同步时，会额外保留一份包含描摹图的相册副本。它占用一个图层的内存。</string>
-    <string name="help_canvas_body">单指或笔绘画；双指移动、缩放、旋转画布。双指点按撤销，三指点按重做——按住撤销、重做按钮可查看历史深度。移动视野后出现的胶囊按钮可复位视野。\n\n手指按住画布不动可取色。长按颜色块可使用最近画过的颜色。再次点按已选中的工具可打开它的设置。\n\n工具栏旁的滑杆调整画笔尺寸和不透明度。⋮ 菜单可分享、导出、重命名、别上描摹图、切换构图参考线，以及用专注模式隐藏所有控件。</string>
+    <string name="help_reference_body">把照片别在画上，用于描摹或对照；双指在画布上移动、缩放、旋转它。\n\n描图图像永远不会进入分享或导出。开启相册同步时，会额外保留一份包含描图图像的相册副本。它占用一个图层的内存。</string>
+    <string name="help_canvas_body">单指或笔绘画；双指移动、缩放、旋转画布。双指点按撤销，三指点按重做——按住撤销、重做按钮可查看历史深度。移动视野后出现的胶囊按钮可复位视野。\n\n手指按住画布不动可取色。长按颜色块可使用最近画过的颜色。再次点按已选中的工具可打开它的设置。\n\n工具栏旁的滑杆调整画笔尺寸和不透明度。⋮ 菜单可分享、导出、重命名、别上描图图像、切换构图参考线，以及用专注模式隐藏所有控件。</string>
 </resources>

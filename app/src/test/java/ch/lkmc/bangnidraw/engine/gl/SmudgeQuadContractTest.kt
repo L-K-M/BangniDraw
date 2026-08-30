@@ -17,15 +17,20 @@ class SmudgeQuadContractTest {
 
     @Test
     fun `each smudge draw size owns its quad`() {
-        val pass = ContractTestSources.read(SMUDGE_PASS_PATH)
+        // Whitespace-normalized per the house rule: reformats must not fail
+        // a pin about behavior.
+        val pass = ContractTestSources.read(SMUDGE_PASS_PATH).replace(WHITESPACE, " ")
 
         assertTrue("pickupQuad.draw(spec.pickupEdge.toFloat()" in pass)
         assertTrue("workQuad.draw(work.width.toFloat()" in pass)
         assertTrue("tileQuad.draw(TILE_SIZE.toFloat()" in pass)
-        // A lone shared instance is the regression this pins against.
+        // Structural, not spelled: exactly one construction per draw size,
+        // so a reintroduced shared instance (however written) shifts the
+        // count and fails.
+        val quadConstructions = QUAD_CONSTRUCTION.findAll(pass).count()
         assertTrue(
-            "private val quad = FullRectQuad()" !in pass,
-            "SmudgePass must not share one FullRectQuad across its three draw sizes",
+            quadConstructions == 3,
+            "SmudgePass must own one FullRectQuad per draw size, found $quadConstructions",
         )
         for (quad in listOf("pickupQuad", "workQuad", "tileQuad")) {
             assertTrue("$quad.release()" in pass, "$quad must be released with the pass")
@@ -34,5 +39,7 @@ class SmudgeQuadContractTest {
 
     private companion object {
         const val SMUDGE_PASS_PATH = "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/SmudgePass.kt"
+        val QUAD_CONSTRUCTION = Regex("= FullRectQuad\\(\\)")
+        val WHITESPACE = Regex("\\s+")
     }
 }

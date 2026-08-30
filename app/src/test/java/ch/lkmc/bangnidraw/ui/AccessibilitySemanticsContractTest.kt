@@ -147,9 +147,9 @@ class AccessibilitySemanticsContractTest {
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/TopStrip.kt"
         const val SETTINGS_CHOICE_GROUPS = 6
         const val SETTINGS_APPEARANCE_START =
-            "item { SectionTitle(R.string.settings_appearance) }"
+            "item { SectionTitle(R.string.settings_appearance, R.string.help_appearance_body) }"
         const val SETTINGS_DRAWING_START =
-            "item { SectionTitle(R.string.settings_drawing) }"
+            "item { SectionTitle(R.string.settings_drawing, R.string.help_drawing_body) }"
         const val THEME_CHOICE_START = "private fun ThemeChoiceRow("
         const val CHOICE_ROW_START = "private fun ChoiceRow("
         const val FILL_SLIDER_START = "\n    Slider("

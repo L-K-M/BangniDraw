@@ -165,6 +165,7 @@ internal fun ColorPanel(
             PanelHeader(
                 title = stringResource(R.string.color_panel),
                 onClose = onDismiss,
+                helpBody = R.string.help_color_body,
             )
             HsvRingSquare(
                 hsv = hsv,

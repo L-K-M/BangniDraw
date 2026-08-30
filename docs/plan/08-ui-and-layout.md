@@ -751,7 +751,9 @@ The in-app About screen reuses the artwork. Elsewhere the UI uses only flat
   `translatable="false"` and is exactly `帮你Draw` in both.
 - Naming: `studio_*`, `newcanvas_*`, `canvas_*`, `layers_*`, `color_*`,
   `brush_*`, `settings_*`, `toast_*`, `dialog_*`, and `cd_*` for content
-  descriptions. Plurals (`studio_count_paintings`, `layers_count`) use
+  descriptions. `help_*_body` is the in-app documentation shown by the (i)
+  buttons (`ui/common/InfoHelp.kt`); titles reuse the section's own string.
+  Plurals (`studio_count_paintings`, `layers_count`) use
   `<plurals>`; zh-Hans has the `other` case only.
 - Relative times, byte sizes and numbers come from platform formatters
   (`DateUtils`, `Formatter.formatShortFileSize`, `NumberFormat`) so they

@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.ReferenceVisibility
 import ch.lkmc.bangnidraw.engine.core.TracingReference
+import ch.lkmc.bangnidraw.ui.common.InfoButton
 
 @Composable
 internal fun TracingReferencePanel(
@@ -45,7 +46,20 @@ internal fun TracingReferencePanel(
             .fillMaxHeight()
             .padding(16.dp),
     ) {
-        Text(stringResource(R.string.reference_image), style = MaterialTheme.typography.titleMedium)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                stringResource(R.string.reference_image),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            InfoButton(
+                title = stringResource(R.string.reference_image),
+                body = R.string.help_reference_body,
+            )
+        }
         Column(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier

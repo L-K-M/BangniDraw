@@ -196,6 +196,16 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   front scissor makes the new checker patchwork over the old baseline.
   A newer immediate appearance must clear any pending value left by a refused
   stroke.
+- **In-app documentation is a button, not a hidden manual.** Every panel or
+  sheet header and every Settings section carries an (i)
+  (`ui/common/InfoHelp.kt`'s `InfoButton`) opening an `InfoDialog` whose
+  whole content is one `help_*_body` string; titles reuse the section's own
+  string. Adding a surface means adding its help string in both locales in
+  the same change — MissingTranslation makes the second locale a hard gate.
+  Bodies are one blank-line-separated paragraph per control, and must state
+  the non-obvious interaction (long-press, second-tap) the surface hides.
+  The canvas overflow's Help is the one surface with no section string of
+  its own; its dialog title is `help_canvas_title`.
 - **Greyscale ARGB cannot encode hue.** `ColorPanel` keeps an `HsvSelection`;
   panel-originated ARGB echoes must not reconstruct HSV, while external colors
   must. Do not key the selection state directly to the current ARGB.

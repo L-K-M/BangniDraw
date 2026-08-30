@@ -61,6 +61,7 @@ import ch.lkmc.bangnidraw.engine.core.CompositionGuideVisibility
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
+import ch.lkmc.bangnidraw.ui.common.InfoDialog
 
 /** The Canvas's six persistent actions, mirrored as two handed clusters. */
 @Composable
@@ -378,6 +379,7 @@ private fun OverflowMenu(
     onSettings: (() -> Unit)?,
 ) {
     var open by remember { mutableStateOf(false) }
+    var showHelp by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) {
             Icon(
@@ -410,7 +412,15 @@ private fun OverflowMenu(
             if (onSettings != null) {
                 OverflowItem(R.string.canvas_settings, onSettings) { open = false }
             }
+            OverflowItem(R.string.canvas_help, { showHelp = true }) { open = false }
         }
+    }
+    if (showHelp) {
+        InfoDialog(
+            title = stringResource(R.string.help_canvas_title),
+            body = R.string.help_canvas_body,
+            onDismiss = { showHelp = false },
+        )
     }
 }
 

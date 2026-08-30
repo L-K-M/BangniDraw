@@ -64,6 +64,7 @@ import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
 import ch.lkmc.bangnidraw.engine.core.TiltEffect
 import ch.lkmc.bangnidraw.engine.core.TipOrientation
 import ch.lkmc.bangnidraw.engine.core.TipShape
+import ch.lkmc.bangnidraw.ui.common.InfoButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -155,6 +156,7 @@ internal fun BrushSettingsSheet(
             PanelHeader(
                 title = stringResource(R.string.brush_settings),
                 onClose = onDismiss,
+                helpBody = R.string.help_brush_sheet_body,
             )
             Text(
                 text = brushPresetName(active),
@@ -216,7 +218,10 @@ internal fun BrushSettingsSheet(
                 }
             }
 
-            SettingsGroup(stringResource(R.string.brush_group_stroke))
+            SettingsGroup(
+                stringResource(R.string.brush_group_stroke),
+                helpBody = R.string.help_brush_stroke_body,
+            )
             SettingSlider(
                 label = stringResource(R.string.brush_size),
                 value = BrushSizeScale.fraction(active.size, active.sizeMin, active.sizeMax),
@@ -259,7 +264,10 @@ internal fun BrushSettingsSheet(
                 onValueChangeFinished = onPresetPersisted,
             )
 
-            SettingsGroup(stringResource(R.string.brush_group_tip))
+            SettingsGroup(
+                stringResource(R.string.brush_group_tip),
+                helpBody = R.string.help_brush_tip_body,
+            )
             SettingSlider(
                 label = stringResource(R.string.brush_hardness),
                 value = active.hardness,
@@ -340,7 +348,10 @@ internal fun BrushSettingsSheet(
                 )
             }
 
-            SettingsGroup(stringResource(R.string.brush_group_dynamics))
+            SettingsGroup(
+                stringResource(R.string.brush_group_dynamics),
+                helpBody = R.string.help_brush_dynamics_body,
+            )
             CurveEditor(
                 title = stringResource(R.string.brush_pressure_size),
                 curve = active.pressureSize,
@@ -453,7 +464,10 @@ internal fun BrushSettingsSheet(
                 onValueChangeFinished = onPresetPersisted,
             )
 
-            SettingsGroup(stringResource(R.string.brush_group_paint))
+            SettingsGroup(
+                stringResource(R.string.brush_group_paint),
+                helpBody = R.string.help_brush_paint_body,
+            )
             if (watercolor == null) {
                 ToggleRow(
                     label = stringResource(R.string.brush_grain),
@@ -565,14 +579,24 @@ internal fun BrushSettingsSheet(
 }
 
 @Composable
-internal fun SettingsGroup(title: String) {
+internal fun SettingsGroup(title: String, @StringRes helpBody: Int? = null) {
     Spacer(Modifier.height(GROUP_GAP))
     HorizontalDivider()
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.padding(top = GROUP_TITLE_GAP),
-    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier
+                .weight(1f)
+                .padding(top = GROUP_TITLE_GAP),
+        )
+        if (helpBody != null) {
+            InfoButton(title = title, body = helpBody)
+        }
+    }
 }
 
 @Composable

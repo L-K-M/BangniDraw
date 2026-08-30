@@ -51,6 +51,7 @@ internal fun FillSettingsSheet(
             PanelHeader(
                 title = stringResource(R.string.fill_settings),
                 onClose = onDismiss,
+                helpBody = R.string.help_fill_body,
             )
             FillSlider(
                 label = stringResource(R.string.fill_tolerance),

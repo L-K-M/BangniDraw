@@ -96,7 +96,9 @@ class TracingReferenceContractTest {
         const val REFERENCE_PANEL_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/TracingReferencePanel.kt"
         const val MANIFEST_PATH = "app/src/main/AndroidManifest.xml"
-        const val REFERENCE_ACTION_COUNT = 3
+        // Three action buttons, plus the title Text's weight that appeared
+        // when the (i) button joined its row.
+        const val REFERENCE_ACTION_COUNT = 4
         val HEADER_PATTERN = Regex("""R\.string\.reference_image""")
         val SCROLL_PATTERN = Regex(
             """\.verticalScroll\s*\(\s*rememberScrollState\s*\(\s*\)\s*\)""",

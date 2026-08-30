@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add (i) buttons with popup explanations to the Studio, New painting
+  dialog, canvas overflow menu, layer and color panels, brush and tool
+  settings sheets, tracing-image panel, and every Settings section.
+
 ## 1.2.2 - 2026-08-29
 
 - Follow the stroke direction with the Chinese ink brush's fly-white

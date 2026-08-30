@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BlurOn
@@ -287,6 +288,13 @@ private fun ToolColumn(
 private fun Dock(slots: List<ToolSlot>, slot: Dp, modifier: Modifier) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = RAIL_ALPHA),
+        // Top corners only: every other rail posture is a rounded surface,
+        // and rounding just the edge that meets the canvas keeps the dock
+        // flush with the window's bottom while reading as the same object.
+        shape = MaterialTheme.shapes.large.copy(
+            bottomStart = CornerSize(0.dp),
+            bottomEnd = CornerSize(0.dp),
+        ),
         tonalElevation = 2.dp,
         modifier = modifier
             .fillMaxWidth()

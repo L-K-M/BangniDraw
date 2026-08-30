@@ -82,7 +82,6 @@
     <string name="paper_transparent">Transparent paper</string>
     <string name="paper_custom">Custom paper</string>
     <string name="paper_custom_preview">Custom paper color preview</string>
-    <string name="paper_transparent_symbol" translatable="false">∅</string>
     <string name="paper_transparent_hint">Exports with a see-through background. JPEG fills it white; PNG keeps it transparent.</string>
 
     <!-- Canvas -->

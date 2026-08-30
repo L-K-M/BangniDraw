@@ -50,6 +50,49 @@ class HistoryStoreTest {
     }
 
     @Test
+    fun `load sweeps temp files a kill left behind`() {
+        put(1)
+        val orphan = File(dir, "00000002.entry.tmp")
+        orphan.writeBytes(ByteArray(64))
+
+        val loaded = store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
+
+        assertTrue(!orphan.exists(), "the interrupted write's temp must be swept")
+        assertEquals(1, loaded.entries.size)
+    }
+
+    @Test
+    fun `load sweeps a redo sidecar whose entry is gone and keeps a paired one`() {
+        val kept = putStroke(1)
+        store.writeRedo(
+            kept,
+            listOf(
+                HistoryStore.Payload(
+                    a, TileKey(1, 1),
+                    TileCodec.encode(Random(41).nextBytes(TILE_BYTES)),
+                ),
+            ),
+        )
+        val doomed = putStroke(2)
+        store.writeRedo(
+            doomed,
+            listOf(
+                HistoryStore.Payload(
+                    a, TileKey(1, 1),
+                    TileCodec.encode(Random(42).nextBytes(TILE_BYTES)),
+                ),
+            ),
+        )
+        // A kill between delete's two removals: the entry went, the redo stayed.
+        assertTrue(store.entryFile(2).delete())
+
+        store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
+
+        assertTrue(!store.hasRedo(2), "an orphan sidecar must be swept at load")
+        assertTrue(store.hasRedo(1), "a sidecar whose entry survives must stay")
+    }
+
+    @Test
     fun `entries are named by sequence and load in order`() {
         put(3)
         put(1)

@@ -129,10 +129,21 @@ internal class HistoryStore(private val dir: File) {
      * could be proven.
      */
     fun load(record: HistoryRecord): Loaded {
+        // §2's loader sweep, which history/ alone was missing: a kill between
+        // an entry's fsync and its rename leaves `<seq>.entry.tmp` forever —
+        // nothing else lists temp files here, and their payloads are real
+        // tile bytes. Load time is the one moment with no concurrent writer.
+        AtomicFiles.sweepTmp(dir)
         val listed = dir.listFiles() ?: return Loaded(emptyList(), 0)
         val present = HashMap<Long, File>()
+        var redoNames: ArrayList<String>? = null
         for (file in listed) {
-            val seq = parseEntryName(file.name) ?: continue
+            val name = file.name
+            if (name.endsWith(REDO_SUFFIX)) {
+                (redoNames ?: ArrayList<String>().also { redoNames = it }).add(name)
+                continue
+            }
+            val seq = parseEntryName(name) ?: continue
             present[seq] = file
         }
 
@@ -190,7 +201,26 @@ internal class HistoryStore(private val dir: File) {
         }
         while (entries.size > end) entries.removeAt(entries.size - 1)
 
+        sweepOrphanRedos(redoNames)
         return Loaded(entries, cursor)
+    }
+
+    /**
+     * [delete] removes `<seq>.entry` then `<seq>.redo`; a kill between the
+     * two orphans a sidecar nothing ever lists or deletes again. Swept after
+     * the load's own deletions so a pair those just broke is caught too. A
+     * sidecar whose entry file still exists — readable or not — is kept:
+     * corrupt entries stay on disk as support questions, and their redo
+     * belongs with them.
+     */
+    private fun sweepOrphanRedos(names: List<String>?) {
+        if (names == null) return
+        for (name in names) {
+            val seq = name.removeSuffix(REDO_SUFFIX).toLongOrNull() ?: continue
+            if (entryFile(seq).isFile) continue
+            Log.w(TAG, "history: sweeping orphan sidecar $name")
+            File(dir, name).delete()
+        }
     }
 
     // ------------------------------------------------------------- internals

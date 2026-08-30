@@ -39,8 +39,12 @@ class TransparentSwatchContractTest {
     fun `both sites share the layer thumbnail's checker roles`() {
         for (path in listOf(LAYER_PANEL_PATH, NEW_CANVAS_PATH)) {
             val swatch = swatchOf(path)
+            // surfaceVariant contains "surface" as a prefix, so the bare
+            // role is checked against text with the variant stripped —
+            // otherwise the first condition is subsumed by the second.
             assertTrue(
-                "MaterialTheme.colorScheme.surface" in swatch &&
+                "MaterialTheme.colorScheme.surface" in
+                    swatch.replace("MaterialTheme.colorScheme.surfaceVariant", "") &&
                     "MaterialTheme.colorScheme.surfaceVariant" in swatch,
                 "$path must use the same two roles as the layer thumbnail checker",
             )

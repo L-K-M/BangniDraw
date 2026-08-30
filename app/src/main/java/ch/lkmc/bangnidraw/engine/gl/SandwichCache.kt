@@ -74,9 +74,19 @@ class SandwichCache(
     private var belowStale = true
     private var aboveStale = true
 
-    /** Which tiles of a stale half have already been brought up to date. */
-    private val belowBuilt = HashSet<Int>()
-    private val aboveBuilt = HashSet<Int>()
+    /**
+     * Which tiles of a stale half have already been brought up to date —
+     * dense flags indexed by [TileGrid.index], with a count for the
+     * fully-built check. A `HashSet<Int>` here boxed an `Integer` per
+     * visible tile per half per frame in the standing configuration where a
+     * half stays stale (a canvas larger than the viewport can never build
+     * every tile of the grid, so the stale flag never clears and rebuild
+     * re-walks the visible keys each frame; see [rebuild]).
+     */
+    private val belowBuilt = BooleanArray(grid.tileCount)
+    private val aboveBuilt = BooleanArray(grid.tileCount)
+    private var belowBuiltCount = 0
+    private var aboveBuiltCount = 0
 
     /**
      * False when a non-normal layer sits above the active one, so `Above`
@@ -132,8 +142,15 @@ class SandwichCache(
         if (invalidateScratch.size < grid.tileCount) invalidateScratch = IntArray(grid.tileCount)
         val count = grid.keysFor(rect, invalidateScratch)
         for (i in 0 until count) {
-            if (below) belowBuilt.remove(invalidateScratch[i])
-            if (above) aboveBuilt.remove(invalidateScratch[i])
+            val index = grid.index(TileKey(invalidateScratch[i]))
+            if (below && belowBuilt[index]) {
+                belowBuilt[index] = false
+                belowBuiltCount--
+            }
+            if (above && aboveBuilt[index]) {
+                aboveBuilt[index] = false
+                aboveBuiltCount--
+            }
         }
         if (below) belowStale = true
         if (above) aboveStale = true
@@ -141,12 +158,14 @@ class SandwichCache(
 
     private fun markBelowStale() {
         belowStale = true
-        belowBuilt.clear()
+        belowBuilt.fill(false)
+        belowBuiltCount = 0
     }
 
     private fun markAboveStale() {
         aboveStale = true
-        aboveBuilt.clear()
+        aboveBuilt.fill(false)
+        aboveBuiltCount = 0
     }
 
     /**
@@ -177,7 +196,8 @@ class SandwichCache(
         val count = fillKeys(rect)
         for (i in 0 until count) {
             val key = TileKey(keyScratch[i])
-            if (belowPending && key.packed !in belowBuilt) {
+            val index = grid.index(key)
+            if (belowPending && !belowBuilt[index]) {
                 val built = buildTile(
                     key,
                     target = below,
@@ -189,9 +209,12 @@ class SandwichCache(
                     sampleBasePages = sampleBelowBasePages,
                     drawBase = drawBelowBase,
                 )
-                if (built) belowBuilt.add(key.packed)
+                if (built) {
+                    belowBuilt[index] = true
+                    belowBuiltCount++
+                }
             }
-            if (abovePending && key.packed !in aboveBuilt) {
+            if (abovePending && !aboveBuilt[index]) {
                 val built = buildTile(
                     key,
                     target = above,
@@ -204,11 +227,14 @@ class SandwichCache(
                     sampleBasePages = null,
                     drawBase = null,
                 )
-                if (built) aboveBuilt.add(key.packed)
+                if (built) {
+                    aboveBuilt[index] = true
+                    aboveBuiltCount++
+                }
             }
         }
-        if (belowBuilt.size >= grid.tileCount) belowStale = false
-        if (aboveBuilt.size >= grid.tileCount) aboveStale = false
+        if (belowBuiltCount >= grid.tileCount) belowStale = false
+        if (aboveBuiltCount >= grid.tileCount) aboveStale = false
     }
 
     /**
@@ -288,8 +314,10 @@ class SandwichCache(
         above.release()
         pass.release()
         fbo.release()
-        belowBuilt.clear()
-        aboveBuilt.clear()
+        belowBuilt.fill(false)
+        aboveBuilt.fill(false)
+        belowBuiltCount = 0
+        aboveBuiltCount = 0
         belowStale = true
         aboveStale = true
         // Derived from a stack this cache has not seen since the context went
@@ -322,8 +350,10 @@ class SandwichCache(
     fun forgetAll() {
         below.forgetAll()
         above.forgetAll()
-        belowBuilt.clear()
-        aboveBuilt.clear()
+        belowBuilt.fill(false)
+        aboveBuilt.fill(false)
+        belowBuiltCount = 0
+        aboveBuiltCount = 0
         belowStale = true
         aboveStale = true
         // Derived from a stack this cache has not seen since the context went

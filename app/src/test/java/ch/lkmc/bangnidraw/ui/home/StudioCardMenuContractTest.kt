@@ -19,12 +19,19 @@ class StudioCardMenuContractTest {
     fun `the card menu button is unconditional and off the artwork`() {
         val studio = ContractTestSources.read(STUDIO_PATH).replace(WHITESPACE, " ")
 
+        // The leading `}` is the title Column's closing brace: pinning the
+        // button directly after it means an `if (...) {` wrapper — any
+        // conditional reintroduction — breaks the match, keeping the
+        // "unconditional" in the test's name actually asserted.
         assertTrue(
-            "Box { IconButton(onClick = { menuOpen = true })" in studio,
-            "every card's footer must carry the actions button anchoring its menu",
+            "} Box { IconButton(onClick = { menuOpen = true })" in studio,
+            "every card's footer must carry the actions button, unconditionally",
         )
+        // Space-free so the retirement check is formatting-independent; the
+        // menuOpen fragment keeps it specific to this button.
         assertTrue(
-            "IconButton( onClick = { menuOpen = true }, modifier = Modifier.align(Alignment.TopEnd)," !in studio,
+            "IconButton(onClick={menuOpen=true},modifier=Modifier.align(Alignment.TopEnd)" !in
+                studio.replace(" ", ""),
             "the unavailable-only overlay button is retired; one affordance serves every card",
         )
         // The help text's promise stays true: the button opens the same menu

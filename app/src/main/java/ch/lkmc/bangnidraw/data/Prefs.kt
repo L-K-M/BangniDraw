@@ -72,16 +72,36 @@ class Prefs @Inject constructor(
     private val paintSlotState = MutableStateFlow<List<String>?>(null)
     private val paintSlotLock = Any()
 
+    /** True when the initial slot read failed for good; see the init block. */
+    private var paintSlotLoadDegraded = false
+
     init {
         applicationScope.launch {
-            val stored = runCatching {
-                StoredPaintSlots.decode(dataStore.data.first()[KEY_PAINT_SLOTS])
-            }.onFailure {
-                Log.w(TAG, "paint slots could not be loaded", it)
-            }.getOrDefault(emptyList())
+            // A read FAILURE is not "no stored slots": treating it as first
+            // run made loadPaintSlots canonicalize the full catalogue and
+            // write it back, permanently overwriting the user's saved rail
+            // arrangement. Retry like every read flow; only a genuinely
+            // exhausted read degrades, and a degraded session suppresses
+            // canonicalization write-backs (a user's own assignment still
+            // writes — their intent defines the new truth).
+            var stored: List<String>? = null
+            for (attempt in 0..MAX_RETRY_ATTEMPTS) {
+                stored = runCatching {
+                    StoredPaintSlots.decode(dataStore.data.first()[KEY_PAINT_SLOTS])
+                }.onFailure {
+                    Log.w(TAG, "paint slots could not be loaded", it)
+                }.getOrNull()
+                if (stored != null) break
+                // Between retries only: pausing after the final failure
+                // would just delay the degraded fallback.
+                if (attempt < MAX_RETRY_ATTEMPTS) preferenceRetryPause(attempt)
+            }
 
             synchronized(paintSlotLock) {
-                if (paintSlotState.value == null) paintSlotState.value = stored
+                paintSlotLoadDegraded = stored == null
+                if (paintSlotState.value == null) {
+                    paintSlotState.value = stored ?: emptyList()
+                }
             }
 
             for (presetIds in paintSlotUpdates) {
@@ -95,6 +115,25 @@ class Prefs @Inject constructor(
             }
         }
     }
+
+    /**
+     * Every read flow shares [appTheme]'s recovery: warn once, emit
+     * [fallback] only when nothing has loaded yet, retry with the same
+     * bounded backoff, and end on the last value rather than failing the
+     * collector. `DataStore.data` surfaces transient read failures as
+     * `IOException`, and the collectors are plain `viewModelScope.launch`
+     * blocks with no handler — an unrecovered flow crashes the process over
+     * a setting it could have defaulted.
+     */
+    private fun <T> Flow<T>.recovered(fallback: T, what: String): Flow<T> =
+        retryIoWithInitialFallback(
+            fallback = fallback,
+            onFirstIoFailure = { error -> Log.w(TAG, "$what read failed; retrying", error) },
+            onRetriesExhausted = { error ->
+                Log.w(TAG, "$what read keeps failing; keeping the current value", error)
+            },
+            pauseBeforeRetry = ::preferenceRetryPause,
+        ).distinctUntilChanged()
 
     /**
      * Mints the number for a new painting's title — "Sketch N" (06 §10).
@@ -113,6 +152,7 @@ class Prefs @Inject constructor(
     /** 06 §9.4; no writer until the gallery mirror lands (roadmap step 4). */
     val gallerySync: Flow<Boolean> =
         dataStore.data.map { it[KEY_GALLERY_SYNC] ?: true }
+            .recovered(fallback = true, what = "gallery sync")
 
     suspend fun setGallerySync(enabled: Boolean) {
         dataStore.edit { it[KEY_GALLERY_SYNC] = enabled }
@@ -129,13 +169,7 @@ class Prefs @Inject constructor(
                 onRetriesExhausted = { error ->
                     Log.w(TAG, THEME_READ_EXHAUSTED_MESSAGE, error)
                 },
-                pauseBeforeRetry = { attempt ->
-                    val multiplier = minOf(
-                        1L shl attempt.toInt().coerceAtMost(MAX_BACKOFF_SHIFT),
-                        MAX_BACKOFF_MULTIPLIER,
-                    )
-                    delay(PREFERENCE_READ_RETRY_DELAY_MS * multiplier)
-                },
+                pauseBeforeRetry = ::preferenceRetryPause,
             )
             .distinctUntilChanged()
 
@@ -145,6 +179,7 @@ class Prefs @Inject constructor(
 
     internal val handedness: Flow<Hand> =
         dataStore.data.map { Hand.fromStored(it[KEY_HANDEDNESS]) }
+            .recovered(fallback = Hand.fromStored(null), what = "handedness")
 
     internal suspend fun setHandedness(hand: Hand) {
         dataStore.edit { it[KEY_HANDEDNESS] = hand.name }
@@ -152,6 +187,7 @@ class Prefs @Inject constructor(
 
     internal val touchDrawingMode: Flow<TouchDrawingMode> =
         dataStore.data.map { TouchDrawingMode.fromStored(it[KEY_TOUCH_DRAWING]) }
+            .recovered(fallback = TouchDrawingMode.fromStored(null), what = "touch drawing")
 
     internal suspend fun setTouchDrawingMode(mode: TouchDrawingMode) {
         dataStore.edit { it[KEY_TOUCH_DRAWING] = mode.name }
@@ -159,6 +195,7 @@ class Prefs @Inject constructor(
 
     internal val hapticsMode: Flow<HapticsMode> =
         dataStore.data.map { HapticsMode.fromStored(it[KEY_HAPTICS]) }
+            .recovered(fallback = HapticsMode.fromStored(null), what = "haptics")
 
     internal suspend fun setHapticsMode(mode: HapticsMode) {
         dataStore.edit { it[KEY_HAPTICS] = mode.name }
@@ -166,6 +203,7 @@ class Prefs @Inject constructor(
 
     internal val pressurePreference: Flow<PressurePreference> =
         dataStore.data.map { PressurePreference.fromStored(it[KEY_PRESSURE_PREFERENCE]) }
+            .recovered(fallback = PressurePreference.fromStored(null), what = "pressure")
 
     internal suspend fun setPressurePreference(preference: PressurePreference) {
         dataStore.edit { it[KEY_PRESSURE_PREFERENCE] = preference.name }
@@ -174,6 +212,7 @@ class Prefs @Inject constructor(
     /** Right-angle rotation snapping while navigating (07 §7), off by default. */
     internal val snapRightAngles: Flow<Boolean> =
         dataStore.data.map { it[KEY_SNAP_RIGHT_ANGLES] ?: false }
+            .recovered(fallback = false, what = "right-angle snap")
 
     internal suspend fun setSnapRightAngles(enabled: Boolean) {
         dataStore.edit { it[KEY_SNAP_RIGHT_ANGLES] = enabled }
@@ -188,6 +227,7 @@ class Prefs @Inject constructor(
                 CompositionGuideVisibility.HIDDEN
             }
         }
+            .recovered(fallback = CompositionGuideVisibility.HIDDEN, what = "composition guides")
 
     internal suspend fun setCompositionGuideVisibility(visibility: CompositionGuideVisibility) {
         dataStore.edit {
@@ -197,6 +237,7 @@ class Prefs @Inject constructor(
 
     val hintShown: Flow<Boolean> =
         dataStore.data.map { it[KEY_HINT_SHOWN] ?: false }
+            .recovered(fallback = false, what = "hint state")
 
     suspend fun markHintShown() {
         dataStore.edit { it[KEY_HINT_SHOWN] = true }
@@ -210,6 +251,7 @@ class Prefs @Inject constructor(
      */
     val debugLatency: Flow<Boolean> =
         dataStore.data.map { it[KEY_DEBUG_LATENCY] ?: false }
+            .recovered(fallback = false, what = "debug latency")
 
     suspend fun setDebugLatency(enabled: Boolean) {
         dataStore.edit { it[KEY_DEBUG_LATENCY] = enabled }
@@ -217,6 +259,7 @@ class Prefs @Inject constructor(
 
     val penButtonAction: Flow<PenButtonAction> =
         dataStore.data.map { PenButtonAction.fromStored(it[KEY_PEN_BUTTON_ACTION]) }
+            .recovered(fallback = PenButtonAction.fromStored(null), what = "pen button")
 
     suspend fun setPenButtonAction(action: PenButtonAction) {
         dataStore.edit { it[KEY_PEN_BUTTON_ACTION] = action.name }
@@ -224,6 +267,7 @@ class Prefs @Inject constructor(
 
     val eraserEndPreset: Flow<String> =
         dataStore.data.map { it[KEY_ERASER_END_PRESET] ?: BrushPresets.HARD_ERASER_ID }
+            .recovered(fallback = BrushPresets.HARD_ERASER_ID, what = "eraser end")
 
     suspend fun setEraserEndPreset(id: String) {
         dataStore.edit { it[KEY_ERASER_END_PRESET] = id }
@@ -231,6 +275,10 @@ class Prefs @Inject constructor(
 
     val mixerChoice: Flow<MixerChoice> =
         dataStore.data.map { MixerChoice.fromStored(it[KEY_MIXER], pigmentAvailability) }
+            .recovered(
+                fallback = MixerChoice.fromStored(null, pigmentAvailability),
+                what = "mixer",
+            )
 
     suspend fun setMixerChoice(choice: MixerChoice) {
         val stored = MixerChoice.fromStored(choice.name, pigmentAvailability)
@@ -239,6 +287,7 @@ class Prefs @Inject constructor(
 
     val activePaletteId: Flow<String> =
         dataStore.data.map { it[KEY_ACTIVE_PALETTE] ?: PaletteCatalog.PAINTERS_ID }
+            .recovered(fallback = PaletteCatalog.PAINTERS_ID, what = "active palette")
 
     suspend fun setActivePalette(id: String) {
         dataStore.edit { it[KEY_ACTIVE_PALETTE] = id }
@@ -251,6 +300,13 @@ class Prefs @Inject constructor(
             t = it[KEY_DISH_T] ?: DishState.DEFAULT_T,
         )
     }
+        .recovered(
+            fallback = DishState(
+                PaletteCatalog.ULTRAMARINE_BLUE_ARGB.toInt(),
+                PaletteCatalog.CADMIUM_YELLOW_ARGB.toInt(),
+            ),
+            what = "mixing dish",
+        )
 
     suspend fun setDishWells(a: Int, b: Int) {
         dataStore.edit {
@@ -267,6 +323,7 @@ class Prefs @Inject constructor(
 
     val recentColors: Flow<List<Int>> =
         dataStore.data.map { StoredColors.decode(it[KEY_RECENT_COLORS]) }
+            .recovered(fallback = emptyList(), what = "recent colors")
 
     suspend fun setRecentColors(colors: List<Int>) {
         dataStore.edit { it[KEY_RECENT_COLORS] = StoredColors.encode(colors) }
@@ -285,7 +342,7 @@ class Prefs @Inject constructor(
                 cataloguePresetIds,
                 requireLoadedPaintSlotIds(),
             )
-            publishPaintSlotIdsLocked(assignments.presetIds)
+            publishPaintSlotIdsLocked(assignments.presetIds, PaintSlotWrite.CANONICALIZE)
             assignments
         }
     }
@@ -300,19 +357,27 @@ class Prefs @Inject constructor(
             .restore(cataloguePresetIds, requireLoadedPaintSlotIds())
             .activate(activeIndex)
             .assign(presetId)
-        publishPaintSlotIdsLocked(assignments.presetIds)
+        publishPaintSlotIdsLocked(assignments.presetIds, PaintSlotWrite.ASSIGN)
         assignments
     }
 
-    private fun publishPaintSlotIdsLocked(presetIds: List<String>) {
+    private fun publishPaintSlotIdsLocked(presetIds: List<String>, write: PaintSlotWrite) {
         val snapshot = presetIds.toList()
         if (paintSlotState.value == snapshot) return
 
         paintSlotState.value = snapshot
+        if (paintSlotLoadDegraded) {
+            // Canonicalization of a failed read is default data, not the
+            // user's: writing it back is what destroyed the arrangement.
+            if (write == PaintSlotWrite.CANONICALIZE) return
+            paintSlotLoadDegraded = false
+        }
         check(paintSlotUpdates.trySend(snapshot).isSuccess) {
             "paint slot writer is unavailable"
         }
     }
+
+    private enum class PaintSlotWrite { CANONICALIZE, ASSIGN }
 
     private fun requireLoadedPaintSlotIds(): List<String> =
         checkNotNull(paintSlotState.value) { "paint slots are not loaded" }
@@ -328,6 +393,7 @@ class Prefs @Inject constructor(
         if (width <= 0 || height <= 0) return@map null
         CanvasSize(width, height)
     }
+        .recovered(fallback = null, what = "custom size")
 
     internal suspend fun setLastCustomSize(size: CanvasSize) {
         dataStore.edit {
@@ -377,6 +443,14 @@ class Prefs @Inject constructor(
         }
 
         this[key] = value
+    }
+
+    private suspend fun preferenceRetryPause(attempt: Long) {
+        val multiplier = minOf(
+            1L shl attempt.toInt().coerceAtMost(MAX_BACKOFF_SHIFT),
+            MAX_BACKOFF_MULTIPLIER,
+        )
+        delay(PREFERENCE_READ_RETRY_DELAY_MS * multiplier)
     }
 
     private val pigmentAvailability: PigmentAvailability

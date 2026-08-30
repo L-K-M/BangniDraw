@@ -94,7 +94,7 @@ class SandwichCache(
      * from vals) and this cache holds one grid for life, so the capacity
      * never moves under the arrays.
      */
-    private class BuiltFlags(private val capacity: Int) {
+    internal class BuiltFlags(private val capacity: Int) {
         private val flags = BooleanArray(capacity)
         private var count = 0
 

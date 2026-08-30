@@ -17,9 +17,11 @@ class SmudgeQuadContractTest {
 
     @Test
     fun `each smudge draw size owns its quad`() {
-        // Whitespace-normalized per the house rule: reformats must not fail
-        // a pin about behavior.
-        val pass = ContractTestSources.read(SMUDGE_PASS_PATH).replace(WHITESPACE, " ")
+        // Whitespace-STRIPPED, not collapsed: every pin here is space-free,
+        // so removal makes them immune to interior line wraps too — a wrap
+        // after an opening paren leaves ' ' under collapse and would
+        // false-fail the pin.
+        val pass = ContractTestSources.read(SMUDGE_PASS_PATH).replace(WHITESPACE, "")
 
         assertTrue("pickupQuad.draw(spec.pickupEdge.toFloat()" in pass)
         assertTrue("workQuad.draw(work.width.toFloat()" in pass)
@@ -39,7 +41,7 @@ class SmudgeQuadContractTest {
 
     private companion object {
         const val SMUDGE_PASS_PATH = "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/SmudgePass.kt"
-        val QUAD_CONSTRUCTION = Regex("= FullRectQuad\\(\\)")
+        val QUAD_CONSTRUCTION = Regex("=FullRectQuad\\(\\)")
         val WHITESPACE = Regex("\\s+")
     }
 }

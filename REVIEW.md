@@ -2265,3 +2265,23 @@ touchscreen hover too, not only a pen.
   carry no decision logic (a state boolean and a pass-through string), so
   there is nothing JVM-testable; the existing source-marker contract tests
   already cover the call sites they restructure.
+
+## PR #158 — dock corners sit flush on the bottom edge (2026-08-30)
+
+- **R-177 🔴 Round 2: "`Shape` has no `copy(...)` — the dock shape call
+  likely does not compile."** Refuted with the resolved dependencies and
+  the CI run on the flagged head. The premise ("`Shapes.large` is
+  statically typed as `Shape`") is wrong for Material 3: in
+  `material3-android:1.4.0` (this project's resolved artifact),
+  `Shapes.getLarge()` returns
+  `androidx.compose.foundation.shape.CornerBasedShape`, and
+  `foundation-android:1.12.0` declares
+  `CornerBasedShape.copy(topStart, topEnd, bottomEnd, bottomStart:
+  CornerSize)` — so `MaterialTheme.shapes.large.copy(bottomStart = …,
+  bottomEnd = …)` resolves without any cast or project-local extension.
+  The `android` job on the exact flagged head `5fb8bfd` compiled the
+  module and ran `DockShapeContractTest` (which pins this very line)
+  green. The suggested `as RoundedCornerShape` cast would *narrow* the
+  contract for no gain: `copy` is defined on the `CornerBasedShape` the
+  theme already exposes, and casting would break if a theme ever supplied
+  a `CutCornerShape`.

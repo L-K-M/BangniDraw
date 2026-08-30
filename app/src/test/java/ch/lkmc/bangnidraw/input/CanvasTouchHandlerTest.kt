@@ -11,6 +11,7 @@ import ch.lkmc.bangnidraw.engine.core.PressureCalibration
 import ch.lkmc.bangnidraw.engine.core.PressureCurve
 import ch.lkmc.bangnidraw.engine.core.PressurePreference
 import ch.lkmc.bangnidraw.engine.core.RotationSnap
+import ch.lkmc.bangnidraw.engine.core.ScrollZoom
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import kotlin.math.PI
@@ -414,6 +415,70 @@ class CanvasTouchHandlerTest {
         assertEquals(listOf("begin(STYLUS)"), host.events, "a palm must produce nothing at all")
         h.handleUp(9, ms(300))
         assertTrue("end" in host.events)
+    }
+
+    @Test
+    fun `wheel scroll zooms about the cursor`() {
+        val host = Host()
+        val h = handler(host)
+        h.setViewport(CanvasSize(1_000, 1_000), width = 1_000, height = 1_000)
+        h.setView(ViewTransform(scale = 2f, rotation = 0.3f, tx = 40f, ty = -25f))
+        val cursorX = 320f
+        val cursorY = 540f
+        val before = h.view.invert(cursorX, cursorY)
+
+        assertTrue(h.handleScroll(cursorX, cursorY, 1f))
+
+        assertEquals(2f * ScrollZoom.STEP_PER_NOTCH, h.view.scale, 1e-4f)
+        val after = h.view.invert(cursorX, cursorY)
+        assertEquals(before.first, after.first, 1e-2f)
+        assertEquals(before.second, after.second, 1e-2f)
+        assertTrue("view" in host.events, "a wheel zoom must publish the view")
+    }
+
+    @Test
+    fun `wheel scroll clamps at the ceiling and keeps the pivot exact`() {
+        val host = Host()
+        val h = handler(host)
+        h.setViewport(CanvasSize(1_000, 1_000), width = 1_000, height = 1_000)
+        h.setView(ViewTransform(scale = ViewTransform.MAX_SCALE / 1.05f, tx = 12f, ty = 7f))
+        val before = h.view.invert(200f, 300f)
+
+        h.handleScroll(200f, 300f, ScrollZoom.MAX_TICKS_PER_EVENT)
+
+        assertEquals(ViewTransform.MAX_SCALE, h.view.scale, 1e-4f)
+        val after = h.view.invert(200f, 300f)
+        assertEquals(before.first, after.first, 1e-2f)
+        assertEquals(before.second, after.second, 1e-2f)
+    }
+
+    @Test
+    fun `wheel scroll is inert while a stroke is live`() {
+        val host = Host()
+        val h = handler(host)
+        h.handleDown(9, PointerTool.STYLUS, 50f, 50f, ms(0))
+
+        assertFalse(h.handleScroll(200f, 200f, 1f))
+
+        assertTrue(h.view.isIdentity, "a mid-stroke wheel must not re-map the canvas")
+        assertTrue("view" !in host.events)
+        h.handleUp(9, ms(100))
+
+        assertTrue(h.handleScroll(200f, 200f, 1f), "after pen-up the wheel works again")
+    }
+
+    @Test
+    fun `wheel scroll is inert in reference edit and for empty ticks`() {
+        val host = Host()
+        val h = handler(host)
+        h.navigationTarget = NavigationTarget.TRACING_REFERENCE
+        assertFalse(h.handleScroll(200f, 200f, 1f))
+        assertTrue(h.view.isIdentity)
+
+        h.navigationTarget = NavigationTarget.CANVAS
+        assertFalse(h.handleScroll(200f, 200f, 0f))
+        assertFalse(h.handleScroll(200f, 200f, Float.NaN))
+        assertTrue(h.view.isIdentity)
     }
 
     @Test

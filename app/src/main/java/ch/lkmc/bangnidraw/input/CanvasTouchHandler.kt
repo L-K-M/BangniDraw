@@ -20,6 +20,7 @@ import ch.lkmc.bangnidraw.engine.core.PredictionGate
 import ch.lkmc.bangnidraw.engine.core.PressureCurve
 import ch.lkmc.bangnidraw.engine.core.RotationSnap
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
+import ch.lkmc.bangnidraw.engine.core.ScrollZoom
 import ch.lkmc.bangnidraw.engine.core.StrokeInputBatch
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StylusButtonPolicy
@@ -157,7 +158,7 @@ private const val NANOS_PER_MILLISECOND = 1_000_000L
 class CanvasTouchHandler(
     density: Float,
     private val host: CanvasInputHost,
-) : View.OnTouchListener, View.OnHoverListener {
+) : View.OnTouchListener, View.OnHoverListener, View.OnGenericMotionListener {
 
     val stylus = StylusState()
     val arbiter = GestureArbiter(density)
@@ -715,6 +716,36 @@ class CanvasTouchHandler(
         syncGestureDeadline()
     }
 
+    /**
+     * One wheel or trackpad scroll: zoom about the cursor at ([x], [y]) in
+     * window px, by [ScrollZoom]'s factor for [ticks] notches.
+     *
+     * Returns whether the event was consumed. Deliberately inert while a
+     * stroke is live — re-mapping the canvas under in-flight pen samples would
+     * bend the line being drawn — and in reference-edit mode, where the wheel
+     * has no defined meaning yet. [ViewTransform.gesture] owns the pivot
+     * arithmetic and the scale clamp, so the point under the cursor stays
+     * under the cursor, exactly as it does under a pinch.
+     */
+    internal fun handleScroll(x: Float, y: Float, ticks: Float): Boolean {
+        if (navigationTarget != NavigationTarget.CANVAS) return false
+        if (strokeLive) return false
+        val factor = ScrollZoom.factor(ticks)
+        if (factor == 1f) return false
+
+        view = view.gesture(
+            pivotX = x,
+            pivotY = y,
+            panX = 0f,
+            panY = 0f,
+            zoom = factor,
+            rotationDelta = 0f,
+        )
+        updateScreen()
+        host.onViewChanged(view)
+        return true
+    }
+
     private fun applyNavigation() {
         val a = navIds[0]
         val b = navIds[1]
@@ -1234,6 +1265,49 @@ class CanvasTouchHandler(
         }
         postHoverFrame()
         return true
+    }
+
+    /**
+     * Wheel and trackpad scroll — the one generic-motion event the canvas
+     * consumes. Pointer-class sources zoom about the cursor. `SOURCE_TOUCHPAD`
+     * is position-class, not pointer-class, so it is accepted by name: most
+     * touchpads scroll through a synthesized mouse pointer, but one that
+     * reports directly carries pad-relative coordinates — the viewport centre
+     * is the only honest pivot there, and before layout has provided one
+     * the event is dropped rather than zoomed about pad coordinates. A
+     * rotary encoder or joystick also delivers `ACTION_SCROLL` and stays refused: no cursor, no pad, nothing
+     * to zoom about.
+     *
+     * Historical samples are summed with the current one — a batching device
+     * folds several movements into one event, and dropping them under-zooms a
+     * fling. The per-event tick bound applies to the sum.
+     *
+     * `AXIS_VSCROLL` is positive with the wheel rolled away from the user,
+     * which zooms in — the shared convention of maps and every desktop
+     * canvas app. Horizontal scroll is deliberately left unconsumed until it
+     * has a defined meaning.
+     */
+    override fun onGenericMotion(v: View?, event: MotionEvent?): Boolean {
+        val e = event ?: return false
+        if (e.actionMasked != MotionEvent.ACTION_SCROLL) return false
+        val pointerClass = e.isFromSource(InputDevice.SOURCE_CLASS_POINTER)
+        if (!pointerClass && !e.isFromSource(InputDevice.SOURCE_TOUCHPAD)) return false
+
+        var ticks = 0f
+        for (h in 0 until e.historySize) {
+            ticks += e.getHistoricalAxisValue(MotionEvent.AXIS_VSCROLL, h)
+        }
+        ticks += e.getAxisValue(MotionEvent.AXIS_VSCROLL)
+
+        val f = fit
+        val pivot = ScrollZoom.pivot(
+            pointerClass = pointerClass,
+            eventX = e.x,
+            eventY = e.y,
+            viewWidth = f?.viewWidth,
+            viewHeight = f?.viewHeight,
+        ) ?: return false
+        return handleScroll(pivot.first, pivot.second, ticks)
     }
 
     /**

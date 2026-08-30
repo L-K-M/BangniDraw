@@ -171,6 +171,7 @@ internal fun CanvasSurface(
             // calling them on every recomposition is idempotent.
             surface.setOnTouchListener(touchHandler)
             surface.setOnHoverListener(touchHandler)
+            surface.setOnGenericMotionListener(touchHandler)
             updateGestureExclusion(
                 surface,
                 surface.width,

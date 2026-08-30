@@ -61,8 +61,10 @@ class CanvasCheckpointContractTest {
         assertTrue(PENDING_DELETES in fastPath)
     }
 
+    // Whitespace-normalized per the house rule for source-contract tests, so
+    // a mechanical reformat cannot fail an assertion about behavior.
     private fun checkpointSource(): String {
-        val viewModel = source(CANVAS_VIEW_MODEL_PATH)
+        val viewModel = source(CANVAS_VIEW_MODEL_PATH).replace(WHITESPACE, " ")
         val start = viewModel.indexOf(CHECKPOINT_START)
         if (start < 0) fail("missing $CHECKPOINT_START")
         val end = viewModel.indexOf(CHECKPOINT_END, start)
@@ -78,15 +80,18 @@ class CanvasCheckpointContractTest {
         const val CHECKPOINT_END = "private suspend fun maybeSyncGallery("
         const val COMMIT_BARRIER = "CheckpointBarrier.commitWhenFlushed("
         const val THUMBNAIL_WRITE = "Thumbnails.write("
+        // The unguarded substring orders write-vs-clear; GUARDED_CLEAR is the
+        // authoritative pin on HOW the clear is conditioned.
         const val CLEAR_THUMBNAIL_DIRTY = "thumbDirty = false"
         const val RESULT_CAPTURE =
-            "val thumbnailResult = if (snapshot.thumbnailWork == ThumbnailWork.WRITE) {"
+            "val thumbnailResult = if (snapshot.thumbnailWork == ThumbnailWork.WRITE)"
         const val GUARDED_CLEAR =
             "if (thumbnailResult != ThumbnailWriteResult.FAILED) thumbDirty = false"
         const val FINISH_CHECKPOINT = "private fun finishCheckpoint("
         const val FRESHNESS_STALE = "CheckpointFreshness.STALE"
         const val THUMBNAIL_DIRTY = "thumbDirty"
         const val PENDING_DELETES = "pendingDeletes"
+        val WHITESPACE = Regex("\\s+")
     }
 
     private fun source(path: String): String = ContractTestSources.read(path)

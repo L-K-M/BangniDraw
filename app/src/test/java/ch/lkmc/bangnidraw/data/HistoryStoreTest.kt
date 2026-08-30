@@ -105,9 +105,11 @@ class HistoryStoreTest {
                 ),
             ),
         )
-        // Present but unreadable: corrupt entries stay on disk as support
-        // questions, and their redo belongs with them.
-        store.entryFile(1).writeBytes(ByteArray(0))
+        // Present but unreadable — junk bytes, not an empty file, so this
+        // stays corrupt even if an empty payload ever decodes as a valid
+        // entry. Corrupt entries stay on disk as support questions, and
+        // their redo belongs with them.
+        store.entryFile(1).writeBytes(Random(9).nextBytes(32))
 
         store.load(HistoryRecord(cursor = 1, nextSeq = 2, oldestSeq = 1))
 

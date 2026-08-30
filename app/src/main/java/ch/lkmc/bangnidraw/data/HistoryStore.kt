@@ -102,9 +102,17 @@ internal class HistoryStore(private val dir: File) {
             // Sidecar first: a kill between the two leaves an entry with no
             // redo — a normal state — never an orphan sidecar. The load-time
             // sweep below stays as defense for pairs broken before this
-            // ordering existed.
-            redoFile(seq).delete()
-            entryFile(seq).delete()
+            // ordering existed. A failed delete of a still-present file is
+            // logged: a lingering entry has no sweep behind it, and the
+            // caller's metadata advances as if it were gone.
+            val redo = redoFile(seq)
+            val entry = entryFile(seq)
+            if (!redo.delete() && redo.isFile) {
+                Log.w(TAG, "history: failed to delete redo sidecar for seq $seq")
+            }
+            if (!entry.delete() && entry.isFile) {
+                Log.w(TAG, "history: failed to delete entry for seq $seq")
+            }
         }
     }
 

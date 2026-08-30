@@ -107,10 +107,10 @@ internal class HistoryStore(private val dir: File) {
             // caller's metadata advances as if it were gone.
             val redo = redoFile(seq)
             val entry = entryFile(seq)
-            if (!redo.delete() && redo.isFile) {
+            if (!redo.delete() && redo.exists()) {
                 Log.w(TAG, "history: failed to delete redo sidecar for seq $seq")
             }
-            if (!entry.delete() && entry.isFile) {
+            if (!entry.delete() && entry.exists()) {
                 Log.w(TAG, "history: failed to delete entry for seq $seq")
             }
         }

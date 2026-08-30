@@ -1430,7 +1430,19 @@ class CanvasRenderer(
         // mattered, which is worse than the redundancy it saves.
         state.invalidate()
 
-        if (!compositeIntoAccum(current, screenTransform, pass, fullCanvasRect, null, null)) {
+        // The committed frame composites what the viewport can see, not the
+        // whole canvas. CompositePass's cost contract — bounded by output
+        // pixels, never by canvas size — only holds when the culling rect is
+        // bounded too; fullCanvasRect here made every pan/zoom frame of a
+        // worked 4096² document build and upload quads for hundreds of tiles
+        // no present could show. visibleCanvasRect is canvas-clamped,
+        // carries the sandwich margin, and degrades to the full canvas on a
+        // non-finite transform, so this is fullCanvasRect minus only the
+        // off-screen tiles; zoomed out past the fit it IS the full canvas.
+        if (!compositeIntoAccum(
+                current, screenTransform, pass, visibleCanvasRect(screenTransform), null, null,
+            )
+        ) {
             return false
         }
 

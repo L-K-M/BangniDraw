@@ -216,7 +216,9 @@ jobs:
             pigment mixing (CC BY-NC 4.0, non-commercial).
           # Create-only: GitHub appends the generated notes below `body` on
           # first creation; a re-run that PATCHes the release overwrites the
-          # stored body and drops them.
+          # stored body and drops them. To recover: re-append the notes in
+          # the release UI, or delete the release (keeping the tag) and
+          # re-run so it is recreated with fresh generated notes.
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true

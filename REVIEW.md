@@ -2570,7 +2570,7 @@ touchscreen hover too, not only a pen.
   and would be read as describing the wrong one. Each declaration now carries
   its own doc, and the open-tag one cross-references the same reason.
 
-- **R-228 ✅ (applied) round 5: the contract inputs were repo-root paths
+- **R-232 ✅ (applied) round 5: the contract inputs were repo-root paths
   resolved through `rootProject`, from inside the app module's own script.**
   Real, and the failure mode is the one this block exists to prevent: a path
   that matches no file is not an error to Gradle — it fingerprints as empty,

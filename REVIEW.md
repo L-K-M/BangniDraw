@@ -2547,6 +2547,14 @@ touchscreen hover too, not only a pen.
   `BrushPresetStore`.** True and my error: adding the `@Synchronized`
   rationale as a second block orphaned the original, since only the comment
   adjacent to the declaration attaches. Merged into one.
+- **R-207b ✅ (applied) round 2: `all { it.delete() }` reports the scenario
+  staged even when nothing was deleted.** Correct, and a good catch on the
+  previous round's own fix. `all` is vacuously true on an empty list, so a
+  null `listFiles` — or a temp file not visible at that instant — set
+  `staged = true` with no deletion, and the assertions then failed a write
+  that legitimately succeeded. That is precisely the false failure R-195
+  removed, re-entering through the guard added to prevent it. Now
+  `temps.isNotEmpty() && temps.all { it.delete() }`.
 - **R-198 ⏸️ (declined, assumption documented) round 1, Info: match `inFlight`
   on `canonicalPath` rather than the raw path.** The analysis is right that
   the guard holds only while both sides spell the directory identically, and

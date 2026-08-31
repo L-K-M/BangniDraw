@@ -173,9 +173,16 @@ class AtomicFilesTest {
         val thrown = runCatching {
             AtomicFiles.write(target) { out ->
                 out.write("payload".toByteArray(Charsets.UTF_8))
+                // `isNotEmpty` first: `all` is vacuously true on an empty
+                // list, so listing nothing — a null listFiles, a temp file not
+                // visible at this instant — would report the scenario staged
+                // when no deletion happened, and the assertions below would
+                // then fail a write that legitimately succeeded. That is the
+                // same false failure the skip guard exists to prevent, let in
+                // through the guard itself.
                 staged = dir.listFiles().orEmpty()
                     .filter { it.name.endsWith(AtomicFiles.TMP_SUFFIX) }
-                    .all { it.delete() }
+                    .let { temps -> temps.isNotEmpty() && temps.all { it.delete() } }
                 latch.countDown()
             }
         }.exceptionOrNull()

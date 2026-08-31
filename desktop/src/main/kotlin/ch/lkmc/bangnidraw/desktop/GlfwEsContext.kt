@@ -69,6 +69,13 @@ class GlfwEsContext private constructor(
             val callback = GLFWErrorCallback.create { error, description ->
                 GlLog.w(TAG, "GLFW error $error: ${GLFWErrorCallback.getDescription(description)}")
             }
+            errorCallback?.let { stale ->
+                // A prior create() (failed attempt or missing destroy()) left
+                // its callback installed; unwind so a retry starts clean and
+                // cannot mistake its own stale handler for the displaced one.
+                GLFW.glfwSetErrorCallback(previousErrorCallback)
+                stale.free()
+            }
             previousErrorCallback = callback.set() as? GLFWErrorCallback
             errorCallback = callback
 

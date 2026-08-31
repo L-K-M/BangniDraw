@@ -108,8 +108,8 @@ class ToolSheetCommitContractTest {
         )
     }
 
-    private fun compact(path: String): String = ContractTestSources.read(path)
-        .replace(COMMENTS, "")
+    private fun compact(path: String): String = ContractTestSources
+        .stripComments(ContractTestSources.read(path))
         .replace(WHITESPACE, "")
 
     private fun section(path: String, startMarker: String, endMarker: String): String {
@@ -134,7 +134,6 @@ class ToolSheetCommitContractTest {
         // makes the equal-counts check above mean "no bare call".
         val SETTING_SLIDER = Regex("SettingSlider\\(")
         val DEFERRED_SLIDER = Regex("DeferredSettingSlider\\(")
-        val COMMENTS = Regex("""//[^\n]*|/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
         val WHITESPACE = Regex("""\s+""")
     }
 }

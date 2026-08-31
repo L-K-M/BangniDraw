@@ -62,8 +62,8 @@ class LayerRowCaptionContractTest {
         // documentation edit. The row already carries such a comment, added
         // here; it survives only because its wording happens to avoid the
         // literals.
-        val panel = ContractTestSources.read(LAYER_PANEL_PATH)
-            .replace(COMMENTS, " ")
+        val panel = ContractTestSources
+            .stripComments(ContractTestSources.read(LAYER_PANEL_PATH))
             .replace(WHITESPACE, " ")
         val start = panel.indexOf(ROW_START)
         if (start < 0) fail("missing $ROW_START — renamed?")
@@ -81,7 +81,6 @@ class LayerRowCaptionContractTest {
         const val AFTER_CAPTION = "onClick = onToggleVisibility"
         val MAX_LINES = Regex("maxLines = 1")
         val ELLIPSIS = Regex("overflow = TextOverflow\\.Ellipsis")
-        val COMMENTS = Regex("""//[^\n]*|/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
         val WHITESPACE = Regex("\\s+")
     }
 }

@@ -13,7 +13,14 @@ class DockShapeContractTest {
 
     @Test
     fun `the dock rounds its top corners and keeps the bottom flush`() {
-        val rail = ContractTestSources.read(TOOL_RAIL_PATH)
+        // Canonicalized per the house rule for source-contract tests: every
+        // needle below is a behavioral pin, and a mechanical reformat that
+        // wrapped one of these argument lists would otherwise fail it for a
+        // reason that has nothing to do with the dock's shape.
+        // `CornerSize(0.dp)` is exactly the kind a wrap would break, which is
+        // why collapsing whitespace is not on its own enough — see
+        // ContractTestSources.
+        val rail = ContractTestSources.readNormalized(TOOL_RAIL_PATH)
         // An absent delimiter must fail loudly as "Dock moved", not let the
         // whole file masquerade as the snippet and fail on a shape message.
         val dock = rail.substringAfter("private fun Dock(", missingDelimiterValue = "")

@@ -135,9 +135,8 @@ class AndroidCanvasInput(
                         // matters most, with a palm down as pointer 0 and the
                         // pen drawing as pointer 1.
                         handler.onPointerMove(
-                            sample.set(
+                            sample.setWithoutTool(
                                 pointerId = e.getPointerId(p),
-                                tool = toolOf(e.getToolType(p)),
                                 x = e.getHistoricalX(p, h),
                                 y = e.getHistoricalY(p, h),
                                 pressure = e.getHistoricalPressure(p, h),
@@ -153,9 +152,8 @@ class AndroidCanvasInput(
                 }
                 for (p in 0 until e.pointerCount) {
                     handler.onPointerMove(
-                        sample.set(
+                        sample.setWithoutTool(
                             pointerId = e.getPointerId(p),
-                            tool = toolOf(e.getToolType(p)),
                             x = e.getX(p),
                             y = e.getY(p),
                             pressure = e.getPressure(p),
@@ -169,9 +167,8 @@ class AndroidCanvasInput(
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> handler.onPointerUp(
-                sample.set(
+                sample.setWithoutTool(
                     pointerId = id,
-                    tool = toolOf(e.getToolType(index)),
                     x = e.getX(index),
                     y = e.getY(index),
                     pressure = e.getPressure(index),
@@ -226,9 +223,8 @@ class AndroidCanvasInput(
                 )
             }
             MotionEvent.ACTION_HOVER_MOVE -> handler.onHoverMove(
-                sample.setHover(
+                sample.setHoverWithoutTool(
                     pointerId = e.getPointerId(0),
-                    tool = toolOf(e.getToolType(0)),
                     x = e.x,
                     y = e.y,
                     distance = e.getAxisValue(MotionEvent.AXIS_DISTANCE),

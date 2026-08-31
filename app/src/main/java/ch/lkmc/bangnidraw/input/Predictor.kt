@@ -4,7 +4,6 @@ import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import androidx.input.motionprediction.MotionEventPredictor
-import ch.lkmc.bangnidraw.engine.core.PointerTool
 
 /**
  * `MotionEventPredictor`, kept behind the shared [StrokePredictor] seam
@@ -74,10 +73,14 @@ class Predictor private constructor(
      *
      * Read within the frame and never kept, either way.
      *
-     * Every flattened sample inherits the current sample's tool type —
-     * `MotionEvent` has no per-sample tool history — which is safe today
-     * because a tool change cannot be reported within one event, and worth
-     * knowing before anyone assumes otherwise.
+     * The flattened samples carry no tool: nothing downstream of
+     * `predictedAt` reads it (`CanvasTouchHandler.appendPredicted` takes
+     * position, pressure, tilt, orientation and time), and reading it per
+     * sample cost a JNI call per predicted point per frame. If a consumer
+     * ever needs it, note what the old fill quietly assumed — `MotionEvent`
+     * has no per-sample tool history, so every flattened sample inherited the
+     * event's current tool, which holds only because a tool change cannot be
+     * reported within one event.
      */
     override fun predict(pointerId: Int): Int {
         count = 0
@@ -88,9 +91,8 @@ class Predictor private constructor(
         val sampleCount = e.historySize + 1
         if (samples.size < sampleCount) samples = Array(sampleCount) { PointerSample() }
         for (h in 0 until e.historySize) {
-            samples[h].set(
+            samples[h].setWithoutTool(
                 pointerId = pointerId,
-                tool = toolOf(e.getToolType(pointer)),
                 x = e.getHistoricalX(pointer, h),
                 y = e.getHistoricalY(pointer, h),
                 pressure = e.getHistoricalPressure(pointer, h),
@@ -99,9 +101,8 @@ class Predictor private constructor(
                 timeNs = e.getHistoricalEventTime(h) * NANOS_PER_MILLISECOND,
             )
         }
-        samples[e.historySize].set(
+        samples[e.historySize].setWithoutTool(
             pointerId = pointerId,
-            tool = toolOf(e.getToolType(pointer)),
             x = e.getX(pointer),
             y = e.getY(pointer),
             pressure = e.getPressure(pointer),
@@ -126,13 +127,6 @@ class Predictor private constructor(
 
     /** Valid entries in [samples] after the last [predict]; beyond it is stale. */
     private var count = 0
-
-    private fun toolOf(toolType: Int): PointerTool = when (toolType) {
-        MotionEvent.TOOL_TYPE_STYLUS -> PointerTool.STYLUS
-        MotionEvent.TOOL_TYPE_ERASER -> PointerTool.ERASER
-        MotionEvent.TOOL_TYPE_MOUSE -> PointerTool.MOUSE
-        else -> PointerTool.FINGER
-    }
 
     companion object {
         private const val TAG = "Predictor"

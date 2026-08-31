@@ -1,5 +1,6 @@
-# CI: prove every push to main and every PR — unit tests, Android lint, and a
-# debug APK uploaded as a rolling artifact.
+# CI: prove every push to main and every PR — unit tests, Android lint, a
+# debug APK uploaded as a rolling artifact, and both release configurations
+# (the shipped one and the Mixbox-stripped one).
 #
 # Hardening (family contract):
 #   - least-privilege token (contents: read)
@@ -56,6 +57,19 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      # The configuration that actually ships: release.yml's "Build release
+      # APK" step runs exactly this — Mixbox in, R8 on — and until this step
+      # existed nothing built it before a v* tag was already pushed. Neither
+      # of the other two covers it: assembleDebug is unminified, and the
+      # stripped release below swaps the source set R8 traverses. AGENTS.md's
+      # own rule is that "works in debug, breaks in release" is almost always
+      # a missing keep rule for a new reflection or serialization entry
+      # point, and :engine-core and :engine-gl became separate modules three
+      # PRs ago, so R8 now crosses a boundary that did not exist when
+      # proguard-rules.pro was written.
+      - name: Assemble the shipped release configuration
+        run: ./gradlew assembleRelease
 
       # The stripped source set and its R8 graph differ from the default APK.
       - name: Assemble release without Mixbox

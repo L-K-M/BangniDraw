@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.PathSensitivity
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -153,4 +154,21 @@ tasks.withType<Test>().configureEach {
             .orElse(providers.systemProperty("bangni.updateGolden"))
             .getOrElse("false"),
     )
+
+    // ReleaseBuildCoverageContractTest reads the CI workflows, which are not
+    // otherwise inputs to anything this module builds. Without declaring
+    // them, editing a workflow leaves the test task UP-TO-DATE and the pin
+    // silently does not run — precisely on the change it exists to catch.
+    // Every other contract test reads sources whose compilation already
+    // forces the re-run.
+    inputs
+        .files(rootProject.layout.projectDirectory.files(WORKFLOW_CONTRACT_FILES))
+        .withPropertyName("workflowContracts")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
+
+/** Repo files a unit test pins that no compilation would otherwise track. */
+val WORKFLOW_CONTRACT_FILES = listOf(
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+)

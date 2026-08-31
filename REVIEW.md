@@ -2524,6 +2524,115 @@ touchscreen hover too, not only a pen.
   hypothetical. The attach-before-events contract is now stated at the
   setter.
 
+## PR #176 — orphan the dab instance buffer (2026-08-31)
+
+- **R-185 ⏸️ (declined) Round 1 minor: replace the contract test's
+  comment-stripping regex with a string-literal-aware, nesting-aware state
+  machine.** The observation is correct — `Regex("//[^\n]*|/\*.*?\*/")` does
+  treat `//` and `/*` inside a string literal as comment starts, and Kotlin's
+  block comments nest while the non-greedy pattern stops at the first `*/`.
+
+  Declined on reachability and on the cost of the cure, which is the same
+  ground R-034 already settled for the import-ban scanner ("the desktop
+  compiler is the hard gate this test only front-runs"):
+
+  1. `DabPass.kt` contains no string literals at all, let alone GLSL carrying
+     comment markers — the shaders live in `Shaders.kt`. The finding's own
+     premise is that such files "tend to accumulate GLSL source strings";
+     this one has not, and if it ever did, the needles here are
+     `GLES30.glBufferData(`/`glBufferSubData(` call sites, which a shader
+     string would not contain.
+  2. The suggested replacement is a ~25-line hand-rolled parser living in a
+     test, and the sketch given is not correct: a per-quote toggle
+     desynchronizes on an escaped `\"` (which ends a normal string early), on
+     a `'"'` character literal (which flips the state and swallows the code
+     after it), and on a raw string containing a lone `"` — the last being
+     exactly the construct a file "accumulating GLSL source strings" would
+     use. A subtly wrong parser guarding an unreachable case is worse than a
+     regex whose limits are known.
+
+     *(Corrected in round 3, which caught this rationale stating the wrong
+     mechanism. The earlier text claimed the toggle "toggles on the first of
+     the three quotes and back off on the second", implying raw-string content
+     is read as out-of-string. It is not: three toggles leave the state
+     **in**-string, and the closing three restore it, so a plain `"""…"""`
+     round-trips correctly. Simulated over `"""hello // world"""`, `"a\"b"`,
+     `'"'` and `"""a"b"""` before rewriting. The decline itself is unchanged
+     and still rests on grounds 1 and 3; only its second ground is now
+     accurate, which matters because the entry ends with a revisit trigger and
+     a future reader would otherwise act on a wrong model.)*
+  3. The sibling `DabPassDirtyContractTest` — same directory, same file under
+     test — already uses this identical regex. Changing one and not the other
+     would leave two stripping strategies for one source file; changing both
+     doubles a refactor this PR has no reason to carry.
+
+  The failure mode the finding actually describes is a loud one ("missing
+  marker" / "no longer calls SubData"), and the pathological silent case
+  needs a `/*` inside a literal *before* the pinned call sites in the same
+  file. Revisit if `DabPass` ever gains embedded shader text — at which point
+  the right fix is one shared, tested stripper for every `engine-gl` contract
+  test, not a private copy in each.
+
+## PR #177 — harden five source-contract tests (2026-08-31)
+
+- **R-186 ✅ (applied) round 1: whitespace collapse does not survive the wrap
+  Kotlin's style guide produces.** Correct, and it bit the exact needles the
+  PR's own KDoc named as protected. `replace(WHITESPACE, " ")` absorbs wraps
+  between whole tokens only; the standard wrap breaks after `(` and leaves a
+  trailing comma, so `finishCheckpoint(\n snapshot,\n thumbnailResult,\n)`
+  collapses to `finishCheckpoint( snapshot, thumbnailResult, )` — which
+  `FINISH_CALL`, `PROJECT_WRITE` and `CAPTURE_CALL` all fail to match.
+  Normalization now also removes whitespace hugging `(` and `)` and a trailing
+  comma before `)`, folding that spelling onto the single-line one and leaving
+  single-line code byte-identical.
+- **R-187 ✅ (applied) round 1: the same gap in `DockShapeContractTest`.** Same
+  fix; `CornerSize(0.dp)` is a needle a wrap would break.
+- **R-188 ✅ (applied) round 1: the house rule is duplicated per companion with
+  two divergent robustness levels.** Accurate, and applying R-186 in place
+  would have propagated the divergence rather than fixed it. The mechanics
+  moved onto `ContractTestSources` as `readNormalized` and `readCompact`; all
+  five tests in this PR migrated and their private `WHITESPACE` constants
+  deleted. `ContractTestSourcesTest` now pins the canonicalization directly,
+  including the negative case — that collapsing alone would not have sufficed
+  — so the extra steps cannot be dropped as redundant later.
+- **R-189 ⏸️ (deferred, follow-up) migrate the remaining ~10 contract tests to
+  the shared readers.** `ColorPanel*`, `CompositionGuides`, `ActualSize`,
+  `LayerPanelDragHandle`, `CanvasCheckpoint`, `SaveableTransient`,
+  `BrushSettingsCurvePlot` and the `engine-gl` twin still carry their own
+  `WHITESPACE`. Each is exposed to R-186's gap, but none is touched by this
+  PR, and rewriting a dozen untouched tests to chase a latent false-failure is
+  a separate change with its own regression surface. Out of scope here, worth
+  doing next — the shared readers now exist, so it is mechanical.
+
+- **R-193 ✅ (applied) round 2: the `readCompact` test re-implemented
+  `readCompact` instead of calling it.** Correct — the test body spelled
+  `canonicalize(...).replace(" ", "")`, a hand copy of the reader's own two
+  steps, so it would have stayed green while the path
+  `StudioCardMenuContractTest` actually uses drifted. The stripping step is now
+  `compact(source)`, `readCompact` delegates to it, and the test calls it. A
+  second case pins the half that stripping spaces alone cannot do — dropping
+  the trailing comma — and is mutation-checked: reducing `compact` to a bare
+  space-strip fails it.
+- **R-194 ✅ (applied) round 2, Info: the stated needle rule named only
+  trailing commas.** Correct, and it matters more than it looks, because that
+  paragraph is the contract other authors follow when they migrate the tests
+  R-189 defers. `canonicalize` also deletes whitespace hugging `(` and `)`, and
+  all three rewrites run over the whole file — string literals and comments
+  included — so a needle quoting a user-visible message containing `( `, ` )`
+  or `, )` would fail for exactly the reason R-186 just fixed, relocated into
+  quoted text. The rule now covers everything the canonicalizer deletes,
+  wherever it appears.
+
+**Found by this round's own suite, not by the review:** the canonicalization
+broke `LayerPanelHeaderContractTest`'s `"modifier = Modifier.weight(1f),"`,
+which depended on the trailing comma it removes. The `)` terminates the match
+on its own — and is what keeps it from also matching the yielding title's
+`Modifier.weight(1f, fill = false)` — so the needle dropped the comma. The
+constraint is now stated on `ContractTestSources`, generalized in round 2 to
+its real scope: **needles must not depend on anything the canonicalizer
+deletes** — a trailing comma or whitespace hugging a paren, in quoted text as
+much as in code.
+
 ## PR #179 — one scratch file per atomic write (2026-08-31)
 
 - **R-195 ✅ (applied) round 1, Major: the destroyed-temp test stages a

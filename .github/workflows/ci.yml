@@ -43,7 +43,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
 
       - name: Test, lint, and assemble
-        run: ./gradlew testDebugUnitTest lintDebug assembleDebug
+        # :engine-core:desktopTest runs the shared engine model layer's JVM
+        # tests on the desktop target (the KMP library registers no Android
+        # testDebugUnitTest; DESKTOP.md Phase 1, M1).
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug :engine-core:desktopTest
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7

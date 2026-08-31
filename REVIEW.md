@@ -9,9 +9,22 @@ Legend: 🐞 bug · 🔧 improvement · ✨ idea · ⬜ open · 🟢 done · ⏸
 
 ## Open
 
-_Nothing open, and nothing deferred._ The two items that were deferred here —
-R-020 and the collision half of R-029 — landed with roadmap 3a; see their 🟢
-entries below.
+_Nothing open._
+
+## Declined
+
+- **R-030 ⏸️ `explicitApi()` on `:engine-core` (PR #171, round 1).** The
+  concern (API grows by omission) is real, but enabling it rewrites every
+  public block-bodied declaration across the 15.7k moved lines — exactly
+  the rewrite M1 forbids ("moves not rewrites"), and the module's surface
+  is still moving (M2 extracts engine-gl; M4 consumes it). Revisit after
+  the desktop port lands and the boundary settles.
+- **R-031 ⏸️ Revert `internal` on "unused" widened declarations (PR #171,
+  round 1).** Refuted: every widened name came from the compiler's
+  "Cannot access … it is internal" set — :app code or tests reference all
+  of them (RenderAttachmentGate, RedrawCompletionTracker,
+  PendingBatchDrainWindow included), so reverting any breaks compilation.
+  The mechanical flip is the minimum widening.
 
 ## Resolved
 

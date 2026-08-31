@@ -1,7 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** Resolves only the generated layer-name grammar; user text stays literal. */
-internal object LayerNameResolver {
+object LayerNameResolver {
     fun resolve(
         stored: String,
         defaultName: (Int) -> String,

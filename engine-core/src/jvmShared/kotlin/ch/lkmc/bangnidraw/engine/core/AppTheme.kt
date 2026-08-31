@@ -1,13 +1,13 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** Palette tone; drives system-bar icon appearance and the neutral canvas void. */
-internal enum class ThemeTone { LIGHT, DARK }
+enum class ThemeTone { LIGHT, DARK }
 
 /**
  * App-owned palettes, light and dark. System and wallpaper colours never
  * alter them; Android's dark mode is neither an option nor an input.
  */
-internal enum class AppTheme(val tone: ThemeTone) {
+enum class AppTheme(val tone: ThemeTone) {
     SAFFRON(ThemeTone.LIGHT),
     CORAL(ThemeTone.LIGHT),
     VIOLET(ThemeTone.LIGHT),
@@ -26,7 +26,7 @@ internal enum class AppTheme(val tone: ThemeTone) {
 }
 
 /** Base palette tokens; Compose expands them into every Material role. */
-internal data class ThemeColors(
+data class ThemeColors(
     val primaryArgb: Int,
     val onPrimaryArgb: Int,
     val primaryContainerArgb: Int,
@@ -49,14 +49,14 @@ internal data class ThemeColors(
 )
 
 /** Tone-level error roles; dark surfaces need a lighter error than light ones. */
-internal data class ErrorColors(
+data class ErrorColors(
     val errorArgb: Int,
     val onErrorArgb: Int,
     val errorContainerArgb: Int,
     val onErrorContainerArgb: Int,
 )
 
-internal object ThemeColorPolicy {
+object ThemeColorPolicy {
 
     fun colors(theme: AppTheme): ThemeColors = when (theme) {
         AppTheme.SAFFRON -> SAFFRON_COLORS

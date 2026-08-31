@@ -3,7 +3,7 @@ package ch.lkmc.bangnidraw.engine.core
 import kotlin.math.ceil
 
 /** Android window width classes without an Android or Compose dependency. */
-internal enum class WidthClass {
+enum class WidthClass {
     COMPACT,
     MEDIUM,
     EXPANDED;
@@ -22,7 +22,7 @@ internal enum class WidthClass {
     }
 }
 
-internal enum class Hand {
+enum class Hand {
     LEFT,
     RIGHT;
 
@@ -31,14 +31,14 @@ internal enum class Hand {
     }
 }
 
-internal enum class RailMode { FULL, GROUPED, SHORT, DOCK }
+enum class RailMode { FULL, GROUPED, SHORT, DOCK }
 
-internal enum class PanelMode { FULL_HEIGHT_SHEET, SIDE_SHEET, FLOATING }
+enum class PanelMode { FULL_HEIGHT_SHEET, SIDE_SHEET, FLOATING }
 
-internal enum class SliderPlacement { IN_RAIL, LEDGE }
+enum class SliderPlacement { IN_RAIL, LEDGE }
 
 /** A small geometry value used to prove the chrome leaves the work area clear. */
-internal data class LayoutRect(
+data class LayoutRect(
     val left: Float,
     val top: Float,
     val right: Float,
@@ -76,7 +76,7 @@ internal data class LayoutRect(
 }
 
 /** Edge space a panel must leave for persistent canvas chrome. */
-internal data class PanelInsets(
+data class PanelInsets(
     val leftDp: Int,
     val topDp: Int,
     val rightDp: Int,
@@ -89,7 +89,7 @@ internal data class PanelInsets(
  * [heightDp] is the rail's available height: the window height after the
  * status-bar inset and 48 dp top strip have been removed.
  */
-internal data class LayoutSpec(
+data class LayoutSpec(
     val widthClass: WidthClass,
     val railMode: RailMode,
     val railSide: Hand,

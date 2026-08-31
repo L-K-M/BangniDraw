@@ -5,14 +5,14 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /** CPU brush-settings preview: generator → reference stamp → compositor. */
-internal object BrushPreview {
+object BrushPreview {
 
     /**
      * Reusable scratch for the settings sheet's debounced re-renders: one
      * coverage plane and one pixel plane, sized once per preview size, so a
      * slider drag does not allocate two width×height arrays per tick.
      */
-    internal class RenderBuffer(val width: Int, val height: Int) {
+    class RenderBuffer(val width: Int, val height: Int) {
         init {
             require(width > 0 && height > 0)
         }

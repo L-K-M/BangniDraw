@@ -1,6 +1,6 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class CanvasPanel {
+enum class CanvasPanel {
     LAYERS,
     COLOR,
     BRUSH_SETTINGS,
@@ -9,7 +9,7 @@ internal enum class CanvasPanel {
     OVERFLOW,
 }
 
-internal sealed interface CanvasDialog {
+sealed interface CanvasDialog {
     data class MergeLayers(val index: Int) : CanvasDialog
     data object FlattenLayers : CanvasDialog
     data class ClearLayer(val index: Int) : CanvasDialog
@@ -18,13 +18,13 @@ internal sealed interface CanvasDialog {
     data object RemoveTracingReference : CanvasDialog
 }
 
-internal enum class FocusMode { CHROME, FOCUSED }
+enum class FocusMode { CHROME, FOCUSED }
 
-internal enum class HintVisibility { HIDDEN, VISIBLE }
+enum class HintVisibility { HIDDEN, VISIBLE }
 
-internal enum class StrokeActivity { IDLE, ACTIVE }
+enum class StrokeActivity { IDLE, ACTIVE }
 
-internal data class CanvasChromeState(
+data class CanvasChromeState(
     val openPanel: CanvasPanel? = null,
     val focusMode: FocusMode = FocusMode.CHROME,
     val strokeActivity: StrokeActivity = StrokeActivity.IDLE,
@@ -33,31 +33,31 @@ internal data class CanvasChromeState(
     val hint: HintVisibility = HintVisibility.HIDDEN,
 )
 
-internal enum class CanvasTapEffect {
+enum class CanvasTapEffect {
     DRAW,
     DISMISS_PANEL,
     DISMISS_HINT,
 }
 
-internal data class CanvasTapResult(
+data class CanvasTapResult(
     val state: CanvasChromeState,
     val effect: CanvasTapEffect,
 )
 
-internal enum class CanvasBackEffect {
+enum class CanvasBackEffect {
     CLOSE_DIALOG,
     CLOSE_PANEL,
     EXIT_FOCUS,
     LEAVE,
 }
 
-internal data class CanvasBackResult(
+data class CanvasBackResult(
     val state: CanvasChromeState,
     val effect: CanvasBackEffect,
 )
 
 /** Pure state transitions behind Canvas chrome ordering and input consumption. */
-internal object CanvasUiPolicy {
+object CanvasUiPolicy {
 
     fun togglePanel(state: CanvasChromeState, panel: CanvasPanel): CanvasChromeState {
         val next = if (state.openPanel == panel) null else panel

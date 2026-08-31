@@ -1,7 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** Owns SurfaceHolder redraw completions until their attachment frame is submitted. */
-internal class RedrawCompletionTracker {
+class RedrawCompletionTracker {
 
     private var released = false
     private var currentGeneration: Long? = null

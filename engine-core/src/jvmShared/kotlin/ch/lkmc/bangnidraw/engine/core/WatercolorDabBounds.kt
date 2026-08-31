@@ -1,7 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** Reusable full- and coarse-resolution bounds for one watercolor dab. */
-internal class WatercolorDabBounds(private val grid: TileGrid) {
+class WatercolorDabBounds(private val grid: TileGrid) {
 
     var outputLeft = 0
         private set

@@ -4,7 +4,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /** Thread-safe revisions used to prevent older asynchronous writes winning. */
-internal class LatestWriteTracker<K> {
+class LatestWriteTracker<K> {
     private val clock = AtomicLong(0L)
     private val current = ConcurrentHashMap<K, Long>()
 

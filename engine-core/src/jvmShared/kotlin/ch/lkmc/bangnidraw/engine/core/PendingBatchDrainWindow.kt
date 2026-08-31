@@ -1,12 +1,12 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class PendingBatchDrainScope {
+enum class PendingBatchDrainScope {
     FRAME_SNAPSHOT,
     EXHAUSTIVE,
 }
 
 /** Bounds one live frame while terminal stroke drains still empty the queue. */
-internal class PendingBatchDrainWindow {
+class PendingBatchDrainWindow {
 
     private var scope = PendingBatchDrainScope.FRAME_SNAPSHOT
     private var remaining = 0

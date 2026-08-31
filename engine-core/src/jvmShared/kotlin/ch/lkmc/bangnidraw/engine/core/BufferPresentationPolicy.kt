@@ -2,13 +2,13 @@ package ch.lkmc.bangnidraw.engine.core
 
 import kotlin.math.abs
 
-internal enum class BufferPresentationDecision {
+enum class BufferPresentationDecision {
     USE_LIBRARY_TRANSFORM,
     NEUTRALIZE_HALF_TURN,
 }
 
 /** Avoids the unreliable axis-preserving pre-rotation path on some devices. */
-internal object BufferPresentationPolicy {
+object BufferPresentationPolicy {
 
     fun decide(
         transform: FloatArray,

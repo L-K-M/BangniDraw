@@ -35,7 +35,7 @@ value class TileKey(val packed: Int) {
 data class IntPoint(val x: Int, val y: Int)
 
 /** Shared primitive dab bounds for allocation-free hot paths. */
-internal object DabBounds {
+object DabBounds {
     private const val ANTIALIAS_MARGIN_PX = 1f
 
     fun requireValid(x: Float, y: Float, radius: Float) {
@@ -280,7 +280,7 @@ data class TileGrid(val width: Int, val height: Int) {
     }
 
     /** Primitive form for per-dab callers that do not own an [IntRect]. */
-    internal fun keysForBounds(
+    fun keysForBounds(
         left: Int,
         top: Int,
         right: Int,

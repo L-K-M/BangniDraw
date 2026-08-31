@@ -1,25 +1,25 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class RenderDispatch {
+enum class RenderDispatch {
     NONE,
     BOOTSTRAP,
     COMMIT,
     FRONT,
 }
 
-internal data class AttachmentRenderPlan(
+data class AttachmentRenderPlan(
     val generation: Long,
     val dispatch: RenderDispatch,
 )
 
-internal sealed interface AttachmentCompletion {
+sealed interface AttachmentCompletion {
     data object Ignored : AttachmentCompletion
 
     data class Accepted(val plan: AttachmentRenderPlan) : AttachmentCompletion
 }
 
 /** Serializes rendering behind the current SurfaceView attachment. */
-internal class RenderAttachmentGate {
+class RenderAttachmentGate {
 
     private enum class State { WAITING, BOOTSTRAPPING, READY, RELEASED }
 

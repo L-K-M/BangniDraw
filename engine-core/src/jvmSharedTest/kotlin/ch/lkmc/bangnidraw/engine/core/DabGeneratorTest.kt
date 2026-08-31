@@ -92,7 +92,10 @@ class DabGeneratorTest {
 
     private val builtIns: Map<String, BrushPreset> by lazy {
         val json = Json { ignoreUnknownKeys = true }
-        File("src/main/assets/brushes").listFiles().orEmpty()
+        // The presets are :app-shipped assets; these tests pin the shipped
+        // values, so they read the app module's asset tree rather than a
+        // copy (single source of truth; classpath migration is M4).
+        File("../app/src/main/assets/brushes").listFiles().orEmpty()
             .filter { it.extension == "json" }
             .associate { file ->
                 val preset = json.decodeFromString<BrushPreset>(file.readText())

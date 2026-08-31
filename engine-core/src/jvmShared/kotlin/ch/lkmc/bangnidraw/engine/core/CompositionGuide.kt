@@ -1,7 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** Whether the canvas-only composition overlay is drawn. */
-internal enum class CompositionGuideVisibility {
+enum class CompositionGuideVisibility {
     HIDDEN,
     VISIBLE,
     ;
@@ -13,7 +13,7 @@ internal enum class CompositionGuideVisibility {
 }
 
 /** Rule-of-thirds geometry in canvas px. */
-internal object CompositionGuide {
+object CompositionGuide {
 
     data class Segment(val x0: Float, val y0: Float, val x1: Float, val y1: Float)
 

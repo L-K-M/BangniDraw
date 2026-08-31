@@ -1813,8 +1813,10 @@ class CanvasViewModel @Inject constructor(
                 val current = toolSwitcher.selection.value
                 val kind = current.kind as? ToolKind.Brush
                 if (kind?.preset?.id == id) {
-                    if (current.temporaryReason == null) toolSwitcher.select(ToolKind.Brush(reset))
-                    else toolSwitcher.pushTemporary(ToolKind.Brush(reset), current.temporaryReason)
+                    // Cross-module vals never smart-cast; capture locally.
+                    val reason = current.temporaryReason
+                    if (reason == null) toolSwitcher.select(ToolKind.Brush(reset))
+                    else toolSwitcher.pushTemporary(ToolKind.Brush(reset), reason)
                 }
                 updateToolUi()
             }

@@ -1,7 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** Dirty, throttle, and in-flight state for panel thumbnail refreshes. */
-internal class LayerThumbnailPolicy {
+class LayerThumbnailPolicy {
     data class Request(val layer: LayerId, val version: Long)
 
     private val versions = HashMap<LayerId, Long>()

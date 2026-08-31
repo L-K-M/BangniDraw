@@ -4,7 +4,7 @@ import java.nio.ByteBuffer
 import kotlin.math.roundToInt
 
 /** Top-down straight ARGB pixels ready for `Bitmap.createBitmap`. */
-internal class LayerThumbnail(
+class LayerThumbnail(
     val width: Int,
     val height: Int,
     val argb: IntArray,

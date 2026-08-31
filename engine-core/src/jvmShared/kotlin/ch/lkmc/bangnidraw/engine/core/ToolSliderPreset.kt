@@ -10,7 +10,7 @@ package ch.lkmc.bangnidraw.engine.core
  *
  * [ToolSliderSecondary] tells the caller which domain field an edit updates.
  */
-internal enum class ToolSliderSecondary { OPACITY, FLOW, WATER }
+enum class ToolSliderSecondary { OPACITY, FLOW, WATER }
 
 object ToolSliderPreset {
 
@@ -36,7 +36,7 @@ object ToolSliderPreset {
         is ToolKind.Fill, is ToolKind.Eyedropper -> null
     }
 
-    internal fun secondaryFor(kind: ToolKind): ToolSliderSecondary = when {
+    fun secondaryFor(kind: ToolKind): ToolSliderSecondary = when {
         kind is ToolKind.Water -> ToolSliderSecondary.WATER
         kind is ToolKind.Brush && kind.preset.watercolor != null -> ToolSliderSecondary.FLOW
         else -> ToolSliderSecondary.OPACITY

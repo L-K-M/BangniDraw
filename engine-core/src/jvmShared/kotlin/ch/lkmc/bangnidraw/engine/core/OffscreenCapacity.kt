@@ -1,7 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** Pure allocation policy for a reusable RGBA8 offscreen texture. */
-internal data class OffscreenCapacity(
+data class OffscreenCapacity(
     val width: Int,
     val height: Int,
 ) {

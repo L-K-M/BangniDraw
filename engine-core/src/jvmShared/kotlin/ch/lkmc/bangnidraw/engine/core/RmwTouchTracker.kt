@@ -13,7 +13,7 @@ class RmwTouchTracker(private val grid: TileGrid) {
         add(rect.left, rect.top, rect.right, rect.bottom, out)
 
     /** Primitive form for direct-to-layer dab loops. */
-    internal fun add(
+    fun add(
         left: Int,
         top: Int,
         right: Int,

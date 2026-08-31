@@ -16,7 +16,7 @@ package ch.lkmc.bangnidraw.engine.core
  * Rotation zeroes: 100 % is for inspecting pixels, and pixels are
  * axis-aligned.
  */
-internal object ActualSizePolicy {
+object ActualSizePolicy {
 
     fun transform(fit: FitTransform, view: ViewTransform): ViewTransform {
         val scale = (1f / fit.scale).coerceIn(ViewTransform.MIN_SCALE, ViewTransform.MAX_SCALE)

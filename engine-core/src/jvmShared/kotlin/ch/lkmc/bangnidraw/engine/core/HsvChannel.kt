@@ -1,7 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** One independently adjustable HSV component. */
-internal enum class HsvChannel(
+enum class HsvChannel(
     val range: ClosedFloatingPointRange<Float>,
     val steps: Int,
 ) {

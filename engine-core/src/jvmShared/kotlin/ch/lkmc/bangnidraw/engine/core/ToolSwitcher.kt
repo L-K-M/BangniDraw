@@ -42,7 +42,7 @@ class ToolSwitcher(initial: ToolKind) {
     }
 
     /** Updates a paint base while temporary tools remain visible. */
-    internal fun replaceBasePaintPreset(preset: BrushPreset) {
+    fun replaceBasePaintPreset(preset: BrushPreset) {
         require(!preset.eraseMode) { "the base paint preset cannot erase" }
 
         val brush = base as? ToolKind.Brush ?: return

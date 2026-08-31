@@ -4,7 +4,7 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 
 /** Retains hue while ARGB is greyscale and cannot encode it. */
-internal class HsvSelection private constructor(
+class HsvSelection private constructor(
     val hsv: HsvColor,
     private val syncedArgb: Int,
 ) {

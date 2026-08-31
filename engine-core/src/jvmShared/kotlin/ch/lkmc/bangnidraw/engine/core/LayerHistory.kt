@@ -1,16 +1,16 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** Which side of a journal entry becomes current. */
-internal enum class HistoryDirection { UNDO, REDO }
+enum class HistoryDirection { UNDO, REDO }
 
 /** A validated stack transition and the payload-free GPU work it needs. */
-internal data class LayerHistoryEdit(
+data class LayerHistoryEdit(
     val stack: LayerStack,
     val pixelOps: List<PixelOp> = emptyList(),
     val paperColor: Int? = null,
 )
 
-internal sealed interface LayerHistoryResult {
+sealed interface LayerHistoryResult {
     data class Applied(val edit: LayerHistoryEdit) : LayerHistoryResult
     data object Corrupt : LayerHistoryResult
 }
@@ -23,7 +23,7 @@ internal sealed interface LayerHistoryResult {
  * This object returns only work derivable from the entry header: copies,
  * clears and releases.
  */
-internal object LayerHistory {
+object LayerHistory {
 
     fun apply(
         stack: LayerStack,

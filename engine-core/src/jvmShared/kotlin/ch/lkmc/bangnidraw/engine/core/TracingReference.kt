@@ -318,7 +318,7 @@ object TracingReferencePolicy {
     private const val REFERENCE_LAYER_RESERVE = 1
 }
 
-internal fun isSafeAssetName(name: String): Boolean =
+fun isSafeAssetName(name: String): Boolean =
     isSafePathSegment(name) && name.endsWith(REFERENCE_ASSET_SUFFIX)
 
 private const val REFERENCE_ASSET_SUFFIX = ".png"

@@ -1,12 +1,12 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class HoverRing {
+enum class HoverRing {
     Solid,
     Dashed,
     None,
 }
 
-internal data class HoverCursorSpec(
+data class HoverCursorSpec(
     val diameterPx: Float,
     val ring: HoverRing,
     val crosshair: Boolean,
@@ -15,7 +15,7 @@ internal data class HoverCursorSpec(
 )
 
 /** Pure cursor choice; Compose only draws the returned description. */
-internal object HoverCursorPolicy {
+object HoverCursorPolicy {
 
     fun resolve(
         pointer: PointerTool,

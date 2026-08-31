@@ -272,7 +272,7 @@ class GestureArbiter(
     }
 
     /** The next clock transition, or [NO_DEADLINE_NS] when events own progress. */
-    internal fun nextDeadlineNs(): Long {
+    fun nextDeadlineNs(): Long {
         if (state != State.FINGER_PENDING) return NO_DEADLINE_NS
         val slot = firstActive()
         if (slot < 0) return NO_DEADLINE_NS
@@ -466,7 +466,7 @@ class GestureArbiter(
         const val TAP_MS = 200L
 
         /** Sentinel returned when no clock transition is pending. */
-        internal const val NO_DEADLINE_NS = -1L
+        const val NO_DEADLINE_NS = -1L
 
         private const val NANOS_PER_MILLISECOND = 1_000_000L
 

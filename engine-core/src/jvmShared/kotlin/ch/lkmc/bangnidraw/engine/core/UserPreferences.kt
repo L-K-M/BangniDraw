@@ -1,6 +1,6 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class TouchDrawingMode {
+enum class TouchDrawingMode {
     ENABLED,
     STYLUS_ONLY;
 
@@ -10,7 +10,7 @@ internal enum class TouchDrawingMode {
     }
 }
 
-internal enum class HapticsMode {
+enum class HapticsMode {
     ENABLED,
     DISABLED;
 

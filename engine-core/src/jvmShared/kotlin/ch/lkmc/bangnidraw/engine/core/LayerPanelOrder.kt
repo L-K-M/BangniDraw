@@ -1,6 +1,6 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class LayerReorderAction {
+enum class LayerReorderAction {
     UP,
     DOWN,
     TOP,
@@ -8,7 +8,7 @@ internal enum class LayerReorderAction {
 }
 
 /** Converts the panel's top-first order to the model's bottom-first order. */
-internal object LayerPanelOrder {
+object LayerPanelOrder {
     data class Move(val from: Int, val to: Int)
 
     fun stackIndex(displayIndex: Int, size: Int): Int {

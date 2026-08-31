@@ -1,11 +1,11 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class ReadbackDrainResult { COMPLETE, PENDING }
+enum class ReadbackDrainResult { COMPLETE, PENDING }
 
-internal enum class StrokeCommitDecision { COMMIT, CANCEL }
+enum class StrokeCommitDecision { COMMIT, CANCEL }
 
 /** Keeps edits from consuming GPU state that has not reached the CPU mirror. */
-internal object ReadbackPolicy {
+object ReadbackPolicy {
 
     fun drainResult(pending: Int): ReadbackDrainResult {
         require(pending >= NO_PENDING_READBACKS)

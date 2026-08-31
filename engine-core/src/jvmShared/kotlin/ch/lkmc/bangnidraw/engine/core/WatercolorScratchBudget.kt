@@ -3,7 +3,7 @@ package ch.lkmc.bangnidraw.engine.core
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 
 /** Worst-case grow-only RGBA8 targets owned outside the shared tile pool. */
-internal object WatercolorScratchBudget {
+object WatercolorScratchBudget {
 
     private const val BYTES_PER_PIXEL = 4
     private const val COLOR_EDGE_PX = WatercolorDabPlan.MIN_GL_TEXTURE_SIZE

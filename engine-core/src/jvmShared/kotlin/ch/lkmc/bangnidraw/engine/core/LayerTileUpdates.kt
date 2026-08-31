@@ -3,7 +3,7 @@ package ch.lkmc.bangnidraw.engine.core
 import java.nio.ByteBuffer
 
 /** Whether a readback keeps a sparse tile key or proves it empty. */
-internal enum class TilePresence { PAINTED, EMPTY }
+enum class TilePresence { PAINTED, EMPTY }
 
 /**
  * The zero-tile rule both folds call: absent or all-zero bytes are an empty
@@ -11,12 +11,12 @@ internal enum class TilePresence { PAINTED, EMPTY }
  * key). One classifier, because two folds that classify the same bytes
  * differently is exactly the model-vs-pixels lag this rule exists to kill.
  */
-internal fun presenceOf(bytes: ByteArray?): TilePresence =
+fun presenceOf(bytes: ByteArray?): TilePresence =
     if (bytes == null || bytes.all { it == ZERO_BYTE }) TilePresence.EMPTY else TilePresence.PAINTED
 
 private const val ZERO_BYTE: Byte = 0
 
-internal fun presenceOf(bytes: ByteBuffer): TilePresence {
+fun presenceOf(bytes: ByteBuffer): TilePresence {
     val remaining = bytes.duplicate()
     while (remaining.hasRemaining()) {
         if (remaining.get() != ZERO_BYTE) return TilePresence.PAINTED
@@ -26,7 +26,7 @@ internal fun presenceOf(bytes: ByteBuffer): TilePresence {
 }
 
 /** Folds readback outcomes into the immutable layer model at checkpoint time. */
-internal object LayerTileUpdates {
+object LayerTileUpdates {
 
     fun apply(
         stack: LayerStack,

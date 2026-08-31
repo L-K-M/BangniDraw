@@ -5,7 +5,7 @@ import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
 import java.nio.ByteBuffer
 
 /** Semantic tile occupancy independent of a resident GPU slice. */
-internal class TileContentIndex(private val grid: TileGrid) {
+class TileContentIndex(private val grid: TileGrid) {
 
     private val states = ByteArray(grid.tileCount)
     private val paintedBlocks = LongArray(grid.tileCount * WORDS_PER_TILE)

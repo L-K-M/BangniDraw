@@ -7,7 +7,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** Stroke-local bristle contact and canvas-anchored paper tooth shared with `dab.frag`. */
-internal object InkBrushMask {
+object InkBrushMask {
 
     /**
      * A wet tuft joins into one mass. As ink falls, its fixed hair lanes and

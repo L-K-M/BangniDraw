@@ -28,6 +28,7 @@ as they happen.
 ./gradlew testDebugUnitTest    # the whole test suite (JVM-only, by design)
 ./gradlew lintDebug            # hard CI gate — keep it clean
 ./gradlew assembleDebug        # debug APK
+./gradlew :engine-core:desktopTest  # engine model layer, desktop-JVM target
 scripts/build.sh               # release APK staged into dist/
 scripts/install.sh             # build + install + launch on a device
 python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-sources/icon.png
@@ -43,6 +44,20 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   takes a few minutes, every later one is seconds.
 - Versions are pinned ONLY in `gradle/libs.versions.toml`. Never add an
   ad-hoc version to a build file; never restate catalog versions in docs.
+- **Module layout (DESKTOP.md Phase 1):** `:engine-core` is the pure-JVM
+  engine model layer as a KMP module (Google's KMP library plugin for the
+  Android target + `jvm("desktop")`). Both targets are JVM, so shared code
+  lives in a custom `jvmShared` source set, not `commonMain`. The KMP and
+  KMP-library plugins ship inside AGP 9's distribution — apply them by id
+  WITHOUT a version; a versioned alias fails with "already on the classpath".
+  The KMP library plugin registers no Android unit tests: the module's
+  tests run as `:engine-core:desktopTest` only, which is why CI appends it
+  to the test/lint/assemble line.
+- **Kotlin `internal` does not cross module boundaries.** Declarations in
+  `:engine-core` that `:app` (or app tests) consume must be `public`; the
+  ~135 declarations widened in the M1 extraction are now that module's API
+  — new engine-core code used by the app must land public, and public vals
+  from another module never smart-cast (capture locally instead).
 
 ## Toolchain quirks — don't "fix" these
 

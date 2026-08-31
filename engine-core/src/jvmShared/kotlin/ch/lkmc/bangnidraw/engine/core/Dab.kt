@@ -369,7 +369,7 @@ class DabRing(
      * frame; a real sample cannot. A ring at or below the reserve size never
      * admits prediction: the tail yields first by design.
      */
-    internal fun acquirePrediction(): DabBatch? = acquire(BatchPurpose.PREDICTION)
+    fun acquirePrediction(): DabBatch? = acquire(BatchPurpose.PREDICTION)
 
     @Synchronized
     private fun acquire(purpose: BatchPurpose): DabBatch? {

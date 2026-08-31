@@ -1,7 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** Maps a structural edit to cache and storage effects before any GL work. */
-internal object LayerEditPolicy {
+object LayerEditPolicy {
 
     fun invalidation(stack: LayerStack, entry: HistoryEntry): SandwichPolicy.Op? = when (entry) {
         is HistoryEntry.Stroke -> pixelEdit(stack, entry.layerId)

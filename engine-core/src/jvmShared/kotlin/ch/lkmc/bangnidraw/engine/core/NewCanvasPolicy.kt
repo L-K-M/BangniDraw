@@ -13,13 +13,13 @@ enum class CanvasOrientation {
     }
 }
 
-internal data class NewCanvasDefaults(
+data class NewCanvasDefaults(
     val presetIndex: Int,
     val orientation: CanvasOrientation,
 )
 
 /** Chooses the largest enabled preset that the current window can show at 1:1. */
-internal object NewCanvasDefaultsPolicy {
+object NewCanvasDefaultsPolicy {
 
     fun forWindow(
         presets: List<CanvasPreset>,
@@ -45,12 +45,12 @@ internal object NewCanvasDefaultsPolicy {
     }
 }
 
-internal enum class CustomSizeFieldArrangement { ROW, COLUMN }
+enum class CustomSizeFieldArrangement { ROW, COLUMN }
 
 private const val CUSTOM_SIZE_FIELD_COUNT = 2
 private const val CUSTOM_SIZE_GAP_COUNT = 2
 
-internal data class CustomSizeFieldLayout(
+data class CustomSizeFieldLayout(
     val arrangement: CustomSizeFieldArrangement,
     val fieldWidthDp: Float,
     val gapDp: Float,
@@ -69,7 +69,7 @@ internal data class CustomSizeFieldLayout(
 }
 
 /** Pure compact-layout decisions for the New Canvas dialog. */
-internal object NewCanvasLayoutPolicy {
+object NewCanvasLayoutPolicy {
 
     const val PAPER_TARGET_DP = 48f
     const val PAPER_VISUAL_DP = 28f

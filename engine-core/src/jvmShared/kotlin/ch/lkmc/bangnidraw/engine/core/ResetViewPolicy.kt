@@ -4,7 +4,7 @@ import kotlin.math.abs
 import kotlin.math.hypot
 
 /** Decides when navigation is far enough from fit to offer Reset view. */
-internal object ResetViewPolicy {
+object ResetViewPolicy {
 
     fun isDisplaced(view: ViewTransform, density: Float): Boolean {
         require(density > 0f && density.isFinite()) { "density must be finite and positive" }

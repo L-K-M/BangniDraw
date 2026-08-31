@@ -1,17 +1,17 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class RedrawDecision { DRAW, DEFER, COVERED }
+enum class RedrawDecision { DRAW, DEFER, COVERED }
 
-internal enum class OverlayRedrawDecision { SCENE, FRONT, DEFER, COVERED }
+enum class OverlayRedrawDecision { SCENE, FRONT, DEFER, COVERED }
 
 private enum class FrontDirtySource { INCREMENTAL, CUMULATIVE }
 
-internal data class FrontFrameDirty(
+data class FrontFrameDirty(
     val composite: IntRect,
     val present: IntRect,
 )
 
-internal enum class FrontFramePlan(
+enum class FrontFramePlan(
     private val compositeSource: FrontDirtySource,
     private val presentSource: FrontDirtySource,
 ) {
@@ -35,12 +35,12 @@ internal enum class FrontFramePlan(
         }
 }
 
-internal enum class MultiDrawCompletion { NONE, RESUME_FRONT }
+enum class MultiDrawCompletion { NONE, RESUME_FRONT }
 
-internal enum class StrokeFinish { COMMIT, CANCEL_BUFFERED, CANCEL_READ_MODIFY_WRITE }
+enum class StrokeFinish { COMMIT, CANCEL_BUFFERED, CANCEL_READ_MODIFY_WRITE }
 
 /** Recovers a live stroke once after a multi-buffer transition. */
-internal class EngineRenderPolicy {
+class EngineRenderPolicy {
 
     private var released = false
     private var strokeActive = false

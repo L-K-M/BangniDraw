@@ -35,7 +35,7 @@ value class LayerId(val value: String) {
  * boundary: a project id that could traverse out of `filesDir/projects/` is
  * exactly as dangerous as a layer id that could traverse out of its project.
  */
-internal fun isSafePathSegment(value: String): Boolean =
+fun isSafePathSegment(value: String): Boolean =
     // "." and ".." are already refused by the endsWith(".") clause
     // below, and are named anyway: they are the two ids a traversal
     // actually uses, and a reader auditing this guard should not have

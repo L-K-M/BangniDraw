@@ -5,7 +5,7 @@ package ch.lkmc.bangnidraw.engine.core
  * permutation of the available paint catalogue, so assigning a preset swaps
  * it with the active slot instead of creating duplicate shortcuts.
  */
-internal class PaintSlotAssignments private constructor(
+class PaintSlotAssignments private constructor(
     presetIds: List<String>,
     val activeIndex: Int,
 ) {
@@ -76,7 +76,7 @@ internal class PaintSlotAssignments private constructor(
 }
 
 /** Stable DataStore encoding; safe preset IDs cannot contain line breaks. */
-internal object StoredPaintSlots {
+object StoredPaintSlots {
     fun encode(presetIds: List<String>): String = presetIds.joinToString(SEPARATOR)
 
     fun decode(stored: String?): List<String> = stored
@@ -94,7 +94,7 @@ internal object StoredPaintSlots {
  * A reduced window still shows an active assignment beyond its budget in the
  * last visible position. This projection never mutates the durable assignment.
  */
-internal object RailSlotPolicy {
+object RailSlotPolicy {
 
     fun visibleIndices(
         assignments: PaintSlotAssignments,

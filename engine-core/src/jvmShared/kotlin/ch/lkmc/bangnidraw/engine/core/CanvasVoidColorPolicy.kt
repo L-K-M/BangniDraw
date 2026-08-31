@@ -5,7 +5,7 @@ package ch.lkmc.bangnidraw.engine.core
  * Two tones, neutral within each: light themes keep the original gray,
  * dark themes get a dark gray; neither is palette-tinted.
  */
-internal object CanvasVoidColorPolicy {
+object CanvasVoidColorPolicy {
 
     fun argb(theme: AppTheme): Int = ThemeColorPolicy.colors(theme).canvasVoidArgb
 }

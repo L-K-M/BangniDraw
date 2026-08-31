@@ -5,8 +5,8 @@ package ch.lkmc.bangnidraw.engine.core
  * Dock clearance combines its rail and slider ledge; short mode has only
  * the ledge, while edge modes retain a touch-safe inset.
  */
-internal object CanvasOverlayClearance {
-    internal const val DOCK_HEIGHT_DP = 56
+object CanvasOverlayClearance {
+    const val DOCK_HEIGHT_DP = 56
 
     fun bottomPaddingDp(railMode: RailMode): Int = when (railMode) {
         RailMode.DOCK -> DOCK_HEIGHT_DP + SLIDER_LEDGE_HEIGHT_DP

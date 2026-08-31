@@ -1,8 +1,8 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class RgbFieldArrangement { ROW, COLUMN }
+enum class RgbFieldArrangement { ROW, COLUMN }
 
-internal data class RgbFieldLayout(
+data class RgbFieldLayout(
     val arrangement: RgbFieldArrangement,
     val fieldWidthDp: Float,
     val gapDp: Float,
@@ -19,7 +19,7 @@ internal data class RgbFieldLayout(
 }
 
 /** Keeps channel values readable as panel width and system text scale change. */
-internal object RgbFieldLayoutPolicy {
+object RgbFieldLayoutPolicy {
 
     fun forContentWidth(contentWidthDp: Float, fontScale: Float): RgbFieldLayout {
         require(!contentWidthDp.isNaN() && contentWidthDp >= 0f) {

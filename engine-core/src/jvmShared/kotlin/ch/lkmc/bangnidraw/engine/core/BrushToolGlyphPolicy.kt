@@ -1,6 +1,6 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class BrushToolGlyph(val presetKey: String?) {
+enum class BrushToolGlyph(val presetKey: String?) {
     PENCIL("pencil"),
     INK_PEN("ink_pen"),
     PAINTBRUSH("paintbrush"),
@@ -20,7 +20,7 @@ internal enum class BrushToolGlyph(val presetKey: String?) {
 }
 
 /** Resolves stored preset metadata to one stable rail-glyph role. */
-internal object BrushToolGlyphPolicy {
+object BrushToolGlyphPolicy {
 
     fun forPreset(preset: BrushPreset): BrushToolGlyph {
         if (preset.eraseMode) return BrushToolGlyph.ERASER

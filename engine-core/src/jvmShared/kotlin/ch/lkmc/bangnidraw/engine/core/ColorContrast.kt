@@ -2,7 +2,7 @@ package ch.lkmc.bangnidraw.engine.core
 
 import kotlin.math.pow
 
-internal fun contrastRatio(firstArgb: Int, secondArgb: Int): Double {
+fun contrastRatio(firstArgb: Int, secondArgb: Int): Double {
     val first = relativeLuminance(Argb(firstArgb))
     val second = relativeLuminance(Argb(secondArgb))
     val lighter = maxOf(first, second)

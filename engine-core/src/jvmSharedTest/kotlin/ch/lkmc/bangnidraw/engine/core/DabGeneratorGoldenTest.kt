@@ -312,6 +312,6 @@ class DabGeneratorGoldenTest {
          * classpath is a build-directory copy — writing there would be
          * discarded on the next clean.
          */
-        const val GOLDEN_SOURCE_PATH = "src/test/resources/$GOLDEN_RESOURCE"
+        const val GOLDEN_SOURCE_PATH = "src/jvmSharedTest/resources/$GOLDEN_RESOURCE"
     }
 }

@@ -107,7 +107,7 @@ class TileIndex(val grid: TileGrid) {
      * [visibleKeys] already sorts by page, so compacting its output in place
      * stays linear and allocation-free. The returned count is the live prefix.
      */
-    internal fun visiblePages(rect: IntRect, out: IntArray, scratch: LongArray): Int {
+    fun visiblePages(rect: IntRect, out: IntArray, scratch: LongArray): Int {
         val keyCount = visibleKeys(rect, out, scratch)
         if (keyCount == 0) return 0
 

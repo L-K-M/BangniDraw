@@ -1,6 +1,6 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class ShortcutKey {
+enum class ShortcutKey {
     Z,
     Y,
     LEFT_BRACKET,
@@ -18,15 +18,15 @@ internal enum class ShortcutKey {
     ALT,
 }
 
-internal enum class KeyPhase { DOWN, UP }
+enum class KeyPhase { DOWN, UP }
 
-internal enum class KeyModifiers {
+enum class KeyModifiers {
     NONE,
     CTRL,
     CTRL_SHIFT,
 }
 
-internal enum class CanvasShortcut {
+enum class CanvasShortcut {
     UNDO,
     REDO,
     SIZE_DOWN,
@@ -45,10 +45,10 @@ internal enum class CanvasShortcut {
     TOGGLE_COLOR,
 }
 
-internal enum class ShortcutContext { CANVAS, TEXT_INPUT }
+enum class ShortcutContext { CANVAS, TEXT_INPUT }
 
 /** One Settings row: the chord as printed on a keyboard, and what it runs. */
-internal data class ShortcutCatalogEntry(
+data class ShortcutCatalogEntry(
     val key: ShortcutKey,
     val modifiers: KeyModifiers,
     val chord: String,
@@ -60,7 +60,7 @@ internal data class ShortcutCatalogEntry(
  * Settings sheet. Entries are cross-checked against `resolve` by
  * `CanvasShortcutCatalogTest`, so help text cannot drift from behaviour.
  */
-internal object CanvasShortcutCatalog {
+object CanvasShortcutCatalog {
 
     val rows: List<ShortcutCatalogEntry> = listOf(
         entry(ShortcutKey.Z, KeyModifiers.CTRL, "Ctrl + Z", CanvasShortcut.UNDO),
@@ -89,10 +89,10 @@ internal object CanvasShortcutCatalog {
     ) = ShortcutCatalogEntry(key, modifiers, chord, action)
 }
 
-internal enum class SizeAdjustment { DECREASE, INCREASE }
+enum class SizeAdjustment { DECREASE, INCREASE }
 
 /** Pure keyboard table; MainActivity only translates KeyEvent fields. */
-internal object CanvasShortcuts {
+object CanvasShortcuts {
 
     fun resolve(
         key: ShortcutKey,

@@ -1,17 +1,17 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class ViewportResizeOwner {
+enum class ViewportResizeOwner {
     INPUT,
     RENDERER,
 }
 
-internal data class ViewportResizeState(
+data class ViewportResizeState(
     val view: ViewTransform,
     val fit: FitTransform,
 )
 
 /** Keeps viewport rebasing with input while both Android boundaries observe resize. */
-internal object ViewportResizePolicy {
+object ViewportResizePolicy {
 
     fun resize(
         state: ViewportResizeState,

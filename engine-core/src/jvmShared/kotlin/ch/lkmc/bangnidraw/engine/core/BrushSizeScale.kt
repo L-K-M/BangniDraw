@@ -4,7 +4,7 @@ import kotlin.math.exp
 import kotlin.math.ln
 
 /** Logarithmic rail-slider mapping from a preset's size range. */
-internal object BrushSizeScale {
+object BrushSizeScale {
 
     fun fraction(size: Float, minimum: Float, maximum: Float): Float {
         require(minimum > 0f && maximum >= minimum)

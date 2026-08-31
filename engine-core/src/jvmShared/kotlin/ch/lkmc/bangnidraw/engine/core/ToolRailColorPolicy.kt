@@ -1,14 +1,14 @@
 package ch.lkmc.bangnidraw.engine.core
 
-internal enum class ToolButtonEmphasis { ACTIVE, INACTIVE }
+enum class ToolButtonEmphasis { ACTIVE, INACTIVE }
 
-internal data class ToolRailColors(
+data class ToolRailColors(
     val containerArgb: Int,
     val iconArgb: Int,
 )
 
 /** Contrast-safe rail colors kept independent of Compose and Android. */
-internal object ToolRailColorPolicy {
+object ToolRailColorPolicy {
 
     fun colors(theme: AppTheme, emphasis: ToolButtonEmphasis): ToolRailColors {
         val colors = ThemeColorPolicy.colors(theme)

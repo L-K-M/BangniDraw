@@ -1,7 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** Replays journal entries committed after the last project checkpoint. */
-internal object HistoryRecovery {
+object HistoryRecovery {
 
     data class Result(
         val document: Document,

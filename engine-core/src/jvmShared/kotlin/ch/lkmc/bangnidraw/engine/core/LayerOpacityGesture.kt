@@ -1,7 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** Keeps live opacity previews outside history, then emits one final edit. */
-internal class LayerOpacityGesture private constructor(
+class LayerOpacityGesture private constructor(
     private val layerId: LayerId,
     private val before: LayerProps,
     private val value: Float,

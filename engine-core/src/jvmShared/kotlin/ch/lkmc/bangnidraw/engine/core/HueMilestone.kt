@@ -1,7 +1,7 @@
 package ch.lkmc.bangnidraw.engine.core
 
 /** Reports crossing a 60-degree hue detent along the shortest circular arc. */
-internal object HueMilestone {
+object HueMilestone {
 
     fun crossed(fromDegrees: Float, toDegrees: Float): Boolean {
         if (!fromDegrees.isFinite() || !toDegrees.isFinite()) return false

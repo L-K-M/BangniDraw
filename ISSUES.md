@@ -107,7 +107,15 @@ guards, GLSL/CPU composite parity, `Long`/`Int` overflow in
    permanently, beside a fresh duplicate. `rewrite` now deletes the row
    it truncated — the same never-a-ghost rule `insert` already applied
    — so the next sync is a clean INSERT, and the "never a ghost row"
-   path the decline worried about is the one the fix adopts.
+   path the decline worried about is the one the fix adopts. Two further
+   halves of the fix are load-bearing and easy to "simplify" away: the
+   publish (`IS_PENDING = 0` plus the rename) lives **inside** the same
+   guarded region as the write, because a complete-but-still-pending row
+   strands under `REINSERT` exactly like a truncated one — so either the
+   row is published or it is gone; and the cleanup delete is itself
+   guarded (`runCatching`, through the shared `discardRow` helper), so a
+   provider that also refuses the delete cannot replace the failure being
+   reported with its own.
 
 3. **CPU flatten peak memory.** `CpuFlatten` + `ImageEncode` hold the
    full RGBA buffer plus an equal-sized `Bitmap` on IO (~128 MiB plus

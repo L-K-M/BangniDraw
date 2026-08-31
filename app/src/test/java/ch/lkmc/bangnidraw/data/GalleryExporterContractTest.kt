@@ -67,9 +67,20 @@ class GalleryExporterContractTest {
         // perfectly good image as an invisible pending row while the user's
         // gallery item stays missing. Same defect, one call later. Pinned as
         // an ordering, so a publish moved back out past the catch fails.
+        // Both edges, not just the second: publish-before-catch alone
+        // would still accept a publish hoisted ABOVE the write, which
+        // republishes the row before "wt" truncates it — the original
+        // defect with its window merely moved earlier.
+        val write = rewrite.indexOf("""openOutputStream(uri, "wt")""")
         val guard = rewrite.indexOf("catch (e: Throwable)")
         val publish = rewrite.indexOf("MediaStore.Images.Media.IS_PENDING, 0")
-        if (guard < 0 || publish < 0) fail("rewrite lost its guard or its publish step")
+        if (write < 0 || guard < 0 || publish < 0) {
+            fail("rewrite lost its write, its guard, or its publish step")
+        }
+        assertTrue(
+            write < publish,
+            "the publish must follow the write, not precede the truncation",
+        )
         assertTrue(
             publish < guard,
             "the publish must be inside the guarded region, not after it",

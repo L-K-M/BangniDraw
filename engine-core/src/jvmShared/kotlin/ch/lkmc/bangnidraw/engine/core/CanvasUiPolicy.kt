@@ -25,9 +25,18 @@ enum class CanvasPanel {
  *   restores the flag, which makes it a workflow trap rather than data loss —
  *   the cost is whatever they paint before noticing.
  *
- * The other three resets need no warning: `opacity` and `visible` are the
- * merge's whole point, and `locked` is provably a no-op because `mergeDown`
- * refuses outright when either partner is locked.
+ * The other three resets need no warning, but for two different reasons, and
+ * the distinction matters — un-hiding a layer someone deliberately hid would
+ * be exactly the same class of surprise as clearing their alpha lock:
+ *
+ * - `opacity` is the merge's whole point: the result is Normal at 100 %, and
+ *   05 §4.1's promise is that a normal bottom at *any* opacity merges exactly.
+ * - `visible` and `locked` are unreachable, not benign. `mergeDown` refuses
+ *   with `HIDDEN_PARTNER` when either layer is hidden and with `LOCKED` when
+ *   either is locked, both before it builds these props, so neither reset can
+ *   run against a layer whose flag was set (`LayerStackTest` pins both
+ *   refusals). If either guard is ever relaxed, the corresponding reset stops
+ *   being a no-op and belongs in [Change].
  */
 object MergeConfirmation {
 

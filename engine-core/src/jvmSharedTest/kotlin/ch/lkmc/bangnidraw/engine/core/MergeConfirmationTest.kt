@@ -66,10 +66,13 @@ class MergeConfirmationTest {
     @Test
     fun `the props a merge changes without asking are exactly these two`() {
         // The guard against this list going stale as mergeDown's rewrite
-        // grows: opacity and visible are the merge's whole point, and locked
-        // is a no-op because mergeDown refuses when either partner is locked.
-        // Anything else appearing in that reset is a decision a user should
-        // hear about, and belongs here.
+        // grows. Of the three resets not listed here, opacity is the merge's
+        // whole point, while visible and locked are unreachable rather than
+        // benign: mergeDown refuses with HIDDEN_PARTNER or LOCKED before it
+        // builds these props, which LayerStackTest's "merge down is refused …"
+        // case pins. Relax either guard and the matching reset stops being a
+        // no-op — un-hiding a layer someone deliberately hid is the same
+        // surprise as clearing their alpha lock — so it belongs here.
         assertEquals(
             listOf("BLEND_MODE", "ALPHA_LOCK"),
             MergeConfirmation.Change.entries.map { it.name },

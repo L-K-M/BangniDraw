@@ -1868,7 +1868,16 @@ private fun CanvasDialogHost(
             }
             ConfirmationDialog(
                 title = stringResource(R.string.layer_merge_title),
-                body = warnings.joinToString("\n\n"),
+                // Never a titled dialog with no body. The invariant that
+                // `changes` is non-empty lives in LayerPanel, not in the type,
+                // so any other caller could produce one — and a confirmation
+                // with nothing to say is what teaches people to click through
+                // confirmations, which is the habit this PR exists to avoid.
+                // The blend-mode sentence is the safe fallback because it is
+                // true of every merge: the result is always Normal.
+                body = warnings
+                    .ifEmpty { listOf(stringResource(R.string.layer_merge_body)) }
+                    .joinToString("\n\n"),
                 onConfirm = {
                     viewModel.dismissDialog()
                     viewModel.mergeLayerDown(dialog.index)

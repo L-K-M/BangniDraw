@@ -1,7 +1,6 @@
 package ch.lkmc.bangnidraw.engine.gl.platform
 
 import java.awt.image.BufferedImage
-import java.io.FileNotFoundException
 import java.nio.ByteBuffer
 import javax.imageio.ImageIO
 
@@ -21,14 +20,16 @@ class ClasspathEngineAssets(
 
     override fun readText(path: String): String? = try {
         classLoader.getResourceAsStream(path)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        GlLog.e("EngineAssets", "readText failed for '$path'", e)
         null
     }
 
     override fun decodeRgbaPng(path: String): DecodedPng? {
         val image = try {
             classLoader.getResourceAsStream(path)?.use { ImageIO.read(it) }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            GlLog.e("EngineAssets", "decodeRgbaPng failed for '$path'", e)
             null
         } ?: return null
 
@@ -67,7 +68,7 @@ class ClasspathEngineAssets(
                     out.put(((argb ushr RED_SHIFT) and BYTE_MASK).toByte())
                     out.put(((argb ushr GREEN_SHIFT) and BYTE_MASK).toByte())
                     out.put(((argb ushr BLUE_SHIFT) and BYTE_MASK).toByte())
-                    out.put((argb and BYTE_MASK).toByte())
+                    out.put(((argb ushr ALPHA_SHIFT) and BYTE_MASK).toByte())
                 }
             }
         }
@@ -76,6 +77,7 @@ class ClasspathEngineAssets(
     private companion object {
         const val RGBA_CHANNELS = 4
         const val BYTE_MASK = 0xFF
+        const val ALPHA_SHIFT = 24
         const val RED_SHIFT = 16
         const val GREEN_SHIFT = 8
         const val BLUE_SHIFT = 0

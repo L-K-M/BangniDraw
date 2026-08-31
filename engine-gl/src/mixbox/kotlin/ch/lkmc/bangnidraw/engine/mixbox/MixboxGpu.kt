@@ -19,19 +19,14 @@ object MixboxLut {
     fun upload(assets: EngineAssets): Int {
         val png = assets.decodeRgbaPng(LUT_ASSET) ?: error("Mixbox LUT asset missing: $LUT_ASSET")
 
-        try {
-            require(png.width == LUT_EDGE && png.height == LUT_EDGE) {
-                "Mixbox LUT must be ${LUT_EDGE}x$LUT_EDGE, was ${png.width}x${png.height}"
-            }
-            require(!png.premultiplied) { "Mixbox LUT alpha is data and must not be premultiplied" }
-            require(png.rowBytes == LUT_ROW_BYTES) { "Mixbox LUT rows must be tightly packed" }
-            require(png.argbAt(0, 0) == PROBE_ARGB) { "Mixbox LUT probe pixel is corrupt" }
-
-            return upload(png)
-        } finally {
-            // Nothing to recycle on this seam: the decoded image belongs to
-            // the EngineAssets actual and dies with this call.
+        require(png.width == LUT_EDGE && png.height == LUT_EDGE) {
+            "Mixbox LUT must be ${LUT_EDGE}x$LUT_EDGE, was ${png.width}x${png.height}"
         }
+        require(!png.premultiplied) { "Mixbox LUT alpha is data and must not be premultiplied" }
+        require(png.rowBytes == LUT_ROW_BYTES) { "Mixbox LUT rows must be tightly packed" }
+        require(png.argbAt(0, 0) == PROBE_ARGB) { "Mixbox LUT probe pixel is corrupt" }
+
+        return upload(png)
     }
 
     private fun upload(png: ch.lkmc.bangnidraw.engine.gl.platform.DecodedPng): Int {

@@ -277,7 +277,12 @@ actual object GLES30 {
         format: Int,
         type: Int,
         pixels: java.nio.Buffer,
-    ) = LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels as ByteBuffer)
+    ) = when (pixels) {
+        is ByteBuffer -> LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels)
+        is IntBuffer -> LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels)
+        is FloatBuffer -> LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels)
+        else -> throw IllegalArgumentException("unsupported pixels buffer: ${pixels::class.java}")
+    }
 
     actual fun glReadPixels(x: Int, y: Int, width: Int, height: Int, format: Int, type: Int, offset: Int) =
         LwjglGles30.glReadPixels(x, y, width, height, format, type, offset.toLong())
@@ -298,9 +303,13 @@ actual object GLES30 {
         format: Int,
         type: Int,
         pixels: java.nio.Buffer?,
-    ) = LwjglGles30.glTexImage2D(
-        target, level, internalformat, width, height, border, format, type, pixels as ByteBuffer?,
-    )
+    ) = when (pixels) {
+        null -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, null as ByteBuffer?)
+        is ByteBuffer -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels)
+        is IntBuffer -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels)
+        is FloatBuffer -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels)
+        else -> throw IllegalArgumentException("unsupported pixels buffer: ${pixels::class.java}")
+    }
 
     actual fun glTexParameteri(target: Int, pname: Int, param: Int) =
         LwjglGles30.glTexParameteri(target, pname, param)
@@ -329,10 +338,18 @@ actual object GLES30 {
         format: Int,
         type: Int,
         pixels: java.nio.Buffer,
-    ) = LwjglGles30.glTexSubImage3D(
-        target, level, xoffset, yoffset, zoffset, width, height, depth, format, type,
-        pixels as ByteBuffer,
-    )
+    ) = when (pixels) {
+        is ByteBuffer -> LwjglGles30.glTexSubImage3D(
+            target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels,
+        )
+        is IntBuffer -> LwjglGles30.glTexSubImage3D(
+            target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels,
+        )
+        is FloatBuffer -> LwjglGles30.glTexSubImage3D(
+            target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels,
+        )
+        else -> throw IllegalArgumentException("unsupported pixels buffer: ${pixels::class.java}")
+    }
 
     actual fun glUniform1f(location: Int, v0: Float) = LwjglGles30.glUniform1f(location, v0)
 
@@ -396,6 +413,7 @@ actual object GLES30 {
 
     /** The float-typed twin of [withByteLimit]; `size` is bytes. */
     private inline fun withFloatLimit(buffer: FloatBuffer, size: Int, block: (FloatBuffer) -> Unit) {
+        require(size % FLOAT_BYTES == 0) { "byte size $size is not a multiple of $FLOAT_BYTES" }
         val saved = buffer.limit()
         buffer.limit(buffer.position() + size / FLOAT_BYTES)
         try {

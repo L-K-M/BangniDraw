@@ -31,22 +31,31 @@ interface DecodedPng {
     val width: Int
     val height: Int
 
-    /** Bytes per row as stored; `width * 4` when rows are tight. */
+    /**
+     * Bytes per row as stored; `width * 4` when rows are tight. Exposed so
+     * callers can assert the tight-row guarantee rather than trust it.
+     */
     val rowBytes: Int
 
-    /** Whether alpha is premultiplied into the color channels. */
+    /**
+     * Whether alpha is premultiplied into the color channels. Expected to
+     * be `false` from [EngineAssets.decodeRgbaPng]; exposed so callers can
+     * assert the straight-alpha guarantee instead of trusting it.
+     */
     val premultiplied: Boolean
 
     /**
      * The pixel at (x, y) as a packed ARGB int with straight alpha — the
-     * same shape `android.graphics.Bitmap.getPixel` returns.
+     * same shape `android.graphics.Bitmap.getPixel` returns. Throws for
+     * coordinates outside the image in both actuals.
      */
     fun argbAt(x: Int, y: Int): Int
 
     /**
      * Copies the image into [out] as RGBA bytes, row-major from the top
      * row, exactly `width * height * 4` bytes, starting at the buffer's
-     * current position.
+     * current position. A buffer without that much remaining throws
+     * rather than truncating, in both actuals.
      */
     fun copyRgbaInto(out: ByteBuffer)
 }

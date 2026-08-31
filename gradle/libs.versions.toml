@@ -54,8 +54,6 @@ kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 
 mixbox = { group = "com.scrtwpns", name = "mixbox", version.ref = "mixbox" }
 
-lwjgl = { group = "org.lwjgl", name = "lwjgl" }
-lwjgl-opengles = { group = "org.lwjgl", name = "lwjgl-opengles" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test-junit", version.ref = "kotlin" }

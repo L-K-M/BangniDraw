@@ -77,8 +77,16 @@ android {
         getByName("main") {
             // The engine-gl variant code and the licensed assets moved to
             // :engine-gl (DESKTOP.md M2); the app still packages the assets
-            // from their single copy there.
-            if (mixboxEnabled) assets.srcDir("../engine-gl/src/mixbox/assets")
+            // from their single copy there. Gradle tolerates a missing
+            // srcDir silently, so guard it: a relocated directory must fail
+            // the build, not the GL runtime.
+            if (mixboxEnabled) {
+                val mixboxAssets = file("../engine-gl/src/mixbox/assets")
+                require(mixboxAssets.isDirectory) {
+                    ":engine-gl mixbox assets not found at $mixboxAssets"
+                }
+                assets.srcDir(mixboxAssets)
+            }
         }
     }
 }

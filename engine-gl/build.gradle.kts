@@ -76,7 +76,8 @@ kotlin {
             for (artifact in listOf("lwjgl", "lwjgl-opengles")) {
                 implementation("org.lwjgl:$artifact:$lwjglVersion")
                 for (natives in listOf(
-                    "natives-linux", "natives-macos", "natives-macos-arm64", "natives-windows",
+                    "natives-linux", "natives-linux-arm64", "natives-macos",
+                    "natives-macos-arm64", "natives-windows",
                 )) {
                     implementation("org.lwjgl:$artifact:$lwjglVersion:$natives")
                 }

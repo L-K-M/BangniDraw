@@ -8,3 +8,6 @@ fallback — the native Mesa/NVIDIA GLES path needs nothing.
 
 Distributing binaries here requires recording their provenance in
 AGENTS.md (the repo's third-party rule); none are checked in.
+
+Files in this directory are packaged verbatim into the app image —
+remove this placeholder when the real dylibs are staged.

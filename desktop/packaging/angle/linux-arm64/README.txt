@@ -1,10 +1,11 @@
-Placeholder for linux-arm64's ANGLE dylibs (libEGL / libGLESv2) — NOT committed.
+Placeholder for linux-arm64's ANGLE shared libraries (libEGL.so.1 /
+libGLESv2.so.2) — NOT committed.
 
-macOS has no native GLES; the desktop context needs ANGLE's Metal
-backend (see the README's desktop section). Place the dylibs for this
-target here before packaging; jpackage picks them up via
-appResourcesRootDir. linux-* folders exist for a future ANGLE-on-Linux
-fallback — the native Mesa/NVIDIA GLES path needs nothing.
+Linux normally needs nothing here: Mesa and the vendor drivers ship
+GLES natively, and the desktop context uses it directly. This folder
+exists for a future ANGLE-on-Linux fallback.
 
+Files in this directory are packaged verbatim into the app image —
+remove this placeholder when the real libraries are staged.
 Distributing binaries here requires recording their provenance in
 AGENTS.md (the repo's third-party rule); none are checked in.

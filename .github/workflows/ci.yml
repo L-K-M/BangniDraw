@@ -96,9 +96,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
 
       - name: Test and build the desktop distributable
+        # packageDeb exercises the deb metadata (version/vendor/charset)
+        # that createDistributable never touches; rpmbuild is absent on
+        # ubuntu runners, so Rpm stays a manual format. mixbox=false here is
+        # deliberate coverage: this job pins the stripped desktop variant
+        # (D12's gap) while the dispatched macOS job builds the default one,
+        # so both variants build on every commit that touches them.
         run: >-
           ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
-          :desktop:test :desktop:createDistributable
+          :desktop:test :desktop:createDistributable :desktop:packageDeb
           -Pbangnidraw.mixbox=false
 
       - name: Upload desktop distributable
@@ -128,11 +134,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
 
       - name: Test and build the macOS distributable
+        # packageDistributionForCurrentOS = the real Dmg on macOS. Built
+        # WITHOUT -Pbangnidraw.mixbox=false deliberately: the default,
+        # Mixbox-enabled variant is the one macOS users get, and the Linux
+        # job already covers the stripped one.
         run: >-
           ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
           :desktop:test :desktop:createDistributable
+          :desktop:packageDistributionForCurrentOS
 
       - name: Upload macOS distributable
+        # Built WITHOUT the uncommitted ANGLE dylibs — a build/smoke-test
+        # artifact, not a shippable image: stage the dylibs into
+        # desktop/packaging/angle/macos-<arch>/ before any release packaging.
         uses: actions/upload-artifact@v7
         with:
           name: bangnidraw-desktop-macos-${{ github.sha }}

@@ -17,12 +17,13 @@ import kotlin.test.fail
  * `setWithoutTool`/`setHoverWithoutTool` stop paying it on the four paths
  * whose consumers never look.
  *
- * That leaves [PointerSample.tool] holding whatever the last full fill wrote,
- * which is safe only while those consumers keep not looking. This is the pin
- * that makes it stay that way: a consumer that starts needing the tool fails
- * here and moves its call site back to the full `set`, rather than silently
- * reading the previous gesture's tool. The positive half is pinned too, so
- * the test cannot pass by the handler simply not using tools at all.
+ * Those fills *clear* [PointerSample.tool] rather than leaving it, so a
+ * consumer that reads it there gets `null` rather than a confident wrong
+ * answer — one record serves every pointer, so a leftover value need not even
+ * belong to this gesture. This pin sits in front of that guarantee: a
+ * consumer that starts needing the tool fails here first and moves its call
+ * site back to the full `set`. The positive half is pinned too, so the test
+ * cannot pass by the handler simply not using tools at all.
  */
 class PointerSampleToolContractTest {
 
@@ -37,9 +38,10 @@ class PointerSampleToolContractTest {
             )
         }
 
-        // The four that do not: a move and a lift continue a gesture whose
-        // tool was settled at its down, and appendPredicted takes position,
-        // pressure, tilt, orientation and time.
+        // The four that do not. A move and a lift continue a gesture whose
+        // tool was settled at *a* down — not necessarily this pointer's,
+        // since one record serves them all — and appendPredicted takes
+        // position, pressure, tilt, orientation and time.
         for (entry in listOf(POINTER_MOVE, POINTER_UP, HOVER_MOVE, APPEND_PREDICTED)) {
             assertFalse(
                 TOOL_READ in section(HANDLER, entry),

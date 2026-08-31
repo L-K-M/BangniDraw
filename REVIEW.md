@@ -3092,3 +3092,14 @@ much as in code.
   `.tool` would have missed it, and comments naming the tool inside a negative
   region — one line comment and one block comment — keep it green, which is
   the false failure the round-1 decline was protecting against.
+
+- **R-243 ✅ (applied) — round 1's Major, finished.** Found while re-reading
+  the diff before merging, which is the check that replaced the round the
+  reviewer never returned. R-236 corrected the "a stale tool is this
+  gesture's" claim in `PointerSample`'s KDoc and in AGENTS.md, but round 1 had
+  named three places and the third — `PointerSampleToolContractTest`'s own
+  comments — was missed. Its class KDoc still said the field "holds whatever
+  the last full fill wrote", which the nullable field made false in the same
+  commit, and its inline comment still said a move continues "a gesture whose
+  tool was settled at its down" rather than at *a* down. Both now say what the
+  code does. Docs only; the gate was re-run.

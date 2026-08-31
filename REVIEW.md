@@ -2676,3 +2676,30 @@ much as in code.
   the assumption, the Android `/data/user/0` vs `/data/data` alias that would
   break it, and the consequence if it ever does (a live writer's rename
   fails; nothing is corrupted) are now stated next to `inFlight`.
+
+## PR #182 — warn before a merge clears the alpha lock (2026-08-31)
+
+- **R-208 ✅ (applied) round 1: an empty change set renders a titled dialog
+  with no body.** Correct. The invariant that `changes` is non-empty lives in
+  `LayerPanel`, not in `CanvasDialog.MergeLayers`, so any other caller could
+  produce one — and a confirmation with nothing to say is what teaches people
+  to click through confirmations, the habit this PR exists to avoid. The
+  blend-mode sentence is the fallback because it is true of every merge: the
+  result is always Normal.
+- **R-209 ❌ (refuted; its documentation half applied) round 1: "merging into
+  a hidden layer silently un-hides it."** It cannot happen. `mergeDown`
+  returns `Refusal.HIDDEN_PARTNER` when either partner is hidden, two lines
+  before it builds the merged props, so `visible = true` is unreachable —
+  exactly like `locked = false`, which the entry already called a no-op for
+  that reason. `LayerStackTest`'s "merge down is refused without a layer
+  below, when locked, or when either partner is hidden" pins both refusals,
+  so no new test was added rather than duplicating it.
+
+  The finding was invited by this PR's own wording, though, and that half is
+  real: the KDoc dismissed `opacity` and `visible` together as "the merge's
+  whole point", which is true of opacity and false of visible. The two now
+  have their separate reasons, with the consequence spelled out — if either
+  guard is ever relaxed, the matching reset stops being a no-op and belongs in
+  `Change`. Un-hiding a layer someone deliberately hid would be the same class
+  of surprise as clearing their alpha lock, which is precisely why the reason
+  had to be right rather than merely conclusive.

@@ -21,6 +21,11 @@ class PointerSampleTest {
         val sample = PointerSample()
         sample.set(1, PointerTool.STYLUS, 1f, 2f, 0.5f, 0.1f, 0.2f, 10L)
         assertEquals(PointerTool.STYLUS, sample.tool)
+        // Dirty every field the fill under test is supposed to clear, or the
+        // assertions below only re-check the record's initial values and
+        // would pass with the clearing deleted. A hover fill is the only way
+        // `distance` becomes non-zero.
+        sample.setHover(1, PointerTool.ERASER, 1f, 2f, 7f, 15L)
 
         sample.setWithoutTool(0, 3f, 4f, 0.25f, 0f, 0f, 20L)
         assertNull(sample.tool, "a move must not inherit another pointer's tool")
@@ -38,6 +43,10 @@ class PointerSampleTest {
         val sample = PointerSample()
         sample.setHover(1, PointerTool.ERASER, 1f, 2f, 3f, 10L)
         assertEquals(PointerTool.ERASER, sample.tool)
+        // Same reason as above: the contact axes have to be non-neutral
+        // before the hover fill runs, or asserting that it neutralizes them
+        // asserts nothing.
+        sample.set(1, PointerTool.STYLUS, 1f, 2f, 0.5f, 0.9f, 0.1f, 15L)
 
         sample.setHoverWithoutTool(1, 5f, 6f, 2f, 20L)
         assertNull(sample.tool, "a hover move must not inherit the hover enter's tool")
@@ -45,6 +54,7 @@ class PointerSampleTest {
         // The contact-only axes are still neutralized.
         assertEquals(1f, sample.pressure)
         assertEquals(0f, sample.tilt)
+        assertEquals(0f, sample.orientation)
     }
 
     @Test

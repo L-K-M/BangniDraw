@@ -107,12 +107,11 @@ class PointerSampleToolContractTest {
      */
     private fun section(path: String, member: String): String {
         val source = ContractTestSources.read(path)
-        val start = source.indexOf(member)
-        if (start < 0) fail("missing $member in $path — renamed?")
-        val body = start + member.length
-        val end = NEXT_MEMBER.find(source, body)?.range?.first ?: source.length
+        val declaration = Regex(MEMBER_INDENT + MODIFIERS + "fun " + Regex.escape(member) + """\(""")
+        val start = declaration.find(source) ?: fail("missing fun $member( in $path — renamed?")
+        val end = NEXT_MEMBER.find(source, start.range.last)?.range?.first ?: source.length
 
-        return source.substring(start, end)
+        return source.substring(start.range.first, end)
     }
 
     private companion object {
@@ -130,15 +129,35 @@ class PointerSampleToolContractTest {
         // it, not the guarantee itself.
         const val TOOL_READ = ".tool"
 
-        /** A class member's declaration, which is where the previous one ends. */
-        val NEXT_MEMBER = Regex("""\n {4}(private |internal |protected )?fun """)
+        /**
+         * A class member's declaration, which is where the previous one ends.
+         *
+         * Any stack of modifiers, and properties as well as functions: a
+         * boundary this does not recognize is not a failed match but a
+         * silently *widened* region, which for the four negative entries
+         * means a `.tool` read from a swallowed member failing the pin on
+         * correct code. `onPointerDown` gaining an `override` — the very
+         * refactor R-237 discusses — would have done exactly that to
+         * `appendPredicted`.
+         *
+         * The trailing `\s` matters: without it `fun` also matches
+         * `fundamentally` and `val` matches `validate(`.
+         */
+        const val MEMBER_INDENT = """\n {4}"""
+        const val MODIFIERS =
+            """(?:(?:private|internal|protected|public|override|suspend|inline|""" +
+                """operator|infix|open|final)\s+)*"""
+        val NEXT_MEMBER = Regex(MEMBER_INDENT + MODIFIERS + """(?:fun|val|var)\s""")
 
-        const val POINTER_DOWN = "fun onPointerDown(sample: PointerSample)"
-        const val POINTER_MOVE = "fun onPointerMove(sample: PointerSample)"
-        const val POINTER_UP = "fun onPointerUp(sample: PointerSample)"
-        const val HOVER_ENTER = "fun onHoverEnter(sample: PointerSample)"
-        const val HOVER_MOVE = "fun onHoverMove(sample: PointerSample)"
-        const val APPEND_PREDICTED = "private fun appendPredicted(predicted: PointerSample)"
+        // Names, not signatures: the declaration is matched at its member
+        // indent and only up to the open paren, so a wrapped parameter list
+        // cannot turn a layout change into a "renamed?" failure.
+        const val POINTER_DOWN = "onPointerDown"
+        const val POINTER_MOVE = "onPointerMove"
+        const val POINTER_UP = "onPointerUp"
+        const val HOVER_ENTER = "onHoverEnter"
+        const val HOVER_MOVE = "onHoverMove"
+        const val APPEND_PREDICTED = "appendPredicted"
 
         // Compact spelling: these are matched against readCompact.
         const val FULL_SET = "sample.set("

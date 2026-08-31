@@ -2762,3 +2762,32 @@ much as in code.
   assertions look for, so the test would fail on correct code. Instead every
   region now ends at the next member declaration, found generically on the raw
   source, and no entry names a neighbour at all.
+
+- **R-240 ✅ (applied) round 2: two of `PointerSampleTest`'s neutralization
+  assertions were vacuous.** Correct, and it lands on the sentence R-236 wrote
+  one round earlier: that entry claimed the test pins "the axes each fill
+  still writes", and for two of them it did not. `assertEquals(0f, distance)`
+  ran after contact fills only, and `distance` starts at zero; the
+  pressure/tilt assertions ran after hover fills only, and those start
+  neutral. Deleting either clearing line from the tool-less fills would have
+  left both tests green — the stale-record bug class this PR closes for
+  `tool`, unguarded for the axes beside it. Each test now dirties the fields
+  the fill under test must clear before calling it, and the added
+  `orientation` assertion is covered the same way. Mutation-checked: dropping
+  `distance = 0f` fails the contact test, dropping `pressure = 1f` fails the
+  hover one; before this round neither did.
+
+- **R-241 ✅ (applied) round 2: the member-boundary regex knew three
+  modifiers.** `\n {4}(private |internal |protected )?fun ` misses `override`,
+  `suspend`, `public`, stacked modifiers and property members, and a boundary
+  it fails to recognize does not fail loudly — it *widens* the region before
+  it. The live case is the one R-238 had just fixed the other half of: give
+  `onPointerDown` a modifier and `appendPredicted`'s region swallows its
+  `requireNotNull(sample.tool)`, failing a negative pin on correct code. Any
+  stack of the common modifiers is accepted now, `val`/`var` count as
+  boundaries, and the trailing `\s` keeps `fundamentally` and `validate(` out.
+  The entries also became member *names* rather than full signatures, matched
+  at the member indent up to the open paren, so a wrapped parameter list
+  cannot masquerade as a rename either. Mutation-checked: with
+  `public fun onPointerDown(` the new boundary holds and the old one fails the
+  pin.

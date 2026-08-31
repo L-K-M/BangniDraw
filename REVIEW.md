@@ -3270,3 +3270,10 @@ much as in code.
   passed CI's full Gradle invocation including `:desktop:test`. Switched
   to `Path.startsWith` anyway — element-wise comparison avoids the
   `/assets-foo` string-prefix false positive.
+
+- **R-046 ⏸️ (declined) PR #186 (dependabot setup-java v6): pin ci.yml's
+  actions to commit SHAs like release.yml.** The split is documented
+  policy (CICD.md): SHA pins belong to the privileged, write-capable
+  release workflow; ci.yml is `contents: read` and has always floated
+  tags. Generalizing the pins is a deliberate posture change for its own
+  PR, not part of a version bump.

@@ -2702,3 +2702,183 @@ touchscreen hover too, not only a pen.
   app/.../GalleryExporter.kt — renamed? it ends the probe region`, and with
   the new guard removed that same drift passes green, which is the vacuity
   the finding described.
+
+## PR #176 — orphan the dab instance buffer (2026-08-31)
+
+- **R-185 ⏸️ (declined) Round 1 minor: replace the contract test's
+  comment-stripping regex with a string-literal-aware, nesting-aware state
+  machine.** The observation is correct — `Regex("//[^\n]*|/\*.*?\*/")` does
+  treat `//` and `/*` inside a string literal as comment starts, and Kotlin's
+  block comments nest while the non-greedy pattern stops at the first `*/`.
+
+  Declined on reachability and on the cost of the cure, which is the same
+  ground R-034 already settled for the import-ban scanner ("the desktop
+  compiler is the hard gate this test only front-runs"):
+
+  1. `DabPass.kt` contains no string literals at all, let alone GLSL carrying
+     comment markers — the shaders live in `Shaders.kt`. The finding's own
+     premise is that such files "tend to accumulate GLSL source strings";
+     this one has not, and if it ever did, the needles here are
+     `GLES30.glBufferData(`/`glBufferSubData(` call sites, which a shader
+     string would not contain.
+  2. The suggested replacement is a ~25-line hand-rolled parser living in a
+     test, and the sketch given is not correct: a per-quote toggle
+     desynchronizes on an escaped `\"` (which ends a normal string early), on
+     a `'"'` character literal (which flips the state and swallows the code
+     after it), and on a raw string containing a lone `"` — the last being
+     exactly the construct a file "accumulating GLSL source strings" would
+     use. A subtly wrong parser guarding an unreachable case is worse than a
+     regex whose limits are known.
+
+     *(Corrected in round 3, which caught this rationale stating the wrong
+     mechanism. The earlier text claimed the toggle "toggles on the first of
+     the three quotes and back off on the second", implying raw-string content
+     is read as out-of-string. It is not: three toggles leave the state
+     **in**-string, and the closing three restore it, so a plain `"""…"""`
+     round-trips correctly. Simulated over `"""hello // world"""`, `"a\"b"`,
+     `'"'` and `"""a"b"""` before rewriting. The decline itself is unchanged
+     and still rests on grounds 1 and 3; only its second ground is now
+     accurate, which matters because the entry ends with a revisit trigger and
+     a future reader would otherwise act on a wrong model.)*
+  3. The sibling `DabPassDirtyContractTest` — same directory, same file under
+     test — already uses this identical regex. Changing one and not the other
+     would leave two stripping strategies for one source file; changing both
+     doubles a refactor this PR has no reason to carry.
+
+  The failure mode the finding actually describes is a loud one ("missing
+  marker" / "no longer calls SubData"), and the pathological silent case
+  needs a `/*` inside a literal *before* the pinned call sites in the same
+  file. Revisit if `DabPass` ever gains embedded shader text — at which point
+  the right fix is one shared, tested stripper for every `engine-gl` contract
+  test, not a private copy in each.
+
+## PR #177 — harden five source-contract tests (2026-08-31)
+
+- **R-186 ✅ (applied) round 1: whitespace collapse does not survive the wrap
+  Kotlin's style guide produces.** Correct, and it bit the exact needles the
+  PR's own KDoc named as protected. `replace(WHITESPACE, " ")` absorbs wraps
+  between whole tokens only; the standard wrap breaks after `(` and leaves a
+  trailing comma, so `finishCheckpoint(\n snapshot,\n thumbnailResult,\n)`
+  collapses to `finishCheckpoint( snapshot, thumbnailResult, )` — which
+  `FINISH_CALL`, `PROJECT_WRITE` and `CAPTURE_CALL` all fail to match.
+  Normalization now also removes whitespace hugging `(` and `)` and a trailing
+  comma before `)`, folding that spelling onto the single-line one and leaving
+  single-line code byte-identical.
+- **R-187 ✅ (applied) round 1: the same gap in `DockShapeContractTest`.** Same
+  fix; `CornerSize(0.dp)` is a needle a wrap would break.
+- **R-188 ✅ (applied) round 1: the house rule is duplicated per companion with
+  two divergent robustness levels.** Accurate, and applying R-186 in place
+  would have propagated the divergence rather than fixed it. The mechanics
+  moved onto `ContractTestSources` as `readNormalized` and `readCompact`; all
+  five tests in this PR migrated and their private `WHITESPACE` constants
+  deleted. `ContractTestSourcesTest` now pins the canonicalization directly,
+  including the negative case — that collapsing alone would not have sufficed
+  — so the extra steps cannot be dropped as redundant later.
+- **R-189 ⏸️ (deferred, follow-up) migrate the remaining ~10 contract tests to
+  the shared readers.** `ColorPanel*`, `CompositionGuides`, `ActualSize`,
+  `LayerPanelDragHandle`, `CanvasCheckpoint`, `SaveableTransient`,
+  `BrushSettingsCurvePlot` and the `engine-gl` twin still carry their own
+  `WHITESPACE`. Each is exposed to R-186's gap, but none is touched by this
+  PR, and rewriting a dozen untouched tests to chase a latent false-failure is
+  a separate change with its own regression surface. Out of scope here, worth
+  doing next — the shared readers now exist, so it is mechanical.
+
+- **R-193 ✅ (applied) round 2: the `readCompact` test re-implemented
+  `readCompact` instead of calling it.** Correct — the test body spelled
+  `canonicalize(...).replace(" ", "")`, a hand copy of the reader's own two
+  steps, so it would have stayed green while the path
+  `StudioCardMenuContractTest` actually uses drifted. The stripping step is now
+  `compact(source)`, `readCompact` delegates to it, and the test calls it. A
+  second case pins the half that stripping spaces alone cannot do — dropping
+  the trailing comma — and is mutation-checked: reducing `compact` to a bare
+  space-strip fails it.
+- **R-194 ✅ (applied) round 2, Info: the stated needle rule named only
+  trailing commas.** Correct, and it matters more than it looks, because that
+  paragraph is the contract other authors follow when they migrate the tests
+  R-189 defers. `canonicalize` also deletes whitespace hugging `(` and `)`, and
+  all three rewrites run over the whole file — string literals and comments
+  included — so a needle quoting a user-visible message containing `( `, ` )`
+  or `, )` would fail for exactly the reason R-186 just fixed, relocated into
+  quoted text. The rule now covers everything the canonicalizer deletes,
+  wherever it appears.
+
+**Found by this round's own suite, not by the review:** the canonicalization
+broke `LayerPanelHeaderContractTest`'s `"modifier = Modifier.weight(1f),"`,
+which depended on the trailing comma it removes. The `)` terminates the match
+on its own — and is what keeps it from also matching the yielding title's
+`Modifier.weight(1f, fill = false)` — so the needle dropped the comma. The
+constraint is now stated on `ContractTestSources`, generalized in round 2 to
+its real scope: **needles must not depend on anything the canonicalizer
+deletes** — a trailing comma or whitespace hugging a paren, in quoted text as
+much as in code.
+
+## PR #179 — one scratch file per atomic write (2026-08-31)
+
+- **R-195 ✅ (applied) round 1, Major: the destroyed-temp test stages a
+  scenario Windows cannot produce.** Correct. It deletes the temp file while
+  `AtomicFiles` holds it open, which POSIX allows and Windows refuses —
+  there `delete()` returns false rather than throwing, so the staging quietly
+  does nothing, the rename succeeds, and both assertions fail against
+  *correct* code. The staging now reports whether it took effect and the
+  assertions follow it. The round's second observation is also right and is
+  written into the test: on Windows `a sweep leaves a live writer's temp file
+  alone` would pass even with the `inFlight` guard removed, because deleting
+  an open file fails there anyway — the guard is genuinely exercised only on
+  POSIX, which is where CI runs. Re-checked that the reworked test still
+  earns its place: making a failed rename return silently fails it.
+- **R-196 ✅ (applied) round 1: the KDoc still documented the pre-token temp
+  name.** `<name>.tmp`, where the file is now `<name>.<token>.tmp`. The token
+  is the whole fix, so a reader auditing atomicity from the KDoc alone would
+  have concluded temp paths still collide — and might have simplified the
+  token away. Corrected, and stated as contract rather than detail.
+- **R-197 ✅ (applied) round 1: two stacked KDoc blocks on
+  `BrushPresetStore`.** True and my error: adding the `@Synchronized`
+  rationale as a second block orphaned the original, since only the comment
+  adjacent to the declaration attaches. Merged into one.
+- **R-207b ✅ (applied) round 2: `all { it.delete() }` reports the scenario
+  staged even when nothing was deleted.** Correct, and a good catch on the
+  previous round's own fix. `all` is vacuously true on an empty list, so a
+  null `listFiles` — or a temp file not visible at that instant — set
+  `staged = true` with no deletion, and the assertions then failed a write
+  that legitimately succeeded. That is precisely the false failure R-195
+  removed, re-entering through the guard added to prevent it. Now
+  `temps.isNotEmpty() && temps.all { it.delete() }`.
+- **R-198 ⏸️ (declined, assumption documented) round 1, Info: match `inFlight`
+  on `canonicalPath` rather than the raw path.** The analysis is right that
+  the guard holds only while both sides spell the directory identically, and
+  the finding names its own cost. Declined on that cost: `canonicalPath` is a
+  syscall per candidate on a sweep that can cover a layer directory full of
+  tiles, and it throws `IOException` where this code must not. Every caller
+  today derives the file it writes and the directory it sweeps from one
+  `File` root — `ProjectStore.checkpoint` sweeps `dir` and writes
+  `File(dir, …)` — so the strings agree. Taking the finding's own fallback:
+  the assumption, the Android `/data/user/0` vs `/data/data` alias that would
+  break it, and the consequence if it ever does (a live writer's rename
+  fails; nothing is corrupted) are now stated next to `inFlight`.
+
+## PR #182 — warn before a merge clears the alpha lock (2026-08-31)
+
+- **R-208 ✅ (applied) round 1: an empty change set renders a titled dialog
+  with no body.** Correct. The invariant that `changes` is non-empty lives in
+  `LayerPanel`, not in `CanvasDialog.MergeLayers`, so any other caller could
+  produce one — and a confirmation with nothing to say is what teaches people
+  to click through confirmations, the habit this PR exists to avoid. The
+  blend-mode sentence is the fallback because it is true of every merge: the
+  result is always Normal.
+- **R-209 ❌ (refuted; its documentation half applied) round 1: "merging into
+  a hidden layer silently un-hides it."** It cannot happen. `mergeDown`
+  returns `Refusal.HIDDEN_PARTNER` when either partner is hidden, two lines
+  before it builds the merged props, so `visible = true` is unreachable —
+  exactly like `locked = false`, which the entry already called a no-op for
+  that reason. `LayerStackTest`'s "merge down is refused without a layer
+  below, when locked, or when either partner is hidden" pins both refusals,
+  so no new test was added rather than duplicating it.
+
+  The finding was invited by this PR's own wording, though, and that half is
+  real: the KDoc dismissed `opacity` and `visible` together as "the merge's
+  whole point", which is true of opacity and false of visible. The two now
+  have their separate reasons, with the consequence spelled out — if either
+  guard is ever relaxed, the matching reset stops being a no-op and belongs in
+  `Change`. Un-hiding a layer someone deliberately hid would be the same class
+  of surprise as clearing their alpha lock, which is precisely why the reason
+  had to be right rather than merely conclusive.

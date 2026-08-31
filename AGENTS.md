@@ -292,6 +292,25 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 Recorded per PLAN.md's rule: when the plan contradicts itself, PLAN.md wins
 and the contradiction is noted here.
 
+- **`*.tmp` is swept "on every save" (06 §2) — except a live writer's own.**
+  `ProjectStore.checkpoint` sweeps its directory before writing, so under the
+  literal rule a checkpoint deletes the scratch file of any write already in
+  flight to the same directory and fails that writer at its rename, for no
+  fault of its own. `AtomicFiles` therefore tracks its in-flight temp paths and
+  `sweepTmp` skips them. A crashed writer's leftovers — the ones §2 exists to
+  collect — are unaffected, because nothing holds them.
+
+- **Two writers of one file must not share a scratch path.** The temp name
+  carries a per-write token, not just the target's name. With a shared name
+  `FileOutputStream`'s truncate-on-open puts overlapping writers on one inode:
+  the first to rename publishes whatever it holds and returns success, the
+  rest throw at a rename whose file is gone, and the descriptor that lost keeps
+  writing into the *published* target in place. Measured over six concurrent
+  1 MiB writers, the bytes that landed belonged every run to a writer that had
+  reported failure. `AtomicFiles` only promises that what lands is complete;
+  stopping the *lost update* is the caller's job, which is why `PaletteStore`
+  and `BrushPresetStore` are `@Synchronized`.
+
 - **v1.0.0 was explicitly authorized without real-device acceptance.** No
   device was available for screenshots, upgrade testing, the phone/tablet
   checklist, TalkBack/Accessibility Scanner, or native zh-Hans review. The

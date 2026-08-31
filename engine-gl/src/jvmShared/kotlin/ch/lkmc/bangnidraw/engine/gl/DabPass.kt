@@ -256,6 +256,22 @@ class DabPass(
         instanceBuffer.put(instanceData, 0, n * DAB_FLOATS)
         instanceBuffer.position(0)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, instanceVbo[0])
+        // Orphan the storage first, the rule CompositePass states at both of
+        // its upload sites and SmudgePass cites for its quad split. This is
+        // the engine's hottest upload — called inside stamp's per-tile loop
+        // immediately before glDrawArraysInstanced, so each iteration writes
+        // into the range the previous iteration's draw may still be reading,
+        // and ensureInstanceCapacity only reallocates while GROWING, so once
+        // it settles this is the steady state for every dab of every stroke.
+        // Re-specifying at the full capacity keeps the allocation the size
+        // ensureInstanceCapacity committed; the VAO's attribute pointers bind
+        // the buffer object, not its storage, so they survive the rename.
+        GLES30.glBufferData(
+            GLES30.GL_ARRAY_BUFFER,
+            instanceCapacityDabs * DAB_FLOATS * 4,
+            null,
+            GLES30.GL_STREAM_DRAW,
+        )
         GLES30.glBufferSubData(GLES30.GL_ARRAY_BUFFER, 0, n * DAB_FLOATS * 4, instanceBuffer)
     }
 

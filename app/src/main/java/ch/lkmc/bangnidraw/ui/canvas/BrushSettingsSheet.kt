@@ -637,6 +637,49 @@ internal fun SettingSlider(
     )
 }
 
+/**
+ * A [SettingSlider] that publishes once, on release.
+ *
+ * The tool sheets' parameters are session state their own headers describe as
+ * applying "to the next touch": nothing on screen previews them while the
+ * thumb moves. Committing on every frame therefore bought nothing and cost a
+ * full `UiState` republish per pointer sample — every one of which re-executes
+ * `CanvasContent`, the whole Canvas chrome, for the length of the drag.
+ *
+ * The draft keeps the thumb and its readout live locally, so the control still
+ * feels continuous; only the release reaches the ViewModel. Keyed on [value],
+ * so an external change (a reset, a tool switch, a clamp applied at commit)
+ * refreshes the draft while an unrelated parent recomposition mid-drag leaves
+ * it alone.
+ *
+ * [valueText] takes the draft rather than a pre-rendered string, because the
+ * readout has to track the thumb rather than the last committed value.
+ *
+ * Not used by the brush sheet: its live preview reads the committed preset, so
+ * deferring there is ANALYSIS U12's call to make, together with the curve
+ * knots it also covers.
+ */
+@Composable
+internal fun DeferredSettingSlider(
+    label: String,
+    value: Float,
+    valueText: @Composable (Float) -> String,
+    range: ClosedFloatingPointRange<Float>,
+    onCommit: (Float) -> Unit,
+    steps: Int = 0,
+) {
+    var draft by remember(value) { mutableFloatStateOf(value) }
+    SettingSlider(
+        label = label,
+        value = draft,
+        valueText = valueText(draft),
+        range = range,
+        onValueChange = { draft = it },
+        onValueChangeFinished = { onCommit(draft) },
+        steps = steps,
+    )
+}
+
 @Composable
 internal fun ToggleRow(label: String, value: ToggleValue, onChanged: (ToggleValue) -> Unit) {
     Row(

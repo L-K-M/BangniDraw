@@ -18,6 +18,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -56,14 +60,16 @@ internal fun FillSettingsSheet(
             FillSlider(
                 label = stringResource(R.string.fill_tolerance),
                 value = active.tolerance,
-                valueText = stringResource(R.string.brush_value_percent, active.tolerance * 100f),
+                valueText = { stringResource(R.string.brush_value_percent, it * 100f) },
                 range = UNIT_RANGE,
                 onChanged = { onChanged(active.copy(tolerance = it)) },
             )
             FillSlider(
                 label = stringResource(R.string.fill_expand),
                 value = active.expand.toFloat(),
-                valueText = stringResource(R.string.fill_expand_value, active.expand),
+                // %1$d: the draft is a Float, so it must round back to the
+                // Int the format expects — passing the raw Float throws.
+                valueText = { stringResource(R.string.fill_expand_value, it.roundToInt()) },
                 range = 0f..FillParams.MAX_EXPAND.toFloat(),
                 steps = FillParams.MAX_EXPAND - 1,
                 onChanged = { onChanged(active.copy(expand = it.roundToInt())) },
@@ -71,7 +77,7 @@ internal fun FillSettingsSheet(
             FillSlider(
                 label = stringResource(R.string.fill_opacity),
                 value = active.opacity,
-                valueText = stringResource(R.string.brush_value_percent, active.opacity * 100f),
+                valueText = { stringResource(R.string.brush_value_percent, it * 100f) },
                 range = UNIT_RANGE,
                 onChanged = { onChanged(active.copy(opacity = it)) },
             )
@@ -112,21 +118,29 @@ internal fun FillSettingsSheet(
 private fun FillSlider(
     label: String,
     value: Float,
-    valueText: String,
+    valueText: @Composable (Float) -> String,
     range: ClosedFloatingPointRange<Float>,
     steps: Int = 0,
     onChanged: (Float) -> Unit,
 ) {
+    // Published once, on release. This sheet's own header says its settings
+    // apply "to the next touch", so nothing previews them while the thumb
+    // moves — and every intermediate commit republished the whole Canvas
+    // UiState, re-executing CanvasContent per pointer sample of the drag. The
+    // draft keeps the thumb and readout live locally. Keyed on `value`, so an
+    // external change refreshes it while a mid-drag recomposition does not.
+    var draft by remember(value) { mutableFloatStateOf(value) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(label, modifier = Modifier.weight(1f))
-        Text(valueText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(valueText(draft), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Slider(
-        value = value,
-        onValueChange = onChanged,
+        value = draft,
+        onValueChange = { draft = it },
+        onValueChangeFinished = { onChanged(draft) },
         valueRange = range,
         steps = steps,
         modifier = Modifier

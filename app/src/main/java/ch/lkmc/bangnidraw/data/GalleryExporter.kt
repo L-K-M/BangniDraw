@@ -135,6 +135,19 @@ class GalleryExporter @Inject constructor(
             } catch (e: IOException) {
                 Log.w(TAG, "gallery rewrite failed", e)
                 return null
+            } catch (e: RuntimeException) {
+                // The same containment `withdraw` already applies, for the
+                // same reason: a provider that throws something other than
+                // SecurityException/IOException — a malformed-URI
+                // IllegalArgumentException, an SQLiteException, one of the
+                // OEM MediaStore quirks — is a retryable fault, not a reason
+                // to end the process. This runs on StudioViewModel's
+                // background sweep (viewModelScope), so an escape here kills
+                // the app while the user is only browsing the shelf. Ordered
+                // after SecurityException, which is itself a RuntimeException
+                // and keeps its own ownership-lost handling above.
+                Log.w(TAG, "gallery rewrite failed unexpectedly; will retry", e)
+                return null
             }
         }
 
@@ -146,6 +159,9 @@ class GalleryExporter @Inject constructor(
             null
         } catch (e: IOException) {
             Log.w(TAG, "gallery insert failed", e)
+            null
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "gallery insert failed unexpectedly; will retry", e)
             null
         }
     }
@@ -240,17 +256,43 @@ class GalleryExporter @Inject constructor(
             // promise (§9.2).
             (resolver.openOutputStream(uri, "wt") ?: throw IOException("no stream for $uri"))
                 .use { it.write(png) }
-        } finally {
-            resolver.update(
-                uri,
-                ContentValues().apply {
-                    put(MediaStore.Images.Media.IS_PENDING, 0)
-                    put(MediaStore.Images.Media.DISPLAY_NAME, "$displayName.png")
-                },
-                null,
-                null,
-            )
+        } catch (e: Throwable) {
+            // Never a ghost, and never a *corrupt* one — the same rule
+            // `insert` states below, which this branch was missing.
+            //
+            // "wt" truncated the row on open, so by the time a write can fail
+            // the previous pixels are already gone. Clearing IS_PENDING here
+            // (this used to be a `finally`) published whatever survived: a
+            // partial PNG, visible in the user's gallery. And it stayed
+            // there, because the failure is not self-correcting the way it
+            // looks. `sync` catches and returns null, so `project.json` keeps
+            // the *pre-write* size and date; the next sync's `probeRow` reads
+            // that mismatch as another app's edit, and
+            // `GallerySyncDecision.REINSERT` answers that by design with
+            // "the URI is forgotten, the item stays as the user left it" — so
+            // the tamper guard that exists to protect someone else's edit
+            // ends up protecting our own truncated file, for good, beside a
+            // fresh duplicate.
+            //
+            // Deleting the row instead leaves nothing half-written: the next
+            // probe finds no row and the sync is a clean INSERT.
+            //
+            // The delete is guarded so a provider that also refuses it cannot
+            // replace the real failure with its own — `insert`'s bare call
+            // can mask the exception it is reporting.
+            runCatching { resolver.delete(uri, null, null) }
+                .onFailure { Log.w(TAG, "could not delete the row a failed rewrite truncated", it) }
+            throw e
         }
+        resolver.update(
+            uri,
+            ContentValues().apply {
+                put(MediaStore.Images.Media.IS_PENDING, 0)
+                put(MediaStore.Images.Media.DISPLAY_NAME, "$displayName.png")
+            },
+            null,
+            null,
+        )
         return outcomeOf(uri)
     }
 

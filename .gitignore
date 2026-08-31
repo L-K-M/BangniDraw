@@ -1,4 +1,10 @@
-build/
+# Anchored, so a *source* directory that happens to be named `build` is not
+# swallowed: an unanchored `build/` matches at every depth, and it silently
+# ignored a test placed in a `…/bangnidraw/build/` package — the file simply
+# never entered a commit, while everything referring to it looked fine.
+# `*/build/` covers every module's output; `/build/` covers the root's.
+/build/
+*/build/
 dist/
 .gradle/
 .kotlin/

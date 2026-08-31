@@ -2961,6 +2961,153 @@ much as in code.
   break it, and the consequence if it ever does (a live writer's rename
   fails; nothing is corrupted) are now stated next to `inFlight`.
 
+## PR #181 — one term per thing in the Chinese strings (2026-08-31)
+
+- **R-216 ❌ (refuted) round 2, Major: "unresolved pin references still pass
+  vacuously."** They fail loudly, and have since the pins existed. Both
+  heading tests resolve their keys with `labels[key] ?: fail(...)`, and the
+  Overlay test compares an exact set, so a label dropped from the map turns
+  that set empty rather than uncontested. Checked by mutation rather than by
+  reading, three ways: a typo'd `HELP_HEADINGS` key fails; a typo'd
+  `HELP_MENTIONS` key fails; and giving `blend_overlay` an attribute before
+  its name — the exact parse gap the finding pairs this with — fails the
+  Overlay test. The guard the finding asks for is the `?: fail` already there.
+- **R-217 ✅ (applied) round 2: the entry regex assumed `name` comes first.**
+  Real, and worth taking even though the Overlay case above would catch it for
+  one label: XML permits any attribute order, and for any *other* label a
+  dropped entry is silent. Now `<string\s[^>]*?name="…"[^>]*>`, where the
+  `\s` keeps `<string-array` out. Verified against both files — 374 and 369
+  entries parsed, matching their raw `<string ` counts exactly.
+
+- **R-219 ✅ (applied) round 3: `CONTRACT_INPUT_FILES` was declared after its
+  only use.** It worked only because `configureEach` defers its lambda past
+  script evaluation — a forward reference whose safety is implicit rather than
+  enforced, and a readability trap besides. Moved above the block.
+- **R-220 ✅ (applied) round 3, Info: make the parse-coverage check
+  standing.** The previous round verified the entry regex by counting parsed
+  entries against raw `<string ` tags **by hand, once**. A one-off check does
+  not survive the next regex edit, and this is the map every assertion in the
+  file is built on. `labels()` now asserts that count itself, naming the file
+  and both numbers. Verified it fires: a single-quoted `name='…'` — an entry
+  shape the regex does not cover — fails loudly instead of quietly shrinking
+  the map.
+
+- **R-226 ✅ (applied) round 4: the coverage-failure message named one of
+  three causes.** A `declared` vs `parsed` mismatch can equally come from a
+  duplicated `name` — `associate` silently keeps the last — or from a
+  self-closing `<string …/>`, which `STRING_OPEN_TAG` counts and
+  `STRING_ENTRY` can never parse. Blaming "the entry regex" would send the
+  next investigator hunting exotic attribute syntax for a duplicate key. All
+  three named.
+- **R-227 ✅ (applied) round 4: adding `STRING_OPEN_TAG` orphaned the KDoc
+  below it.** The same mistake R-197 caught on #179, made again: the new
+  declaration went *between* the existing KDoc and the `STRING_ENTRY` it
+  documents, so the load-bearing `\s` note — the one that explains why
+  `<string-array` stays out — no longer sits next to the regex it is about,
+  and would be read as describing the wrong one. Each declaration now carries
+  its own doc, and the open-tag one cross-references the same reason.
+
+- **R-232 ✅ (applied) round 5: the contract inputs were repo-root paths
+  resolved through `rootProject`, from inside the app module's own script.**
+  Real, and the failure mode is the one this block exists to prevent: a path
+  that matches no file is not an error to Gradle — it fingerprints as empty,
+  and the task quietly goes back to UP-TO-DATE across the edits the pin is
+  supposed to catch. Applied the suggested change (module-relative paths,
+  `layout.projectDirectory`), and went one step further, because the suggested
+  fix only covers the *module* being renamed: the paths are now resolved
+  eagerly behind a `require`, so a moved resource file or a typo — far likelier
+  than a module rename — fails configuration by name instead of silently
+  covering nothing. Mutation-checked both ways: restoring an `app/` prefix
+  fails with `.../app/app/src/main/res/values/strings.xml` (which also proves
+  the resolution really is module-relative now), and a `string.xml` typo fails
+  with that path. The invalidation guarantee itself was re-verified after the
+  change: `:app:testDebugUnitTest` twice → UP-TO-DATE, a content edit to the
+  translated strings → re-runs, reverting it → FROM-CACHE.
+
+  One note on the finding's suggested verification, recorded so a later round
+  does not read it as a failure: `touch`ing the strings file does **not**
+  re-run the task, and should not. Gradle fingerprints declared inputs by
+  content hash, not mtime, so an mtime-only change is correctly a no-op — the
+  check that actually proves the wiring is a content edit, which is what was
+  run above.
+
+- **R-233 ✅ (applied) round 6: the Overlay ownership pin matched by exact
+  equality.** Real, and grounded in this file's own history rather than in a
+  hypothetical: the drift this PR fixed included 逐渐叠加 for the brush
+  build-up mode — a *compound* that claims 叠加 as firmly as a bare one would,
+  and that `it == OVERLAY` would have waved through. Now containment.
+  Two refinements the suggestion did not carry, both needed to keep it
+  correct rather than merely stricter:
+
+  Help bodies are excluded from the scan. Naming the blend mode in prose is
+  not a claim on the term — the two pins directly below *require* every help
+  paragraph to use its control's own label — so scanning prose here would
+  have put this test in conflict with them the first time the layer help
+  explained blend modes.
+
+  And the expected set names two keys, not one. `settings_latency_overlay` is
+  延迟叠加层: 叠加层 is "overlay layer" in the compositing sense, the debug HUD,
+  mirroring English's own reuse of the word in "Latency overlay". The round
+  said to report any second match as a genuine collision rather than weaken
+  the assertion; checked, and it is not one — it names itself, not the blend
+  mode. Listing it beats filtering it out, because a *third* claimant still
+  fails here and has to be argued for.
+
+  Mutation-checked three ways. A new label 正常叠加 fails the Overlay test and
+  only it. The same label under the old equality matcher passes — which is
+  the coverage this round adds, demonstrated rather than asserted. And a help
+  body containing 叠加 stays green, so the exclusion works.
+
+- **R-234 ✅ (applied) round 7, Major: the help-body exclusion knew only one
+  of the file's two help conventions.** R-233 excluded `help_*` keys from the
+  Overlay scan; the file also stores the line under a settings row as
+  `*_help` — `settings_stylus_only_help`, `settings_gallery_sync_help` and
+  four more — and those stayed in the scan. Prose there mentioning 叠加, most
+  plausibly a help line for the latency overlay itself, would have failed the
+  test as a collision it is not. Real, and the exclusion's own stated
+  rationale is what condemns it. Both conventions are excluded now.
+
+  One deliberate difference from the suggested one-liner, recorded because it
+  is a small loss rather than a free win: `canvas_help` is 帮助, the help
+  button's *label*, not prose, and the suffix rule sweeps it out of the scan
+  with the six real bodies. Taking it is better than carrying a named
+  exception for one string, which would rot the first time the label is
+  renamed; noted at the predicate so the next reader knows it was seen.
+
+  Mutation-checked: 叠加 added to `settings_stylus_only_help` keeps the test
+  green, and the same prose with the suffix exclusion removed fails it —
+  which is the false collision this round prevents, demonstrated rather than
+  asserted.
+
+- **R-235 ✅ (applied) round 8: aligning the heading with the label made the
+  sentence circular.** Round 1 changed `help_brush_paint_body`'s first
+  paragraph to head with `brush_grain`'s exact label, 纸张纹理, which was the
+  right move and left the gloss behind it — 纸面纹理 — defining the term with
+  itself. English does not have this problem because it heads with the
+  shortened "Grain:" and glosses with "paper tooth", a different word; the
+  translation kept a gloss that had become a synonym of its own heading.
+  Now 模拟纸面的凹凸，让铅笔呈现斑驳质感 — which is also a truer rendering of
+  "paper tooth" than 纸面纹理 was. Everything after the first sentence is
+  byte-identical, and the paragraph still opens with the exact label, so the
+  heading pin still passes.
+
+- **R-239 ✅ (applied) round 9: the heading pin checked containment, not
+  position.** The test is called "every help heading names the control it
+  explains", its message says "does not head a paragraph with", and
+  `HELP_HEADINGS`' own doc says "heads a paragraph with that label" — but the
+  assertion was `"$label：" in body`, which is true of a label buried
+  mid-sentence. The drift this pin exists to catch is a paragraph re-headed
+  with another control's term, and that drift passes containment as long as
+  the right label survives anywhere in the string. Now the raw body is split
+  on the two-character `\n` escape and some segment must *start* with the
+  label. Checked first, as the round asked, that all six pinned pairs already
+  head a segment — including `settings_snap_right_angles` and
+  `settings_eraser_end` in `help_drawing_body`, which are not in this PR's
+  diff — so the tightening asserts the existing convention rather than forcing
+  a rewrite. Mutation-checked with the exact drift described: re-heading the
+  paper-grain paragraph 颗粒： while leaving 纸张纹理： mid-sentence fails now
+  and passed under the old check.
+
 ## PR #182 — warn before a merge clears the alpha lock (2026-08-31)
 
 - **R-208 ✅ (applied) round 1: an empty change set renders a titled dialog

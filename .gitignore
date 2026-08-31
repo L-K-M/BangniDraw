@@ -1,4 +1,17 @@
-build/
+# Every module's build output at any depth, with source trees carved back
+# out: a bare `build/` matches at every depth too, and it silently ignored a
+# test placed in a `…/bangnidraw/build/` package — the file simply never
+# entered a commit, while everything referring to it looked fine. Anchoring
+# to one level instead would have un-ignored a nested module's output, which
+# is the same silent-wrong-VCS-state failure inverted.
+#
+# The negation names the directory rather than files inside it, which is what
+# makes it work: git does not descend into an excluded directory, so a
+# negation for its contents would not take, but re-including the directory
+# itself does. Verified at depth: `feature/login/build/` ignored,
+# `app/src/test/java/pkg/build/T.kt` tracked.
+**/build/
+!**/src/**/build/
 dist/
 .gradle/
 .kotlin/

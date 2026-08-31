@@ -2703,3 +2703,62 @@ much as in code.
   `Change`. Un-hiding a layer someone deliberately hid would be the same class
   of surprise as clearing their alpha lock, which is precisely why the reason
   had to be right rather than merely conclusive.
+
+## PR #183 — fill PointerSample.tool only where it is read (2026-08-31)
+
+- **R-236 ✅ (applied, with a stronger remedy) round 1, Major: the stale
+  `tool` can be another pointer's, not "this gesture's".** Correct, and it
+  falsifies the justification this PR shipped with. One `PointerSample` serves
+  every pointer of every event and only downs fill it, so with a palm down as
+  pointer 0 and the pen drawing as pointer 1, pointer 0's moves carry
+  `STYLUS` — the multi-touch case palm rejection cares about most. The same
+  round adds the observation that kills the rest of the argument: `Predictor`
+  never full-fills at all, so its samples were stuck at the field's `FINGER`
+  initializer, which is exactly the "specific wrong answer" the KDoc claimed
+  to be avoiding.
+
+  Applied past the suggested wording fix and past the suggested
+  `PointerTool.UNSET` sentinel: `tool` is now `PointerTool?`, cleared to
+  `null` by both tool-less fills. A sentinel would have put a record-state
+  value into an enum that otherwise describes what the platform reports, and
+  would have forced a meaningless branch into `PalmRejection.rejects`'
+  exhaustive `when` for a case that cannot arrive. Nullability instead makes
+  the *compiler* the guard at every future read, which neither offered remedy
+  does; the two entries that need the tool take it through `requireNotNull`
+  with a message naming the fill to use. `PointerSampleTest` pins the
+  clearing, the axes each fill still writes, and the delegation order — the
+  full `set` must write the tool *after* the tool-less delegate, or it erases
+  what it just wrote. Both mutation-checked, and the order mutation also takes
+  down four existing record tests, which is the trap being real.
+
+- **R-237 ⏸️ (partly refuted, partly declined) round 1: the `.tool` pin has
+  blind spots.** Two claims, and the load-bearing one is wrong.
+  `AndroidCanvasInput.handler` is typed as the concrete `CanvasTouchHandler`
+  class, not an interface, so there is no "second implementation of that
+  handler interface" to read the field behind the pin's back; the interfaces
+  in that file are `CanvasInputHost` and `GestureDeadlineScheduler`, which are
+  different seams. `StrokePredictor` *is* a seam, but `predictedAt` has
+  exactly one consumer in the repository, `CanvasTouchHandler.appendPredicted`,
+  which the pin covers.
+
+  The spelling point stands — `.tool` does not catch `with(sample) { tool }` —
+  and the suggested word-boundary `tool` regex is declined anyway, for the
+  reason the finding itself raises as a precondition: nothing here strips
+  comments, so that pattern matches the prose explaining this very invariant
+  and false-fails on correct code. (`ContractTestSources.stripComments` exists
+  on #178's branch and not on main; when it lands, widening this needle is a
+  reasonable follow-up.) The finding's own preferred answer — make the runtime
+  value the guard and leave the pin as a tripwire — is what R-236 did, so the
+  gap it describes is now closed by the nullable field rather than by the
+  matcher.
+
+- **R-238 ✅ (applied, with a different remedy) round 1: the section end
+  markers coupled the pin to another file's member order.** Real:
+  `appendPredicted`'s region ended at `fun onPointerDown(`, so moving either
+  member would have failed the test with "renamed?" — loud but misdiagnosed.
+  The suggested remedy is refuted, not adopted: letting an empty end marker
+  mean "to end of source" would extend `appendPredicted`'s region over
+  `onPointerDown`, whose `.tool` read is precisely what the negative
+  assertions look for, so the test would fail on correct code. Instead every
+  region now ends at the next member declaration, found generically on the raw
+  source, and no entry names a neighbour at all.

@@ -718,16 +718,20 @@ and the contradiction is noted here.
   the ViewModel only consults it. No `kotlinx-coroutines-test` dependency
   exists yet; add it when a real coroutine-clock test earns it, not before.
 
-- **`PointerSample.tool` is filled only where it is read**, so on the other
-  paths it holds a stale value rather than a wrong-but-plausible one. Reading
-  it costs a `MotionEvent.getToolType` JNI call per sample, and only a down
-  (palm rejection, the eraser end) and a hover-enter (the cursor) consume it;
-  a move, a lift and every predicted sample continue a gesture whose tool was
-  settled at its down. Those fill through `setWithoutTool`/
-  `setHoverWithoutTool`, which leave the field alone. If a consumer ever needs
-  the tool there, move its call site back to the full `set` — do not read the
-  field and hope. `PointerSampleToolContractTest` pins both halves and will
-  fail first.
+- **`PointerSample.tool` is filled only where it is read, and is `null`
+  everywhere else.** Reading it costs a `MotionEvent.getToolType` JNI call per
+  sample, and only a down (palm rejection, the eraser end) and a hover-enter
+  (the cursor) consume it; a move, a lift and every predicted sample continue
+  a gesture whose tool was settled at a down. Those fill through
+  `setWithoutTool`/`setHoverWithoutTool`, which **clear** the field rather
+  than leave it — one record serves every pointer, so a leftover value is not
+  even this gesture's: with a palm down as pointer 0 and the pen drawing as
+  pointer 1, pointer 0's moves would read `STYLUS`. Hence nullable rather than
+  a default: `FINGER` would be as confidently wrong the other way. If a
+  consumer ever needs the tool on one of those paths, move its call site back
+  to the full `set` — do not read the field and hope.
+  `PointerSampleToolContractTest` pins both halves and will fail first;
+  `PointerSampleTest` pins the clearing itself.
 
 - **The scaffold's `detectTransformGestures` was deleted, not rewired.** It
   drove a Compose drawing of the paper; pointing it at the engine would make it

@@ -1090,11 +1090,17 @@ class CanvasTouchHandler(
      * straight segments.
      */
     fun onPointerDown(sample: PointerSample) {
+        // A down is one of the two entries the tool is filled for, so its
+        // absence is a mis-wired adapter rather than a runtime condition.
+        val tool = requireNotNull(sample.tool) {
+            "a down decides palm rejection and the eraser end: fill it with " +
+                "set(), not setWithoutTool()"
+        }
         handleDown(
-            sample.pointerId, sample.tool, sample.x, sample.y, sample.timeNs,
+            sample.pointerId, tool, sample.x, sample.y, sample.timeNs,
             sample.pressure, sample.tilt, sample.orientation,
         )
-        if (sample.tool == PointerTool.STYLUS || sample.tool == PointerTool.ERASER) {
+        if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
             postHoverFrame()
         }
     }
@@ -1159,7 +1165,12 @@ class CanvasTouchHandler(
 
     /** Hover arrival; the sample's [PointerSample.distance] is the hover axis. */
     fun onHoverEnter(sample: PointerSample) {
-        stylus.onHoverEnter(sample.x, sample.y, sample.distance, sample.tool)
+        // The other filled entry: the cursor is chosen from the tool.
+        val tool = requireNotNull(sample.tool) {
+            "a hover enter decides the cursor: fill it with setHover(), not " +
+                "setHoverWithoutTool()"
+        }
+        stylus.onHoverEnter(sample.x, sample.y, sample.distance, tool)
         postHoverFrame()
     }
 

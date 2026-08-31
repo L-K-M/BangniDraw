@@ -32,8 +32,8 @@ class PointerSampleToolContractTest {
         // decides the cursor. Both must keep reading it.
         for (entry in listOf(POINTER_DOWN, HOVER_ENTER)) {
             assertTrue(
-                TOOL_READ in section(HANDLER, entry.start, entry.end),
-                "${entry.start} decides on the tool and must read it",
+                TOOL_READ in section(HANDLER, entry),
+                "$entry decides on the tool and must read it",
             )
         }
 
@@ -42,9 +42,9 @@ class PointerSampleToolContractTest {
         // pressure, tilt, orientation and time.
         for (entry in listOf(POINTER_MOVE, POINTER_UP, HOVER_MOVE, APPEND_PREDICTED)) {
             assertFalse(
-                TOOL_READ in section(HANDLER, entry.start, entry.end),
-                "${entry.start} is fed by a fill that leaves tool stale, so it must not read " +
-                    "it — switch its call sites in AndroidCanvasInput/Predictor back to the " +
+                TOOL_READ in section(HANDLER, entry),
+                "$entry is fed by a fill that clears the tool, so it must not read it — " +
+                    "switch its call sites in AndroidCanvasInput/Predictor back to the " +
                     "full set() first",
             )
         }
@@ -89,18 +89,31 @@ class PointerSampleToolContractTest {
         )
     }
 
-    /** Whitespace-canonicalized, and loud when either delimiter moves. */
-    private fun section(path: String, startMarker: String, endMarker: String): String {
-        val source = ContractTestSources.readNormalized(path)
-        val start = source.indexOf(startMarker)
-        if (start < 0) fail("missing $startMarker in $path — renamed?")
-        val end = source.indexOf(endMarker, start + startMarker.length)
-        if (end <= start) fail("missing $endMarker after $startMarker in $path")
+    /**
+     * One member's declaration and body: from its signature to wherever the
+     * next member of the class begins.
+     *
+     * The end is found generically rather than named, so moving a member —
+     * `appendPredicted` to the bottom of the class, say — cannot turn this
+     * pin into a failure that blames a rename. Naming the *next* member would
+     * couple every entry here to the layout of a file this change does not
+     * touch. Running to the end of the source instead would be worse than
+     * brittle: `appendPredicted`'s region would then swallow `onPointerDown`,
+     * whose `.tool` read is exactly what the negative assertions look for, so
+     * the test would fail on correct code.
+     *
+     * The raw source, not the canonicalized one: member boundaries are the
+     * one thing indentation is load-bearing for.
+     */
+    private fun section(path: String, member: String): String {
+        val source = ContractTestSources.read(path)
+        val start = source.indexOf(member)
+        if (start < 0) fail("missing $member in $path — renamed?")
+        val body = start + member.length
+        val end = NEXT_MEMBER.find(source, body)?.range?.first ?: source.length
 
         return source.substring(start, end)
     }
-
-    private data class Entry(val start: String, val end: String)
 
     private companion object {
         const val HANDLER =
@@ -108,15 +121,24 @@ class PointerSampleToolContractTest {
         const val ADAPTER = "app/src/main/java/ch/lkmc/bangnidraw/input/AndroidCanvasInput.kt"
         const val PREDICTOR = "app/src/main/java/ch/lkmc/bangnidraw/input/Predictor.kt"
 
+        // `.tool` rather than a `\btool\b` regex, which would also catch
+        // `with(sample) { tool }`: the source is scanned with its comments,
+        // since nothing here strips them, and the wider pattern hits the
+        // prose that explains this very invariant. The runtime guarantee is
+        // the nullable field — a consumer reading it gets `null`, not a
+        // confident wrong answer — and this pin is the tripwire in front of
+        // it, not the guarantee itself.
         const val TOOL_READ = ".tool"
 
-        val POINTER_DOWN = Entry("fun onPointerDown(sample: PointerSample)", "fun onPointerMove(")
-        val POINTER_MOVE = Entry("fun onPointerMove(sample: PointerSample)", "fun onPointerMoveEnd(")
-        val POINTER_UP = Entry("fun onPointerUp(sample: PointerSample)", "fun onPointerCancel(")
-        val HOVER_ENTER = Entry("fun onHoverEnter(sample: PointerSample)", "fun onHoverMove(")
-        val HOVER_MOVE = Entry("fun onHoverMove(sample: PointerSample)", "fun onHoverExit(")
-        val APPEND_PREDICTED =
-            Entry("private fun appendPredicted(predicted: PointerSample)", "fun onPointerDown(")
+        /** A class member's declaration, which is where the previous one ends. */
+        val NEXT_MEMBER = Regex("""\n {4}(private |internal |protected )?fun """)
+
+        const val POINTER_DOWN = "fun onPointerDown(sample: PointerSample)"
+        const val POINTER_MOVE = "fun onPointerMove(sample: PointerSample)"
+        const val POINTER_UP = "fun onPointerUp(sample: PointerSample)"
+        const val HOVER_ENTER = "fun onHoverEnter(sample: PointerSample)"
+        const val HOVER_MOVE = "fun onHoverMove(sample: PointerSample)"
+        const val APPEND_PREDICTED = "private fun appendPredicted(predicted: PointerSample)"
 
         // Compact spelling: these are matched against readCompact.
         const val FULL_SET = "sample.set("

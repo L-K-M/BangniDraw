@@ -16,7 +16,7 @@ kotlin {
 // The desktop packages' version. jpackage/deb refuse Gradle's default
 // "unspecified"; aligned with the app's versionName by hand at release time
 // until the release script learns the desktop formats (M5+).
-version = "1.0.0"
+version = "1.3.0"
 
 compose.desktop {
     application {

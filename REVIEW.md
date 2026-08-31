@@ -2632,3 +2632,47 @@ constraint is now stated on `ContractTestSources`, generalized in round 2 to
 its real scope: **needles must not depend on anything the canonicalizer
 deletes** — a trailing comma or whitespace hugging a paren, in quoted text as
 much as in code.
+
+## PR #179 — one scratch file per atomic write (2026-08-31)
+
+- **R-195 ✅ (applied) round 1, Major: the destroyed-temp test stages a
+  scenario Windows cannot produce.** Correct. It deletes the temp file while
+  `AtomicFiles` holds it open, which POSIX allows and Windows refuses —
+  there `delete()` returns false rather than throwing, so the staging quietly
+  does nothing, the rename succeeds, and both assertions fail against
+  *correct* code. The staging now reports whether it took effect and the
+  assertions follow it. The round's second observation is also right and is
+  written into the test: on Windows `a sweep leaves a live writer's temp file
+  alone` would pass even with the `inFlight` guard removed, because deleting
+  an open file fails there anyway — the guard is genuinely exercised only on
+  POSIX, which is where CI runs. Re-checked that the reworked test still
+  earns its place: making a failed rename return silently fails it.
+- **R-196 ✅ (applied) round 1: the KDoc still documented the pre-token temp
+  name.** `<name>.tmp`, where the file is now `<name>.<token>.tmp`. The token
+  is the whole fix, so a reader auditing atomicity from the KDoc alone would
+  have concluded temp paths still collide — and might have simplified the
+  token away. Corrected, and stated as contract rather than detail.
+- **R-197 ✅ (applied) round 1: two stacked KDoc blocks on
+  `BrushPresetStore`.** True and my error: adding the `@Synchronized`
+  rationale as a second block orphaned the original, since only the comment
+  adjacent to the declaration attaches. Merged into one.
+- **R-207b ✅ (applied) round 2: `all { it.delete() }` reports the scenario
+  staged even when nothing was deleted.** Correct, and a good catch on the
+  previous round's own fix. `all` is vacuously true on an empty list, so a
+  null `listFiles` — or a temp file not visible at that instant — set
+  `staged = true` with no deletion, and the assertions then failed a write
+  that legitimately succeeded. That is precisely the false failure R-195
+  removed, re-entering through the guard added to prevent it. Now
+  `temps.isNotEmpty() && temps.all { it.delete() }`.
+- **R-198 ⏸️ (declined, assumption documented) round 1, Info: match `inFlight`
+  on `canonicalPath` rather than the raw path.** The analysis is right that
+  the guard holds only while both sides spell the directory identically, and
+  the finding names its own cost. Declined on that cost: `canonicalPath` is a
+  syscall per candidate on a sweep that can cover a layer directory full of
+  tiles, and it throws `IOException` where this code must not. Every caller
+  today derives the file it writes and the directory it sweeps from one
+  `File` root — `ProjectStore.checkpoint` sweeps `dir` and writes
+  `File(dir, …)` — so the strings agree. Taking the finding's own fallback:
+  the assumption, the Android `/data/user/0` vs `/data/data` alias that would
+  break it, and the consequence if it ever does (a live writer's rename
+  fails; nothing is corrupted) are now stated next to `inFlight`.

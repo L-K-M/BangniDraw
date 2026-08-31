@@ -1,6 +1,5 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -48,7 +47,18 @@ class CanvasCheckpointConcurrencyContractTest {
         )
     }
 
-    private fun source(): String = File(repositoryRoot(), CANVAS_VIEW_MODEL_PATH).readText()
+    /**
+     * Canonicalized per the house rule for source-contract tests. Several
+     * needles below name multi-argument calls — `FINISH_CALL` and
+     * `PROJECT_WRITE` most of all — and those are ordering pins, not
+     * formatting pins: a reformat that wrapped one argument list must not
+     * fail them. Collapsing whitespace alone does not deliver that, because
+     * the wrap Kotlin's style guide actually produces breaks after the open
+     * paren and leaves a trailing comma; `readNormalized` folds that spelling
+     * back onto this one.
+     */
+    private fun source(): String =
+        ContractTestSources.readNormalized(CANVAS_VIEW_MODEL_PATH)
 
     private fun section(source: String, startMarker: String, endMarker: String): String {
         val start = source.indexOf(startMarker)
@@ -59,20 +69,7 @@ class CanvasCheckpointConcurrencyContractTest {
         return source.substring(start, end)
     }
 
-    private fun repositoryRoot(): File {
-        val workingDirectory = File(
-            requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),
-        ).canonicalFile
-
-        return generateSequence(workingDirectory) { it.parentFile }
-            .firstOrNull { File(it, ROOT_MARKER).isFile && File(it, APP_DIRECTORY).isDirectory }
-            ?: fail("cannot locate repository root from $workingDirectory")
-    }
-
     private companion object {
-        const val USER_DIRECTORY_PROPERTY = "user.dir"
-        const val ROOT_MARKER = "settings.gradle.kts"
-        const val APP_DIRECTORY = "app/src/main"
         const val CANVAS_VIEW_MODEL_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasViewModel.kt"
         const val CHECKPOINT_START = "private suspend fun checkpoint("

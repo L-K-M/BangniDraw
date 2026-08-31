@@ -89,10 +89,37 @@ guards, GLSL/CPU composite parity, `Long`/`Int` overflow in
    race.
 
 2. **`GalleryExporter.rewrite` clears `IS_PENDING` and renames in
-   `finally` even when the stream write threw** — the row briefly
+   `finally` even when the stream write threw** — ~~the row briefly
    keeps the previous pixels under the new `DISPLAY_NAME`; the next
    sync rewrites them. Not fixed: cosmetic and self-correcting;
-   restructuring the block risks the "never a ghost row" path.
+   restructuring the block risks the "never a ghost row" path.~~
+   **Superseded 2026-08-31 (fable F-1): fixed.** Both halves of the
+   decline were factually wrong, which is why it is struck through
+   rather than edited. `openOutputStream(uri, "wt")` truncates the row
+   **on open**, so the previous pixels are gone before the write can
+   fail — the row does not keep them. And the failure is not
+   self-correcting: `sync` returns null, so `project.json` keeps the
+   pre-write size and date; the next `probeRow` reads that mismatch as
+   another app's edit, and `GallerySyncDecision.REINSERT` answers that
+   by contract with "the URI is forgotten, the item stays as the user
+   left it". The tamper guard that exists to protect someone else's
+   edit therefore stranded our own truncated PNG in the user's gallery
+   permanently, beside a fresh duplicate. `rewrite` now deletes the row
+   it truncated — the same never-a-ghost rule `insert` already applied
+   — so the next sync is a clean INSERT, and the "never a ghost row"
+   path the decline worried about is the one the fix adopts. Two further
+   halves of the fix are load-bearing and easy to "simplify" away: the
+   publish (`IS_PENDING = 0` plus the rename) lives **inside** the same
+   guarded region as the write — so either the row is published or it is
+   gone. (A complete-but-still-pending row left by *process death* is healed
+   separately: `probeRow` reads `IS_PENDING` and a pending row we own is
+   rewritten ahead of the tamper check. That reclaim needs a later probe to
+   succeed and does not make the guard placement redundant — a publish that
+   throws has code still running and must discard the row then and there.)
+   And the cleanup delete is itself
+   guarded (`runCatching`, through the shared `discardRow` helper), so a
+   provider that also refuses the delete cannot replace the failure being
+   reported with its own.
 
 3. **CPU flatten peak memory.** `CpuFlatten` + `ImageEncode` hold the
    full RGBA buffer plus an equal-sized `Bitmap` on IO (~128 MiB plus

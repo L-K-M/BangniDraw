@@ -292,6 +292,25 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 Recorded per PLAN.md's rule: when the plan contradicts itself, PLAN.md wins
 and the contradiction is noted here.
 
+- **`*.tmp` is swept "on every save" (06 §2) — except a live writer's own.**
+  `ProjectStore.checkpoint` sweeps its directory before writing, so under the
+  literal rule a checkpoint deletes the scratch file of any write already in
+  flight to the same directory and fails that writer at its rename, for no
+  fault of its own. `AtomicFiles` therefore tracks its in-flight temp paths and
+  `sweepTmp` skips them. A crashed writer's leftovers — the ones §2 exists to
+  collect — are unaffected, because nothing holds them.
+
+- **Two writers of one file must not share a scratch path.** The temp name
+  carries a per-write token, not just the target's name. With a shared name
+  `FileOutputStream`'s truncate-on-open puts overlapping writers on one inode:
+  the first to rename publishes whatever it holds and returns success, the
+  rest throw at a rename whose file is gone, and the descriptor that lost keeps
+  writing into the *published* target in place. Measured over six concurrent
+  1 MiB writers, the bytes that landed belonged every run to a writer that had
+  reported failure. `AtomicFiles` only promises that what lands is complete;
+  stopping the *lost update* is the caller's job, which is why `PaletteStore`
+  and `BrushPresetStore` are `@Synchronized`.
+
 - **v1.0.0 was explicitly authorized without real-device acceptance.** No
   device was available for screenshots, upgrade testing, the phone/tablet
   checklist, TalkBack/Accessibility Scanner, or native zh-Hans review. The
@@ -799,6 +818,45 @@ and the contradiction is noted here.
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.
   User names are literal; never resolve arbitrary stored `@string/` values.
+- **A failed MediaStore write must leave no row, never a published one.**
+  `IS_PENDING` may only be cleared on the success path. `"wt"` truncates the
+  row on open, so a failed rewrite has already destroyed the previous pixels;
+  publishing what survived puts a partial PNG in the user's gallery *and*
+  strands it there, because `sync` returns null, `project.json` keeps the
+  pre-write size/date, and the next `probeRow` reads that mismatch as another
+  app's edit — which `GallerySyncDecision.REINSERT` answers by forgetting the
+  URI and leaving the item alone. So the tamper guard built to protect
+  someone else's edit ends up protecting our own corruption. Both `insert`
+  and `rewrite` therefore delete the row they were writing and let the next
+  sync start clean, through the shared `discardRow` helper. Guard the delete
+  itself (`runCatching`) so a provider that also refuses it cannot mask the
+  failure being reported — that log line is the only diagnostic either caller
+  leaves behind. The **publish belongs inside the same guarded region as the
+  write**, not after it, so that either the row is published or it is gone.
+  A row left `IS_PENDING` with *complete* pixels by **process death** is
+  healed separately — `probeRow` reads `IS_PENDING` and `GallerySyncDecision`
+  rewrites a pending row we own ahead of the tamper check — but that reclaim
+  needs a later probe to succeed, and it is not a substitute for the guard: a
+  publish that *throws* has code still running and must discard the row then
+  and there.
+- **`RemoteException` is a sibling of `RuntimeException`, not a subtype.**
+  `DeadSystemException` -> `DeadObjectException` -> `RemoteException` ->
+  `AndroidException` -> `Exception` (checked against the platform jar). A
+  provider process dying mid-call — the canonical OEM fault — therefore
+  escapes an `IOException`/`RuntimeException` chain entirely. Every
+  cross-process call in `GalleryExporter` needs it: the writes, the probe,
+  and `withdraw`'s pair. Containing it at the probe must return null rather
+  than set `threw`, which means "ownership refused" and routes to REINSERT,
+  abandoning a row that may be a reclaimable pending claim.
+
+- **MediaStore entry points contain `RuntimeException`, not just
+  `SecurityException`/`IOException`.** `sync` and `withdraw` both run from
+  `StudioViewModel`'s background sweep on `viewModelScope`, where an escape
+  ends the process while the user is only browsing the shelf. OEM providers
+  throw `IllegalArgumentException`/`SQLiteException` in practice. Order the
+  clause after `SecurityException`, which is itself a `RuntimeException` and
+  keeps its own ownership-lost handling. Note that ANALYSIS R10's remedy — a
+  handler on `appScope` — does **not** reach `viewModelScope`.
 - **FULL-rail paint slots are durable assignments.** The ordered preset ids
   live in `Prefs`; settings-sheet choices swap into the active slot, while
   rail taps only activate a slot. `LayoutSpec.paintSlotBudget` caps how many

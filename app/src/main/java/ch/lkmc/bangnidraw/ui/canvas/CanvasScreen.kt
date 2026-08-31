@@ -122,6 +122,7 @@ import ch.lkmc.bangnidraw.data.GalleryExportOutcome
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasDialog
+import ch.lkmc.bangnidraw.engine.core.MergeConfirmation
 import ch.lkmc.bangnidraw.engine.core.CanvasOverlayClearance
 import ch.lkmc.bangnidraw.engine.core.CanvasPanel
 import ch.lkmc.bangnidraw.engine.core.ColorText
@@ -1853,15 +1854,37 @@ private fun CanvasDialogHost(
             },
             onDismiss = viewModel::dismissDialog,
         )
-        is CanvasDialog.MergeLayers -> ConfirmationDialog(
-            title = stringResource(R.string.layer_merge_title),
-            body = stringResource(R.string.layer_merge_body),
-            onConfirm = {
-                viewModel.dismissDialog()
-                viewModel.mergeLayerDown(dialog.index)
-            },
-            onDismiss = viewModel::dismissDialog,
-        )
+        is CanvasDialog.MergeLayers -> {
+            // One sentence per thing the merge actually changes, in the order
+            // MergeConfirmation declares them. A dialog that only ever
+            // mentioned blend modes is what let the alpha-lock reset through.
+            val warnings = buildList {
+                if (MergeConfirmation.Change.BLEND_MODE in dialog.changes) {
+                    add(stringResource(R.string.layer_merge_body))
+                }
+                if (MergeConfirmation.Change.ALPHA_LOCK in dialog.changes) {
+                    add(stringResource(R.string.layer_merge_body_alpha_lock))
+                }
+            }
+            ConfirmationDialog(
+                title = stringResource(R.string.layer_merge_title),
+                // Never a titled dialog with no body. The invariant that
+                // `changes` is non-empty lives in LayerPanel, not in the type,
+                // so any other caller could produce one — and a confirmation
+                // with nothing to say is what teaches people to click through
+                // confirmations, which is the habit this PR exists to avoid.
+                // The blend-mode sentence is the safe fallback because it is
+                // true of every merge: the result is always Normal.
+                body = warnings
+                    .ifEmpty { listOf(stringResource(R.string.layer_merge_body)) }
+                    .joinToString("\n\n"),
+                onConfirm = {
+                    viewModel.dismissDialog()
+                    viewModel.mergeLayerDown(dialog.index)
+                },
+                onDismiss = viewModel::dismissDialog,
+            )
+        }
         is CanvasDialog.ClearLayer -> ConfirmationDialog(
             title = stringResource(R.string.layer_clear_title),
             body = stringResource(R.string.layer_clear_body),

@@ -48,14 +48,17 @@ class CanvasCheckpointConcurrencyContractTest {
     }
 
     /**
-     * Whitespace-normalized per the house rule for source-contract tests.
-     * Several needles below name multi-argument calls — `finishCheckpoint(
-     * snapshot, thumbnailResult)` most of all — and those are ordering pins,
-     * not formatting pins: a mechanical reformat that wrapped one argument
-     * list must not fail them.
+     * Canonicalized per the house rule for source-contract tests. Several
+     * needles below name multi-argument calls — `FINISH_CALL` and
+     * `PROJECT_WRITE` most of all — and those are ordering pins, not
+     * formatting pins: a reformat that wrapped one argument list must not
+     * fail them. Collapsing whitespace alone does not deliver that, because
+     * the wrap Kotlin's style guide actually produces breaks after the open
+     * paren and leaves a trailing comma; `readNormalized` folds that spelling
+     * back onto this one.
      */
     private fun source(): String =
-        ContractTestSources.read(CANVAS_VIEW_MODEL_PATH).replace(WHITESPACE, " ")
+        ContractTestSources.readNormalized(CANVAS_VIEW_MODEL_PATH)
 
     private fun section(source: String, startMarker: String, endMarker: String): String {
         val start = source.indexOf(startMarker)
@@ -82,6 +85,5 @@ class CanvasCheckpointConcurrencyContractTest {
         const val CLEAR_DIRTY = "dirty = false"
         const val FINISH_CALL = "finishCheckpoint(snapshot, thumbnailResult)"
         const val GALLERY_CALL = "maybeSyncGallery(snapshot.document"
-        val WHITESPACE = Regex("\\s+")
     }
 }

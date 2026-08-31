@@ -2523,3 +2523,42 @@ touchscreen hover too, not only a pen.
   flow that exists. Re-posting would add a double-run hazard for a
   hypothetical. The attach-before-events contract is now stated at the
   setter.
+
+## PR #177 — harden five source-contract tests (2026-08-31)
+
+- **R-186 ✅ (applied) round 1: whitespace collapse does not survive the wrap
+  Kotlin's style guide produces.** Correct, and it bit the exact needles the
+  PR's own KDoc named as protected. `replace(WHITESPACE, " ")` absorbs wraps
+  between whole tokens only; the standard wrap breaks after `(` and leaves a
+  trailing comma, so `finishCheckpoint(\n snapshot,\n thumbnailResult,\n)`
+  collapses to `finishCheckpoint( snapshot, thumbnailResult, )` — which
+  `FINISH_CALL`, `PROJECT_WRITE` and `CAPTURE_CALL` all fail to match.
+  Normalization now also removes whitespace hugging `(` and `)` and a trailing
+  comma before `)`, folding that spelling onto the single-line one and leaving
+  single-line code byte-identical.
+- **R-187 ✅ (applied) round 1: the same gap in `DockShapeContractTest`.** Same
+  fix; `CornerSize(0.dp)` is a needle a wrap would break.
+- **R-188 ✅ (applied) round 1: the house rule is duplicated per companion with
+  two divergent robustness levels.** Accurate, and applying R-186 in place
+  would have propagated the divergence rather than fixed it. The mechanics
+  moved onto `ContractTestSources` as `readNormalized` and `readCompact`; all
+  five tests in this PR migrated and their private `WHITESPACE` constants
+  deleted. `ContractTestSourcesTest` now pins the canonicalization directly,
+  including the negative case — that collapsing alone would not have sufficed
+  — so the extra steps cannot be dropped as redundant later.
+- **R-189 ⏸️ (deferred, follow-up) migrate the remaining ~10 contract tests to
+  the shared readers.** `ColorPanel*`, `CompositionGuides`, `ActualSize`,
+  `LayerPanelDragHandle`, `CanvasCheckpoint`, `SaveableTransient`,
+  `BrushSettingsCurvePlot` and the `engine-gl` twin still carry their own
+  `WHITESPACE`. Each is exposed to R-186's gap, but none is touched by this
+  PR, and rewriting a dozen untouched tests to chase a latent false-failure is
+  a separate change with its own regression surface. Out of scope here, worth
+  doing next — the shared readers now exist, so it is mechanical.
+
+**Found by this round's own suite, not by the review:** the canonicalization
+broke `LayerPanelHeaderContractTest`'s `"modifier = Modifier.weight(1f),"`,
+which depended on the trailing comma it removes. The `)` terminates the match
+on its own — and is what keeps it from also matching the yielding title's
+`Modifier.weight(1f, fill = false)` — so the needle dropped the comma. The
+constraint is now stated on `ContractTestSources`: **needles must not depend on
+a trailing comma.**

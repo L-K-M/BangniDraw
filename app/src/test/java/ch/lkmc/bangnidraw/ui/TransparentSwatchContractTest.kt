@@ -70,12 +70,12 @@ class TransparentSwatchContractTest {
     }
 
     /**
-     * Whitespace-normalized per the house rule for source-contract tests,
-     * and loud when the marker moves — a silent full-file fallback from
+     * Canonicalized per the house rule for source-contract tests, and loud
+     * when the marker moves — a silent full-file fallback from
      * `substringAfter` would point failures at the wrong code.
      */
     private fun swatchOf(path: String): String {
-        val source = ContractTestSources.read(path).replace(WHITESPACE, " ")
+        val source = ContractTestSources.readNormalized(path)
         val swatch = source
             .substringAfter(SWATCH_START, missingDelimiterValue = "")
             .substringBefore("@Composable")
@@ -88,7 +88,6 @@ class TransparentSwatchContractTest {
         const val LAYER_PANEL_PATH = "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/LayerPanel.kt"
         const val NEW_CANVAS_PATH = "app/src/main/java/ch/lkmc/bangnidraw/ui/home/NewCanvasDialog.kt"
         const val SWATCH_START = "private fun PaperSwatch("
-        val WHITESPACE = Regex("\\s+")
         val SURFACE_PREFIXED = Regex("""MaterialTheme\.colorScheme\.surface[A-Za-z]+""")
     }
 }

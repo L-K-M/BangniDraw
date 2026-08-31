@@ -17,17 +17,24 @@ class LayerPanelHeaderContractTest {
 
     @Test
     fun `the header's texts are weighted so its buttons cannot be starved`() {
-        // Whitespace-normalized per the house rule for source-contract
-        // tests, so a mechanical reformat cannot fail a behavioral pin.
-        val panel = ContractTestSources.read(LAYER_PANEL_PATH).replace(WHITESPACE, " ")
+        // Canonicalized per the house rule for source-contract tests, so a
+        // mechanical reformat cannot fail a behavioral pin.
+        val panel = ContractTestSources.readNormalized(LAYER_PANEL_PATH)
         val start = panel.indexOf(HEADER_START)
         if (start < 0) fail("missing $HEADER_START")
         val end = panel.indexOf(HEADER_END, start)
         if (end <= start) fail("missing $HEADER_END after the header")
         val header = panel.substring(start, end)
 
+        // No trailing comma in the needle: canonicalization drops the one a
+        // wrapped argument list leaves before its `)`, so a needle that
+        // depended on it would match only the unwrapped spelling — the very
+        // fragility this normalization exists to remove. The closing paren
+        // terminates the match on its own, which is what keeps this from
+        // also matching the yielding title's `Modifier.weight(1f, fill =
+        // false)`.
         assertTrue(
-            "modifier = Modifier.weight(1f)," in header,
+            "modifier = Modifier.weight(1f)" in header,
             "the text group must own the flexible slot",
         )
         // Hoisted above the scoped check below, with its guard: that check
@@ -71,6 +78,5 @@ class LayerPanelHeaderContractTest {
         // One level of nested parens, so a chained spelling like
         // Spacer(Modifier.padding(8.dp).weight(1f)) is still banned.
         val WEIGHTED_SPACER = Regex("Spacer\\((?:[^()]|\\([^()]*\\))*weight")
-        val WHITESPACE = Regex("\\s+")
     }
 }

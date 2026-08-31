@@ -18,7 +18,12 @@ class StudioCardMenuContractTest {
 
     @Test
     fun `the card menu button is unconditional and off the artwork`() {
-        val studio = ContractTestSources.read(STUDIO_PATH).replace(WHITESPACE, " ")
+        // Space-free: every needle here is spelled without spaces, which
+        // makes them immune to interior wrapping by construction. The
+        // canonicalization underneath still earns its keep by dropping the
+        // trailing comma a wrap leaves behind, which stripping spaces alone
+        // does not remove.
+        val studio = ContractTestSources.readCompact(STUDIO_PATH)
 
         // The leading `}` is *intended* as the title Column's closing brace:
         // pinning the button directly after it means an `if (...) {` wrapper
@@ -27,17 +32,15 @@ class StudioCardMenuContractTest {
         // around the whole footer (rather than between the brace and the
         // button) would not break it. The count assertion below is the
         // stronger half of "unconditional".
-        // Space-free like every needle here, so an interior line wrap
-        // cannot false-fail the pin.
         assertTrue(
-            "}Box{IconButton(onClick={menuOpen=true})" in studio.replace(" ", ""),
+            "}Box{IconButton(onClick={menuOpen=true})" in studio,
             "every card's footer must carry the actions button, unconditionally",
         )
         // Exactly one menu-opening button, in any argument order or
         // formatting: the retired overlay — or any second affordance —
         // shifts this count.
         assertTrue(
-            studio.replace(" ", "").split("onClick={menuOpen=true}").size == 2,
+            studio.split("onClick={menuOpen=true}").size == 2,
             "the unavailable-only overlay button is retired; one affordance serves every card",
         )
         // The help text's promise stays true: the button opens the same menu
@@ -48,8 +51,7 @@ class StudioCardMenuContractTest {
         // delimiter misses, and this file carries `DropdownMenu(expanded =
         // menuOpen` elsewhere, so the assertion below would have false-passed
         // on an anchor that merely moved. Empty instead, and loud.
-        val compact = studio.replace(" ", "")
-        val footer = compact.substringAfter(MENU_BUTTON, missingDelimiterValue = "")
+        val footer = studio.substringAfter(MENU_BUTTON, missingDelimiterValue = "")
         if (footer.isEmpty()) fail("the footer's menu button moved — $MENU_BUTTON not found")
         assertTrue(
             "DropdownMenu(expanded=menuOpen" in footer,
@@ -60,6 +62,5 @@ class StudioCardMenuContractTest {
     private companion object {
         const val STUDIO_PATH = "app/src/main/java/ch/lkmc/bangnidraw/ui/home/StudioScreen.kt"
         const val MENU_BUTTON = "Box{IconButton(onClick={menuOpen=true})"
-        val WHITESPACE = Regex("\\s+")
     }
 }

@@ -2653,3 +2653,20 @@ touchscreen hover too, not only a pen.
   "paper tooth" than 纸面纹理 was. Everything after the first sentence is
   byte-identical, and the paragraph still opens with the exact label, so the
   heading pin still passes.
+
+- **R-239 ✅ (applied) round 9: the heading pin checked containment, not
+  position.** The test is called "every help heading names the control it
+  explains", its message says "does not head a paragraph with", and
+  `HELP_HEADINGS`' own doc says "heads a paragraph with that label" — but the
+  assertion was `"$label：" in body`, which is true of a label buried
+  mid-sentence. The drift this pin exists to catch is a paragraph re-headed
+  with another control's term, and that drift passes containment as long as
+  the right label survives anywhere in the string. Now the raw body is split
+  on the two-character `\n` escape and some segment must *start* with the
+  label. Checked first, as the round asked, that all six pinned pairs already
+  head a segment — including `settings_snap_right_angles` and
+  `settings_eraser_end` in `help_drawing_body`, which are not in this PR's
+  diff — so the tightening asserts the existing convention rather than forcing
+  a rewrite. Mutation-checked with the exact drift described: re-heading the
+  paper-grain paragraph 颗粒： while leaving 纸张纹理： mid-sentence fails now
+  and passed under the old check.

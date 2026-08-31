@@ -84,7 +84,14 @@ class ZhHansTerminologyContractTest {
         val failures = HELP_HEADINGS.mapNotNull { (labelKey, helpKey) ->
             val label = labels[labelKey] ?: fail("missing label $labelKey")
             val body = labels[helpKey] ?: fail("missing help body $helpKey")
-            if ("$label：" in body) null else "$helpKey does not head a paragraph with $labelKey's label ($label)"
+            // *Heads* a paragraph, rather than appearing anywhere in one.
+            // The drift this pin exists to catch is a paragraph re-headed
+            // with another control's term, and containment alone waves that
+            // through as long as the right label survives mid-sentence.
+            // Bodies are read as raw XML, so the separator is the
+            // two-character escape rather than a newline.
+            val heads = body.split(PARAGRAPH).any { it.startsWith("$label：") }
+            if (heads) null else "$helpKey does not head a paragraph with $labelKey's label ($label)"
         }
 
         assertTrue(failures.isEmpty(), failures.joinToString("\n"))
@@ -139,6 +146,7 @@ class ZhHansTerminologyContractTest {
         const val RETIRED_STYLUS = "手写笔"
         const val OVERLAY = "叠加"
         const val HELP_PREFIX = "help_"
+        const val PARAGRAPH = "\\n"
         const val HELP_SUFFIX = "_help"
 
         /**

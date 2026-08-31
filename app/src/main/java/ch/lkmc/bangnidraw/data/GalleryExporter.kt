@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.data
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.RemoteException
 import android.provider.MediaStore
 import android.util.Log
 import ch.lkmc.bangnidraw.R
@@ -42,6 +43,8 @@ class GalleryExporter @Inject constructor(
         val owned: Boolean,
         val modifiedByOther: Boolean,
         val threw: Boolean,
+        /** The row's `IS_PENDING`: a claim a kill left standing (§9.2). */
+        val pending: Boolean = false,
     )
 
     /**
@@ -62,6 +65,7 @@ class GalleryExporter @Inject constructor(
                     MediaStore.Images.Media.OWNER_PACKAGE_NAME,
                     MediaStore.Images.Media.DATE_MODIFIED,
                     MediaStore.Images.Media.SIZE,
+                    MediaStore.Images.Media.IS_PENDING,
                 ),
                 null,
                 null,
@@ -74,7 +78,19 @@ class GalleryExporter @Inject constructor(
                     // ours (§9.2).
                     val modifiedByOther = recordedModifiedAt != 0L && recordedBytes != 0L &&
                         (rowModified != recordedModifiedAt || rowBytes != recordedBytes)
-                    return RowState(true, isOwner, modifiedByOther, threw = false)
+                    return RowState(
+                        present = true,
+                        owned = isOwner,
+                        modifiedByOther = modifiedByOther,
+                        threw = false,
+                        // By name, not by index: `pending` now outranks the
+                        // tamper check, so an off-by-one that read SIZE here
+                        // would report every present owned row as pending and
+                        // silently turn the foreign-edit guard off.
+                        pending = cursor.getInt(
+                            cursor.getColumnIndexOrThrow(MediaStore.Images.Media.IS_PENDING),
+                        ) != 0,
+                    )
                 }
             }
         } catch (e: SecurityException) {
@@ -104,12 +120,33 @@ class GalleryExporter @Inject constructor(
         var isOwner = false
         var modifiedByOther = false
         var probeThrew = false
+        var pending = false
         if (uri != null) {
-            val row = probeRow(uri, recordedModifiedAt, recordedBytes)
+            // The probe is the third cross-process call in this method, and
+            // the provider can die mid-query exactly as it can mid-write.
+            // Fail the sync rather than guess at the row's state — and
+            // deliberately NOT by setting threw, which means "ownership
+            // refused" and routes to REINSERT, abandoning a row that may be a
+            // reclaimable pending claim.
+            val row = try {
+                probeRow(uri, recordedModifiedAt, recordedBytes)
+            } catch (e: RemoteException) {
+                Log.w(TAG, "gallery probe failed; the provider died; will retry", e)
+                return null
+            } catch (e: RuntimeException) {
+                // The commoner OEM fault, and the one `withdraw`'s probe
+                // already contained while this one did not: an SQLiteException
+                // or a closed connection pool is retryable, not a crash from a
+                // background sweep. Null rather than `threw` for the same
+                // reason as above.
+                Log.w(TAG, "gallery probe failed; will retry", e)
+                return null
+            }
             uriPresent = row.present
             isOwner = row.owned
             modifiedByOther = row.modifiedByOther
             probeThrew = row.threw
+            pending = row.pending
         }
 
         var action = GallerySyncDecision.decide(
@@ -117,6 +154,7 @@ class GalleryExporter @Inject constructor(
             isOwner = isOwner,
             threw = probeThrew,
             modifiedByOther = modifiedByOther,
+            pending = pending,
         )
 
         if (action == GallerySyncDecision.Action.REWRITE && uri != null) {
@@ -135,6 +173,27 @@ class GalleryExporter @Inject constructor(
             } catch (e: IOException) {
                 Log.w(TAG, "gallery rewrite failed", e)
                 return null
+            } catch (e: RemoteException) {
+                // Verified against the platform jar: DeadSystemException ->
+                // DeadObjectException -> RemoteException -> AndroidException ->
+                // Exception. A provider process dying mid-call is therefore a
+                // SIBLING of RuntimeException, not a subtype, so the clause
+                // below never contained the one fault it was written for.
+                Log.w(TAG, "gallery rewrite failed; the provider died; will retry", e)
+                return null
+            } catch (e: RuntimeException) {
+                // The same containment `withdraw` already applies, for the
+                // same reason: a provider that throws something other than
+                // SecurityException/IOException — a malformed-URI
+                // IllegalArgumentException, an SQLiteException, one of the
+                // OEM MediaStore quirks — is a retryable fault, not a reason
+                // to end the process. This runs on StudioViewModel's
+                // background sweep (viewModelScope), so an escape here kills
+                // the app while the user is only browsing the shelf. Ordered
+                // after SecurityException, which is itself a RuntimeException
+                // and keeps its own ownership-lost handling above.
+                Log.w(TAG, "gallery rewrite failed unexpectedly; will retry", e)
+                return null
             }
         }
 
@@ -146,6 +205,13 @@ class GalleryExporter @Inject constructor(
             null
         } catch (e: IOException) {
             Log.w(TAG, "gallery insert failed", e)
+            null
+        } catch (e: RemoteException) {
+            // The same sibling-not-subtype gap as the rewrite path above.
+            Log.w(TAG, "gallery insert failed; the provider died; will retry", e)
+            null
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "gallery insert failed unexpectedly; will retry", e)
             null
         }
     }
@@ -207,6 +273,11 @@ class GalleryExporter @Inject constructor(
             // only exit, not an orphaned retry loop.
             Log.w(TAG, "gallery withdraw probe refused a malformed URI", e)
             return true
+        } catch (e: RemoteException) {
+            // A dead provider is a sibling of RuntimeException, not a subtype,
+            // so the clause below never covered it.
+            Log.w(TAG, "gallery withdraw probe failed; the provider died; will retry", e)
+            return false
         } catch (e: RuntimeException) {
             // The same containment as the delete below: an unexpected
             // provider failure is retryable, not a reason to orphan an
@@ -223,6 +294,9 @@ class GalleryExporter @Inject constructor(
             context.contentResolver.delete(uri, null, null)
         } catch (e: SecurityException) {
             Log.w(TAG, "gallery withdraw refused; the item is the user's now", e)
+        } catch (e: RemoteException) {
+            Log.w(TAG, "gallery withdraw failed; the provider died; will retry", e)
+            return false
         } catch (e: RuntimeException) {
             // The same containment as the probe's: an unexpected provider
             // failure is retryable, not a reason to orphan the row.
@@ -232,15 +306,49 @@ class GalleryExporter @Inject constructor(
         return true
     }
 
+    /**
+     * Drops a row this class was midway through writing, so no half-written
+     * state survives — §9.2's never-a-ghost rule, extended to never a *corrupt*
+     * or *stranded* one.
+     *
+     * Guarded, because a provider that also refuses the delete must not replace
+     * the failure being reported with its own: the log line for the real fault
+     * is the only diagnostic either caller leaves behind.
+     */
+    private fun discardRow(uri: Uri, what: String) {
+        runCatching { context.contentResolver.delete(uri, null, null) }
+            .onFailure { Log.w(TAG, "could not delete the row a failed $what left behind", it) }
+    }
+
     private fun rewrite(uri: Uri, displayName: String, png: ByteArray): Outcome {
         val resolver = context.contentResolver
         resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 1) }, null, null)
+        // Claiming the row pending and truncating it is the start of one
+        // transaction that only the publish below closes, so the write and the
+        // publish share a single failure path: either the row ends up
+        // published, or it ends up gone.
+        //
+        // "wt" truncates on open, so by the time a write can fail the previous
+        // pixels are already destroyed. Clearing IS_PENDING regardless (this
+        // used to be a `finally`) published whatever survived — a partial PNG,
+        // visible in the user's gallery — and it stayed there, because the
+        // failure is not self-correcting the way it looks: `sync` catches and
+        // returns null, so `project.json` keeps the *pre-write* size and date,
+        // the next `probeRow` reads that mismatch as another app's edit, and
+        // `GallerySyncDecision.REINSERT` answers that by design with "the URI
+        // is forgotten, the item stays as the user left it". The tamper guard
+        // built to protect someone else's edit ended up protecting our own
+        // corruption, permanently, beside a fresh duplicate.
+        //
+        // The publish is inside the same `try` for exactly that reason: a row
+        // left IS_PENDING with *complete* pixels strands identically — the
+        // size/date still mismatch what was recorded, so REINSERT abandons a
+        // perfectly good image as an invisible pending row while the user's
+        // gallery item stays missing until a duplicate lands. Same defect, one
+        // call later.
         try {
-            // "wt" = truncate: rewrites in place, keeping the one-item
-            // promise (§9.2).
             (resolver.openOutputStream(uri, "wt") ?: throw IOException("no stream for $uri"))
                 .use { it.write(png) }
-        } finally {
             resolver.update(
                 uri,
                 ContentValues().apply {
@@ -250,6 +358,9 @@ class GalleryExporter @Inject constructor(
                 null,
                 null,
             )
+        } catch (e: Throwable) {
+            discardRow(uri, "rewrite")
+            throw e
         }
         return outcomeOf(uri)
     }
@@ -282,29 +393,58 @@ class GalleryExporter @Inject constructor(
                 null,
                 null,
             )
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             // Never a ghost: a failed insert deletes its pending row (§9.2).
-            resolver.delete(uri, null, null)
+            // Guarded like rewrite's, so a provider that refuses the delete
+            // cannot mask the failure this is reporting.
+            //
+            // Throwable, matching rewrite: the realistic Error on this path is
+            // an OutOfMemoryError during the PNG write — ISSUES.md item 3
+            // records the ~128 MiB peak at 4096² — and an Error that skipped
+            // the cleanup would strand exactly the pending row this rule
+            // exists to prevent.
+            discardRow(uri, "insert")
             throw e
         }
         return outcomeOf(uri)
     }
 
-    /** The row's post-write `DATE_MODIFIED`/`SIZE` — §9.2's tamper baseline. */
+    /**
+     * The row's post-write `DATE_MODIFIED`/`SIZE` — §9.2's tamper baseline.
+     *
+     * Runs after the row is published, so it must never turn a completed
+     * export into a failure. Letting the query throw did exactly that: the
+     * exception left `rewrite`/`insert`, `sync` caught it and returned null,
+     * `project.json` kept the **pre-write** size and date, and the next
+     * `probeRow` read that mismatch as another app's edit — REINSERT, a
+     * duplicate item, and the row just written orphaned permanently. One
+     * flaky metadata read after a fully successful export.
+     *
+     * A throw now degrades to the same 0/0 a null cursor already produced,
+     * which `probeRow` documents as "unknown … treated as ours": the URI is
+     * recorded, the tamper half of the guard is forced false, and the next
+     * sync REWRITEs the row in place. That is a full truncate-and-rewrite on
+     * every sync until a baseline read succeeds, not a one-cycle cost —
+     * accepted, because the row stays correct throughout, and discarding the
+     * published row instead would throw away a correct image to protect a
+     * number the design already declares optional.
+     */
     private fun outcomeOf(uri: Uri): Outcome {
         var modified = 0L
         var size = 0L
-        context.contentResolver.query(
-            uri,
-            arrayOf(MediaStore.Images.Media.DATE_MODIFIED, MediaStore.Images.Media.SIZE),
-            null,
-            null,
-        )?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                modified = cursor.getLong(0)
-                size = cursor.getLong(1)
+        runCatching {
+            context.contentResolver.query(
+                uri,
+                arrayOf(MediaStore.Images.Media.DATE_MODIFIED, MediaStore.Images.Media.SIZE),
+                null,
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    modified = cursor.getLong(0)
+                    size = cursor.getLong(1)
+                }
             }
-        }
+        }.onFailure { Log.w(TAG, "gallery row published but its baseline could not be read", it) }
         return Outcome(
             galleryUri = uri.toString(),
             syncedAt = System.currentTimeMillis(),

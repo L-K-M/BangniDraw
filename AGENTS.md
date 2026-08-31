@@ -833,6 +833,45 @@ and the contradiction is noted here.
   built-in tokens `@string/palette_painters`, `@string/palette_basic`,
   `@string/palette_recent`, and `@string/palette_my` resolve through resources.
   User names are literal; never resolve arbitrary stored `@string/` values.
+- **A failed MediaStore write must leave no row, never a published one.**
+  `IS_PENDING` may only be cleared on the success path. `"wt"` truncates the
+  row on open, so a failed rewrite has already destroyed the previous pixels;
+  publishing what survived puts a partial PNG in the user's gallery *and*
+  strands it there, because `sync` returns null, `project.json` keeps the
+  pre-write size/date, and the next `probeRow` reads that mismatch as another
+  app's edit — which `GallerySyncDecision.REINSERT` answers by forgetting the
+  URI and leaving the item alone. So the tamper guard built to protect
+  someone else's edit ends up protecting our own corruption. Both `insert`
+  and `rewrite` therefore delete the row they were writing and let the next
+  sync start clean, through the shared `discardRow` helper. Guard the delete
+  itself (`runCatching`) so a provider that also refuses it cannot mask the
+  failure being reported — that log line is the only diagnostic either caller
+  leaves behind. The **publish belongs inside the same guarded region as the
+  write**, not after it, so that either the row is published or it is gone.
+  A row left `IS_PENDING` with *complete* pixels by **process death** is
+  healed separately — `probeRow` reads `IS_PENDING` and `GallerySyncDecision`
+  rewrites a pending row we own ahead of the tamper check — but that reclaim
+  needs a later probe to succeed, and it is not a substitute for the guard: a
+  publish that *throws* has code still running and must discard the row then
+  and there.
+- **`RemoteException` is a sibling of `RuntimeException`, not a subtype.**
+  `DeadSystemException` -> `DeadObjectException` -> `RemoteException` ->
+  `AndroidException` -> `Exception` (checked against the platform jar). A
+  provider process dying mid-call — the canonical OEM fault — therefore
+  escapes an `IOException`/`RuntimeException` chain entirely. Every
+  cross-process call in `GalleryExporter` needs it: the writes, the probe,
+  and `withdraw`'s pair. Containing it at the probe must return null rather
+  than set `threw`, which means "ownership refused" and routes to REINSERT,
+  abandoning a row that may be a reclaimable pending claim.
+
+- **MediaStore entry points contain `RuntimeException`, not just
+  `SecurityException`/`IOException`.** `sync` and `withdraw` both run from
+  `StudioViewModel`'s background sweep on `viewModelScope`, where an escape
+  ends the process while the user is only browsing the shelf. OEM providers
+  throw `IllegalArgumentException`/`SQLiteException` in practice. Order the
+  clause after `SecurityException`, which is itself a `RuntimeException` and
+  keeps its own ownership-lost handling. Note that ANALYSIS R10's remedy — a
+  handler on `appScope` — does **not** reach `viewModelScope`.
 - **FULL-rail paint slots are durable assignments.** The ordered preset ids
   live in `Prefs`; settings-sheet choices swap into the active slot, while
   rail taps only activate a slot. `LayoutSpec.paintSlotBudget` caps how many

@@ -335,31 +335,56 @@ class GalleryExporter @Inject constructor(
                 null,
                 null,
             )
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             // Never a ghost: a failed insert deletes its pending row (§9.2).
             // Guarded like rewrite's, so a provider that refuses the delete
             // cannot mask the failure this is reporting.
+            //
+            // Throwable, matching rewrite: the realistic Error on this path is
+            // an OutOfMemoryError during the PNG write — ISSUES.md item 3
+            // records the ~128 MiB peak at 4096² — and an Error that skipped
+            // the cleanup would strand exactly the pending row this rule
+            // exists to prevent.
             discardRow(uri, "insert")
             throw e
         }
         return outcomeOf(uri)
     }
 
-    /** The row's post-write `DATE_MODIFIED`/`SIZE` — §9.2's tamper baseline. */
+    /**
+     * The row's post-write `DATE_MODIFIED`/`SIZE` — §9.2's tamper baseline.
+     *
+     * Runs after the row is published, so it must never turn a completed
+     * export into a failure. Letting the query throw did exactly that: the
+     * exception left `rewrite`/`insert`, `sync` caught it and returned null,
+     * `project.json` kept the **pre-write** size and date, and the next
+     * `probeRow` read that mismatch as another app's edit — REINSERT, a
+     * duplicate item, and the row just written orphaned permanently. One
+     * flaky metadata read after a fully successful export.
+     *
+     * A throw now degrades to the same 0/0 a null cursor already produced,
+     * which `probeRow` documents as "unknown … treated as ours": the URI is
+     * recorded, the tamper half of the guard is forced false, and the next
+     * sync REWRITEs the row in place. Losing the baseline for one cycle costs
+     * nothing that matters; discarding the published row instead would throw
+     * away a correct image to protect a number that is optional by design.
+     */
     private fun outcomeOf(uri: Uri): Outcome {
         var modified = 0L
         var size = 0L
-        context.contentResolver.query(
-            uri,
-            arrayOf(MediaStore.Images.Media.DATE_MODIFIED, MediaStore.Images.Media.SIZE),
-            null,
-            null,
-        )?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                modified = cursor.getLong(0)
-                size = cursor.getLong(1)
+        runCatching {
+            context.contentResolver.query(
+                uri,
+                arrayOf(MediaStore.Images.Media.DATE_MODIFIED, MediaStore.Images.Media.SIZE),
+                null,
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    modified = cursor.getLong(0)
+                    size = cursor.getLong(1)
+                }
             }
-        }
+        }.onFailure { Log.w(TAG, "gallery row published but its baseline could not be read", it) }
         return Outcome(
             galleryUri = uri.toString(),
             syncedAt = System.currentTimeMillis(),

@@ -71,12 +71,21 @@ class GalleryExporterContractTest {
         // would still accept a publish hoisted ABOVE the write, which
         // republishes the row before "wt" truncates it — the original
         // defect with its window merely moved earlier.
+        // The truncating write must sit inside the guard too. Ordering the
+        // write, publish and catch relative to each other still allows the
+        // whole pair to be hoisted above `try {`, where a failure strands a
+        // truncated row with no discardRow at all — the original defect.
+        val guarded = rewrite.indexOf("try {")
         val write = rewrite.indexOf("""openOutputStream(uri, "wt")""")
         val guard = rewrite.indexOf("catch (e: Throwable)")
         val publish = rewrite.indexOf("MediaStore.Images.Media.IS_PENDING, 0")
-        if (write < 0 || guard < 0 || publish < 0) {
-            fail("rewrite lost its write, its guard, or its publish step")
+        if (guarded < 0 || write < 0 || guard < 0 || publish < 0) {
+            fail("rewrite lost its try, its write, its guard, or its publish step")
         }
+        assertTrue(
+            guarded < write,
+            "the truncating write must be inside the guarded region",
+        )
         assertTrue(
             write < publish,
             "the publish must follow the write, not precede the truncation",
@@ -106,6 +115,51 @@ class GalleryExporterContractTest {
             "runCatching" in helper,
             "the cleanup delete must not mask the failure it is reporting",
         )
+    }
+
+    /**
+     * The post-publish baseline read is not allowed to fail the export.
+     *
+     * `outcomeOf` runs after the row is published, so a throw there used to
+     * leave `sync` returning null with the pre-write size and date still in
+     * `project.json`. The next probe reads that mismatch as another app's
+     * edit, and REINSERT answers by abandoning the freshly published row and
+     * inserting a duplicate — a permanent second copy caused by one flaky
+     * metadata read after a completely successful export.
+     *
+     * Contained rather than discarded: a throw degrades to the same 0/0 a
+     * null cursor already produced, which `probeRow` treats as "unknown …
+     * ours", so the next sync REWRITEs the row in place. Deleting the
+     * published row instead would destroy a correct image to protect a
+     * baseline the design already declares optional.
+     */
+    @Test
+    fun `a failed baseline read cannot orphan a published row`() {
+        val outcome = section("private fun outcomeOf(", "private companion object")
+
+        assertTrue("runCatching" in outcome, "the post-publish probe must not throw out of outcomeOf")
+        // Degrades to the 0/0 the null-cursor path already yields, not to a
+        // delete and not to a rethrow.
+        assertTrue("var modified = 0L" in outcome && "var size = 0L" in outcome)
+        assertFalse("discardRow" in outcome, "a published row must not be deleted over its baseline")
+        assertFalse("getOrThrow" in outcome, "rethrowing is what stranded the row")
+    }
+
+    /**
+     * Both writers clean up after an `Error`, not only after an `Exception`.
+     * The realistic one here is `OutOfMemoryError` during the PNG write —
+     * ISSUES.md item 3 records the ~128 MiB peak at 4096² — and an Error that
+     * skipped the cleanup would strand the pending row the rule forbids.
+     */
+    @Test
+    fun `both writers clean up after an Error too`() {
+        for (writer in listOf("private fun rewrite(", "private fun insert(")) {
+            val body = section(writer, if (writer.contains("rewrite")) "private fun insert(" else "private fun outcomeOf(")
+            assertTrue(
+                "catch (e: Throwable)" in body,
+                "$writer must clean up after an Error, not just an Exception",
+            )
+        }
     }
 
     /**

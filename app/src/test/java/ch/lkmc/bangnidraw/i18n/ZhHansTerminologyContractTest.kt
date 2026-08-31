@@ -86,10 +86,29 @@ class ZhHansTerminologyContractTest {
 
     private fun strings(): String = ContractTestSources.read(ZH_HANS_PATH)
 
-    /** Every `name` to its text, entities left as written. */
-    private fun labels(): Map<String, String> = STRING_ENTRY
-        .findAll(strings())
-        .associate { it.groupValues[1] to it.groupValues[2] }
+    /**
+     * Every `name` to its text, entities left as written.
+     *
+     * The parse is checked against the file rather than trusted: a regex that
+     * silently drops an entry weakens every assertion built on this map, and
+     * a dropped label cannot collide with anything. Counting open tags turns
+     * what was a one-off manual verification into a standing one.
+     */
+    private fun labels(): Map<String, String> {
+        val source = strings()
+        val parsed = STRING_ENTRY
+            .findAll(source)
+            .associate { it.groupValues[1] to it.groupValues[2] }
+        val declared = STRING_OPEN_TAG.findAll(source).count()
+        assertEquals(
+            declared,
+            parsed.size,
+            "$ZH_HANS_PATH declares $declared string entries but only " +
+                "${parsed.size} parsed — the entry regex has a gap",
+        )
+
+        return parsed
+    }
 
     private companion object {
         const val ZH_HANS_PATH = "app/src/main/res/values-b+zh+Hans/strings.xml"
@@ -136,6 +155,8 @@ class ZhHansTerminologyContractTest {
          * The `\s` after `<string` is load-bearing — it keeps `<string-array`
          * out, whose items are not labels.
          */
+        /** Open tags, for the parse-coverage check in [labels]. */
+        val STRING_OPEN_TAG = Regex("""<string\s[^>]*>""")
         val STRING_ENTRY = Regex(
             """<string\s[^>]*?name="([^"]+)"[^>]*>(.*?)</string>""",
             RegexOption.DOT_MATCHES_ALL,

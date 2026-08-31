@@ -2541,3 +2541,16 @@ touchscreen hover too, not only a pen.
   dropped entry is silent. Now `<string\s[^>]*?name="…"[^>]*>`, where the
   `\s` keeps `<string-array` out. Verified against both files — 374 and 369
   entries parsed, matching their raw `<string ` counts exactly.
+
+- **R-219 ✅ (applied) round 3: `CONTRACT_INPUT_FILES` was declared after its
+  only use.** It worked only because `configureEach` defers its lambda past
+  script evaluation — a forward reference whose safety is implicit rather than
+  enforced, and a readability trap besides. Moved above the block.
+- **R-220 ✅ (applied) round 3, Info: make the parse-coverage check
+  standing.** The previous round verified the entry regex by counting parsed
+  entries against raw `<string ` tags **by hand, once**. A one-off check does
+  not survive the next regex edit, and this is the map every assertion in the
+  file is built on. `labels()` now asserts that count itself, naming the file
+  and both numbers. Verified it fires: a single-quoted `name='…'` — an entry
+  shape the regex does not cover — fails loudly instead of quietly shrinking
+  the map.

@@ -143,6 +143,18 @@ dependencies {
     testImplementation(libs.kotlin.test)
 }
 
+/**
+ * Repo files a unit test pins that no compilation would otherwise track.
+ *
+ * `ZhHansTerminologyContractTest` reads the translated strings;
+ * `PluralResourceContractTest` reads the English ones, and was exposed to the
+ * same stale-task hole before this list existed.
+ */
+val CONTRACT_INPUT_FILES = listOf(
+    "app/src/main/res/values-b+zh+Hans/strings.xml",
+    "app/src/main/res/values/strings.xml",
+)
+
 tasks.withType<Test>().configureEach {
     // The golden-stroke test regenerates its pinned file when this is set
     // (`docs/plan/11-testing.md` §6). Gradle does not forward the launching
@@ -171,14 +183,3 @@ tasks.withType<Test>().configureEach {
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
-/**
- * Repo files a unit test pins that no compilation would otherwise track.
- *
- * `ZhHansTerminologyContractTest` reads the translated strings;
- * `PluralResourceContractTest` reads the English ones, and was exposed to the
- * same stale-task hole before this list existed.
- */
-val CONTRACT_INPUT_FILES = listOf(
-    "app/src/main/res/values-b+zh+Hans/strings.xml",
-    "app/src/main/res/values/strings.xml",
-)

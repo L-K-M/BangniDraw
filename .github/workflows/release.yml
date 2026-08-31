@@ -204,7 +204,8 @@ jobs:
               (minSdk 29).
             - **Linux**: `bangnidraw-desktop-<tag>-linux-amd64.deb` — needs
               GLES from Mesa or your vendor driver; nothing else.
-            - **macOS**: `bangnidraw-desktop-<tag>-macos-<arch>.dmg` — the app
+            - **macOS**: `bangnidraw-desktop-<tag>-macos-arm64.dmg` (Apple
+              Silicon; the filename carries the runner's real arch) — the app
               needs ANGLE's `libEGL.dylib`/`libGLESv2.dylib` discoverable
               (place them next to the app or on `DYLD_LIBRARY_PATH`; see the
               repo README's Desktop section). Without them the app opens with
@@ -213,6 +214,9 @@ jobs:
             Desktop is mouse-first in this release line (no pen pressure
             yet — Phase 3 of DESKTOP.md). Both desktop builds include Mixbox
             pigment mixing (CC BY-NC 4.0, non-commercial).
+          # Create-only: GitHub appends the generated notes below `body` on
+          # first creation; a re-run that PATCHes the release overwrites the
+          # stored body and drops them.
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true

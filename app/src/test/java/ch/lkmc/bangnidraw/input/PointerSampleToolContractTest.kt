@@ -106,7 +106,10 @@ class PointerSampleToolContractTest {
      * one thing indentation is load-bearing for.
      */
     private fun section(path: String, member: String): String {
-        val source = ContractTestSources.read(path)
+        // Comments stripped, so the needle can be the bare word: the prose
+        // that explains this invariant says "tool" constantly, and inside a
+        // negative region that would fail the pin on correct code.
+        val source = ContractTestSources.stripComments(ContractTestSources.read(path))
         val declaration = Regex(MEMBER_INDENT + MODIFIERS + "fun " + Regex.escape(member) + """\(""")
         val start = declaration.find(source) ?: fail("missing fun $member( in $path — renamed?")
         val end = NEXT_MEMBER.find(source, start.range.last)?.range?.first ?: source.length
@@ -120,14 +123,16 @@ class PointerSampleToolContractTest {
         const val ADAPTER = "app/src/main/java/ch/lkmc/bangnidraw/input/AndroidCanvasInput.kt"
         const val PREDICTOR = "app/src/main/java/ch/lkmc/bangnidraw/input/Predictor.kt"
 
-        // `.tool` rather than a `\btool\b` regex, which would also catch
-        // `with(sample) { tool }`: the source is scanned with its comments,
-        // since nothing here strips them, and the wider pattern hits the
-        // prose that explains this very invariant. The runtime guarantee is
-        // the nullable field — a consumer reading it gets `null`, not a
-        // confident wrong answer — and this pin is the tripwire in front of
-        // it, not the guarantee itself.
-        const val TOOL_READ = ".tool"
+        // The bare word, not `.tool`: a read spelled `with(sample) { tool }`
+        // or through a destructuring binding carries no dot and would slip
+        // past the narrower needle. Safe only because `section` strips
+        // comments first — this was declined in round 1 for exactly that
+        // reason, when the stripper lived on an unmerged branch.
+        //
+        // The runtime guarantee is still the nullable field: a consumer that
+        // reads it gets `null`, not a confident wrong answer. This pin is the
+        // tripwire in front of that, not the guarantee itself.
+        val TOOL_READ = Regex("""\btool\b""")
 
         /**
          * A class member's declaration, which is where the previous one ends.

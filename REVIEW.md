@@ -3075,3 +3075,20 @@ much as in code.
   cannot masquerade as a rename either. Mutation-checked: with
   `public fun onPointerDown(` the new boundary holds and the old one fails the
   pin.
+
+- **R-242 ✅ (applied on the `main` merge, closing R-237's deferred half).**
+  R-237 declined widening the pin's needle from `.tool` to a bare `\btool\b`
+  for a stated reason — nothing on this branch stripped comments, so the wider
+  pattern would have matched the prose that explains the invariant and failed
+  the pin on correct code — and named the condition that would change the
+  answer: `ContractTestSources.stripComments`, then unmerged on #178's branch.
+  #178 merged, so this merge brings it in and the needle widens with it. Not a
+  reversal: the decline's own precondition is what moved.
+
+  `section` now strips comments before matching, and the needle is the bare
+  word, which catches the dotless spellings R-237 conceded were real —
+  `with(sample) { tool }`, a destructuring read. Mutation-checked both ways: a
+  `with(sample) { tool }` read added to `onPointerMove` fails the pin, where
+  `.tool` would have missed it, and comments naming the tool inside a negative
+  region — one line comment and one block comment — keep it green, which is
+  the false failure the round-1 decline was protecting against.

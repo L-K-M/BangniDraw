@@ -1,529 +1,586 @@
-# fable.md — deep review of 帮你Draw (2026-08-30, main @ 8d5f3e6)
+# fable.md — deep review of 帮你Draw (2026-08-31, main @ 116fa79)
 
-Full pass over `main` at v1.2.2+ (post-watercolor, post-Chinese-ink retune,
-post-themes, post in-app docs #156), read against PLAN.md, `docs/plan/`,
-AGENTS.md, ANALYSIS.md (2026-08-28 consolidation), ds.md, k3.md, ISSUES.md and
-REVIEW.md so nothing already decided is re-litigated. Every claim below was
-checked in the source on this pass unless marked otherwise. The imagined user
-throughout: a young artist with an S Pen tablet, sometimes a phone.
+Full pass over `main` at v1.2.2+, immediately after the three structural PRs
+that landed since the last review: **#171** (`:engine-core` extracted as a KMP
+module), **#172** (`:engine-gl` extracted behind a GLES30 facade), **#173**
+(input ported off `MotionEvent` onto a pointer-sample record). Those three are
+the least-reviewed code in the repository — the previous deep review
+(fable.md 2026-08-30, consolidated into ANALYSIS.md at `d4ea4a8`) predates all
+of them — so this pass weights them heavily.
 
-Marks: **[PR]** planned for this session (branch per item) · **[ready]**
-shovel-ready for a later session · **[idea]** needs a product call or a
-proposal doc · **[verify]** needs a device or measurement before code.
+Read first, so nothing already settled is re-litigated: `ANALYSIS.md` (all
+1139 lines, ids R1–R13 / D1–D9 / U1–U17 / A1–A18 plus Delight, Visual
+direction, Review-round follow-ups, Acceptance gate and "Verified clean and
+durable notes"), `REVIEW.md` (2525 lines of `R-NNN` declines and refutations),
+`ISSUES.md`, `AGENTS.md` ("Deviations discovered while building" and
+"Conventions the plan leaves open" in full), `PLAN.md`, `docs/plan/`, and
+`DESKTOP.md`.
 
-New findings carry `F-N` ids so the later ANALYSIS.md consolidation can
-reference them; items that confirm an existing ANALYSIS.md entry cite its id
-instead of getting a new one.
+Method: eight parallel reviewers over disjoint scopes, each required to cite
+`file:line` it had actually read; every finding below was then re-verified by
+hand against the source before it was written down. Findings that did not
+survive that re-check are recorded in §8 rather than deleted, because a
+refuted hypothesis is worth as much to the next session as a confirmed one.
+
+Marks: **[PR]** implemented this session (branch per item) · **[ready]**
+shovel-ready for a later session · **[idea]** needs a product call ·
+**[verify]** needs a device or a measurement before code.
+
+New findings carry `F-N` ids. An item that confirms an existing ANALYSIS.md
+entry cites that entry's id instead of taking a new one.
 
 ---
 
 ## 0. State of the ledger
 
-ANALYSIS.md's "Open PR ledger" (#104–#146) is fully stale: every listed PR
-merged except #127 (closed unmerged), #135 and #137 (closed as duplicates of
-#131/#125). The consolidation pass at the end of this session must delete the
-ledger and keep only what those PRs did *not* fix.
-
-On #127 specifically ("preserve Watercolor wetness across the tick epoch
-rebase"): re-derived the arithmetic in `WatercolorWetKernel.elapsedTicks` and
-`WatercolorPass.resetDryEpoch`/`rebaseWetPages` on this pass. The
-`EPOCH_REBASE` force-dry branch (`updatedTick <= nowTick` → `MAX_DRY_TICKS`)
-is **correct**: at rebase time every surviving page carries an old-epoch tick,
-so a page whose stored tick is at or below the new epoch's current tick is at
-least one full modulus (~109 min) old and must dry; pages with larger stored
-ticks get the exact modulo age. Mid-stroke epoch crossings are handled
-(`stamp` → `resetActiveEpoch` runs before per-dab work), and `pruneExpired`
-uses full-precision nanos, not ticks. The premise of #127 does not hold —
-record the epoch machinery as verified clean rather than reopening it.
-
-## 1. Bugs and correctness
-
-### F-1 — Mouse wheel and trackpad scroll do nothing on the canvas. [PR]
-
-`CanvasSurface` wires only `setOnTouchListener` and `setOnHoverListener`
-(CanvasSurface.kt:172–173); no generic-motion listener exists anywhere, so
-`ACTION_SCROLL` from a mouse wheel or keyboard-cover trackpad is dropped.
-ANALYSIS D8 already asks for wheel-zoom-at-cursor; this pass confirms the gap
-and de-risked the fix: `ViewTransform.gesture(pivotX, pivotY, 0, 0, factor, 0)`
-is exactly zoom-about-a-point with the scale clamp built in. Implement a
-`handleScroll` primitive on `CanvasTouchHandler` (JVM-testable), a pure
-factor policy in `engine/core`, and one `setOnGenericMotionListener` line.
-
-### F-2 — Transparent paper still reads as gray paper in two more places. [PR]
-
-ANALYSIS U9, confirmed narrower than written: the layer-panel *thumbnail*
-already draws a real checker (LayerPanel.kt:642–670), but the layer panel's
-paper swatch (`PaperSwatch`, LayerPanel.kt:834–841 — `drawRect(checker)` is
-one flat `surfaceVariant` fill) and the New Canvas paper swatch
-(NewCanvasDialog.kt:558–582, `surfaceVariant` + "∅") both show transparent as
-solid gray. A 2×2 quadrant checker at swatch size is the standard fix and does
-not "read as noise" the way the rejected 8-px checker would; share one
-composable between the three sites.
-
-### F-3 — Paper colour of an existing painting cannot be customised. [PR]
-
-`NewCanvasDialog` gained a sixth custom-HSV paper swatch in #131, but the
-Layer panel's paper menu (LayerPanel.kt `paperChoices()`) still offers exactly
-five fixed colours. A painting created before the user knew about custom paper
-— or whose paper they change their mind about — can never reach the colour the
-creation dialog offers. Add the same custom choice to the panel's paper menu,
-reusing the compact HSV picker dialog #131 built. (`setPaperColor` already
-takes any ARGB; this is UI-only.)
-
-### F-4 — `BrushSettingsSheet` duplicate import. [trivial]
-
-`androidx.compose.foundation.Canvas` is imported twice
-(BrushSettingsSheet.kt:6–7). Harmless; fold into any PR touching the file.
-
-### Verified clean (bugs hunted and not found)
-
-- The watercolor tick-epoch rebase (see §0).
-- `Stabilizer.easeAngle` under accumulated unnormalized angles (the modulo
-  re-wraps; downstream trig is angle-safe).
-- `DabGenerator` batch-overflow resume, tap fix-up generation guard, NaN
-  pressure funnels, zero-dt velocity deferral.
-- `InkBrushDynamics` segment state machine and its `copyInto` parity for the
-  predicted tail; the two-frame (tuft axis vs path tangent) lane model matches
-  `dab.frag`'s transcription constant-for-constant.
-- Locale parity: the 5 keys absent from zh-Hans are all `translatable="false"`
-  brand/format strings.
-- `BrushPreview` passes `brushModel` through, so the calligraphy preview
-  renders the ink mask rather than a plain ellipse stroke.
-
-## 2. Performance
-
-The paint hot path (touch → stabilizer → dabs → front buffer) remains
-allocation-free and was not re-litigated; the standing large items (D3 band
-flatten, D4 watercolor per-dab cost, D6 table, D7 device gate) are confirmed
-still open and still correctly described in ANALYSIS.md. New notes:
-
-### F-5 — Watercolor's per-dab pipeline, quantified. [verify]
-
-`WatercolorPass.stamp` per accepted dab: `copyColorSource` (N blits) +
-`copyWetSource` + one wet FBO draw + `backupWet` (2 blits per newly-touched
-wet tile) + reservation + per-output-tile color draws + `writeWet` blits. At
-the default paintbrush (size 40, spacing 0.2 → ~4 px step) a 2000-px stroke is
-~500 dabs × ~8–15 GL ops. This is D4's cost made concrete; the mitigations
-D4 lists (content gate for Water, coalesced source copies, larger effective
-RMW spacing) remain the right order to try **after** device measurement.
-
-### F-6 — The wet-overlay 100 ms tick runs for up to 48 s after the last wet dab.
-
-`EngineSession.pumpWetOverlay` re-posts a 100 ms tick while any wet page
-exists (`WatercolorOverlayKernel.REFRESH_MILLIS`), each tick re-presenting the
-wet sheen and re-checking expiry. That is the accepted design (proposal 0002),
-but it means battery/thermal cost continues ~48 s after pen-up. Worth one line
-in the D7 measurement script (idle-after-watercolor power) — not code today.
-
-### F-7 — Pressure-curve knot sliders still churn the whole sheet (U12 confirmed).
-
-Each of the four knot sliders calls `onPresetChanged` per drag frame
-(BrushSettingsSheet.kt `CurveEditor`), recomposing the entire sheet and
-re-triggering the 50 ms preview debounce. U12's fix (local draft, publish on
-`onValueChangeFinished`, flush on dismiss) stands. [ready]
-
-## 3. Visual and layout
-
-### F-8 — The DOCK rail is still a square-cornered slab. [PR]
-
-`Dock` (ToolRail.kt:287–315) passes no `shape`; every other rail posture is a
-rounded surface. ANALYSIS's visual-direction backlog asks to round only the
-dock's top corners so dock and canvas read as one object. One
-`RoundedCornerShape(topStart, topEnd)` plus a screenshot sanity check.
-
-### F-9 — HSV marker vanishes at the square's white/black corners (U16a). [PR]
-
-`HsvRingSquareSized` draws both markers as a single `onSurface` stroke ring
-(ColorPanel.kt:363–364). In light themes the marker is near-invisible over
-dark values; in dark themes over light values. Draw a two-tone halo (light
-outer ring + dark inner ring, or vice versa) so the marker is visible on any
-sample. Pure UI.
-
-### F-10 — Watercolor presets have no stroke preview (U15j confirmed). [PR]
-
-BrushSettingsSheet.kt:194–200 shows `watercolor_preview_hint` text where every
-other brush renders a live stroke. The kernels are pure JVM
-(`WatercolorColorKernel`, `WatercolorWetKernel.paperRelief`), so a
-deterministic CPU wash — flat band with the model's rim darkening,
-granulation speckle from `paperRelief`, spread-softened edges — can render in
-`BrushPreview` and be pixel-pinned in tests. It is a settings preview, not a
-second live-paint oracle; approximations are fine as long as the four sliders
-visibly change it.
-
-### F-11 — Brush-spacing slider wastes its travel. [ready]
-
-The spacing slider maps linearly over 0.5 %–200 % of diameter
-(BrushSettingsSheet.kt:279–289); the useful painting range (2–20 %) occupies
-the first tenth of the track. Map through a square-root or log scale the way
-`BrushSizeScale` does for size; display value unchanged.
-
-### Confirmed still open from earlier passes
-
-U1 (layer-row fixed height at 200 % font), U7 (left ledge text clipping),
-U13 (focus-handle discoverability), U15a (FULL rail on short landscape),
-the New-painting-cell tint and shelf-card lift from the visual-direction
-backlog.
-
-## 4. UX and convenience
-
-### F-12 — Picking a hidden tool gives no visible confirmation (U15d confirmed). [PR]
-
-In GROUPED mode, Blur and Eyedropper live behind "⋯"; selecting one closes
-the menu and leaves "⋯" highlighted with no name shown
-(ToolRail.kt:576–604). The transient-readout surface pattern already exists
-(the zoom/rotation readout and history readout in CanvasScreen.kt). Show a
-one-second tool-name chip under the top strip on tool selection — at minimum
-for tools that have no visible rail slot. Closes the loop for every young
-user who taps "More".
-
-### F-13 — The painting's title appears nowhere on the canvas. [ready]
-
-Only the a11y `canvasDescription` carries it (ds.md 3.4, still true). The
-cheapest honest fix: include the title in the same transient chip family as
-F-12 when the canvas opens, and/or after rename. Immersion is by design, so
-nothing persistent.
-
-### F-14 — No "Clear painting" action (A16 confirmed). [ready]
-
-Clear Layer exists with confirmation (#105); clearing the whole painting
-still requires deleting layers one by one or scrubbing with the eraser.
-One overflow item + confirmation + one journaled document action.
-
-### F-15 — Overflow menu is one flat list of nine items.
-
-Share / Export PNG / Export JPEG / Focus / Rename / Tracing image / Guides /
-Settings / Help (TopStrip.kt:390–416). Not wrong, but the export pair could
-collapse into one "Export…" with a format chooser, making room as actions
-accrue (Clear painting, future layer export). [idea — do it when the next
-item lands, not before]
-
-### Confirmed still open
-
-U5 (Toasts everywhere on Canvas — counted 8+ `Toast.makeText` call sites in
-CanvasScreen alone; the one transient host remains the right consolidation),
-U6 (Settings navigates away from the painting), U8, U10, U11, U15c/e/f/h,
-U16c/d, D8's remaining input gaps (hue-milestone eyedropper haptic,
-two-finger-plus-pen size gesture).
-
-## 5. Missing features (unchanged priority, two adjustments)
-
-The A1–A16 backlog in ANALYSIS.md remains accurate. Two adjustments from this
-pass:
-
-- **A1 (custom brush library) got cheaper.** The brush editor already exposes
-  ~every `BrushPreset` field and persists per-preset tuning (`BrushTuning`);
-  `BrushPresetStore` accepts arbitrary ids. "Save as new brush" is now mostly
-  UI + id allocation + rail-budget behavior, not new machinery. It is the
-  single highest-leverage missing feature: today every tweak overwrites the
-  built-in's tuning, so a child cannot keep two versions of a pencil.
-- **A2 (symmetry) remains the top delight-per-effort item** and every seam
-  this pass touched (DabGenerator's one-batch emit loop, single journal
-  entry per stroke, guide overlays) still accommodates it.
-
-## 6. Exposing what already exists
-
-The brush editor is far more complete than the backlog implies — size,
-opacity, flow, hardness, spacing, tip shape/aspect, orientation, three
-pressure curves, tilt (size/opacity/elongate), velocity
-(size/opacity/threshold), jitter (size/position), stabilizer, grain,
-watercolor (load/spread/granulation/edge), pigment mixing, dilution, buffer
-mode are all in the sheet. What exists in the engine and still has **no UI**:
-
-- **F-16 — Chinese-ink dynamics are all constants.** `InkBrushDynamics`/
-  `InkBrushMask` hardcode ink capacity, bristle width, tuft weight, edge
-  drying, response length. Exposing even one — *ink capacity* ("how far a
-  stroke paints before fly-white") — as an Advanced slider on the calligraphy
-  preset would let artists choose lush vs. dry brushwork. Needs a
-  `BrushPreset` field (serializable, defaulted), plumbing into the dab's
-  wetness, no shader change (wetness is already per-dab). [ready, M]
-- **F-17 — `TipShape.Flat` + `TipOrientation` combinations** support a
-  credible flat/angled sketching pencil and a true chisel calligraphy pen
-  as pure JSON presets; the shipped set uses only some of the space. New
-  presets are one JSON file + name strings + glyph. A "Dotty pen"
-  (spacing ≈ 2.0, Max buffer, hardness 1 — a dotted line) is one such
-  zero-engine preset kids would love. [idea — presets are cheap but each
-  needs a glyph and a feel pass]
-- **F-18 — `RmwDabPreset` water parameters**: the Water tool sheet exposes
-  water amount + spread but the underlying behavior also carries granulation
-  and edge darkening (used by Watercolor). Deliberate simplification —
-  record it as such rather than exposing; a colourless tool cannot deposit
-  rims. [no change]
-
-## 7. New painting physics and brushes
-
-Ordered by physical plausibility inside the existing engine. The wet system
-(surface water + absorbed saturation per 4×4 cell, paper relief hash, pigment
-carried by flow) and the ink system (load depletion, lane masks, paper tooth)
-are genuinely simulation-shaped, so several classic techniques are within
-reach:
-
-- **F-19 — Blotting / lift-out ("dry tissue").** Real watercolorists lift wet
-  paint with a tissue to make clouds and highlights. Engine fit: a third
-  deposit mode beside `PIGMENT`/`CLEAR_WATER` in `WatercolorColorKernel` —
-  `LIFT`: where the dab lands, reduce surface water sharply and scale the
-  layer's premultiplied color toward transparent in proportion to how wet the
-  cell is (wet pigment lifts, dry pigment stays — physically right and
-  self-limiting). One enum value, one kernel branch + GLSL twin, a Water-tool
-  mode toggle. The most delightful cheap physics on the table. [idea →
-  proposal, M]
-- **F-20 — Salt scatter.** Salt on wet wash absorbs water locally and leaves
-  pale blooms. Engine fit: a stamp that seeds N random points in the dab
-  (jitter machinery exists), each point running the LIFT kernel of F-19 with
-  a small radius and a granulation-shaped falloff. Depends on F-19. [idea]
-- **F-21 — Finite ink / dip to reload.** `InkBrushDynamics.inkUse` resets
-  every stroke ("every stroke starts loaded"). An opt-in "ink economy" mode
-  would persist load across strokes and reload on a long-press of the color
-  chip (or a dip gesture in the mixing dish) — the calligraphy ritual, real
-  fly-white pacing, and a natural rhythm brake. Mechanically tiny (skip one
-  reset; add a reload call); entirely a product decision. [idea]
-- **F-22 — Rake / dry-lane brush.** The fly-white lane mask is the hard part
-  of a rake brush and it already exists. With F-16's `inkCapacity` exposed, a
-  "Rake" preset (ChineseInk model, tiny capacity, low flow) produces streaked
-  dry-brush lanes from the first dab — grass, hair, wood grain. JSON +
-  capacity field only. [ready once F-16 lands]
-- **F-23 — Paper dryness / climate.** Watercolor dry time is fixed
-  (24 s/unit). A global "paper" setting — Dry (12 s), Normal, Damp (48 s) —
-  scales the evaporation rate at sample time; because age is stored as ticks
-  and evaporation is computed lazily, a global multiplier applies cleanly to
-  existing wet texels. One setting + plumbed constant + GLSL twin. Wet-on-wet
-  painters get a slow-drying sheet; sketchers get fast-drying. [idea →
-  proposal, S-M]
-- **F-24 — Wax resist.** Crayon-then-wash resist needs a per-pixel resist
-  channel the premultiplied RGBA8 tile does not have. Same class as Magic
-  Ink (already recorded as proposal-or-decline). Record and stop. [likely
-  decline]
-- **F-25 — Tilt drip** stays the flagship motion-physics proposal (already in
-  ANALYSIS's delight list); nothing this pass changes its cost.
-
-## 8. Delight, novel, quirky
-
-- **F-26 — Studio empty-state drawing prompts ("Idea Spark").** Confirmed the
-  empty shelf is two gray sentences. ANALYSIS's delight list already endorses
-  a dismissible offline prompt; k3 6.3 sized it right (strings + picker, zero
-  engine risk). Both locales in the same change. [ready, S]
-- **F-27 — Ink-load meter.** While the calligraphy brush draws, a hair-thin
-  arc around the hover cursor showing remaining ink (`currentWetness`).
-  Charming, but it puts UI on the hot path — only worth it with F-21's ink
-  economy, and only if the cursor already redraws that frame. [idea]
-- **F-28 — Pen-up haptic tick** (default off), **ambient shelf wash**,
-  **mixing-dish drag-to-smear**, **edge resistance**: all still good, all
-  still in ANALYSIS's delight list, none contradicted by this pass.
-
-## 9. Aesthetics
-
-The eight-theme system (#141/#148/#150) is coherent: palette decisions live in
-`engine/core/ThemeColorPolicy`, screens use scheme roles, and the canvas void
-stays neutral per theme tone. Nothing this pass argues with. Still open from
-the visual-direction backlog: New-painting-cell `primaryContainer` tint, 1 dp
-shelf-art lift, F-8's dock corners, the one OFL display face for Studio
-headers. The launcher icon, hover ring, and focus-handle language all hold
-together.
-
-## 10. Deep-sweep findings (three targeted passes)
-
-Three focused sweeps — Studio/theme/settings UI, the GL rendering layer, and
-the data layer — ran alongside the main-line read. Items marked ✅ were
-re-verified in source by the main pass; others carry the sweep's own
-confidence and must be re-verified before code.
-
-### Studio, theme, settings (G-series)
-
-- **G-1 ✅ — The Layer panel header can squeeze out its own Close button.**
-  LayerPanel.kt:381–426 lays out unweighted title + count, a weighted
-  spacer, then FOUR 48 dp buttons (the #156 InfoButton made it four). Row
-  starves trailing children, so on ≤320 dp panels or at large font the
-  `PanelCloseButton` (#120's whole point) measures toward zero.
-  `PanelHeader` (PanelHeader.kt:38) already does it right — weight on the
-  title. [PR]
-- **G-2 ✅ — Studio card dialogs don't survive rotation.** `menuOpen`,
-  `confirmDelete`, `renaming`, `sharing`, `deleteGalleryToo` and the rename
-  draft are plain `remember` (StudioScreen.kt:446–449, 600); the screen's own
-  `showSettings`/`showNewCanvas` are `rememberSaveable`, so this is drift
-  from the app's own convention. A mid-rename rotation silently loses the
-  text. [PR]
-- **G-9 ✅ — Same for every (i) help popup** (InfoHelp.kt:35 `remember`) and
-  the canvas overflow's Help dialog (TopStrip.kt). One-word fixes. [PR, with
-  G-2]
-- **G-3 ✅ — `help_studio_body` promises a ⋮ that normal cards don't have.**
-  The MoreVert button exists only inside the unavailable-painting overlay
-  (StudioScreen.kt:527); available cards are long-press-only, which also
-  leaves keyboard users with no route to rename/duplicate/share/delete.
-  ANALYSIS's delight list already endorses "visible card overflow". [PR]
-- **G-4 — Cold start always paints the Saffron-light launch window**, so the
-  three dark themes flash cream on every launch (themes.xml pins
-  `windowBackground`; the ViewModel's tone is null until DataStore emits).
-  Fix needs a synchronously readable tone mirror. [ready, M]
-- **G-5 ✅ — zh-Hans names the tracing image three ways** (描图图像 in the
-  panel, 参考图 in Settings help, 描摹图 in the two #156 help bodies), plus a
-  stray space in `help_storage_body`. The gallery *suffix* 参考图 is a stored
-  MediaStore display-name component — leave it; unify the prose on the
-  panel's term. [PR]
-- **G-6 ✅ — The #156 help bodies are British English** ("colour", 24×) in an
-  otherwise American app ("Theme color"); `help_brush_paint_body` mixes both
-  in one paragraph. [PR, with G-5]
-- **G-7 — Shelf thumbnails letterbox onto the transparency checkerboard**, so
-  every non-4:3 painting appears to have a see-through border
-  (StudioScreen.kt:479–508). Constrain the checker to the artwork rect.
-  [ready, S]
-- **G-8 — Unavailable-painting ⋮ may be unreachable under TalkBack** through
-  `semantics(mergeDescendants=true){disabled()}`. Unverified: an IconButton
-  is its own merging node, so it likely survives; needs a semantics-tree
-  check, and G-3's visible ⋮ mostly moots it. [verify]
-- **G-10 ✅ — Only `appTheme` survives a DataStore IO failure.** Ten other
-  preference flows are bare `dataStore.data.map{}`; an `IOException`
-  reaches handler-less collectors and crashes. `PreferenceFlowRecovery`
-  exists and is used exactly once. [PR]
-- **G-11 — The eight-row Appearance section pushes every other setting below
-  the fold**, and nothing on the rows says the last three repaint the app
-  dark. A swatch FlowRow and/or Light/Dark sub-headings. [ready, S]
-- **G-12 — Canvas help is the ninth item of the ⋮ menu** — the least
-  discoverable placement for the screen with the least discoverable
-  gestures. [idea]
-- **G-13 — "New sketch" opens a dialog titled "New painting"** (zh: 新建草图
-  → 新画布); one noun per language would do. [PR, minimal title fix with
-  G-5/G-6]
-
-### GL rendering layer (GL-series)
-
-- **GL-1 — Every committed (non-stroke) frame composites the whole canvas,
-  not the visible rect.** `drawFrame` passes `fullCanvasRect` into
-  `compositeIntoAccum`, so pan/zoom redraw cost scales with canvas size and
-  paint coverage — up to ~256 quads per layer per frame on a worked 4096²
-  document, at gesture rate, directly against `CompositePass`'s own
-  bounded-by-output contract (which only the front-buffered path honors).
-  `visibleCanvasRect(screenTransform)` already exists one call above. One
-  trap: the tracing reference is deliberately not canvas-bounded, so it
-  needs its own viewport-derived rect rather than inheriting the culled one.
-  [PR — the session's big performance swing]
-- **GL-2 — A watercolor stroke leaves a 10 Hz full-scene redraw running for
-  48 s** regardless of actual water load (prune keys on the fixed
-  `MAX_DRY_NANOS`, not on the water actually written; light washes are
-  visually dry after ~12 s but redraw for 36 more). Track a per-tile upper
-  bound of written water at `writeWet` time and expire on it. GL-1 shrinks
-  each tick's cost; this shrinks the tail. [ready, M]
-- **GL-3 — The wet-overlay damage rect grows monotonically within a
-  gesture** (one AABB unioned per dab, cleared only when fully dry), so
-  late-stroke fade frames approach full-viewport size. Needs bucketed
-  per-tile damage, not a simple clear. [ready, M]
-- **GL-4 — `SmudgePass` shares one `FullRectQuad` across three draw sizes**,
-  re-uploading 30 floats per size alternation per dab into a buffer the
-  previous draw may still read (no orphaning) — the exact tiler stall
-  CompositePass documents and defends against. Give absorb/blur their own
-  quads. [PR]
-- **GL-5 — Between-frame GL entry points (`applyPixelOps`, thumbnail pumps,
-  overlay refresh) never invalidate the `GlState` shadow**; correctness
-  currently rests on `presentToWindow` happening to end scissor-off. The
-  sharpest latent case: `TileCopyPass` blits with no scissor call at all, and
-  a stale-enabled scissor would silently truncate a layer duplicate that
-  then persists. [ready, S — an `invalidate()` per entry point]
-- **GL-6 — `SandwichCache`'s stale flags can never clear on a
-  larger-than-viewport canvas** (they wait for the *whole grid* to be built),
-  so every frame re-walks visible keys through boxing `HashSet<Int>`
-  lookups — an `Integer` per visible tile per half per frame. A dense
-  `BooleanArray` fixes both. [PR]
-- **GL-7 — Assorted per-present allocations** not in the D6 table:
-  `Mat4.orthoYUp` array per present, `ScreenTransform.of`'s boxed `Pair` per
-  frame, an unconditional `FitTransform` per front frame, void-band
-  `IntRect`s/ArrayList per reference frame, two `IntRect`s per overlay draw.
-  [ready, S, batch]
-- **GL-8 — `CanvasRenderer.onContextLost()` has no caller** — the §12
-  recovery path is dead code, and three `forgetAll`s don't reset their
-  `GlFbo`s so it would misbehave even if wired. Needs a decision on who
-  detects context loss. [ready/verify, M]
-- **GL-9 — An eyedropper pick at radius 4 issues 81 synchronous 1×1
-  `glReadPixels`**, each a pipeline stall on the GL thread. One block read
-  (or one per touched tile) would be a single stall. [ready, S-M]
-- **GL-10 — `TilePool.clear` wipes the whole GlState shadow per fresh tile**
-  on the stroke path; it could update just the two fields it changes.
-  [ready, tiny]
-
-### Data layer (DL-series)
-
-- **DL-1 — The checkpoint's `.tmp` sweep races concurrent writers** (the
-  flusher's next job after the barrier; a tracing-reference import on
-  another dispatcher) and can delete their in-flight temp files — surfacing
-  as a spurious storage-full banner or a failed import. Sweep on `load`
-  only, or skip young files. [ready, S-M — verify the barrier window first]
-- **DL-2 ✅(fingerprint) — `ThumbnailWriteResult` is unwired.** `Thumbnails.
-  write` returns FAILED and promises the checkpoint keeps its retry flag;
-  the only call site discards the result, `finishCheckpoint` clears
-  `thumbDirty` unconditionally, and the dead import in CanvasViewModel is
-  the tell. A failed thumbnail is never retried until an unrelated edit.
-  [PR]
-- **DL-3 — A paint-slot DataStore read failure is indistinguishable from
-  first run**, and the defaults are then *written back over* the user's
-  saved rail arrangement. The exact hazard `PreferenceFlowRecovery` guards
-  `appTheme` against, with a persistent overwrite on top. [PR, with G-10]
-- **DL-4 — `appScope` has no `CoroutineExceptionHandler`**, and gallery
-  sync/share/export run flatten+encode+MediaStore work on it with no
-  containment; a `DISPLAY_NAME` conflict or bitmap failure kills the
-  process. [ready, S]
-- **DL-5 — `history/` is the one project directory never swept for `.tmp`**,
-  and a kill between an entry delete and its redo delete orphans `.redo`
-  files forever. Both bounded, both cheap to sweep at load. [PR]
-- **DL-6 — `GalleryExporter.delete` lacks `withdraw`'s URI containment**
-  (R-159's hardening), and a malformed stored URI aborts the whole
-  project-delete path before `store.delete` — the painting silently
-  survives. Contain it; the delete *ordering* stays R6's open question.
-  [ready, S]
-- **DL-7 — `TileFlusher.enqueue` after `closeAndJoin` throws into the
-  handler-less app scope** from two ungated call sites (layer edit racing a
-  fast back-navigation). One guard. [ready, S]
-- **DL-8 — `Thumbnails.write` re-reads and re-inflates every tile of every
-  visible layer at every pixel-dirty checkpoint, under the checkpoint
-  mutex** (~8 k reads / ~2 GiB inflate at the dense ceiling). Distinct from
-  R5/D6; wants dirty-tile tracking or the band flattener. [ready, M]
-- **DL-9 — A vanished/failed post-write gallery query manufactures the
-  legacy "0/0 = ours" tamper state**, permanently disabling §9.2's tamper
-  check for that row — the hole R-148 closed, reopened from the other side.
-  [ready, S]
-- **DL-10 — `committedReferenceName` re-reads and re-parses `project.json`
-  on every checkpoint** even for the majority of projects with no reference;
-  one `exists()` short-circuit. [ready, tiny]
-- **DL-11 — `GalleryNames` truncation can split a surrogate pair**, sending
-  an unpaired surrogate to MediaStore for long emoji/CJK titles. Two lines.
-  [PR]
-- **DL-12 — `TileFlusher.latestRevision` never prunes deleted layers'
-  keys.** Bounded (~1 MB worst case); free to fix alongside
-  `DeleteLayerDir`. [ready, tiny]
-
-## 11. Session plan
-
-Implemented this session, each on its own branch with its own PR, per the
-review-loop policy in docs/EXECUTION.md — ordered by impact, cut from the
-bottom if review latency bites:
-
-1. F-1 mouse-wheel/trackpad zoom at the cursor.
-2. F-8 dock top-corner rounding.
-3. F-2 transparent-paper quadrant checker.
-4. DL-2 wire the thumbnail-write retry.
-5. G-2+G-9 rotation-safe transient dialogs.
-6. G-1 Layer panel header weight fix.
-7. G-10+DL-3 preference-flow IO resilience.
-8. GL-4 SmudgePass per-size quads.
-9. GL-6 SandwichCache dense built-flags.
-10. GL-1 visible-rect culling for committed frames.
-11. DL-5 history tmp/redo sweep. + DL-11 surrogate-safe names.
-12. G-3 Studio card ⋮ for every card.
-13. G-5+G-6+G-13 help-string polish (zh terms, en spelling, dialog title).
-14. F-9 HSV marker halo. F-3 custom paper in the Layer panel.
-15. F-12 hidden-tool name chip. F-10 watercolor preview. F-26 idea sparks.
-
-Held back deliberately: F-16/F-22 (brush-feel changes without a device),
-F-19/F-20/F-23 (wet-kernel changes deserve a proposal doc + shader-twin
-review), A1/A2 (large), U5/U6 (architectural), GL-2/GL-3/GL-8, DL-1/DL-4/
-DL-6/DL-8/DL-9, G-4 — all real, all recorded above with their shapes, none
-safely landable in one session without measurement or a design pass.
+No open PRs at the start of this session. ANALYSIS.md's backlog is current as
+of `d4ea4a8`; the twenty commits since it are PRs #171–#173 plus DESKTOP.md.
+
+Local gate at `116fa79`: `./gradlew testDebugUnitTest lintDebug assembleDebug`
+passes clean in this sandbox. The device gate (D7) has still never run, and
+nothing below claims a measured device result.
 
 ---
 
-## Postscript (2026-08-30, end of session)
+## 1. Bugs and correctness
 
-Everything above is the review as written before implementation began, kept
-verbatim as the record. The session then landed items 1–13 of §11 as PRs
-#157–#170, all merged into `main` after per-PR review loops (scorecards in the
-session log; declines and refutations in REVIEW.md R-173–R-184). Items 14–15
-of the plan (F-9, F-3, F-12, F-10, F-26) were not reached. ANALYSIS.md was
-re-consolidated the same day: every finding above is either cleared as done
-there, carried forward under a backlog id, or recorded in its verified-clean
-notes — read ANALYSIS.md first; this file is history.
+### F-1 — A failed Gallery write publishes a truncated PNG, then orphans it forever. [PR]
+
+**This reopens ISSUES.md's "Considered, not fixed" item 2 with new evidence.**
+That entry declined the fix as "cosmetic and self-correcting". Both halves of
+that premise are false, and the code proves it:
+
+- *"the row briefly keeps the previous pixels"* — it does not.
+  `GalleryExporter.rewrite` opens the row with `openOutputStream(uri, "wt")`
+  (GalleryExporter.kt:241). `"wt"` truncates **on open**, so the previous
+  pixels are destroyed before the first byte is written.
+- *"the next sync rewrites them"* — it does not. The `finally` block
+  (GalleryExporter.kt:243-253) clears `IS_PENDING = 0` and sets
+  `DISPLAY_NAME` **even when the write threw**, so the truncated file becomes
+  immediately visible in the user's Gallery. The exception then propagates to
+  `sync()`, which catches `IOException` and returns `null`, so `project.json`
+  keeps its **old** `galleryModifiedAt`/`galleryBytes`. On the next sync
+  `probeRow` (GalleryExporter.kt:75-77) compares the row's now-truncated
+  size/date against those stale recorded values, finds a mismatch, and sets
+  `modifiedByOther = true` → `GallerySyncDecision.decide` returns `REINSERT`,
+  whose own KDoc reads: *"The URI is forgotten, the item stays as the user
+  left it, and a fresh item is inserted."*
+
+The app's tamper-protection — built to stop it overwriting another app's edit
+— therefore protects its **own** corrupted file from ever being repaired. Net
+user-visible result of one disk-full moment during a sync: a permanently
+corrupt image sitting in `Pictures/帮你Draw`, plus a clean duplicate beside it,
+with no error surfaced anywhere.
+
+`insert()` already does the right thing two functions below
+(GalleryExporter.kt:285-289: *"Never a ghost: a failed insert deletes its
+pending row"*); `rewrite()` was simply never given the equivalent guard.
+
+Fix: publish only on success — move the `IS_PENDING`/`DISPLAY_NAME` update out
+of `finally` onto the success path, leaving a failed write hidden and
+retryable.
+
+### F-2 — A MediaStore hiccup while browsing the shelf kills the app. [PR]
+
+`GalleryExporter.sync` catches only `SecurityException` and `IOException`
+(GalleryExporter.kt:125, 135, 144, 147). Its sibling `withdraw` catches
+`RuntimeException` generically for exactly this reason
+(GalleryExporter.kt:224-230, *"an unexpected provider failure is retryable,
+not a reason to orphan the row"*); `sync` never got the same treatment.
+
+`StudioViewModel` calls `exporter.sync(...)` at :353 and :407, both **outside**
+the `catch (e: Exception)` blocks at :349 and :402, on
+`viewModelScope.launch(Dispatchers.IO)`. An uncaught exception there reaches
+the default handler and terminates the process. `syncStale` runs from
+`refresh()` on every Studio open and every return from the Canvas, gated only
+on `gallerySync` (default `true`) and staleness — so any OEM MediaStore quirk
+crashes the app while the user is merely looking at their shelf.
+
+Note for whoever implements ANALYSIS R10: its stated remedy is "a handler on
+`appScope`", which **does not reach `viewModelScope`**. Implementing R10
+literally leaves this path open.
+
+Fix: broaden `sync`'s catch to match `withdraw`'s — one clause, protects every
+caller including the `appScope` one R10 covers.
+
+### F-3 — `AtomicFiles` uses one shared `.tmp` name with no lock, so two writers silently clobber each other. [PR]
+
+`AtomicFiles.write` derives its temp path solely from the target name
+(AtomicFiles.kt:44, `target.name + TMP_SUFFIX`) and takes no lock. Two
+concurrent writers of the same target interleave destructively:
+
+1. A opens `x.json.tmp`, writes its bytes.
+2. B opens **the same path** — `FileOutputStream` truncates — discarding A's
+   bytes, and writes its own.
+3. A `fsync`s (persisting **B's** content) and renames → **succeeds**, and
+   reports success to its caller.
+4. B renames → **fails**, `tmp` is gone, and logs a failure it did not have.
+
+So the writer whose data was thrown away is told it succeeded, and the writer
+whose data survived logs an error. Two reachable instances today:
+
+- **Brush presets.** `BrushPresetStore.save` is not `@Synchronized` — while
+  its sibling `PaletteStore` **is**, an established pattern in the same
+  package. Each slider release in `BrushSettingsSheet` spawns a fresh,
+  untracked `appScope.launch(Dispatchers.IO)` (CanvasViewModel.kt:1786-1793),
+  unlike every other repeatable async action in that file, which cancels or
+  tracks its predecessor. Dragging two sliders in quick succession is enough.
+- **`project.json`.** `ProjectStore.rename`, `updateGalleryFields` and
+  `updateReferenceGalleryFields` are three independent decode→modify→write
+  cycles on one file, launched from unrelated `StudioViewModel` coroutines.
+  Renaming a painting while the background stale-sync reaches that same
+  painting loses the rename — while telling the user it worked.
+
+Fix (staged): give the temp file a unique suffix so writers cannot truncate
+each other's in-flight file, and add `@Synchronized` to `BrushPresetStore`
+mirroring `PaletteStore`. Full per-project serialization of `ProjectStore`'s
+mutators belongs with R3's planned coordinator — and R3's text should be
+amended to name `rename()`, which it currently omits.
+
+### F-4 — Merge down silently clears the bottom layer's alpha lock. [ready, S]
+
+`LayerStack.mergeDown` resets the surviving layer's `alphaLock` to `false`
+(LayerStack.kt:255-261). Its own comment calls this out: *"alpha lock is the
+one prop a merge silently changes."* The panel's confirmation dialog is gated
+**only** on blend mode (LayerPanel.kt:261-271), and `layer_merge_body` only
+mentions blend modes, so nothing tells the user.
+
+A painter using alpha lock to protect a silhouette merges a layer down and
+their next stroke paints straight through the area that used to be protected.
+Undo restores the flag, so this is a workflow trap rather than data loss — the
+damage is whatever gets painted before they notice. The other four reset
+properties are harmless (`locked` is provably a no-op: `mergeDown` already
+refuses when either partner is locked, LayerStack.kt:251).
+
+Fix: include `below.props.alphaLock` in `needsConfirm` and give the dialog a
+sentence for it.
+
+### F-5 — Fill's "expand" reaches about twice its setting around a corner. [verify / idea]
+
+`FloodFill.expand` dilates in two separable passes: `spreadRow` writes into a
+`horizontal` buffer, then `spreadColumn` reads **that buffer** and grants a
+fresh `params.expand` budget (FloodFill.kt:185-252). Each leg is wall-checked
+independently, so a pixel reachable by ≤`expand` horizontal steps *and then*
+≤`expand` vertical steps is covered even when every wall-respecting path is
+longer than `expand`. Around a corner with a small gap — precisely the
+geometry `expand` exists to bridge — a fill can bleed past the joint into an
+adjacent region. The default is `expand = 2` (ToolKind.kt:119), so this is
+ordinary use, and the subsequent box-blur `antialias` pass makes the extra
+bleed read as a soft edge rather than an obvious artifact. The existing
+`expand crosses an antialias skirt but stops at a color wall` test is 1×6, so
+it structurally cannot catch a corner case.
+
+**Deliberately not implemented this session.** Separable row+column dilation
+with a square (L∞) structuring element is a defensible, conventional design,
+and the leak is a property of that choice interacting with per-leg wall
+checks. Replacing it with `expand` rounds of 1-px dilation bounds the geodesic
+reach exactly, but changes fill output for every existing user and multiplies
+the pass count by up to 8 at `MAX_EXPAND`. That is a product call plus a
+measurement on a 4096² canvas, not a confident drive-by fix. Recorded with the
+mechanism fully traced so the next session can decide rather than re-derive.
+
+### F-6 — `NewCanvasDefaultsPolicy`'s last fallback can select a disabled preset. [ready, tiny]
+
+`NewCanvasPolicy.kt:33-44` correctly keeps its first two fallbacks inside the
+`enabled` set, then ends with an unfiltered `indexed.first()`. If no preset
+were enabled the dialog would open with a greyed-out row selected. Very likely
+unreachable — `MemoryBudget.compute` clamps the GPU tile budget to a 256 MiB
+floor, under which `PHONE_SKETCH` always fits — so this is tidiness, not a
+live defect. `enabled.firstOrNull() ?: indexed.first()` costs nothing.
+
+---
+
+## 2. Performance
+
+### F-7 — The hottest GL upload in the engine has no buffer orphaning. [PR]
+
+`DabPass.uploadInstances` (DabPass.kt:254-260) writes per-dab instance data
+with a bare `glBufferSubData` into a live buffer. It is called inside
+`stamp()`'s per-tile loop (DabPass.kt:138-155) **immediately before**
+`glDrawArraysInstanced`, so each iteration writes into the range the previous
+iteration's draw may still be reading. `ensureInstanceCapacity`
+(DabPass.kt:264-288) only calls `glBufferData` while the capacity is *growing*,
+so once it stabilises — after the first stroke or two — this bare-subdata path
+is the permanent steady state, on every dab batch of every stroke.
+
+The codebase already knows this hazard by name and fixes it everywhere else.
+`CompositePass.kt:355-365` does orphan-then-subdata with the comment:
+*"Orphan the storage first. Writing into a range the previous page's
+glDrawArrays is still reading makes a tiler driver stall the CPU until the GPU
+catches up, instead of renaming the buffer — the classic per-frame hitch."*
+`SmudgePass.kt:34-40` cites the same rule as the reason for its own structure.
+`DabPass` is the one pass still missing it, and it is the one on the latency
+path the whole front-buffered architecture exists to protect.
+
+Distinct from ANALYSIS D9's `FullRectQuad` orphaning bullet: that one is
+scoped to a mid-stroke *resize*, and `FullRectQuad`'s steady state re-uploads
+nothing at all. This is a different object, hit on every dab.
+
+Fix: one `glBufferData(..., null, GL_STREAM_DRAW)` before the subdata, exactly
+as `CompositePass` does. Magnitude on real hardware is unmeasured (D7); the
+change is one line, matches the in-repo rule, and is strictly safer.
+
+### F-8 — Every MOVE, UP and hover sample pays a `getToolType()` JNI call that is thrown away. [PR]
+
+The record port made `tool` a mandatory argument of `PointerSample.set`, so
+`AndroidCanvasInput` now computes `toolOf(e.getToolType(...))` on **every**
+sample: AndroidCanvasInput.kt:140 (the historical-sample loop inside
+`ACTION_MOVE`), :158 (current MOVE), :174 (UP), :231 (HOVER_MOVE).
+
+Three of those four consumers discard it:
+`CanvasTouchHandler.onPointerMove` (:1102) forwards to `handleMove(...)` with
+no tool, `onPointerUp` (:1112) likewise, and `onHoverMove` (:1166) calls
+`stylus.onHoverMove(x, y, distance)`. Only `onPointerDown` (:1094, :1097) and
+`onHoverEnter` (:1162) read `sample.tool`.
+
+The pre-port code never called `getToolType` on any of those paths, so this is
+a **new** per-sample JNI cost introduced by the port, on exactly the path
+AGENTS.md's zero-allocation rule targets — worst in the historical loop, where
+a 240 Hz digitizer batches several samples into one frame.
+
+Fix: tool-less `set`/`setHover` overloads for the three call sites that do not
+need it; keep the full signature for DOWN and hover-enter.
+
+### F-9 — Every tool-settings slider republishes the whole Canvas state per drag frame. [PR]
+
+`RmwSettingsSheet` has **eleven** `onValueChangeFinished = {}` no-ops while
+`onValueChange` commits on every frame (e.g. :67-68 hardness, :91-92
+stabilizer, :106-107 strength, :114-115 pickup rate). `FillSettingsSheet`'s
+`FillSlider` passes no `onValueChangeFinished` at all. Each commit reaches
+`updateFillParams`/`updateSmudgeParams`/`updateWaterParams`/`updateBlurParams`
+(CanvasViewModel.kt:1269-1313), all of which call `updateToolUi()`
+(:752-766) — a full `UiState.Ready` copy and `StateFlow` emission — so
+`CanvasContent`, a ~2000-line composable, re-executes on every pointer-move
+sample of the drag.
+
+The Color panel's mixing-dish slider is a third instance, and an instructive
+one: it already debounces the **disk** write (`dishTJob`, 200 ms) but not the
+state republish, and the comment above it shows the team is aware of per-frame
+recomposition in that very file.
+
+Broader than the known U12, which covers only `BrushSettingsSheet`'s four
+pressure-curve knots. These sheets have no need for live intermediate values —
+`FillSettingsSheet`'s own header says changes "apply to the next touch".
+
+Fix: local preview state, commit on `onValueChangeFinished`. ~12 sites,
+3 files. U12's remaining knot sliders should ride the same change.
+
+### F-10 — Undo and redo mark every layer's thumbnail dirty, not just the ones that changed. [ready, S]
+
+The forward-edit path scopes thumbnail invalidation correctly, using
+`changedLayers(before, after)` plus the specific `changedKeys` a pixel op
+touched (CanvasViewModel.kt:2493-2497). The undo/redo path passes the **whole
+stack**: `pixelLayers = foldedStack.layers.map(Layer::id)`
+(CanvasViewModel.kt:2677-2681). One undo of a single stroke on a 16-layer
+document therefore queues up to 16 isolated-layer composites and PBO
+readbacks instead of one.
+
+A different axis from D6's `LayerThumbnailPass` row, which is about how much
+of *one* layer is recomposited — fixing that alone would not help, because the
+ViewModel is still declaring all sixteen dirty. The `restores` list already in
+scope at :2624 names exactly which layers received pixels.
+
+---
+
+## 3. UI, layout, and visual polish
+
+### F-11 — The layer row's blend-mode caption clips instead of ellipsizing. [PR]
+
+`LayerPanel.kt:601-606` sets `maxLines = 1` with **no** `overflow`, and
+Compose's default is `TextOverflow.Clip`. The layer-name `Text` directly above
+it (:595-600) correctly sets `overflow = TextOverflow.Ellipsis`, and
+`StudioScreen.kt:541-547` does too, so this is a local omission rather than
+house style. At 200 % font, or with a longer localized blend-mode name, the
+caption hard-clips mid-glyph. One argument.
+
+### F-12 — The two transient readout chips are two different designs. [ready, tiny]
+
+The history/undo-depth readout uses `inverseSurface` + `shapes.large` + no
+elevation (CanvasScreen.kt:1296-1299); the zoom/rotation readout uses
+`surfaceContainerHigh` + `shapes.medium` + `tonalElevation = 3.dp`
+(:1347-1350). Same role, same position, adjacent in time (a two-finger
+tap-undo right after a navigation gesture shows both), two visual languages.
+U15d proposes a third chip of this family for tool names, so settling one
+shared surface now is worth more than the tidiness alone. The `inverseSurface`
+treatment reads better over arbitrary artwork.
+
+---
+
+## 4. Localization (zh-Hans)
+
+All four are real terminology defects rather than style preferences, and all
+four are in one file. Together they are one small string pass. [PR]
+
+### F-13 — "Stylus" is translated two different ways.
+
+手写笔 in `settings_stylus_only` (:334) and `brush_tip_stylus` (:202); 触控笔
+in `help_drawing_body` (:383, twice) and `help_brush_tip_body` (:392). English
+uses one word throughout. A user reading the help for the setting they are
+looking at meets a different word for the same device. Standardise on 触控笔 —
+already the majority usage here and the more common generic term in Chinese
+Android UIs.
+
+### F-14 — Help headings drift from the labels they explain, twice onto another feature's term.
+
+English reuses each control's own label as its help heading, so the reader can
+map help text back to the control. Chinese substitutes a different word in
+several places, and twice the substitute is **already the correct translation
+of an unrelated setting**:
+
+- `brush_grain` is 纸张纹理 (:223), but its help paragraph opens 颗粒 (:394) —
+  which is `water_granulation` (:137). The help for "Paper grain" reads as if
+  it describes "Granulation".
+- `fill_reference` is 参考 (:147), but its help line says 取样 (:395) — which
+  is `eyedropper_sample` (:232), a different tool entirely.
+- Milder: `brush_size` 大小 (:189) vs help 尺寸 (:391);
+  `settings_snap_right_angles` 旋转吸附到直角 (:345) vs help 对齐直角 (:383).
+
+### F-15 — 叠加 is used for both the Overlay blend mode and the brush buffer mode.
+
+叠加 is the correct, expected rendering of the **Overlay** blend mode
+(`blend_overlay`, :289). It is reused for the unrelated `brush_buffer_mode`
+(:224) and `brush_buffer_accumulate` 逐渐叠加 (:226). A user who learned
+"叠加 = Overlay" in the Layer panel meets it in Brush Settings meaning whether
+repeated dabs keep darkening. Free the word for the blend mode; 叠色 /
+逐渐加深 reads more accurately anyway, since the effect is darkening.
+
+### F-16 — `settings_pen_button_none` is wordy.
+
+不执行操作 against siblings 橡皮擦 / 吸管. 无操作 is the idiomatic, length-matched
+form.
+
+---
+
+## 5. Build, CI, and the desktop port
+
+### F-17 — CI never builds the configuration that actually ships. [PR]
+
+`ci.yml:49` runs `testDebugUnitTest lintDebug assembleDebug` — debug,
+**unminified**. `ci.yml:62` runs `-Pbangnidraw.mixbox=false assembleRelease` —
+minified but **Mixbox-stripped**. The combination `release.yml` and
+`scripts/release.sh` actually publish — Mixbox-enabled **and** R8-minified — is
+never built until a `v*` tag is pushed.
+
+AGENTS.md names this exact failure mode: *"'Works in debug, breaks in release'
+is almost always a missing R8 keep rule for a new reflection/serialization
+entry point."* The risk is at its highest right now: `:engine-core` and
+`:engine-gl` became separate Gradle modules three PRs ago, so R8 traverses a
+module boundary that did not exist when `proguard-rules.pro`'s keep rule was
+written. (The rule is package-prefixed and still matches both modules — checked
+— but that is exactly the fact a refactor can silently break.)
+
+Fix: one more `ci.yml` step, `./gradlew assembleRelease` with default
+properties, mirroring the shape of the stripped step already there.
+
+### F-18 — The desktop GLES30 actual hands LWJGL heap buffers, which cannot work. [ready, M — desktop-blocking, zero user impact today]
+
+`engine-gl/src/desktopMain/.../platform/GLES30.kt` bridges Android's
+`(count, array, offset)` overloads to LWJGL's buffer-only API with
+`IntBuffer.wrap` / `FloatBuffer.wrap` at twelve call sites (:177, :180, :189,
+:192, :228, :231, :234, :237, :242, :248, :256, :374). Its own KDoc (:17)
+documents this as the design.
+
+`*Buffer.wrap()` is **always** heap-backed — unconditional JDK contract.
+LWJGL's generated bindings extract a raw pointer via
+`MemoryUtil.memAddress(buffer)`, which for a non-direct buffer does not throw:
+it returns a small offset-derived integer. Verified empirically against the
+pinned `lwjgl 3.4.3`: a heap `IntBuffer.wrap` yields `memAddress = 16`, a
+direct buffer yields a real ~48-bit address. `0x10` is in the unmapped zero
+page, so the driver faults the moment it writes the out-parameter.
+
+This is hit by ordinary startup — `glGetIntegerv` in `GlCaps`, `glGenTextures`
+in `TilePool`, `glGenFramebuffers` in `GlFbo`, `glGetProgramiv`/`glGetShaderiv`
+in `GlProgram` — and by the `Buffer`-passthrough entries used on the reopen
+path, which **R-043 deliberately allows to be heap buffers** because Android's
+JNI glue tolerates them via `GetPrimitiveArrayCritical`. LWJGL has no such
+fallback.
+
+No user impact today: no desktop shell exists (DESKTOP.md Phase 2 is
+unlanded), and Android is untouched. But it means DESKTOP.md's "thin one-line
+delegation" premise is wrong for about twelve of the sixty-four entries, and
+the facade as built cannot start the engine it was extracted to enable.
+
+Fix: `MemoryStack.stackPush()` direct buffers for the array entries (the `n`
+is always tiny), and a staging direct buffer in the seam for the
+`Buffer`-passthrough entries, since R-043 commits the shared engine to
+accepting heap buffers. Not implemented this session: it cannot be verified in
+CI without a desktop GL context, and shipping an unverifiable rewrite of
+twelve GL entry points is worse than recording it precisely.
+
+### F-19 — Adjacent gaps around the same seam. [ready, tiny each]
+
+- The no-Mixbox build is verified for Android only; the desktop target's
+  `nomixbox` flavour is never compiled or tested, and no `nomixboxTest`
+  directory exists. Given Mixbox is CC BY-NC 4.0 (ADR 0003) — the whole reason
+  the stripped variant exists — a permissive desktop build is a plausible real
+  combination. One extra CI invocation:
+  `-Pbangnidraw.mixbox=false :engine-gl:desktopTest`.
+- Neither `:engine-core` nor `:engine-gl` is covered by any lint task; the
+  unqualified `lintDebug` finds none, and those KMP modules register only
+  publish-lint-jar tasks. Since #173 the `input/` package — real stylus
+  handling — lives in `engine-core`, now unlinted. Worth confirming whether
+  AGP's KMP lint wiring exists yet; if it genuinely does not, that belongs in
+  AGENTS.md's "don't fix these" list rather than being rediscovered.
+- `PlatformImportBanContractTest`'s `QUALIFIED_ANDROID` regex requires a
+  lowercase segment after `android.`, so `android.R.*` and `android.Manifest.*`
+  slip through; `isComment()` treats `/* x */ code` as fully commented. Both
+  are the same "front-runs the compiler" character as the declined R-034, so
+  this is optional polish — the desktop compiler is still the hard gate.
+- `ClasspathEngineAssets` (desktop) has no tests at all, despite having
+  shipped a real alpha-channel bug one commit ago (`f7b5d82`). `MixboxLutTest`
+  reads the PNG directly via `ImageIO`, bypassing the decode path that had the
+  bug.
+
+---
+
+## 6. Product gaps and journeys
+
+### F-20 — The brush-preset picker is thirteen unlabelled text chips in one scrolling row. [ready, S]
+
+`BrushSettingsSheet.kt:91` puts every same-erase-mode preset into one flat
+list and :167-186 renders them as plain-text `FilterChip`s in a single
+`horizontalScroll`, with no icons, no grouping, and no cue that more exist
+off-screen. This is the only in-flow way to reach the specialty presets beyond
+the five on the rail. `ToolGlyphs` already resolves a per-preset icon from the
+stored `BrushPreset.icon` key — the chip row simply never calls it.
+
+Distinct from U15d, which is about non-paint tools hidden behind rail
+overflow; this is the paint-preset switcher itself. Fix: `leadingIcon` from
+the existing glyph resolution, and split core from specialty.
+
+### F-21 — The Studio shelf has no search, sort, or filter. [idea, M]
+
+`ProjectStore.list()` is hard-ordered newest-first (:672-674) with no query,
+and `StudioScreen` renders it straight through. For the "quick sketch on the
+train" persona accumulating small sketches over weeks, the only way to find an
+older painting is to scroll and read thumbnails. Different from the known U11
+(duplicate titles) and from the Delight backlog's "Favorites and collections",
+which is about starring rather than finding. Smallest useful version: a
+title-substring filter applied client-side, no persistence change.
+
+### F-22 — No numeric entry for brush size or opacity. [ready, S]
+
+Every tool parameter is slider-only with a display-only value label
+(BrushSettingsSheet.kt:225-238); there is no way to type an exact size to
+match a previous stroke. The app already ships the exact pattern needed —
+`NewCanvasDialog`'s `DimensionField` is an `OutlinedTextField` with a numeric
+keyboard (:410-470). Tap or long-press the value label to swap in that field,
+committing on IME action; the drag interaction is untouched.
+
+### F-23 — No canvas rotation lock. [idea, S]
+
+Two-finger navigation always composes rotation (`CanvasTouchHandler.kt`
+:709-742); the snap-right-angles preference changes only which angle is
+settled on, not whether rotation happens at all. A slightly twisted pinch
+always rotates the paper. `docs/plan/01-product.md` §6 benchmarks the rail and
+gesture feel against Procreate, which has an explicit rotation lock. One more
+`SwitchRow` beside "Snap right angles" and a guard in `applyNavigation` — no
+new gesture, which is what that document refuses to add.
+
+---
+
+## 7. Delight
+
+### F-24 — Long-press "+" to create instantly with the remembered size and paper. [ready, tiny]
+
+`NewCanvasDialog` already persists the last custom size and paper colour
+across sessions (:92-93, :105-131) so reopening starts where the user left
+off, yet a repeat sketcher must still open the dialog and tap Create every
+time. `NewPaintingCell` (StudioScreen.kt:399-403) is a plain `.clickable`;
+`ResetViewPill.kt:72-77` already demonstrates the `combinedClickable`
+tap-plus-long-press pattern. Long-press skips straight to
+`onCreate(lastSize, lastPaper)`. Purely additive — the tap default is
+untouched, so it costs a first-time user nothing.
+
+### F-25 — A haptic tick as the mixing dish crosses 50 %. [idea, tiny — speculative]
+
+The colour ring already ticks at hue detents via `HueMilestone.crossed`
+(ColorPanel.kt:297, :316) and D8 proposes reusing it for the eyedropper drag.
+The dish slider — the control for the app's signature pigment feature — has no
+haptic at all. Flagged speculative on purpose: unlike a pigment-wheel spoke,
+"50 % of a linear mix" is not obviously a landmark worth feeling. Only worth
+doing alongside another reason to touch that function.
+
+---
+
+## 8. Checked this pass and found clean
+
+Recorded so the next session does not re-derive them, and because two of these
+refute hypotheses this review started with.
+
+- **Bottom-anchored Canvas overlays clear the dock and ledge correctly.** This
+  pass began suspecting the storage-full banner had the same defect the fill
+  progress card once had. It does not, and cannot: `CanvasOverlayClearance`
+  (engine-core, :11-15) yields DOCK 120 dp / SHORT 64 dp / else 16 dp, and the
+  banner, the reset pill and the fill card are siblings in **one** `Column`
+  under a single shared `padding(bottom = overlayBottomPadding)`
+  (CanvasScreen.kt:1367-1434), so they cannot drift apart. Both clearance
+  constants decompose exactly into control height plus one 16 dp gap. The
+  history and view readouts are top-anchored, so the concern does not apply to
+  them at all.
+- **R-042's decline (attach-before-events scheduler contract) is correct.**
+  Re-traced independently: `frameScheduler` is assigned in exactly one place
+  (`AndroidCanvasInput.init`), the adapter is constructed in exactly one place
+  (CanvasSurface.kt:89-91) **outside** `key(canvas)`, and a new handler always
+  arrives paired with a new adapter. Composition resolves before
+  `AndroidView`'s update, so the assignment always precedes any dispatch.
+- **The record port preserved input fidelity.** A line-by-line diff of the
+  pre-port `onTouch`/`onHover`/`onGenericMotion`/`fill` against the current
+  adapter confirms pressure, tilt, orientation, hover distance, scroll ticks,
+  button state, `FLAG_CANCELED` handling and the historical-then-current
+  ordering are all preserved. The predicted tail's array order matches the
+  deleted `fill()` exactly.
+- **Engine-core's document, history and blend maths hold.** Merge/flatten
+  undo-redo tile-set arithmetic (including the opacity-widening path), the
+  eight blend formulas against `docs/plan/05-layers.md` §4, `MemoryBudget`'s
+  saturating arithmetic, `HistoryJournal`'s prune and byte accounting across
+  repeat undo/redo, and `SandwichPolicy.stale`'s per-operation table were all
+  re-derived by hand and found correct.
+- **CPU/GLSL twins match.** `StrokeMerge` vs `mergeStroke`, the watercolor
+  colour/wet/overlay kernels vs their shaders, and `InkBrushMask` vs
+  `dab.frag`'s `inkBrushMask` match constant-for-constant. R-055's deferred
+  elliptical-feather asymmetry **has since been fixed** — both sides now use
+  an `fwidth`/analytic-gradient feather — which matters because seven shipped
+  presets now use `TipShape.Flat`, making R-055's old "unreachable today"
+  caveat stale.
+- **The module extraction itself is clean.** No leftover `engine/gl`,
+  `engine/core` or `mixbox` directories under `app/src/main`; no stray
+  `android.opengl.GLES30` imports in `:app`; all 64 facade constants match 1:1
+  across facade and both actuals; `engine-core`'s widened members are
+  minimum-necessary and compiler-driven; all three modules pin JDK 17.
+- **The tripwires added in #173 are weaker than their comments claim.** The
+  frame-callback cache bound asserts inside `AndroidCanvasInput`
+  (:60-63) and its comment says *"the JVM suite fails loudly"* — but no test
+  anywhere references `AndroidCanvasInput` or `Choreographer`, there is no
+  Robolectric (R-037 declined adding it), and Kotlin's `assert()` is a no-op
+  on Android by default. The claimed net exists on neither side. The sibling
+  predictor tripwire *is* meaningfully covered, because its caller is pure JVM
+  and the test fake mirrors the check. Fix the comment, or extract a
+  platform-agnostic bounded cache a JVM test can drive. Related: the
+  `frameScheduler` swap-cancel branch has no test exercising an actual swap —
+  every test assigns once, to a fresh handler. That branch is pure JVM and
+  `QueuedFrameScheduler` already exists, so it is testable today. [ready, tiny]
+
+---
+
+## 9. Implemented this session
+
+Ordered as worked. Each is its own branch and PR, reviewed to steady state
+under `CLAUDE.md`'s rules before merging.
+
+| Item | Branch | What lands |
+| --- | --- | --- |
+| F-1, F-2 | `fable/gallery-write-integrity` | A failed Gallery write stays hidden and retryable instead of publishing a truncated image; `sync` contains provider faults like `withdraw` already does. |
+| F-3 | `fable/atomic-write-races` | Unique temp names so concurrent writers cannot truncate each other; `BrushPresetStore` serialised like `PaletteStore`. |
+| F-7 | `fable/dab-buffer-orphan` | `DabPass` orphans before uploading, matching `CompositePass`'s documented rule. |
+| F-8 | `fable/pointer-sample-tool` | Tool-less sample overloads for the paths that discard it. |
+| F-9, F-11 | `fable/settings-slider-commit` | Tool sliders commit on release; the layer caption ellipsizes. |
+| F-13–F-16 | `fable/zh-hans-terminology` | One terminology pass over the Chinese strings. |
+| F-17 | `fable/ci-release-build` | CI builds the configuration that actually ships. |
+| ANALYSIS follow-ups 1–5 | `fable/contract-test-hygiene` | The five deferred source-contract test fixes, all re-verified against current code. |
+
+Not implemented, and why: **F-5** (Fill expand) is a behaviour change needing a
+product call and a 4096² measurement; **F-18** (desktop buffers) cannot be
+verified without a desktop GL context, and an unverifiable rewrite of twelve
+GL entry points is worse than a precise record. Both are written up above in
+enough detail to be picked up cold.

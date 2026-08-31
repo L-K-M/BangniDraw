@@ -59,13 +59,12 @@ internal fun SmudgeSettingsSheet(
         }
 
         SettingsGroup(stringResource(R.string.brush_group_tip))
-        SettingSlider(
+        DeferredSettingSlider(
             label = stringResource(R.string.brush_hardness),
             value = active.hardness,
-            valueText = percent(active.hardness),
+            valueText = percent,
             range = UNIT_RANGE,
-            onValueChange = { onChanged(active.copy(hardness = it)) },
-            onValueChangeFinished = {},
+            onCommit = { onChanged(active.copy(hardness = it)) },
         )
         ToolSpacingSlider(active.spacing) {
             onChanged(active.copy(spacing = it))
@@ -83,13 +82,12 @@ internal fun SmudgeSettingsSheet(
         // of the slider label, but the divider stays so it reads as one.
         Spacer(Modifier.height(GROUP_GAP))
         HorizontalDivider()
-        SettingSlider(
+        DeferredSettingSlider(
             label = stringResource(R.string.brush_stabilizer),
             value = active.stabilizer,
-            valueText = percent(active.stabilizer),
+            valueText = percent,
             range = UNIT_RANGE,
-            onValueChange = { onChanged(active.copy(stabilizer = it)) },
-            onValueChangeFinished = {},
+            onCommit = { onChanged(active.copy(stabilizer = it)) },
         )
 
         SettingsGroup(stringResource(R.string.brush_group_mixing))
@@ -98,21 +96,19 @@ internal fun SmudgeSettingsSheet(
             value = if (active.mixing) ToggleValue.On else ToggleValue.Off,
             onChanged = { onChanged(active.copy(mixing = it.enabled)) },
         )
-        SettingSlider(
+        DeferredSettingSlider(
             label = stringResource(R.string.smudge_strength),
             value = active.strength,
-            valueText = percent(active.strength),
+            valueText = percent,
             range = UNIT_RANGE,
-            onValueChange = { onChanged(active.copy(strength = it)) },
-            onValueChangeFinished = {},
+            onCommit = { onChanged(active.copy(strength = it)) },
         )
-        SettingSlider(
+        DeferredSettingSlider(
             label = stringResource(R.string.smudge_pickup),
             value = active.pickupRate,
-            valueText = percent(active.pickupRate),
+            valueText = percent,
             range = UNIT_RANGE,
-            onValueChange = { onChanged(active.copy(pickupRate = it)) },
-            onValueChangeFinished = {},
+            onCommit = { onChanged(active.copy(pickupRate = it)) },
         )
     }
 }
@@ -136,21 +132,19 @@ internal fun WaterSettingsSheet(
         ToolSizeSlider(active.size, active.sizeMin, active.sizeMax) {
             onChanged(active.withSize(it))
         }
-        SettingSlider(
+        DeferredSettingSlider(
             label = stringResource(R.string.water_amount),
             value = active.waterLoad,
-            valueText = percent(active.waterLoad),
+            valueText = percent,
             range = UNIT_RANGE,
-            onValueChange = { onChanged(active.withWaterLoad(it)) },
-            onValueChangeFinished = {},
+            onCommit = { onChanged(active.withWaterLoad(it)) },
         )
-        SettingSlider(
+        DeferredSettingSlider(
             label = stringResource(R.string.water_spread),
             value = active.spread,
-            valueText = percent(active.spread),
+            valueText = percent,
             range = UNIT_RANGE,
-            onValueChange = { onChanged(active.copy(spread = it)) },
-            onValueChangeFinished = {},
+            onCommit = { onChanged(active.copy(spread = it)) },
         )
     }
 }
@@ -173,21 +167,19 @@ internal fun BlurSettingsSheet(
         ToolSizeSlider(active.size, active.sizeMin, active.sizeMax) {
             onChanged(active.copy(size = it))
         }
-        SettingSlider(
+        DeferredSettingSlider(
             label = stringResource(R.string.smudge_strength),
             value = active.strength,
-            valueText = percent(active.strength),
+            valueText = percent,
             range = UNIT_RANGE,
-            onValueChange = { onChanged(active.copy(strength = it)) },
-            onValueChangeFinished = {},
+            onCommit = { onChanged(active.copy(strength = it)) },
         )
-        SettingSlider(
+        DeferredSettingSlider(
             label = stringResource(R.string.blur_radius),
             value = active.radiusFraction,
-            valueText = percent(active.radiusFraction),
+            valueText = percent,
             range = UNIT_RANGE,
-            onValueChange = { onChanged(active.copy(radiusFraction = it)) },
-            onValueChangeFinished = {},
+            onCommit = { onChanged(active.copy(radiusFraction = it)) },
         )
 
         SettingsGroup(stringResource(R.string.brush_group_tip))
@@ -233,14 +225,13 @@ internal fun EyedropperSettingsSheet(
                 label = { Text(stringResource(R.string.fill_reference_current)) },
             )
         }
-        SettingSlider(
+        DeferredSettingSlider(
             label = stringResource(R.string.eyedropper_radius),
             value = active.radius.toFloat(),
-            valueText = active.radius.toString(),
+            valueText = { it.roundToInt().toString() },
             range = 0f..EyedropperParams.MAX_RADIUS.toFloat(),
             steps = EyedropperParams.MAX_RADIUS - 1,
-            onValueChange = { onChanged(active.copy(radius = it.roundToInt())) },
-            onValueChangeFinished = {},
+            onCommit = { onChanged(active.copy(radius = it.roundToInt())) },
         )
     }
 }
@@ -277,29 +268,26 @@ private fun ToolSizeSlider(
     sizeMax: Float,
     onChanged: (Float) -> Unit,
 ) {
-    SettingSlider(
+    DeferredSettingSlider(
         label = stringResource(R.string.brush_size),
         value = BrushSizeScale.fraction(size, sizeMin, sizeMax),
-        valueText = stringResource(R.string.brush_value_px, size),
+        valueText = {
+            stringResource(R.string.brush_value_px, BrushSizeScale.size(it, sizeMin, sizeMax))
+        },
         range = UNIT_RANGE,
-        onValueChange = { onChanged(BrushSizeScale.size(it, sizeMin, sizeMax)) },
-        onValueChangeFinished = {},
+        onCommit = { onChanged(BrushSizeScale.size(it, sizeMin, sizeMax)) },
     )
 }
 
 @Composable
 private fun ToolSpacingSlider(spacing: Float, onChanged: (Float) -> Unit) {
-    SettingSlider(
+    DeferredSettingSlider(
         label = stringResource(R.string.brush_spacing),
         value = spacing / DIAMETER_TO_RADIUS,
-        valueText = stringResource(
-            R.string.brush_value_percent,
-            spacing / DIAMETER_TO_RADIUS * PERCENT,
-        ),
+        valueText = { stringResource(R.string.brush_value_percent, it * PERCENT) },
         range = BrushPreset.MIN_SPACING / DIAMETER_TO_RADIUS..
             BrushPreset.MAX_SPACING / DIAMETER_TO_RADIUS,
-        onValueChange = { onChanged(it * DIAMETER_TO_RADIUS) },
-        onValueChangeFinished = {},
+        onCommit = { onChanged(it * DIAMETER_TO_RADIUS) },
     )
 }
 

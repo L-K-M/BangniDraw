@@ -56,6 +56,25 @@ internal object ContractTestSources {
     /** Visible for its own test; [readCompact] is the entry point. */
     fun compact(source: String): String = canonicalize(source).replace(" ", "")
 
+    /**
+     * Comments removed, string literals kept.
+     *
+     * A test that *counts* needles has to strip comments, or a documentation
+     * edit inside the scanned window shifts a count and fails with a message
+     * about production code. But a stripper that also ate `//` inside a string
+     * literal — a URL, a regex, a path — would delete real code from the
+     * compacted source and fail with a message about a missing marker. Both
+     * failures point debugging at the wrong layer, which is the thing these
+     * tests exist to avoid, so the pattern matches a string literal first and
+     * returns it verbatim.
+     *
+     * Known limits, inert for every needle here: a raw triple-quoted string is
+     * not recognized as one literal, and Kotlin's nested block comments strip
+     * only as far as the first closing delimiter.
+     */
+    fun stripComments(source: String): String =
+        COMMENT_OR_STRING.replace(source) { it.groupValues[1].ifEmpty { " " } }
+
     /** Visible for its own test; the two readers above are the entry points. */
     fun canonicalize(source: String): String = source
         .replace(WHITESPACE, " ")
@@ -76,6 +95,10 @@ internal object ContractTestSources {
     private const val USER_DIRECTORY_PROPERTY = "user.dir"
     private const val ROOT_MARKER = "settings.gradle.kts"
     private const val APP_DIRECTORY = "app/src/main"
+    // Group 1 is a string literal, matched first so a `//` inside one is
+    // never read as the start of a comment.
+    private val COMMENT_OR_STRING =
+        Regex("""("[^"\n]*")|//[^\n]*|/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
     private val WHITESPACE = Regex("\\s+")
     private val AFTER_OPEN_PAREN = Regex("\\(\\s+")
     private val BEFORE_CLOSE_PAREN = Regex("\\s+\\)")

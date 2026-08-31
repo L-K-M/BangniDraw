@@ -2524,20 +2524,185 @@ touchscreen hover too, not only a pen.
   hypothetical. The attach-before-events contract is now stated at the
   setter.
 
-- **R-043 ⏸️ (refuted) PR #174 round 3: "actions/upload-artifact@v7 does
-  not exist."** The pin predates this PR (the whole repo uses the v7/v5
-  action set — checkout@v7, setup-java@v5) and the step passes on every CI
-  run, including this PR's (run 33376923717, "Upload debug APK":
-  success). The reviewer's action-version knowledge is stale for this
-  timeline; no change.
+## PR #175 — never publish a Gallery image a failed write truncated (2026-08-31)
 
-- **R-043 ⏸️ (round 4 addendum):** The round-4 rebuttal ("a green step
-  cannot validate a nonexistent tag; latest majors are v4/v5") is checked
-  against the primary source: `gh api repos/actions/upload-artifact/git/
-  matching-refs/tags/v` returns `refs/tags/v7`, `v7.0.0`, `v7.0.1`, and
-  `repos/actions/checkout` likewise carries `refs/tags/v7` (queried
-  2026-08-31). The pins resolve; the reviewer's version table predates
-  these releases. Still no change.
+- **R-199 ✅ (applied) round 1: the success-path publish sat outside the
+  guard.** A provider fault on the `IS_PENDING = 0` update left the row
+  pending with *complete* pixels, which strands under `REINSERT` exactly like
+  a truncated one. Truncate-write-publish is now one guarded transaction:
+  either the row is published or it is gone. The `IS_PENDING = 1` claim stays
+  deliberately **outside** that guard — a claim that throws leaves the row
+  published and intact, so there is nothing to discard, and moving it inside
+  would delete a healthy image whenever the claim update happened to fail.
+  (Wording corrected in round 5, which caught this summary describing a shape
+  the code does not have; in a repo whose comments warn against load-bearing
+  simplification, an inaccurate summary is how the simplification gets made.)
+- **R-200 ✅ (applied) round 1: `insert`'s cleanup delete was bare** while the
+  comment and the AGENTS.md rule this PR added both directed guarding it.
+  Both writers now discard through a shared `discardRow(uri, what)`.
+- **R-201 ✅ (applied) round 2: the ordering pin asserted only
+  `publish < guard`.** Correct — that allowed a publish hoisted *above* the
+  write, republishing the row before `"wt"` truncates it. Mutation-checked:
+  the hoist passed the old pin and fails the new `write < publish`.
+- **R-202 ✅ (applied) round 2: the ISSUES.md supersede note recorded one
+  half of the fix.** The guarded delete and the publish's placement inside
+  the guard are both load-bearing and both the kind a later reader would
+  "simplify" away while believing they honored the documented fix.
+- **R-203 ✅ (applied, with a different remedy) round 3, Major: `outcomeOf`
+  ran outside the guarded region.** The best catch of this PR's review. The
+  post-publish baseline query turned a completely successful export into a
+  failure: the throw left `rewrite`/`insert`, `sync` returned null,
+  `project.json` kept the *pre-write* size and date, and the next `probeRow`
+  read that mismatch as another app's edit — REINSERT, a duplicate item, and
+  the row just written orphaned permanently, from one flaky metadata read.
+  Fixed **differently from the suggestion**, deliberately: the suggested
+  remedy deletes the published row, which throws away a correct image to
+  protect a number the design already declares optional. `outcomeOf` already
+  degraded to 0/0 on a null cursor, `probeRow` documents 0/0 as "unknown …
+  treated as ours", and `GallerySyncDecision.decide` turns that into REWRITE
+  — so a throw now degrades to exactly what a null cursor did, and the next
+  sync rewrites the row in place. Same defect closed, no deletion.
+- **R-204 ✅ (applied) round 3: `insert` caught `Exception` where `rewrite`
+  catches `Throwable`.** The realistic `Error` on that path is an
+  `OutOfMemoryError` during the PNG write — ISSUES.md item 3 records the
+  ~128 MiB peak at 4096² — and one that skipped `discardRow` would strand the
+  pending row the rule forbids.
+- **R-205 ✅ (applied) round 3: a third unpinned edge in the ordering
+  contract.** `write < publish < guard` still allowed the pair to be hoisted
+  above `try {`. `guarded < write` closes it.
+- **R-206 ❌ (refuted) round 4: "nothing ties the publish to before the
+  `catch (e: Throwable)` cleanup."** It does, and has since round 2. The
+  assertion the finding asks for —
+
+      assertTrue(publish < guard, "the publish must be inside the guarded
+          region, not after it")
+
+  — sits three lines below the `guarded < write` block the finding quotes,
+  and the suggested diff would insert a second copy of it. Checked against
+  the file rather than assumed, since "I already fixed that" is self-graded:
+  the assertion is present, and its semantics are the ones requested, not a
+  partial version of them.
+
+- **R-210 ✅ (applied, rewrite half) round 5, Major: process death between the
+  claim and the publish strands a pending row.** Correct, and the strongest
+  finding of this PR's review. The window predates the change, but the
+  invariant this PR states — "either the row is published or it is gone" — was
+  enforced only against exceptions, and a force-stop, low-memory or ANR kill
+  leaves the `IS_PENDING = 1` claim standing with no code left to run. Such a
+  row is invisible in gallery apps, so the painting has simply vanished, and
+  its `DATE_MODIFIED`/`SIZE` describe a half-finished write: matching
+  pre-write metadata reads as "unchanged", a mismatch reads as a foreign edit,
+  and that second answer abandons the invisible row permanently while
+  inserting a duplicate beside it. `probeRow` now reads `IS_PENDING` and
+  `GallerySyncDecision` reclaims a pending row we own, ahead of the tamper
+  check — nothing else can have edited a row no other app can see.
+
+  The `insert` half is **not** fixed and is filed as a follow-up: a kill
+  between `resolver.insert` and the publish leaves a pending row whose URI was
+  never recorded, so no later sync can find it without a query by display name
+  and folder. That is a different mechanism and a larger change.
+- **R-211 ✅ (applied) round 5, Major: the containment misses the
+  `RemoteException` family.** Correct, and verified against the platform jar
+  rather than argued: `DeadSystemException` -> `DeadObjectException` ->
+  `RemoteException` -> `AndroidException` -> `Exception`. A provider process
+  dying mid-call is a *sibling* of `RuntimeException`, not a subtype, so the
+  clause added for exactly that fault never contained it. Both `sync` paths
+  now catch it.
+- **R-212 ✅ (applied) round 5: R-199's summary described a shape the code does
+  not have.** The `IS_PENDING = 1` claim is outside the guard, deliberately —
+  a claim that throws leaves the row published and intact — and calling the
+  whole thing "one guarded transaction" invites moving the claim inside, which
+  would delete a healthy image on a flaky claim update.
+- **R-213 ✅ (applied) round 5: `outcomeOf`'s KDoc understated the cost.** A
+  persistently failing baseline read means a full truncate-and-rewrite every
+  sync, not a one-cycle loss. Still accepted — the row stays correct
+  throughout — but stated at its real price.
+- **R-214 ✅ (applied) round 5: `finally{` with no space evaded the needle.**
+  `section()` collapses whitespace *runs*, and there is no run to collapse in
+  `finally{`. This was the one negative assertion in the file that a
+  formatting choice could silently defeat; every other needle fails loudly
+  through an `indexOf` guard. Both spellings are now rejected.
+- **R-215 ✅ (applied) round 5: the helper test allowed a rethrow.**
+  `runCatching { … }.getOrThrow()` satisfies "contains runCatching" while
+  replacing the write's failure with the delete's — the masking the doc
+  forbids. Mirrors the `outcomeOf` test's `getOrThrow` ban.
+
+- **R-221 ✅ (applied) round 6, Major: the `RemoteException` containment
+  covered the writes but not the probe.** Correct, and it falsifies R-211's
+  own closing claim that "both `sync` paths now catch it" — the probe is a
+  third cross-process path, called outside either write's `try`, with only a
+  `SecurityException` catch of its own. A dead provider there still escaped to
+  `viewModelScope`'s background sweep, which is the exact failure the rule
+  exists to prevent. Contained now, and deliberately by returning null rather
+  than setting `threw`: `threw` means "ownership refused" and routes to
+  REINSERT, which would abandon a row that may be a reclaimable pending claim.
+  `withdraw`'s pair gained the same clause. Pinned as a count of three, so the
+  next cross-process call added to `sync` has to be contained too.
+- **R-222 ✅ (applied) round 6: the `IS_PENDING` read used a magic column
+  index.** `cursor.getInt(3)` was positionally coupled to a projection edited
+  in the same commit, and the failure mode is nasty in a specific way: since
+  `pending` now outranks `modifiedByOther`, an off-by-one reading `SIZE` would
+  report every present owned row as pending and silently turn the foreign-edit
+  guard off entirely. Read by name via `getColumnIndexOrThrow`.
+- **R-223 ✅ (applied) round 6: `GallerySyncDecision`'s KDoc cited `ownsRow`,
+  which does not exist** — the querying function is `probeRow`. Pre-existing
+  text, kept through the rewrite without checking. By R-212's own standard, a
+  summary naming a shape the code does not have is how the next wrong
+  simplification gets justified.
+- **R-224 ✅ (applied) round 6: AGENTS.md and ISSUES.md asserted a mechanism
+  the pending reclaim removed.** Both said a complete-but-pending row "strands
+  under REINSERT exactly like a truncated one" — true when written, false once
+  a pending row we own is rewritten ahead of the tamper check. The *rule* is
+  unchanged and both still state it: the reclaim needs a later probe to
+  succeed, whereas a publish that throws has code still running and must
+  discard the row then and there. Worth the edit precisely because these are
+  agent-facing instruction files, and a false rationale is the argument
+  someone later uses to delete the thing it was defending.
+
+- **R-228 ✅ (applied) round 7, Major: the probe's containment caught the rare
+  fault and not the common one.** Correct, and it is the same half-fix shape
+  R-221 had just criticised in R-211, made one round later in the fix for it.
+  R-221 added `catch (e: RemoteException)` around `sync`'s `probeRow` call and
+  stopped there — but the probe sits outside both writes' `try` blocks and
+  `probeRow`'s own catch is `SecurityException` only, so an `SQLiteException`
+  or a closed connection pool still reached `viewModelScope`. `withdraw`'s
+  probe already carried the `RuntimeException` clause that `sync`'s lacked,
+  which is exactly the asymmetry that should have been checked when the
+  clause was written.
+- **R-229 ✅ (applied) round 7: `withdraw`'s containment had no pin.** R-221
+  pinned `sync`'s count of three and wrote "withdraw's pair gained the same
+  clause" without pinning it, so half this PR's containment work was
+  unguarded — and the pin's own stated purpose ("so the next cross-process
+  call added to sync has to be contained too") applied to one function only.
+  Both counts are pinned now, and both mutation-checked.
+
+- **R-230 ✅ (applied) round 8: `withdraw`'s `RuntimeException` clauses were
+  still unpinned.** R-229 pinned `withdraw`'s `RemoteException` count and left
+  its `RuntimeException` pair uncovered — a third turn of the same
+  half-containment R-211, R-221 and R-228 each caught, this time in the pin
+  rather than the code. Applied with a stronger assertion than the one
+  suggested: the round asked for `"catch (e: RuntimeException)" in withdraw`,
+  but `withdraw` has *two* of them (probe and delete), so a presence check
+  passes with either one deleted. Pinned as a count of 2, symmetric with the
+  `RemoteException` line above it. Mutation-checked by deleting the probe's
+  clause: fails at the new assertion, and the deletion still compiles, so the
+  test is what catches it.
+- **R-231 ✅ (applied) round 8: a drifted delimiter would have silently widened
+  the probe pin.** `substringBefore` returns the *whole* receiver when the
+  delimiter is absent, so renaming or restructuring the `GallerySyncDecision.decide`
+  call would have turned a probe-region check into a presence-anywhere-in-`sync`
+  check — and passed, since `sync` carries the clause in its writers too.
+  Applied with a louder remedy than the suggested
+  `substringBefore(DECIDE_CALL, "")`: an empty region does fail, but with
+  "the probe must contain a faulting provider", sending the reader to hunt a
+  missing catch clause that is right there. The delimiter is asserted present
+  first, by name, the way `section` already fails for its own two markers.
+  Mutation-checked both halves — pointing `DECIDE_CALL` at a name the file
+  does not contain fails with `missing GallerySyncDecision.decideNow in
+  app/.../GalleryExporter.kt — renamed? it ends the probe region`, and with
+  the new guard removed that same drift passes green, which is the vacuity
+  the finding described.
+
 ## PR #176 — orphan the dab instance buffer (2026-08-31)
 
 - **R-185 ⏸️ (declined) Round 1 minor: replace the contract test's
@@ -2647,6 +2812,111 @@ its real scope: **needles must not depend on anything the canonicalizer
 deletes** — a trailing comma or whitespace hugging a paren, in quoted text as
 much as in code.
 
+## PR #178 — tool sheets publish on release; the layer caption ellipsizes (2026-08-31)
+
+- **R-190 ❌ (refuted) round 1, BLOCKER: "`valueText = percent` passes a bare
+  function name, not a value — the whole app module stops compiling."** It
+  compiles, and did before the claim was made: the `android` check was green
+  on `cfc4b7f`, the exact commit reviewed. The finding assumed `percent` is a
+  `@Composable fun` imported from `BrushSettingsSheet`. It is not.
+  `RmwSettingsSheet` declares its own local `val percent: @Composable (Float)
+  -> String` in **every** enclosing composable that uses it —
+  `SmudgeSettingsSheet`, `WaterSettingsSheet` and `BlurSettingsSheet`, three
+  declarations, named rather than numbered because line numbers rot — which is
+  exactly the type `DeferredSettingSlider.valueText` takes, so the
+  unapplied reference is the correct adaptation — the old call sites applied
+  it (`percent(active.hardness)`) only because the old `SettingSlider` took a
+  `String`. The accompanying claim that "a top-level val can't even hold a
+  composable lambda" is both wrong and beside the point, since these are local
+  vals. Refuted on the PR, per CLAUDE.md's rule for claims that would
+  otherwise mislead a merge decision.
+
+  *(Round 2 corrected this entry's own citation, which named two of the three
+  declarations — the search behind it had been truncated. The refutation is
+  unchanged and rests on what `percent` is, not on how many there are, but a
+  reader following an undercount would go looking for a missing declaration
+  and could reopen a settled claim, which is the opposite of what this log is
+  for.)*
+- **R-191 ⏸️ (declined) round 1: delegate `FillSlider` to
+  `DeferredSettingSlider`.** The finding names the right caveat and it is the
+  one that decides this: the two layouts are not the same. `SettingSlider`
+  styles its label `bodyMedium` and its readout `labelMedium`, both in the
+  default content color; `FillSlider` leaves both at the default style and
+  tints the readout `onSurfaceVariant`. Delegating would silently restyle the
+  Fill sheet, which is a visual decision this PR has no business making —
+  fable F-12 already tracks the same family of inconsistency across the
+  transient readout chips, and unifying them belongs there with the rest.
+  The duplicated part is three lines of draft mechanics, not the layout.
+- **R-192 ❌ (refuted, but its suggestion adopted) round 1, Info:
+  commit-on-release assumes every mutation fires `onValueChangeFinished`;
+  older Material fired only `onValueChange` for semantics actions.** Verified
+  against the artifact the build actually resolves —
+  `material3-android-1.4.0.aar`. In `SliderKt.sliderSemantics`, the
+  `setProgress` handler (`sliderSemantics$lambda$52$lambda$51`) sets the value
+  and then, at bytecode offset 242-250, loads `onValueChangeFinished` and
+  invokes it under a null guard. TalkBack and keyboard changes therefore
+  commit exactly as a release does, and the failure mode described cannot
+  occur on the pinned version. The suggestion's useful half — own the
+  assumption in the doc rather than leave it incidental — is applied, with the
+  verification recorded so the next reader does not have to redo it.
+
+- **R-207 ✅ (applied) round 3: the per-frame guard covered almost nothing.**
+  Correct, and worse than the finding realized. `assertFalse(... in
+  sheet.substringBefore(FIRST_CURVE_EDITOR))` stopped at the first
+  `CurveEditor(` — line 74 of `RmwSettingsSheet.kt` — so the guarded window
+  was the opening of `SmudgeSettingsSheet` and nothing else. `WaterSettingsSheet`,
+  `BlurSettingsSheet`, `EyedropperSettingsSheet` and both shared helpers were
+  all outside it, and the whole-file `assertTrue("DeferredSettingSlider(" in
+  sheet)` only proved the wrapper is used *somewhere*.
+
+  The bound was also unnecessary from the start: `CurveEditor` takes
+  `onFinished`, not `onValueChangeFinished`, so the needle could never have
+  matched a curve editor. The reasoning that put it there was simply wrong
+  about the parameter's name.
+
+  Replaced with a contract that covers the file: the count of
+  `SettingSlider(` must equal the count of `DeferredSettingSlider(`. Since the
+  latter contains the former as a substring, equal counts mean every slider
+  call is a deferred one — anywhere in the file, in any helper. The historical
+  needle stays as a second net, now unbounded, and the two shared helpers are
+  named explicitly since they are the highest-traffic sliders in the app.
+
+  Proven rather than argued: a *compiling* revert of `ToolSpacingSlider` to a
+  per-frame `SettingSlider` passes the old test and fails the new one. (A
+  first attempt at that mutation did not compile and therefore proved
+  nothing — recorded because a mutation that fails to build is not evidence.)
+
+- **R-218 ✅ (applied) round 4: the caption test counted needles without
+  stripping comments.** Correct, and it diverged from the sibling test added
+  in the same change. These needles are *counted*, not merely sought, so a
+  comment inside `LayerRow` quoting `maxLines = 1` without also quoting the
+  overflow line shifts one count and fails with a message about production
+  clipping — pointing debugging at the wrong layer over a documentation edit.
+  The row already carries such a comment, added by this PR; it survived only
+  because its wording happens to avoid the literals. Demonstrated before
+  fixing: an unbalanced comment quoting one needle fails the old test and
+  passes the new one.
+
+- **R-225 ✅ (applied) round 5: the comment stripper also ate `//` inside
+  string literals.** Latent here — no string literal in `LayerPanel.kt`,
+  `RmwSettingsSheet.kt`, `FillSettingsSheet.kt` or `BrushSettingsSheet.kt`
+  contains `//` or `/*` — but the failure it would cause is the same
+  wrong-layer one R-218 had just removed: real code deleted from the compacted
+  source, reported as a missing marker.
+
+  **This is not a reversal of R-185**, where the same blind spot was declined
+  on `DabPass`'s stripper. That decline rested on the cost of the cure — a
+  ~25-line hand-rolled parser living in a test — and on the sibling using the
+  identical regex. Neither holds here: the cure is one alternation plus a
+  replace lambda, and the two `:app` copies had *already* drifted in their
+  replacement text, which is the drift R-188 objected to. So the stripper is
+  hoisted into `ContractTestSources.stripComments`, shared by both tests, with
+  a literal matched first and returned verbatim. Its two known limits (raw
+  triple-quoted strings, nested block comments) are stated and inert for every
+  needle here. Mutation-checked: removing the literal alternative fails the new
+  case. `DabPass`'s own stripper is untouched and R-185 stands; migrating the
+  `engine-gl` twin belongs with R-189.
+
 ## PR #179 — one scratch file per atomic write (2026-08-31)
 
 - **R-195 ✅ (applied) round 1, Major: the destroyed-temp test stages a
@@ -2691,18 +2961,292 @@ much as in code.
   break it, and the consequence if it ever does (a live writer's rename
   fails; nothing is corrupted) are now stated next to `inFlight`.
 
-- **R-044 ⏸️ (out of scope) PR #174 merge round: the four `AtomicFiles`
-  findings** (newKeySet API 24 floor, ignored timed-join outcomes, the
-  uncovered sweep interleaving, and its KDoc precision) target PR #176's
-  code, which reached this PR through the main merge — pre-existing
-  behavior for this PR's purposes. minSdk is 29, so the API-24 concern is
-  moot in fact; the join-assertion and comment-precision points are
-  reasonable follow-ups for #176's file.
+## PR #181 — one term per thing in the Chinese strings (2026-08-31)
 
-- **R-045 ⏸️ (refuted) PR #174 round N: "`File.startsWith` is not a real
-  API — script fails to compile."** It is: `kotlin.io` ships
-  `File.startsWith(File)`/`(String)` extensions, and this exact commit
-  passed CI's full Gradle invocation including `:desktop:test`. Switched
-  to `Path.startsWith` anyway — the element-wise comparison avoids the
-  `/assets-foo` string-prefix false positive the reviewer rightly
-  disfavors.
+- **R-216 ❌ (refuted) round 2, Major: "unresolved pin references still pass
+  vacuously."** They fail loudly, and have since the pins existed. Both
+  heading tests resolve their keys with `labels[key] ?: fail(...)`, and the
+  Overlay test compares an exact set, so a label dropped from the map turns
+  that set empty rather than uncontested. Checked by mutation rather than by
+  reading, three ways: a typo'd `HELP_HEADINGS` key fails; a typo'd
+  `HELP_MENTIONS` key fails; and giving `blend_overlay` an attribute before
+  its name — the exact parse gap the finding pairs this with — fails the
+  Overlay test. The guard the finding asks for is the `?: fail` already there.
+- **R-217 ✅ (applied) round 2: the entry regex assumed `name` comes first.**
+  Real, and worth taking even though the Overlay case above would catch it for
+  one label: XML permits any attribute order, and for any *other* label a
+  dropped entry is silent. Now `<string\s[^>]*?name="…"[^>]*>`, where the
+  `\s` keeps `<string-array` out. Verified against both files — 374 and 369
+  entries parsed, matching their raw `<string ` counts exactly.
+
+- **R-219 ✅ (applied) round 3: `CONTRACT_INPUT_FILES` was declared after its
+  only use.** It worked only because `configureEach` defers its lambda past
+  script evaluation — a forward reference whose safety is implicit rather than
+  enforced, and a readability trap besides. Moved above the block.
+- **R-220 ✅ (applied) round 3, Info: make the parse-coverage check
+  standing.** The previous round verified the entry regex by counting parsed
+  entries against raw `<string ` tags **by hand, once**. A one-off check does
+  not survive the next regex edit, and this is the map every assertion in the
+  file is built on. `labels()` now asserts that count itself, naming the file
+  and both numbers. Verified it fires: a single-quoted `name='…'` — an entry
+  shape the regex does not cover — fails loudly instead of quietly shrinking
+  the map.
+
+- **R-226 ✅ (applied) round 4: the coverage-failure message named one of
+  three causes.** A `declared` vs `parsed` mismatch can equally come from a
+  duplicated `name` — `associate` silently keeps the last — or from a
+  self-closing `<string …/>`, which `STRING_OPEN_TAG` counts and
+  `STRING_ENTRY` can never parse. Blaming "the entry regex" would send the
+  next investigator hunting exotic attribute syntax for a duplicate key. All
+  three named.
+- **R-227 ✅ (applied) round 4: adding `STRING_OPEN_TAG` orphaned the KDoc
+  below it.** The same mistake R-197 caught on #179, made again: the new
+  declaration went *between* the existing KDoc and the `STRING_ENTRY` it
+  documents, so the load-bearing `\s` note — the one that explains why
+  `<string-array` stays out — no longer sits next to the regex it is about,
+  and would be read as describing the wrong one. Each declaration now carries
+  its own doc, and the open-tag one cross-references the same reason.
+
+- **R-232 ✅ (applied) round 5: the contract inputs were repo-root paths
+  resolved through `rootProject`, from inside the app module's own script.**
+  Real, and the failure mode is the one this block exists to prevent: a path
+  that matches no file is not an error to Gradle — it fingerprints as empty,
+  and the task quietly goes back to UP-TO-DATE across the edits the pin is
+  supposed to catch. Applied the suggested change (module-relative paths,
+  `layout.projectDirectory`), and went one step further, because the suggested
+  fix only covers the *module* being renamed: the paths are now resolved
+  eagerly behind a `require`, so a moved resource file or a typo — far likelier
+  than a module rename — fails configuration by name instead of silently
+  covering nothing. Mutation-checked both ways: restoring an `app/` prefix
+  fails with `.../app/app/src/main/res/values/strings.xml` (which also proves
+  the resolution really is module-relative now), and a `string.xml` typo fails
+  with that path. The invalidation guarantee itself was re-verified after the
+  change: `:app:testDebugUnitTest` twice → UP-TO-DATE, a content edit to the
+  translated strings → re-runs, reverting it → FROM-CACHE.
+
+  One note on the finding's suggested verification, recorded so a later round
+  does not read it as a failure: `touch`ing the strings file does **not**
+  re-run the task, and should not. Gradle fingerprints declared inputs by
+  content hash, not mtime, so an mtime-only change is correctly a no-op — the
+  check that actually proves the wiring is a content edit, which is what was
+  run above.
+
+- **R-233 ✅ (applied) round 6: the Overlay ownership pin matched by exact
+  equality.** Real, and grounded in this file's own history rather than in a
+  hypothetical: the drift this PR fixed included 逐渐叠加 for the brush
+  build-up mode — a *compound* that claims 叠加 as firmly as a bare one would,
+  and that `it == OVERLAY` would have waved through. Now containment.
+  Two refinements the suggestion did not carry, both needed to keep it
+  correct rather than merely stricter:
+
+  Help bodies are excluded from the scan. Naming the blend mode in prose is
+  not a claim on the term — the two pins directly below *require* every help
+  paragraph to use its control's own label — so scanning prose here would
+  have put this test in conflict with them the first time the layer help
+  explained blend modes.
+
+  And the expected set names two keys, not one. `settings_latency_overlay` is
+  延迟叠加层: 叠加层 is "overlay layer" in the compositing sense, the debug HUD,
+  mirroring English's own reuse of the word in "Latency overlay". The round
+  said to report any second match as a genuine collision rather than weaken
+  the assertion; checked, and it is not one — it names itself, not the blend
+  mode. Listing it beats filtering it out, because a *third* claimant still
+  fails here and has to be argued for.
+
+  Mutation-checked three ways. A new label 正常叠加 fails the Overlay test and
+  only it. The same label under the old equality matcher passes — which is
+  the coverage this round adds, demonstrated rather than asserted. And a help
+  body containing 叠加 stays green, so the exclusion works.
+
+- **R-234 ✅ (applied) round 7, Major: the help-body exclusion knew only one
+  of the file's two help conventions.** R-233 excluded `help_*` keys from the
+  Overlay scan; the file also stores the line under a settings row as
+  `*_help` — `settings_stylus_only_help`, `settings_gallery_sync_help` and
+  four more — and those stayed in the scan. Prose there mentioning 叠加, most
+  plausibly a help line for the latency overlay itself, would have failed the
+  test as a collision it is not. Real, and the exclusion's own stated
+  rationale is what condemns it. Both conventions are excluded now.
+
+  One deliberate difference from the suggested one-liner, recorded because it
+  is a small loss rather than a free win: `canvas_help` is 帮助, the help
+  button's *label*, not prose, and the suffix rule sweeps it out of the scan
+  with the six real bodies. Taking it is better than carrying a named
+  exception for one string, which would rot the first time the label is
+  renamed; noted at the predicate so the next reader knows it was seen.
+
+  Mutation-checked: 叠加 added to `settings_stylus_only_help` keeps the test
+  green, and the same prose with the suffix exclusion removed fails it —
+  which is the false collision this round prevents, demonstrated rather than
+  asserted.
+
+- **R-235 ✅ (applied) round 8: aligning the heading with the label made the
+  sentence circular.** Round 1 changed `help_brush_paint_body`'s first
+  paragraph to head with `brush_grain`'s exact label, 纸张纹理, which was the
+  right move and left the gloss behind it — 纸面纹理 — defining the term with
+  itself. English does not have this problem because it heads with the
+  shortened "Grain:" and glosses with "paper tooth", a different word; the
+  translation kept a gloss that had become a synonym of its own heading.
+  Now 模拟纸面的凹凸，让铅笔呈现斑驳质感 — which is also a truer rendering of
+  "paper tooth" than 纸面纹理 was. Everything after the first sentence is
+  byte-identical, and the paragraph still opens with the exact label, so the
+  heading pin still passes.
+
+- **R-239 ✅ (applied) round 9: the heading pin checked containment, not
+  position.** The test is called "every help heading names the control it
+  explains", its message says "does not head a paragraph with", and
+  `HELP_HEADINGS`' own doc says "heads a paragraph with that label" — but the
+  assertion was `"$label：" in body`, which is true of a label buried
+  mid-sentence. The drift this pin exists to catch is a paragraph re-headed
+  with another control's term, and that drift passes containment as long as
+  the right label survives anywhere in the string. Now the raw body is split
+  on the two-character `\n` escape and some segment must *start* with the
+  label. Checked first, as the round asked, that all six pinned pairs already
+  head a segment — including `settings_snap_right_angles` and
+  `settings_eraser_end` in `help_drawing_body`, which are not in this PR's
+  diff — so the tightening asserts the existing convention rather than forcing
+  a rewrite. Mutation-checked with the exact drift described: re-heading the
+  paper-grain paragraph 颗粒： while leaving 纸张纹理： mid-sentence fails now
+  and passed under the old check.
+
+## PR #182 — warn before a merge clears the alpha lock (2026-08-31)
+
+- **R-208 ✅ (applied) round 1: an empty change set renders a titled dialog
+  with no body.** Correct. The invariant that `changes` is non-empty lives in
+  `LayerPanel`, not in `CanvasDialog.MergeLayers`, so any other caller could
+  produce one — and a confirmation with nothing to say is what teaches people
+  to click through confirmations, the habit this PR exists to avoid. The
+  blend-mode sentence is the fallback because it is true of every merge: the
+  result is always Normal.
+- **R-209 ❌ (refuted; its documentation half applied) round 1: "merging into
+  a hidden layer silently un-hides it."** It cannot happen. `mergeDown`
+  returns `Refusal.HIDDEN_PARTNER` when either partner is hidden, two lines
+  before it builds the merged props, so `visible = true` is unreachable —
+  exactly like `locked = false`, which the entry already called a no-op for
+  that reason. `LayerStackTest`'s "merge down is refused without a layer
+  below, when locked, or when either partner is hidden" pins both refusals,
+  so no new test was added rather than duplicating it.
+
+  The finding was invited by this PR's own wording, though, and that half is
+  real: the KDoc dismissed `opacity` and `visible` together as "the merge's
+  whole point", which is true of opacity and false of visible. The two now
+  have their separate reasons, with the consequence spelled out — if either
+  guard is ever relaxed, the matching reset stops being a no-op and belongs in
+  `Change`. Un-hiding a layer someone deliberately hid would be the same class
+  of surprise as clearing their alpha lock, which is precisely why the reason
+  had to be right rather than merely conclusive.
+
+## PR #183 — fill PointerSample.tool only where it is read (2026-08-31)
+
+- **R-236 ✅ (applied, with a stronger remedy) round 1, Major: the stale
+  `tool` can be another pointer's, not "this gesture's".** Correct, and it
+  falsifies the justification this PR shipped with. One `PointerSample` serves
+  every pointer of every event and only downs fill it, so with a palm down as
+  pointer 0 and the pen drawing as pointer 1, pointer 0's moves carry
+  `STYLUS` — the multi-touch case palm rejection cares about most. The same
+  round adds the observation that kills the rest of the argument: `Predictor`
+  never full-fills at all, so its samples were stuck at the field's `FINGER`
+  initializer, which is exactly the "specific wrong answer" the KDoc claimed
+  to be avoiding.
+
+  Applied past the suggested wording fix and past the suggested
+  `PointerTool.UNSET` sentinel: `tool` is now `PointerTool?`, cleared to
+  `null` by both tool-less fills. A sentinel would have put a record-state
+  value into an enum that otherwise describes what the platform reports, and
+  would have forced a meaningless branch into `PalmRejection.rejects`'
+  exhaustive `when` for a case that cannot arrive. Nullability instead makes
+  the *compiler* the guard at every future read, which neither offered remedy
+  does; the two entries that need the tool take it through `requireNotNull`
+  with a message naming the fill to use. `PointerSampleTest` pins the
+  clearing, the axes each fill still writes, and the delegation order — the
+  full `set` must write the tool *after* the tool-less delegate, or it erases
+  what it just wrote. Both mutation-checked, and the order mutation also takes
+  down four existing record tests, which is the trap being real.
+
+- **R-237 ⏸️ (partly refuted, partly declined) round 1: the `.tool` pin has
+  blind spots.** Two claims, and the load-bearing one is wrong.
+  `AndroidCanvasInput.handler` is typed as the concrete `CanvasTouchHandler`
+  class, not an interface, so there is no "second implementation of that
+  handler interface" to read the field behind the pin's back; the interfaces
+  in that file are `CanvasInputHost` and `GestureDeadlineScheduler`, which are
+  different seams. `StrokePredictor` *is* a seam, but `predictedAt` has
+  exactly one consumer in the repository, `CanvasTouchHandler.appendPredicted`,
+  which the pin covers.
+
+  The spelling point stands — `.tool` does not catch `with(sample) { tool }` —
+  and the suggested word-boundary `tool` regex is declined anyway, for the
+  reason the finding itself raises as a precondition: nothing here strips
+  comments, so that pattern matches the prose explaining this very invariant
+  and false-fails on correct code. (`ContractTestSources.stripComments` exists
+  on #178's branch and not on main; when it lands, widening this needle is a
+  reasonable follow-up.) The finding's own preferred answer — make the runtime
+  value the guard and leave the pin as a tripwire — is what R-236 did, so the
+  gap it describes is now closed by the nullable field rather than by the
+  matcher.
+
+- **R-238 ✅ (applied, with a different remedy) round 1: the section end
+  markers coupled the pin to another file's member order.** Real:
+  `appendPredicted`'s region ended at `fun onPointerDown(`, so moving either
+  member would have failed the test with "renamed?" — loud but misdiagnosed.
+  The suggested remedy is refuted, not adopted: letting an empty end marker
+  mean "to end of source" would extend `appendPredicted`'s region over
+  `onPointerDown`, whose `.tool` read is precisely what the negative
+  assertions look for, so the test would fail on correct code. Instead every
+  region now ends at the next member declaration, found generically on the raw
+  source, and no entry names a neighbour at all.
+
+- **R-240 ✅ (applied) round 2: two of `PointerSampleTest`'s neutralization
+  assertions were vacuous.** Correct, and it lands on the sentence R-236 wrote
+  one round earlier: that entry claimed the test pins "the axes each fill
+  still writes", and for two of them it did not. `assertEquals(0f, distance)`
+  ran after contact fills only, and `distance` starts at zero; the
+  pressure/tilt assertions ran after hover fills only, and those start
+  neutral. Deleting either clearing line from the tool-less fills would have
+  left both tests green — the stale-record bug class this PR closes for
+  `tool`, unguarded for the axes beside it. Each test now dirties the fields
+  the fill under test must clear before calling it, and the added
+  `orientation` assertion is covered the same way. Mutation-checked: dropping
+  `distance = 0f` fails the contact test, dropping `pressure = 1f` fails the
+  hover one; before this round neither did.
+
+- **R-241 ✅ (applied) round 2: the member-boundary regex knew three
+  modifiers.** `\n {4}(private |internal |protected )?fun ` misses `override`,
+  `suspend`, `public`, stacked modifiers and property members, and a boundary
+  it fails to recognize does not fail loudly — it *widens* the region before
+  it. The live case is the one R-238 had just fixed the other half of: give
+  `onPointerDown` a modifier and `appendPredicted`'s region swallows its
+  `requireNotNull(sample.tool)`, failing a negative pin on correct code. Any
+  stack of the common modifiers is accepted now, `val`/`var` count as
+  boundaries, and the trailing `\s` keeps `fundamentally` and `validate(` out.
+  The entries also became member *names* rather than full signatures, matched
+  at the member indent up to the open paren, so a wrapped parameter list
+  cannot masquerade as a rename either. Mutation-checked: with
+  `public fun onPointerDown(` the new boundary holds and the old one fails the
+  pin.
+
+- **R-242 ✅ (applied on the `main` merge, closing R-237's deferred half).**
+  R-237 declined widening the pin's needle from `.tool` to a bare `\btool\b`
+  for a stated reason — nothing on this branch stripped comments, so the wider
+  pattern would have matched the prose that explains the invariant and failed
+  the pin on correct code — and named the condition that would change the
+  answer: `ContractTestSources.stripComments`, then unmerged on #178's branch.
+  #178 merged, so this merge brings it in and the needle widens with it. Not a
+  reversal: the decline's own precondition is what moved.
+
+  `section` now strips comments before matching, and the needle is the bare
+  word, which catches the dotless spellings R-237 conceded were real —
+  `with(sample) { tool }`, a destructuring read. Mutation-checked both ways: a
+  `with(sample) { tool }` read added to `onPointerMove` fails the pin, where
+  `.tool` would have missed it, and comments naming the tool inside a negative
+  region — one line comment and one block comment — keep it green, which is
+  the false failure the round-1 decline was protecting against.
+
+- **R-243 ✅ (applied) — round 1's Major, finished.** Found while re-reading
+  the diff before merging, which is the check that replaced the round the
+  reviewer never returned. R-236 corrected the "a stale tool is this
+  gesture's" claim in `PointerSample`'s KDoc and in AGENTS.md, but round 1 had
+  named three places and the third — `PointerSampleToolContractTest`'s own
+  comments — was missed. Its class KDoc still said the field "holds whatever
+  the last full fill wrote", which the nullable field made false in the same
+  commit, and its inline comment still said a move continues "a gesture whose
+  tool was settled at its down" rather than at *a* down. Both now say what the
+  code does. Docs only; the gate was re-run.

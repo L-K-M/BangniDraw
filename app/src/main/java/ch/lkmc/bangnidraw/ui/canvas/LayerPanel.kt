@@ -79,6 +79,7 @@ import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerPanelOrder
 import ch.lkmc.bangnidraw.engine.core.LayerReorderAction
 import ch.lkmc.bangnidraw.engine.core.LayerStack
+import ch.lkmc.bangnidraw.engine.core.MergeConfirmation
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.HapticsMode
 import ch.lkmc.bangnidraw.engine.core.OpacityMilestone
@@ -260,13 +261,15 @@ internal fun LayerPanel(
                             onDuplicate = { onDuplicate(index) },
                             onMergeDown = {
                                 val below = stack.layers.getOrNull(index - 1)
-                                val needsConfirm = below != null &&
-                                    (layer.props.blendMode != BlendMode.NORMAL ||
-                                        below.props.blendMode != BlendMode.NORMAL)
-                                if (needsConfirm) {
-                                    onRequestDialog(CanvasDialog.MergeLayers(index))
-                                } else {
+                                // Blend mode is no longer the only thing worth
+                                // asking about; MergeConfirmation owns the list.
+                                val changes = below
+                                    ?.let { MergeConfirmation.changes(layer.props, it.props) }
+                                    .orEmpty()
+                                if (changes.isEmpty()) {
                                     onMergeDown(index)
+                                } else {
+                                    onRequestDialog(CanvasDialog.MergeLayers(index, changes))
                                 }
                             },
                             onClear = {
@@ -598,11 +601,16 @@ private fun LayerRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // Ellipsizes like the name above it: `maxLines` alone
+                    // hard-clips mid-glyph, and the caption is the text most
+                    // likely to run out of room — the row spends its width on
+                    // the handle, the thumbnail and three actions first.
                     Text(
                         text = blendModeName(layer.props.blendMode),
                         style = MaterialTheme.typography.labelSmall,
                         color = captionColor,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

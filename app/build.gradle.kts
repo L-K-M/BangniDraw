@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.PathSensitivity
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -142,6 +143,44 @@ dependencies {
     testImplementation(libs.kotlin.test)
 }
 
+/**
+ * Repo files a unit test pins that no compilation would otherwise track.
+ *
+ * `ZhHansTerminologyContractTest` reads the translated strings and
+ * `PluralResourceContractTest` the English ones; `ReleaseBuildCoverageContractTest`
+ * reads the two CI workflows. None of them is an input to anything this module
+ * compiles — resource merging feeds the packaged APK, not `testDebugUnitTest`,
+ * and the workflows feed nothing at all — so without this the task stays
+ * UP-TO-DATE across exactly the edits those pins exist to catch, and they
+ * silently do not run.
+ *
+ * Two lists, because the files sit on two sides of the module boundary; one
+ * declaration, because a second block is how the hole reopens. Extend a list
+ * rather than adding a block when another contract test starts reading a
+ * non-source repo file.
+ *
+ * A path matching no file is not an error to Gradle: it fingerprints as empty
+ * and the task goes quietly back to UP-TO-DATE. So the module's own files are
+ * named relative to it and travel with it — reaching them through
+ * `rootProject` would let a module rename cover nothing — and every path is
+ * resolved eagerly behind a `require`, so a moved file or a typo fails
+ * configuration by name instead.
+ */
+val MODULE_CONTRACT_FILES = listOf(
+    "src/main/res/values-b+zh+Hans/strings.xml",
+    "src/main/res/values/strings.xml",
+)
+
+val REPO_CONTRACT_FILES = listOf(
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+)
+
+val contractInputs = (
+    MODULE_CONTRACT_FILES.map { layout.projectDirectory.file(it).asFile } +
+        REPO_CONTRACT_FILES.map { rootProject.layout.projectDirectory.file(it).asFile }
+    ).onEach { require(it.isFile) { "contract test input is missing: $it" } }
+
 tasks.withType<Test>().configureEach {
     // The golden-stroke test regenerates its pinned file when this is set
     // (`docs/plan/11-testing.md` §6). Gradle does not forward the launching
@@ -153,4 +192,12 @@ tasks.withType<Test>().configureEach {
             .orElse(providers.systemProperty("bangni.updateGolden"))
             .getOrElse("false"),
     )
+
+    // Verified for both kinds, without --rerun-tasks: a content edit to the
+    // translated strings re-runs the task, and so does one to ci.yml.
+    inputs
+        .files(contractInputs)
+        .withPropertyName("contractInputs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
+

@@ -127,12 +127,18 @@ class ZhHansTerminologyContractTest {
             "fill_reference_current" to "help_fill_body",
             "fill_reference_composite" to "help_fill_body",
         )
-        // `[^>]*` for the attributes a string entry may carry —
-        // `translatable="false"` and `formatted="false"` both appear in the
-        // English file. Requiring `>` right after the name would drop such an
-        // entry from the map with no error, and a label missing from the map
-        // cannot collide with anything: the Overlay test would pass vacuously.
-        val STRING_ENTRY =
-            Regex("""<string name="([^"]+)"[^>]*>(.*?)</string>""", RegexOption.DOT_MATCHES_ALL)
+        /**
+         * Attributes in any position, because XML permits any order and a
+         * dropped entry is a silent hole: `translatable="false"` and
+         * `formatted="false"` both appear in the English file, and a label
+         * missing from the map cannot collide with anything.
+         *
+         * The `\s` after `<string` is load-bearing — it keeps `<string-array`
+         * out, whose items are not labels.
+         */
+        val STRING_ENTRY = Regex(
+            """<string\s[^>]*?name="([^"]+)"[^>]*>(.*?)</string>""",
+            RegexOption.DOT_MATCHES_ALL,
+        )
     }
 }

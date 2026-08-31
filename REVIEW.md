@@ -2523,3 +2523,21 @@ touchscreen hover too, not only a pen.
   flow that exists. Re-posting would add a double-run hazard for a
   hypothetical. The attach-before-events contract is now stated at the
   setter.
+
+## PR #181 — one term per thing in the Chinese strings (2026-08-31)
+
+- **R-216 ❌ (refuted) round 2, Major: "unresolved pin references still pass
+  vacuously."** They fail loudly, and have since the pins existed. Both
+  heading tests resolve their keys with `labels[key] ?: fail(...)`, and the
+  Overlay test compares an exact set, so a label dropped from the map turns
+  that set empty rather than uncontested. Checked by mutation rather than by
+  reading, three ways: a typo'd `HELP_HEADINGS` key fails; a typo'd
+  `HELP_MENTIONS` key fails; and giving `blend_overlay` an attribute before
+  its name — the exact parse gap the finding pairs this with — fails the
+  Overlay test. The guard the finding asks for is the `?: fail` already there.
+- **R-217 ✅ (applied) round 2: the entry regex assumed `name` comes first.**
+  Real, and worth taking even though the Overlay case above would catch it for
+  one label: XML permits any attribute order, and for any *other* label a
+  dropped entry is silent. Now `<string\s[^>]*?name="…"[^>]*>`, where the
+  `\s` keeps `<string-array` out. Verified against both files — 374 and 369
+  entries parsed, matching their raw `<string ` counts exactly.

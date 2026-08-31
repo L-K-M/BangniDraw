@@ -165,7 +165,7 @@ class DesktopEngine(
      * Merges the stroke, then drains this stroke's readback to completion
      * before journaling — the serialization that makes the mirror (and
      * therefore the undo journal) exact on a desktop with one input
-     * stream. [onCommitted] runs on the GL thread, not the caller.s.
+     * stream. [onCommitted] runs on the GL thread, not the caller's.
      */
     fun endStroke(opacityCeiling: Float, onCommitted: () -> Unit) = post {
         val renderer = renderer ?: return@post

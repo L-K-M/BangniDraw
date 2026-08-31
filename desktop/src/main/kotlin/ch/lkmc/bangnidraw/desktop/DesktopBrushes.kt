@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.desktop
 
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
+import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import kotlinx.serialization.json.Json
 
 /**
@@ -13,7 +14,8 @@ object DesktopBrushes {
 
     fun loadAll(): List<BrushPreset> {
         val json = Json { ignoreUnknownKeys = true }
-        val names = BRUSHES_INDEX.map { "$BRUSH_DIR/$it.json" }
+        // Asset files are named by the id stem ("builtin.pencil" → "pencil.json").
+        val names = BRUSHES_INDEX.map { "$BRUSH_DIR/${it.removePrefix("builtin.")}.json" }
         val presets = names.mapNotNull { path ->
             val text = javaClass.getResourceAsStream("/$path")?.bufferedReader()?.use { it.readText() }
             if (text == null) {
@@ -27,13 +29,8 @@ object DesktopBrushes {
         return presets
     }
 
-    /** The rail order the Android app shows (`BrushPresets.RAIL_ORDER`). */
-    private val BRUSHES_INDEX = listOf(
-        "pencil", "ink_pen", "paintbrush", "airbrush", "marker",
-        "spray_can", "charcoal", "soft_pastel", "technical_pen",
-        "calligraphy", "dry_brush", "oil_paint", "pigment_wash",
-        "hard_eraser", "soft_eraser",
-    )
+    /** The shared rail order — one source with the Android app. */
+    private val BRUSHES_INDEX = BrushPresets.RAIL_ORDER
 
     private const val BRUSH_DIR = "brushes"
 }

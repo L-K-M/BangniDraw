@@ -50,8 +50,13 @@ class DesktopPrefs {
     fun close() {
         // Drain queued edit writes so the last brush/color isn't lost on
         // exit; the children run on Dispatchers.IO, so blocking here is safe.
+        // Looped: children is a point-in-time snapshot, and a write launched
+        // while the drain runs must flush too.
         kotlinx.coroutines.runBlocking {
-            scope.coroutineContext[kotlinx.coroutines.Job]?.children?.forEach { it.join() }
+            val job = scope.coroutineContext[kotlinx.coroutines.Job]
+            while (job?.children?.any() == true) {
+                job.children.forEach { it.join() }
+            }
         }
         scope.cancel()
     }

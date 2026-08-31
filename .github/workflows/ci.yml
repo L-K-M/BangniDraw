@@ -110,7 +110,7 @@ jobs:
       - name: Upload desktop distributable
         uses: actions/upload-artifact@v7
         with:
-          name: bangnidraw-desktop-linux-${{ github.sha }}
+          name: bangnidraw-desktop-linux-nomixbox-${{ github.sha }}
           path: desktop/build/compose/binaries/main/**
           if-no-files-found: error
           retention-days: 14

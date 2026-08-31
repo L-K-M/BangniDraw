@@ -2571,3 +2571,29 @@ touchscreen hover too, not only a pen.
   occur on the pinned version. The suggestion's useful half — own the
   assumption in the doc rather than leave it incidental — is applied, with the
   verification recorded so the next reader does not have to redo it.
+
+- **R-207 ✅ (applied) round 3: the per-frame guard covered almost nothing.**
+  Correct, and worse than the finding realized. `assertFalse(... in
+  sheet.substringBefore(FIRST_CURVE_EDITOR))` stopped at the first
+  `CurveEditor(` — line 74 of `RmwSettingsSheet.kt` — so the guarded window
+  was the opening of `SmudgeSettingsSheet` and nothing else. `WaterSettingsSheet`,
+  `BlurSettingsSheet`, `EyedropperSettingsSheet` and both shared helpers were
+  all outside it, and the whole-file `assertTrue("DeferredSettingSlider(" in
+  sheet)` only proved the wrapper is used *somewhere*.
+
+  The bound was also unnecessary from the start: `CurveEditor` takes
+  `onFinished`, not `onValueChangeFinished`, so the needle could never have
+  matched a curve editor. The reasoning that put it there was simply wrong
+  about the parameter's name.
+
+  Replaced with a contract that covers the file: the count of
+  `SettingSlider(` must equal the count of `DeferredSettingSlider(`. Since the
+  latter contains the former as a substring, equal counts mean every slider
+  call is a deferred one — anywhere in the file, in any helper. The historical
+  needle stays as a second net, now unbounded, and the two shared helpers are
+  named explicitly since they are the highest-traffic sliders in the app.
+
+  Proven rather than argued: a *compiling* revert of `ToolSpacingSlider` to a
+  per-frame `SettingSlider` passes the old test and fails the new one. (A
+  first attempt at that mutation did not compile and therefore proved
+  nothing — recorded because a mutation that fails to build is not evidence.)

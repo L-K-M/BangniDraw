@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -25,16 +26,46 @@ class ToolSheetCommitContractTest {
     fun `no tool-sheet slider commits on every frame`() {
         val sheet = compact(RMW_PATH)
 
-        // The whole defect in one needle: a SettingSlider whose finish handler
-        // is a no-op commits from onValueChange, i.e. once per pointer sample.
+        // Every slider in this file goes through the deferred wrapper. Stated
+        // as a count rather than a presence check, because "DeferredSettingSlider("
+        // contains "SettingSlider(": equal counts mean every occurrence of the
+        // latter belongs to the former, so a bare SettingSlider call anywhere —
+        // in a sheet body or in a shared helper at the bottom of the file —
+        // breaks it. A presence check would only prove the deferred slider is
+        // used somewhere, which a partial revert survives.
+        val sliders = SETTING_SLIDER.findAll(sheet).count()
+        val deferred = DEFERRED_SLIDER.findAll(sheet).count()
+        assertTrue(deferred > 0, "the tool sheets publish through the deferred slider")
+        assertEquals(
+            deferred,
+            sliders,
+            "$sliders slider call(s) but only $deferred deferred — a bare " +
+                "SettingSlider publishes once per pointer sample",
+        )
+
+        // The historical spelling of the defect, kept as a second net and now
+        // scanned over the whole file. It used to stop at the first
+        // CurveEditor, which was both unnecessary and nearly fatal to the
+        // pin: the curve editors take `onFinished`, not `onValueChangeFinished`,
+        // so they could never have matched this needle — and the bound shrank
+        // the guarded window to the first sheet's opening lines, leaving every
+        // other sheet and both shared helpers unchecked.
         assertFalse(
-            "onValueChangeFinished={}" in sheet.substringBefore(FIRST_CURVE_EDITOR),
+            "onValueChangeFinished={}" in sheet,
             "a slider with a no-op finish handler is publishing on every frame",
         )
-        assertTrue(
-            "DeferredSettingSlider(" in sheet,
-            "the tool sheets publish through the deferred slider",
-        )
+
+        // The two helpers every tool sheet shares, named explicitly: they are
+        // the highest-traffic sliders in the app and the likeliest target of a
+        // partial revert.
+        for (helper in listOf("privatefunToolSizeSlider(", "privatefunToolSpacingSlider(")) {
+            val body = sheet.substringAfter(helper, missingDelimiterValue = "")
+            if (body.isEmpty()) fail("missing $helper in $RMW_PATH — renamed?")
+            assertTrue(
+                body.substringBefore("privatefun").contains("DeferredSettingSlider("),
+                "$helper must publish on release",
+            )
+        }
     }
 
     @Test
@@ -99,12 +130,10 @@ class ToolSheetCommitContractTest {
         const val BRUSH_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/BrushSettingsSheet.kt"
 
-        /**
-         * The first `CurveEditor` bounds the slider window: the knot sliders
-         * behind it are U12's, and their `onFinished = {}` must not be read as
-         * one of the sliders this test governs.
-         */
-        const val FIRST_CURVE_EDITOR = "CurveEditor("
+        // "DeferredSettingSlider(" contains "SettingSlider(", which is what
+        // makes the equal-counts check above mean "no bare call".
+        val SETTING_SLIDER = Regex("SettingSlider\\(")
+        val DEFERRED_SLIDER = Regex("DeferredSettingSlider\\(")
         val COMMENTS = Regex("""//[^\n]*|/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
         val WHITESPACE = Regex("""\s+""")
     }

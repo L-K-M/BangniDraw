@@ -2487,3 +2487,12 @@ touchscreen hover too, not only a pen.
   event's sample layout.** The repo's test suite is JVM-only by policy
   (AGENTS.md); adding Robolectric is a build decision, not a review fix.
   The layout stays documented from the 1.0.0 bytecode read.
+
+- **R-038 ⏸️ (declined) PR #173 round 3: evict the frame-callback cache on
+  run.** The leak premise is hypothetical: the handler's two frame
+  callbacks are fields for its whole life (`10-performance.md` §2.4 pins
+  that), so the per-adapter cache is bounded at two entries. Evicting on
+  run would allocate a fresh Choreographer wrapper every predicted frame —
+  trading a bounded two-entry map for a per-frame allocation on the one
+  path the zero-alloc rule was written for. The contract is now stated at
+  the cache.

@@ -45,12 +45,29 @@ class AndroidCanvasInput(
                 Choreographer.getInstance().removeFrameCallback(wrapped)
             }
 
-            private fun frameCallbackFor(callback: Runnable): Choreographer.FrameCallback =
-                wraps.computeIfAbsent(callback) { runnable ->
+            // A cache, deliberately NOT evicted on run: the handler's two
+            // frame callbacks are fields for its whole life (`10-performance.md`
+            // §2.4 — the zero-allocation sample path), so this map holds at
+            // most two entries per adapter and posts hit the cache. Evicting
+            // on run would allocate a fresh wrapper every predicted frame.
+            private fun frameCallbackFor(callback: Runnable): Choreographer.FrameCallback {
+                val wrapped = wraps.computeIfAbsent(callback) { runnable ->
                     Choreographer.FrameCallback { runnable.run() }
                 }
+                // Debug-only tripwire (JVM tests; Android runtime keeps
+                // assertions disabled): converts the documented bound into
+                // a failure at the point of breakage.
+                assert(wraps.size <= frameCallbackBound) {
+                    "frame-callback cache grew beyond $frameCallbackBound entries; " +
+                        "ephemeral Runnables must not be posted (10-performance.md §2.4)"
+                }
+                return wrapped
+            }
 
             private val wraps = java.util.concurrent.ConcurrentHashMap<Runnable, Choreographer.FrameCallback>()
+
+            // A local val; anonymous objects cannot host consts.
+            private val frameCallbackBound = 2
         }
         handler.frameScheduler = choreographer
     }

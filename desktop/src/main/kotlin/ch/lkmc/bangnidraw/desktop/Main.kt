@@ -126,7 +126,12 @@ private fun Shell(engine: DesktopEngine, frame: DesktopEngine.Frame?, canvasSize
 
     // Restore the persisted choice once, before the first stroke.
     LaunchedEffect(Unit) {
-        prefs.readBrushId()?.let { id -> brushes.firstOrNull { it.id == id }?.let { selectedBrush = it } }
+        prefs.readBrushId()?.let { id ->
+            brushes.firstOrNull { it.id == id }?.let {
+                selectedBrush = it
+                brushSize = it.size
+            }
+        }
         prefs.readColorArgb()?.let { colorArgb = it }
     }
 

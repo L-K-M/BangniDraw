@@ -33,13 +33,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.graphics.toComposeImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
-import androidx.compose.ui.input.pointer.isPrimaryPressed
-import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
@@ -119,6 +115,9 @@ fun main() = application {
 private fun Shell(engine: DesktopEngine, frame: DesktopEngine.Frame?, canvasSize: CanvasSize) {
     val brushes = remember { DesktopBrushes.loadAll() }
     val prefs = remember { DesktopPrefs() }
+    androidx.compose.runtime.DisposableEffect(prefs) {
+        onDispose { prefs.close() }
+    }
     var selectedBrush by remember { mutableStateOf(brushes.first { it.id == BrushPresets.INK_PEN_ID }) }
     var brushSize by remember { mutableStateOf(selectedBrush.size) }
     var colorArgb by remember { mutableStateOf(DesktopPalette.SWATCHES.first()) }

@@ -24,8 +24,12 @@ import kotlinx.coroutines.flow.map
 class DesktopPrefs {
 
     private val scope = CoroutineScope(DispatcherIO + SupervisorJob())
+
+    // DataStore runs its own long-lived coroutine in the scope it is given;
+    // keeping it off `scope` means close() drains only our edit jobs.
+    private val storeScope = CoroutineScope(DispatcherIO + SupervisorJob())
     private val store = PreferenceDataStoreFactory.create(
-        scope = scope,
+        scope = storeScope,
         produceFile = { java.io.File(DesktopPlatform.configDir(), "desktop.preferences_pb") },
     )
 
@@ -59,6 +63,7 @@ class DesktopPrefs {
             }
         }
         scope.cancel()
+        storeScope.cancel()
     }
 
     private fun CoroutineScope.launchEdit(

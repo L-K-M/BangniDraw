@@ -83,7 +83,13 @@ class GalleryExporter @Inject constructor(
                         owned = isOwner,
                         modifiedByOther = modifiedByOther,
                         threw = false,
-                        pending = cursor.getInt(3) != 0,
+                        // By name, not by index: `pending` now outranks the
+                        // tamper check, so an off-by-one that read SIZE here
+                        // would report every present owned row as pending and
+                        // silently turn the foreign-edit guard off.
+                        pending = cursor.getInt(
+                            cursor.getColumnIndexOrThrow(MediaStore.Images.Media.IS_PENDING),
+                        ) != 0,
                     )
                 }
             }
@@ -116,7 +122,18 @@ class GalleryExporter @Inject constructor(
         var probeThrew = false
         var pending = false
         if (uri != null) {
-            val row = probeRow(uri, recordedModifiedAt, recordedBytes)
+            // The probe is the third cross-process call in this method, and
+            // the provider can die mid-query exactly as it can mid-write.
+            // Fail the sync rather than guess at the row's state — and
+            // deliberately NOT by setting threw, which means "ownership
+            // refused" and routes to REINSERT, abandoning a row that may be a
+            // reclaimable pending claim.
+            val row = try {
+                probeRow(uri, recordedModifiedAt, recordedBytes)
+            } catch (e: RemoteException) {
+                Log.w(TAG, "gallery probe failed; the provider died; will retry", e)
+                return null
+            }
             uriPresent = row.present
             isOwner = row.owned
             modifiedByOther = row.modifiedByOther
@@ -248,6 +265,11 @@ class GalleryExporter @Inject constructor(
             // only exit, not an orphaned retry loop.
             Log.w(TAG, "gallery withdraw probe refused a malformed URI", e)
             return true
+        } catch (e: RemoteException) {
+            // A dead provider is a sibling of RuntimeException, not a subtype,
+            // so the clause below never covered it.
+            Log.w(TAG, "gallery withdraw probe failed; the provider died; will retry", e)
+            return false
         } catch (e: RuntimeException) {
             // The same containment as the delete below: an unexpected
             // provider failure is retryable, not a reason to orphan an
@@ -264,6 +286,9 @@ class GalleryExporter @Inject constructor(
             context.contentResolver.delete(uri, null, null)
         } catch (e: SecurityException) {
             Log.w(TAG, "gallery withdraw refused; the item is the user's now", e)
+        } catch (e: RemoteException) {
+            Log.w(TAG, "gallery withdraw failed; the provider died; will retry", e)
+            return false
         } catch (e: RuntimeException) {
             // The same containment as the probe's: an unexpected provider
             // failure is retryable, not a reason to orphan the row.

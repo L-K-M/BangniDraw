@@ -30,7 +30,7 @@ object GallerySyncDecision {
     /**
      * §9.2's inputs. [threw] is a `SecurityException` from a *previous probe
      * or write attempt* on this row; [isOwner], [modifiedByOther] and
-     * [pending] come from `ownsRow`'s query. When no URI is recorded the
+     * [pending] come from `probeRow`'s query. When no URI is recorded the
      * others are meaningless and ignored.
      *
      * [pending] is the row's `IS_PENDING`, and it decides ahead of the tamper

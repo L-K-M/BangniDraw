@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.data
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -190,6 +191,17 @@ class GalleryExporterContractTest {
             "catch (e: RuntimeException)" in sync,
             "an OEM provider fault must not crash the app from a background sweep",
         )
+        // RemoteException is a SIBLING of RuntimeException, not a subtype
+        // (DeadSystemException -> DeadObjectException -> RemoteException ->
+        // AndroidException -> Exception), so the clause above never covered
+        // the canonical "provider process died" fault. Every cross-process
+        // call this method makes needs it — both writes and the probe.
+        assertEquals(
+            3,
+            REMOTE_CATCH.findAll(sync).count(),
+            "sync's three cross-process paths — probe, rewrite, insert — must " +
+                "each contain a dead provider",
+        )
     }
 
     /** Whitespace-normalized, and loud when either delimiter moves. */
@@ -223,6 +235,7 @@ class GalleryExporterContractTest {
         const val APP_DIRECTORY = "app/src/main"
         const val EXPORTER_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/data/GalleryExporter.kt"
+        val REMOTE_CATCH = Regex("catch \\(e: RemoteException\\)")
         val WHITESPACE = Regex("\\s+")
     }
 }

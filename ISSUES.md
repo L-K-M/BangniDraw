@@ -110,9 +110,13 @@ guards, GLSL/CPU composite parity, `Long`/`Int` overflow in
    path the decline worried about is the one the fix adopts. Two further
    halves of the fix are load-bearing and easy to "simplify" away: the
    publish (`IS_PENDING = 0` plus the rename) lives **inside** the same
-   guarded region as the write, because a complete-but-still-pending row
-   strands under `REINSERT` exactly like a truncated one — so either the
-   row is published or it is gone; and the cleanup delete is itself
+   guarded region as the write — so either the row is published or it is
+   gone. (A complete-but-still-pending row left by *process death* is healed
+   separately: `probeRow` reads `IS_PENDING` and a pending row we own is
+   rewritten ahead of the tamper check. That reclaim needs a later probe to
+   succeed and does not make the guard placement redundant — a publish that
+   throws has code still running and must discard the row then and there.)
+   And the cleanup delete is itself
    guarded (`runCatching`, through the shared `discardRow` helper), so a
    provider that also refuses the delete cannot replace the failure being
    reported with its own.

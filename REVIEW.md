@@ -2626,3 +2626,35 @@ touchscreen hover too, not only a pen.
   `runCatching { … }.getOrThrow()` satisfies "contains runCatching" while
   replacing the write's failure with the delete's — the masking the doc
   forbids. Mirrors the `outcomeOf` test's `getOrThrow` ban.
+
+- **R-221 ✅ (applied) round 6, Major: the `RemoteException` containment
+  covered the writes but not the probe.** Correct, and it falsifies R-211's
+  own closing claim that "both `sync` paths now catch it" — the probe is a
+  third cross-process path, called outside either write's `try`, with only a
+  `SecurityException` catch of its own. A dead provider there still escaped to
+  `viewModelScope`'s background sweep, which is the exact failure the rule
+  exists to prevent. Contained now, and deliberately by returning null rather
+  than setting `threw`: `threw` means "ownership refused" and routes to
+  REINSERT, which would abandon a row that may be a reclaimable pending claim.
+  `withdraw`'s pair gained the same clause. Pinned as a count of three, so the
+  next cross-process call added to `sync` has to be contained too.
+- **R-222 ✅ (applied) round 6: the `IS_PENDING` read used a magic column
+  index.** `cursor.getInt(3)` was positionally coupled to a projection edited
+  in the same commit, and the failure mode is nasty in a specific way: since
+  `pending` now outranks `modifiedByOther`, an off-by-one reading `SIZE` would
+  report every present owned row as pending and silently turn the foreign-edit
+  guard off entirely. Read by name via `getColumnIndexOrThrow`.
+- **R-223 ✅ (applied) round 6: `GallerySyncDecision`'s KDoc cited `ownsRow`,
+  which does not exist** — the querying function is `probeRow`. Pre-existing
+  text, kept through the rewrite without checking. By R-212's own standard, a
+  summary naming a shape the code does not have is how the next wrong
+  simplification gets justified.
+- **R-224 ✅ (applied) round 6: AGENTS.md and ISSUES.md asserted a mechanism
+  the pending reclaim removed.** Both said a complete-but-pending row "strands
+  under REINSERT exactly like a truncated one" — true when written, false once
+  a pending row we own is rewritten ahead of the tamper check. The *rule* is
+  unchanged and both still state it: the reclaim needs a later probe to
+  succeed, whereas a publish that throws has code still running and must
+  discard the row then and there. Worth the edit precisely because these are
+  agent-facing instruction files, and a false rationale is the argument
+  someone later uses to delete the thing it was defending.

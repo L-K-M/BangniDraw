@@ -813,10 +813,23 @@ and the contradiction is noted here.
   itself (`runCatching`) so a provider that also refuses it cannot mask the
   failure being reported — that log line is the only diagnostic either caller
   leaves behind. The **publish belongs inside the same guarded region as the
-  write**, not after it: a row left `IS_PENDING` with *complete* pixels
-  strands exactly like a truncated one, because the recorded size/date still
-  mismatch and `REINSERT` abandons a perfectly good image as an invisible
-  pending row while the user's gallery item stays missing.
+  write**, not after it, so that either the row is published or it is gone.
+  A row left `IS_PENDING` with *complete* pixels by **process death** is
+  healed separately — `probeRow` reads `IS_PENDING` and `GallerySyncDecision`
+  rewrites a pending row we own ahead of the tamper check — but that reclaim
+  needs a later probe to succeed, and it is not a substitute for the guard: a
+  publish that *throws* has code still running and must discard the row then
+  and there.
+- **`RemoteException` is a sibling of `RuntimeException`, not a subtype.**
+  `DeadSystemException` -> `DeadObjectException` -> `RemoteException` ->
+  `AndroidException` -> `Exception` (checked against the platform jar). A
+  provider process dying mid-call — the canonical OEM fault — therefore
+  escapes an `IOException`/`RuntimeException` chain entirely. Every
+  cross-process call in `GalleryExporter` needs it: the writes, the probe,
+  and `withdraw`'s pair. Containing it at the probe must return null rather
+  than set `threw`, which means "ownership refused" and routes to REINSERT,
+  abandoning a row that may be a reclaimable pending claim.
+
 - **MediaStore entry points contain `RuntimeException`, not just
   `SecurityException`/`IOException`.** `sync` and `withdraw` both run from
   `StudioViewModel`'s background sweep on `viewModelScope`, where an escape

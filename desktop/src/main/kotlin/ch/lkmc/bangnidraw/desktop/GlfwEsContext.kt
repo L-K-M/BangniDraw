@@ -45,10 +45,20 @@ class GlfwEsContext private constructor(
     fun destroy() {
         GLFW.glfwMakeContextCurrent(0)
         GLFW.glfwDestroyWindow(window)
+        // Process-global state, freed rather than leaked; the previous
+        // callback (whoever installed one) is restored so a shared-GLFW
+        // process keeps its own routing after this context is gone.
+        GLFW.glfwSetErrorCallback(previousErrorCallback)
+        errorCallback?.free()
+        errorCallback = null
     }
 
     companion object {
         private const val TAG = "GlfwEsContext"
+
+        /** Ours, and whoever we displaced — both process-global state. */
+        private var errorCallback: GLFWErrorCallback? = null
+        private var previousErrorCallback: GLFWErrorCallback? = null
 
         /**
          * Creates the context, or returns null with the reason logged — a
@@ -56,9 +66,11 @@ class GlfwEsContext private constructor(
          * (M4's failure contract).
          */
         fun create(width: Int, height: Int): GlfwEsContext? {
-            GLFWErrorCallback.create { error, description ->
+            val callback = GLFWErrorCallback.create { error, description ->
                 GlLog.w(TAG, "GLFW error $error: ${GLFWErrorCallback.getDescription(description)}")
-            }.set()
+            }
+            previousErrorCallback = callback.set() as? GLFWErrorCallback
+            errorCallback = callback
 
             // The ANGLE backend choice is an init hint: it must land before
             // glfwInit, and only macOS reads it (harmless elsewhere).

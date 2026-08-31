@@ -5,7 +5,6 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
-import ch.lkmc.bangnidraw.engine.core.HsvColor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -87,8 +86,10 @@ object DesktopPalette {
         0xFF5C4BC8.toInt(), 0xFFB65AC4.toInt(), 0xFFFFFFFF.toInt(), 0x00000000,
     )
 
-    fun toStrokeRgb(argb: Int): FloatArray {
-        val hsv = HsvColor.fromArgb(argb)
-        return floatArrayOf(hsv.h, hsv.s, hsv.v)
-    }
+    /** The stroke color as normalized RGB floats — what the engine's `u_color` takes. */
+    fun toStrokeRgb(argb: Int): FloatArray = floatArrayOf(
+        ((argb ushr 16) and 0xFF) / 255f,
+        ((argb ushr 8) and 0xFF) / 255f,
+        (argb and 0xFF) / 255f,
+    )
 }

@@ -2690,3 +2690,11 @@ much as in code.
   the assumption, the Android `/data/user/0` vs `/data/data` alias that would
   break it, and the consequence if it ever does (a live writer's rename
   fails; nothing is corrupted) are now stated next to `inFlight`.
+
+- **R-044 ⏸️ (out of scope) PR #174 merge round: the four `AtomicFiles`
+  findings** (newKeySet API 24 floor, ignored timed-join outcomes, the
+  uncovered sweep interleaving, and its KDoc precision) target PR #176's
+  code, which reached this PR through the main merge — pre-existing
+  behavior for this PR's purposes. minSdk is 29, so the API-24 concern is
+  moot in fact; the join-assertion and comment-precision points are
+  reasonable follow-ups for #176's file.

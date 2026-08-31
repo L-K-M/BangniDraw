@@ -2530,3 +2530,11 @@ touchscreen hover too, not only a pen.
   run, including this PR's (run 33376923717, "Upload debug APK":
   success). The reviewer's action-version knowledge is stale for this
   timeline; no change.
+
+- **R-043 ⏸️ (round 4 addendum):** The round-4 rebuttal ("a green step
+  cannot validate a nonexistent tag; latest majors are v4/v5") is checked
+  against the primary source: `gh api repos/actions/upload-artifact/git/
+  matching-refs/tags/v` returns `refs/tags/v7`, `v7.0.0`, `v7.0.1`, and
+  `repos/actions/checkout` likewise carries `refs/tags/v7` (queried
+  2026-08-31). The pins resolve; the reviewer's version table predates
+  these releases. Still no change.

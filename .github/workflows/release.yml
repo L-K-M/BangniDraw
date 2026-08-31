@@ -200,23 +200,20 @@ jobs:
           # ASCII (bangnidraw-vX.Y.Z) for shells and download managers.
           name: 帮你Draw ${{ github.ref_name }}
           body: |
-            **This release ships the first desktop builds** — Linux (deb) and
-            macOS (dmg) — alongside the Android APK.
-
             - **Android**: `bangnidraw-<tag>.apk` — sideload as usual
               (minSdk 29).
             - **Linux**: `bangnidraw-desktop-<tag>-linux-amd64.deb` — needs
               GLES from Mesa or your vendor driver; nothing else.
-            - **macOS**: `bangnidraw-desktop-<tag>-macos-arm64.dmg` — the app
+            - **macOS**: `bangnidraw-desktop-<tag>-macos-<arch>.dmg` — the app
               needs ANGLE's `libEGL.dylib`/`libGLESv2.dylib` discoverable
               (place them next to the app or on `DYLD_LIBRARY_PATH`; see the
               repo README's Desktop section). Without them the app opens with
               an instruction panel instead of a crash.
 
-            Desktop is v1-minimal: canvas, brushes, color, undo/redo, Save
-            PNG, mouse input (no pen pressure yet — Phase 3 of DESKTOP.md).
-            Both desktop builds include Mixbox pigment mixing (CC BY-NC 4.0,
-            non-commercial).
+            Desktop is mouse-first in this release line (no pen pressure
+            yet — Phase 3 of DESKTOP.md). Both desktop builds include Mixbox
+            pigment mixing (CC BY-NC 4.0, non-commercial).
+          generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
           files: |

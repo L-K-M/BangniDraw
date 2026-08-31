@@ -102,6 +102,11 @@ class DabGeneratorTest {
         }
         brushesDir.listFiles().orEmpty()
             .filter { it.extension == "json" }
+            .also { jsons ->
+                check(jsons.isNotEmpty()) {
+                    "No .json brush presets under ${brushesDir.absolutePath}"
+                }
+            }
             .associate { file ->
                 val preset = json.decodeFromString<BrushPreset>(file.readText())
                 preset.id to preset

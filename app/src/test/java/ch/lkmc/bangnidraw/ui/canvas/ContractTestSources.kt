@@ -25,9 +25,14 @@ import java.io.File
  * trailing comma, which maps that spelling back onto the single-line one and
  * leaves single-line code untouched.
  *
- * The one rule this imposes on needles: **do not depend on a trailing
- * comma**, because canonicalization removes it. Terminate on the `)`
- * instead, which is what a wrapped and an unwrapped call have in common.
+ * The rule this imposes on needles: **do not depend on anything the
+ * canonicalizer deletes** — a trailing comma, or whitespace hugging a paren.
+ * Terminate on the `)` instead, which is what a wrapped and an unwrapped call
+ * have in common. The rewrites run over the whole file rather than over code
+ * alone, so this binds a needle that quotes a string literal or a comment
+ * just as much as one that quotes a call: pinning a user-visible message
+ * containing `( `, ` )` or `, )` would fail for the same reason a wrapped
+ * argument list used to.
  */
 internal object ContractTestSources {
 
@@ -46,7 +51,10 @@ internal object ContractTestSources {
      * to interior wrapping by construction, at the cost of needles that read
      * less like the code they pin.
      */
-    fun readCompact(path: String): String = canonicalize(read(path)).replace(" ", "")
+    fun readCompact(path: String): String = compact(read(path))
+
+    /** Visible for its own test; [readCompact] is the entry point. */
+    fun compact(source: String): String = canonicalize(source).replace(" ", "")
 
     /** Visible for its own test; the two readers above are the entry points. */
     fun canonicalize(source: String): String = source

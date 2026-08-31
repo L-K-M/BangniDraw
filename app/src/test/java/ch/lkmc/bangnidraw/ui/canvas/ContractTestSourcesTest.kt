@@ -49,11 +49,23 @@ class ContractTestSourcesTest {
     }
 
     @Test
-    fun `readCompact strips the spaces the needles omit`() {
+    fun `compact strips the spaces the space-free needles omit`() {
+        // Through the shared helper `readCompact` delegates to, not a copy of
+        // its body: a pin that re-implements the code it pins stays green
+        // while the path its callers use drifts away from it.
         assertEquals(
             "Box{IconButton(onClick={menuOpen=true})",
-            ContractTestSources.canonicalize("Box { IconButton(onClick = { menuOpen = true }) ")
-                .replace(" ", ""),
+            ContractTestSources.compact("Box { IconButton(onClick = { menuOpen = true }) "),
+        )
+    }
+
+    @Test
+    fun `compact also drops the trailing comma spaces cannot`() {
+        // The half stripping spaces would miss on its own, and the reason
+        // readCompact canonicalizes first instead of only removing spaces.
+        assertEquals(
+            "finishCheckpoint(snapshot,thumbnailResult)",
+            ContractTestSources.compact("finishCheckpoint(\n    snapshot,\n    thumbnailResult,\n)"),
         )
     }
 }

@@ -2555,6 +2555,25 @@ touchscreen hover too, not only a pen.
   a separate change with its own regression surface. Out of scope here, worth
   doing next — the shared readers now exist, so it is mechanical.
 
+- **R-193 ✅ (applied) round 2: the `readCompact` test re-implemented
+  `readCompact` instead of calling it.** Correct — the test body spelled
+  `canonicalize(...).replace(" ", "")`, a hand copy of the reader's own two
+  steps, so it would have stayed green while the path
+  `StudioCardMenuContractTest` actually uses drifted. The stripping step is now
+  `compact(source)`, `readCompact` delegates to it, and the test calls it. A
+  second case pins the half that stripping spaces alone cannot do — dropping
+  the trailing comma — and is mutation-checked: reducing `compact` to a bare
+  space-strip fails it.
+- **R-194 ✅ (applied) round 2, Info: the stated needle rule named only
+  trailing commas.** Correct, and it matters more than it looks, because that
+  paragraph is the contract other authors follow when they migrate the tests
+  R-189 defers. `canonicalize` also deletes whitespace hugging `(` and `)`, and
+  all three rewrites run over the whole file — string literals and comments
+  included — so a needle quoting a user-visible message containing `( `, ` )`
+  or `, )` would fail for exactly the reason R-186 just fixed, relocated into
+  quoted text. The rule now covers everything the canonicalizer deletes,
+  wherever it appears.
+
 **Found by this round's own suite, not by the review:** the canonicalization
 broke `LayerPanelHeaderContractTest`'s `"modifier = Modifier.weight(1f),"`,
 which depended on the trailing comma it removes. The `)` terminates the match

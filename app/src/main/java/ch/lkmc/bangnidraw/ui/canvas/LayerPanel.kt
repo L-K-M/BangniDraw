@@ -601,11 +601,16 @@ private fun LayerRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // Ellipsizes like the name above it: `maxLines` alone
+                    // hard-clips mid-glyph, and the caption is the text most
+                    // likely to run out of room — the row spends its width on
+                    // the handle, the thumbnail and three actions first.
                     Text(
                         text = blendModeName(layer.props.blendMode),
                         style = MaterialTheme.typography.labelSmall,
                         color = captionColor,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

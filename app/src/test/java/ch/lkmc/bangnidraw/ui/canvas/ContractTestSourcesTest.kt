@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.ui.canvas
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -46,6 +47,25 @@ class ContractTestSourcesTest {
 
         assertTrue("finishCheckpoint(snapshot, thumbnailResult)" !in collapsedOnly)
         assertTrue("finishCheckpoint(snapshot, thumbnailResult)" in ContractTestSources.canonicalize(wrapped))
+    }
+
+    @Test
+    fun `stripping comments leaves string literals alone`() {
+        // The blind spot: a `//` inside a literal — a URL, a regex, a path —
+        // read as a comment start would delete real code from the compacted
+        // source, and the test would then fail with "missing marker" rather
+        // than anything to do with the code it pins.
+        val source = """
+            val url = "https://example.com/x" // a trailing comment
+            /* a block comment */ val n = 1
+        """.trimIndent()
+
+        val stripped = ContractTestSources.stripComments(source)
+
+        assertTrue("\"https://example.com/x\"" in stripped, "the literal must survive verbatim")
+        assertFalse("a trailing comment" in stripped)
+        assertFalse("a block comment" in stripped)
+        assertTrue("val n = 1" in stripped, "code after a block comment must survive")
     }
 
     @Test

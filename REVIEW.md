@@ -2812,6 +2812,111 @@ its real scope: **needles must not depend on anything the canonicalizer
 deletes** — a trailing comma or whitespace hugging a paren, in quoted text as
 much as in code.
 
+## PR #178 — tool sheets publish on release; the layer caption ellipsizes (2026-08-31)
+
+- **R-190 ❌ (refuted) round 1, BLOCKER: "`valueText = percent` passes a bare
+  function name, not a value — the whole app module stops compiling."** It
+  compiles, and did before the claim was made: the `android` check was green
+  on `cfc4b7f`, the exact commit reviewed. The finding assumed `percent` is a
+  `@Composable fun` imported from `BrushSettingsSheet`. It is not.
+  `RmwSettingsSheet` declares its own local `val percent: @Composable (Float)
+  -> String` in **every** enclosing composable that uses it —
+  `SmudgeSettingsSheet`, `WaterSettingsSheet` and `BlurSettingsSheet`, three
+  declarations, named rather than numbered because line numbers rot — which is
+  exactly the type `DeferredSettingSlider.valueText` takes, so the
+  unapplied reference is the correct adaptation — the old call sites applied
+  it (`percent(active.hardness)`) only because the old `SettingSlider` took a
+  `String`. The accompanying claim that "a top-level val can't even hold a
+  composable lambda" is both wrong and beside the point, since these are local
+  vals. Refuted on the PR, per CLAUDE.md's rule for claims that would
+  otherwise mislead a merge decision.
+
+  *(Round 2 corrected this entry's own citation, which named two of the three
+  declarations — the search behind it had been truncated. The refutation is
+  unchanged and rests on what `percent` is, not on how many there are, but a
+  reader following an undercount would go looking for a missing declaration
+  and could reopen a settled claim, which is the opposite of what this log is
+  for.)*
+- **R-191 ⏸️ (declined) round 1: delegate `FillSlider` to
+  `DeferredSettingSlider`.** The finding names the right caveat and it is the
+  one that decides this: the two layouts are not the same. `SettingSlider`
+  styles its label `bodyMedium` and its readout `labelMedium`, both in the
+  default content color; `FillSlider` leaves both at the default style and
+  tints the readout `onSurfaceVariant`. Delegating would silently restyle the
+  Fill sheet, which is a visual decision this PR has no business making —
+  fable F-12 already tracks the same family of inconsistency across the
+  transient readout chips, and unifying them belongs there with the rest.
+  The duplicated part is three lines of draft mechanics, not the layout.
+- **R-192 ❌ (refuted, but its suggestion adopted) round 1, Info:
+  commit-on-release assumes every mutation fires `onValueChangeFinished`;
+  older Material fired only `onValueChange` for semantics actions.** Verified
+  against the artifact the build actually resolves —
+  `material3-android-1.4.0.aar`. In `SliderKt.sliderSemantics`, the
+  `setProgress` handler (`sliderSemantics$lambda$52$lambda$51`) sets the value
+  and then, at bytecode offset 242-250, loads `onValueChangeFinished` and
+  invokes it under a null guard. TalkBack and keyboard changes therefore
+  commit exactly as a release does, and the failure mode described cannot
+  occur on the pinned version. The suggestion's useful half — own the
+  assumption in the doc rather than leave it incidental — is applied, with the
+  verification recorded so the next reader does not have to redo it.
+
+- **R-207 ✅ (applied) round 3: the per-frame guard covered almost nothing.**
+  Correct, and worse than the finding realized. `assertFalse(... in
+  sheet.substringBefore(FIRST_CURVE_EDITOR))` stopped at the first
+  `CurveEditor(` — line 74 of `RmwSettingsSheet.kt` — so the guarded window
+  was the opening of `SmudgeSettingsSheet` and nothing else. `WaterSettingsSheet`,
+  `BlurSettingsSheet`, `EyedropperSettingsSheet` and both shared helpers were
+  all outside it, and the whole-file `assertTrue("DeferredSettingSlider(" in
+  sheet)` only proved the wrapper is used *somewhere*.
+
+  The bound was also unnecessary from the start: `CurveEditor` takes
+  `onFinished`, not `onValueChangeFinished`, so the needle could never have
+  matched a curve editor. The reasoning that put it there was simply wrong
+  about the parameter's name.
+
+  Replaced with a contract that covers the file: the count of
+  `SettingSlider(` must equal the count of `DeferredSettingSlider(`. Since the
+  latter contains the former as a substring, equal counts mean every slider
+  call is a deferred one — anywhere in the file, in any helper. The historical
+  needle stays as a second net, now unbounded, and the two shared helpers are
+  named explicitly since they are the highest-traffic sliders in the app.
+
+  Proven rather than argued: a *compiling* revert of `ToolSpacingSlider` to a
+  per-frame `SettingSlider` passes the old test and fails the new one. (A
+  first attempt at that mutation did not compile and therefore proved
+  nothing — recorded because a mutation that fails to build is not evidence.)
+
+- **R-218 ✅ (applied) round 4: the caption test counted needles without
+  stripping comments.** Correct, and it diverged from the sibling test added
+  in the same change. These needles are *counted*, not merely sought, so a
+  comment inside `LayerRow` quoting `maxLines = 1` without also quoting the
+  overflow line shifts one count and fails with a message about production
+  clipping — pointing debugging at the wrong layer over a documentation edit.
+  The row already carries such a comment, added by this PR; it survived only
+  because its wording happens to avoid the literals. Demonstrated before
+  fixing: an unbalanced comment quoting one needle fails the old test and
+  passes the new one.
+
+- **R-225 ✅ (applied) round 5: the comment stripper also ate `//` inside
+  string literals.** Latent here — no string literal in `LayerPanel.kt`,
+  `RmwSettingsSheet.kt`, `FillSettingsSheet.kt` or `BrushSettingsSheet.kt`
+  contains `//` or `/*` — but the failure it would cause is the same
+  wrong-layer one R-218 had just removed: real code deleted from the compacted
+  source, reported as a missing marker.
+
+  **This is not a reversal of R-185**, where the same blind spot was declined
+  on `DabPass`'s stripper. That decline rested on the cost of the cure — a
+  ~25-line hand-rolled parser living in a test — and on the sibling using the
+  identical regex. Neither holds here: the cure is one alternation plus a
+  replace lambda, and the two `:app` copies had *already* drifted in their
+  replacement text, which is the drift R-188 objected to. So the stripper is
+  hoisted into `ContractTestSources.stripComments`, shared by both tests, with
+  a literal matched first and returned verbatim. Its two known limits (raw
+  triple-quoted strings, nested block comments) are stated and inert for every
+  needle here. Mutation-checked: removing the literal alternative fails the new
+  case. `DabPass`'s own stripper is untouched and R-185 stands; migrating the
+  `engine-gl` twin belongs with R-189.
+
 ## PR #179 — one scratch file per atomic write (2026-08-31)
 
 - **R-195 ✅ (applied) round 1, Major: the destroyed-temp test stages a

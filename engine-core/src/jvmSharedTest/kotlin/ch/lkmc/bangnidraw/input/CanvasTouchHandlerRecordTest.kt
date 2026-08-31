@@ -90,7 +90,7 @@ class CanvasTouchHandlerRecordTest {
 
         override fun predict(pointerId: Int): Int {
             askedForPointer = pointerId
-            count = if (samples.isEmpty()) 0 else samples.size
+            count = 0
             samples.forEachIndexed { i, s ->
                 s.set(
                     pointerId = pointerId,
@@ -103,10 +103,18 @@ class CanvasTouchHandlerRecordTest {
                     timeNs = timesNs[i],
                 )
             }
+            count = timesNs.size
             return count
         }
 
-        override fun predictedAt(index: Int): PointerSample = samples[index]
+        override fun predictedAt(index: Int): PointerSample {
+            // Mirrors the real Predictor's lifetime tripwire: reading past
+            // the producing predict fails here in CI, not on a device.
+            require(index in 0 until count) {
+                "predictedAt($index) outside the last predict() range (0 until $count)"
+            }
+            return samples[index]
+        }
     }
 
     private fun handler(host: Host): CanvasTouchHandler {

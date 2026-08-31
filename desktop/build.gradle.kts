@@ -38,7 +38,9 @@ compose.desktop {
             // ASCII only: jpackage writes desktop-entry metadata with the
             // system charset, and a C locale turns non-ASCII into "Input
             // length = 1" failures. The localized name lives in the app UI.
-            description = "BangniDraw - layered raster painting with Mixbox pigment mixing"
+            // Variant-neutral: the nomixbox CI build stamps the same
+            // metadata, so the description must not name Mixbox.
+            description = "BangniDraw - layered raster painting"
             vendor = "BangniDraw"
 
             // macOS needs ANGLE's dylibs beside the app at runtime (see the

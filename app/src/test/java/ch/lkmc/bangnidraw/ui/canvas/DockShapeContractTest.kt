@@ -13,7 +13,11 @@ class DockShapeContractTest {
 
     @Test
     fun `the dock rounds its top corners and keeps the bottom flush`() {
-        val rail = ContractTestSources.read(TOOL_RAIL_PATH)
+        // Whitespace-normalized per the house rule for source-contract
+        // tests: every needle below is a behavioral pin, and a mechanical
+        // reformat that wrapped one of these argument lists would otherwise
+        // fail it for a reason that has nothing to do with the dock's shape.
+        val rail = ContractTestSources.read(TOOL_RAIL_PATH).replace(WHITESPACE, " ")
         // An absent delimiter must fail loudly as "Dock moved", not let the
         // whole file masquerade as the snippet and fail on a shape message.
         val dock = rail.substringAfter("private fun Dock(", missingDelimiterValue = "")
@@ -33,5 +37,6 @@ class DockShapeContractTest {
 
     private companion object {
         const val TOOL_RAIL_PATH = "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/ToolRail.kt"
+        val WHITESPACE = Regex("\\s+")
     }
 }

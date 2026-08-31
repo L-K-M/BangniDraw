@@ -1,6 +1,5 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -48,7 +47,15 @@ class CanvasCheckpointConcurrencyContractTest {
         )
     }
 
-    private fun source(): String = File(repositoryRoot(), CANVAS_VIEW_MODEL_PATH).readText()
+    /**
+     * Whitespace-normalized per the house rule for source-contract tests.
+     * Several needles below name multi-argument calls — `finishCheckpoint(
+     * snapshot, thumbnailResult)` most of all — and those are ordering pins,
+     * not formatting pins: a mechanical reformat that wrapped one argument
+     * list must not fail them.
+     */
+    private fun source(): String =
+        ContractTestSources.read(CANVAS_VIEW_MODEL_PATH).replace(WHITESPACE, " ")
 
     private fun section(source: String, startMarker: String, endMarker: String): String {
         val start = source.indexOf(startMarker)
@@ -59,20 +66,7 @@ class CanvasCheckpointConcurrencyContractTest {
         return source.substring(start, end)
     }
 
-    private fun repositoryRoot(): File {
-        val workingDirectory = File(
-            requireNotNull(System.getProperty(USER_DIRECTORY_PROPERTY)),
-        ).canonicalFile
-
-        return generateSequence(workingDirectory) { it.parentFile }
-            .firstOrNull { File(it, ROOT_MARKER).isFile && File(it, APP_DIRECTORY).isDirectory }
-            ?: fail("cannot locate repository root from $workingDirectory")
-    }
-
     private companion object {
-        const val USER_DIRECTORY_PROPERTY = "user.dir"
-        const val ROOT_MARKER = "settings.gradle.kts"
-        const val APP_DIRECTORY = "app/src/main"
         const val CANVAS_VIEW_MODEL_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasViewModel.kt"
         const val CHECKPOINT_START = "private suspend fun checkpoint("
@@ -88,5 +82,6 @@ class CanvasCheckpointConcurrencyContractTest {
         const val CLEAR_DIRTY = "dirty = false"
         const val FINISH_CALL = "finishCheckpoint(snapshot, thumbnailResult)"
         const val GALLERY_CALL = "maybeSyncGallery(snapshot.document"
+        val WHITESPACE = Regex("\\s+")
     }
 }

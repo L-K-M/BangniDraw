@@ -2597,3 +2597,14 @@ touchscreen hover too, not only a pen.
   per-frame `SettingSlider` passes the old test and fails the new one. (A
   first attempt at that mutation did not compile and therefore proved
   nothing — recorded because a mutation that fails to build is not evidence.)
+
+- **R-218 ✅ (applied) round 4: the caption test counted needles without
+  stripping comments.** Correct, and it diverged from the sibling test added
+  in the same change. These needles are *counted*, not merely sought, so a
+  comment inside `LayerRow` quoting `maxLines = 1` without also quoting the
+  overflow line shifts one count and fails with a message about production
+  clipping — pointing debugging at the wrong layer over a documentation edit.
+  The row already carries such a comment, added by this PR; it survived only
+  because its wording happens to avoid the literals. Demonstrated before
+  fixing: an unbalanced comment quoting one needle fails the old test and
+  passes the new one.

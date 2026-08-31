@@ -54,7 +54,17 @@ class LayerRowCaptionContractTest {
     }
 
     private fun layerRow(): String {
-        val panel = ContractTestSources.read(LAYER_PANEL_PATH).replace(WHITESPACE, " ")
+        // Comments stripped before the counts, matching the sibling test in
+        // this change. These needles are *counted*, not merely sought, so a
+        // comment inside LayerRow quoting `maxLines = 1` without also quoting
+        // the overflow line shifts one count and fails with a message about
+        // production clipping — pointing debugging at the wrong layer over a
+        // documentation edit. The row already carries such a comment, added
+        // here; it survives only because its wording happens to avoid the
+        // literals.
+        val panel = ContractTestSources.read(LAYER_PANEL_PATH)
+            .replace(COMMENTS, " ")
+            .replace(WHITESPACE, " ")
         val start = panel.indexOf(ROW_START)
         if (start < 0) fail("missing $ROW_START — renamed?")
         val end = panel.indexOf(ROW_END, start)
@@ -71,6 +81,7 @@ class LayerRowCaptionContractTest {
         const val AFTER_CAPTION = "onClick = onToggleVisibility"
         val MAX_LINES = Regex("maxLines = 1")
         val ELLIPSIS = Regex("overflow = TextOverflow\\.Ellipsis")
+        val COMMENTS = Regex("""//[^\n]*|/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
         val WHITESPACE = Regex("\\s+")
     }
 }

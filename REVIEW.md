@@ -2529,8 +2529,14 @@ touchscreen hover too, not only a pen.
 - **R-199 ✅ (applied) round 1: the success-path publish sat outside the
   guard.** A provider fault on the `IS_PENDING = 0` update left the row
   pending with *complete* pixels, which strands under `REINSERT` exactly like
-  a truncated one. Claim-truncate-write-publish is now one guarded
-  transaction: either the row is published or it is gone.
+  a truncated one. Truncate-write-publish is now one guarded transaction:
+  either the row is published or it is gone. The `IS_PENDING = 1` claim stays
+  deliberately **outside** that guard — a claim that throws leaves the row
+  published and intact, so there is nothing to discard, and moving it inside
+  would delete a healthy image whenever the claim update happened to fail.
+  (Wording corrected in round 5, which caught this summary describing a shape
+  the code does not have; in a repo whose comments warn against load-bearing
+  simplification, an inaccurate summary is how the simplification gets made.)
 - **R-200 ✅ (applied) round 1: `insert`'s cleanup delete was bare** while the
   comment and the AGENTS.md rule this PR added both directed guarding it.
   Both writers now discard through a shared `discardRow(uri, what)`.
@@ -2576,3 +2582,47 @@ touchscreen hover too, not only a pen.
   the file rather than assumed, since "I already fixed that" is self-graded:
   the assertion is present, and its semantics are the ones requested, not a
   partial version of them.
+
+- **R-210 ✅ (applied, rewrite half) round 5, Major: process death between the
+  claim and the publish strands a pending row.** Correct, and the strongest
+  finding of this PR's review. The window predates the change, but the
+  invariant this PR states — "either the row is published or it is gone" — was
+  enforced only against exceptions, and a force-stop, low-memory or ANR kill
+  leaves the `IS_PENDING = 1` claim standing with no code left to run. Such a
+  row is invisible in gallery apps, so the painting has simply vanished, and
+  its `DATE_MODIFIED`/`SIZE` describe a half-finished write: matching
+  pre-write metadata reads as "unchanged", a mismatch reads as a foreign edit,
+  and that second answer abandons the invisible row permanently while
+  inserting a duplicate beside it. `probeRow` now reads `IS_PENDING` and
+  `GallerySyncDecision` reclaims a pending row we own, ahead of the tamper
+  check — nothing else can have edited a row no other app can see.
+
+  The `insert` half is **not** fixed and is filed as a follow-up: a kill
+  between `resolver.insert` and the publish leaves a pending row whose URI was
+  never recorded, so no later sync can find it without a query by display name
+  and folder. That is a different mechanism and a larger change.
+- **R-211 ✅ (applied) round 5, Major: the containment misses the
+  `RemoteException` family.** Correct, and verified against the platform jar
+  rather than argued: `DeadSystemException` -> `DeadObjectException` ->
+  `RemoteException` -> `AndroidException` -> `Exception`. A provider process
+  dying mid-call is a *sibling* of `RuntimeException`, not a subtype, so the
+  clause added for exactly that fault never contained it. Both `sync` paths
+  now catch it.
+- **R-212 ✅ (applied) round 5: R-199's summary described a shape the code does
+  not have.** The `IS_PENDING = 1` claim is outside the guard, deliberately —
+  a claim that throws leaves the row published and intact — and calling the
+  whole thing "one guarded transaction" invites moving the claim inside, which
+  would delete a healthy image on a flaky claim update.
+- **R-213 ✅ (applied) round 5: `outcomeOf`'s KDoc understated the cost.** A
+  persistently failing baseline read means a full truncate-and-rewrite every
+  sync, not a one-cycle loss. Still accepted — the row stays correct
+  throughout — but stated at its real price.
+- **R-214 ✅ (applied) round 5: `finally{` with no space evaded the needle.**
+  `section()` collapses whitespace *runs*, and there is no run to collapse in
+  `finally{`. This was the one negative assertion in the file that a
+  formatting choice could silently defeat; every other needle fails loudly
+  through an `indexOf` guard. Both spellings are now rejected.
+- **R-215 ✅ (applied) round 5: the helper test allowed a rethrow.**
+  `runCatching { … }.getOrThrow()` satisfies "contains runCatching" while
+  replacing the write's failure with the delete's — the masking the doc
+  forbids. Mirrors the `outcomeOf` test's `getOrThrow` ban.

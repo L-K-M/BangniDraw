@@ -28,19 +28,36 @@ object GallerySyncDecision {
     }
 
     /**
-     * §9.2's four inputs. [threw] is a `SecurityException` from a *previous
-     * probe or write attempt* on this row; [isOwner] and [modifiedByOther]
-     * come from `ownsRow`'s query. When no URI is recorded the other three
-     * are meaningless and ignored.
+     * §9.2's inputs. [threw] is a `SecurityException` from a *previous probe
+     * or write attempt* on this row; [isOwner], [modifiedByOther] and
+     * [pending] come from `ownsRow`'s query. When no URI is recorded the
+     * others are meaningless and ignored.
+     *
+     * [pending] is the row's `IS_PENDING`, and it decides ahead of the tamper
+     * check. A write claims the row pending, truncates it, writes, and
+     * publishes; a kill anywhere in that window — force-stop, low-memory,
+     * ANR — leaves the claim standing with no code left to run. Such a row is
+     * invisible in gallery apps, so from the user's side the painting has
+     * simply vanished, and its `DATE_MODIFIED`/`SIZE` describe a half-finished
+     * write rather than anyone's edit. Comparing them decides nothing:
+     * matching pre-write metadata reads as "unchanged" and a mismatch reads
+     * as a foreign edit, and the second answer, REINSERT, abandons the
+     * invisible row permanently while inserting a duplicate beside it.
+     *
+     * Ours and unpublished, so reclaim it. A pending row cannot carry an edit
+     * worth protecting: no other app can see it to edit.
      */
     fun decide(
         uriPresent: Boolean,
         isOwner: Boolean,
         threw: Boolean,
         modifiedByOther: Boolean,
+        pending: Boolean = false,
     ): Action = when {
         !uriPresent -> Action.INSERT
-        threw || !isOwner || modifiedByOther -> Action.REINSERT
+        threw || !isOwner -> Action.REINSERT
+        pending -> Action.REWRITE
+        modifiedByOther -> Action.REINSERT
         else -> Action.REWRITE
     }
 

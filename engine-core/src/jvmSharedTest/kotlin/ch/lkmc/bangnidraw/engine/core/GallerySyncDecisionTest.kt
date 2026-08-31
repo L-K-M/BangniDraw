@@ -50,6 +50,75 @@ class GallerySyncDecisionTest {
     }
 
     @Test
+    fun `a pending row we still own is our own stranded claim, so reclaim it`() {
+        // A kill between the claim and the publish — force-stop, low memory,
+        // ANR — leaves IS_PENDING standing with no code left to run. The row
+        // is invisible in gallery apps, so the painting has simply vanished
+        // from the user's side, and its DATE_MODIFIED/SIZE describe a
+        // half-finished write rather than anyone's edit.
+        assertEquals(
+            Action.REWRITE,
+            GallerySyncDecision.decide(
+                uriPresent = true, isOwner = true, threw = false,
+                modifiedByOther = false, pending = true,
+            ),
+        )
+        // And it outranks the tamper check, which is the whole point: a
+        // mismatch here is our own interrupted write, not a foreign edit, and
+        // REINSERT would abandon the invisible row forever while inserting a
+        // duplicate beside it. Nothing else can have edited a row no other app
+        // can see.
+        assertEquals(
+            Action.REWRITE,
+            GallerySyncDecision.decide(
+                uriPresent = true, isOwner = true, threw = false,
+                modifiedByOther = true, pending = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `a pending row that is not ours is still abandoned`() {
+        // Pending reclaims only what we own; the ownership and probe-refused
+        // branches still decide first.
+        assertEquals(
+            Action.REINSERT,
+            GallerySyncDecision.decide(
+                uriPresent = true, isOwner = false, threw = false,
+                modifiedByOther = false, pending = true,
+            ),
+        )
+        assertEquals(
+            Action.REINSERT,
+            GallerySyncDecision.decide(
+                uriPresent = true, isOwner = true, threw = true,
+                modifiedByOther = false, pending = true,
+            ),
+        )
+        // No recorded URI still wins over everything.
+        assertEquals(
+            Action.INSERT,
+            GallerySyncDecision.decide(
+                uriPresent = false, isOwner = true, threw = false,
+                modifiedByOther = false, pending = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `a published row keeps the tamper check`() {
+        // The guarantee pending must not weaken: with the row published, a
+        // foreign edit is still respected rather than overwritten.
+        assertEquals(
+            Action.REINSERT,
+            GallerySyncDecision.decide(
+                uriPresent = true, isOwner = true, threw = false,
+                modifiedByOther = true, pending = false,
+            ),
+        )
+    }
+
+    @Test
     fun `nothing syncs when nothing changed`() {
         assertFalse(
             GallerySyncDecision.isDue(Trigger.LEAVE, 5, 5, nowMs = 1_000_000, lastSyncAtMs = 0),

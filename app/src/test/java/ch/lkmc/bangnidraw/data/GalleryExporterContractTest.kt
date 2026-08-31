@@ -56,8 +56,13 @@ class GalleryExporterContractTest {
         // write threw. The needle carries its brace on purpose: this window
         // includes comments, and the prose explaining the fix names the
         // keyword, so a bare-word check would fail on its own documentation.
+        // Both spellings: section() collapses whitespace *runs*, and there is
+        // no run to collapse in `finally{`, so the spaced needle alone was the
+        // one negative assertion in this file a formatting choice could
+        // silently defeat. Every other needle here fails loudly through an
+        // indexOf guard instead.
         assertFalse(
-            "finally {" in rewrite,
+            "finally {" in rewrite || "finally{" in rewrite,
             "clearing IS_PENDING in a finally block publishes a truncated image",
         )
         // ...and the publish must sit INSIDE the guarded region rather than
@@ -114,6 +119,14 @@ class GalleryExporterContractTest {
         assertTrue(
             "runCatching" in helper,
             "the cleanup delete must not mask the failure it is reporting",
+        )
+        // runCatching alone does not say "does not rethrow": a helper written
+        // as runCatching { … }.getOrThrow() satisfies the check above while
+        // replacing the write's failure with the delete's, which is exactly
+        // what the doc forbids. Mirrors the outcomeOf test.
+        assertFalse(
+            "getOrThrow" in helper,
+            "rethrowing from the cleanup delete masks the failure it reports",
         )
     }
 

@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.data
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.RemoteException
 import android.provider.MediaStore
 import android.util.Log
 import ch.lkmc.bangnidraw.R
@@ -42,6 +43,8 @@ class GalleryExporter @Inject constructor(
         val owned: Boolean,
         val modifiedByOther: Boolean,
         val threw: Boolean,
+        /** The row's `IS_PENDING`: a claim a kill left standing (§9.2). */
+        val pending: Boolean = false,
     )
 
     /**
@@ -62,6 +65,7 @@ class GalleryExporter @Inject constructor(
                     MediaStore.Images.Media.OWNER_PACKAGE_NAME,
                     MediaStore.Images.Media.DATE_MODIFIED,
                     MediaStore.Images.Media.SIZE,
+                    MediaStore.Images.Media.IS_PENDING,
                 ),
                 null,
                 null,
@@ -74,7 +78,13 @@ class GalleryExporter @Inject constructor(
                     // ours (§9.2).
                     val modifiedByOther = recordedModifiedAt != 0L && recordedBytes != 0L &&
                         (rowModified != recordedModifiedAt || rowBytes != recordedBytes)
-                    return RowState(true, isOwner, modifiedByOther, threw = false)
+                    return RowState(
+                        present = true,
+                        owned = isOwner,
+                        modifiedByOther = modifiedByOther,
+                        threw = false,
+                        pending = cursor.getInt(3) != 0,
+                    )
                 }
             }
         } catch (e: SecurityException) {
@@ -104,12 +114,14 @@ class GalleryExporter @Inject constructor(
         var isOwner = false
         var modifiedByOther = false
         var probeThrew = false
+        var pending = false
         if (uri != null) {
             val row = probeRow(uri, recordedModifiedAt, recordedBytes)
             uriPresent = row.present
             isOwner = row.owned
             modifiedByOther = row.modifiedByOther
             probeThrew = row.threw
+            pending = row.pending
         }
 
         var action = GallerySyncDecision.decide(
@@ -117,6 +129,7 @@ class GalleryExporter @Inject constructor(
             isOwner = isOwner,
             threw = probeThrew,
             modifiedByOther = modifiedByOther,
+            pending = pending,
         )
 
         if (action == GallerySyncDecision.Action.REWRITE && uri != null) {
@@ -134,6 +147,14 @@ class GalleryExporter @Inject constructor(
                 )
             } catch (e: IOException) {
                 Log.w(TAG, "gallery rewrite failed", e)
+                return null
+            } catch (e: RemoteException) {
+                // Verified against the platform jar: DeadSystemException ->
+                // DeadObjectException -> RemoteException -> AndroidException ->
+                // Exception. A provider process dying mid-call is therefore a
+                // SIBLING of RuntimeException, not a subtype, so the clause
+                // below never contained the one fault it was written for.
+                Log.w(TAG, "gallery rewrite failed; the provider died; will retry", e)
                 return null
             } catch (e: RuntimeException) {
                 // The same containment `withdraw` already applies, for the
@@ -159,6 +180,10 @@ class GalleryExporter @Inject constructor(
             null
         } catch (e: IOException) {
             Log.w(TAG, "gallery insert failed", e)
+            null
+        } catch (e: RemoteException) {
+            // The same sibling-not-subtype gap as the rewrite path above.
+            Log.w(TAG, "gallery insert failed; the provider died; will retry", e)
             null
         } catch (e: RuntimeException) {
             Log.w(TAG, "gallery insert failed unexpectedly; will retry", e)
@@ -365,9 +390,11 @@ class GalleryExporter @Inject constructor(
      * A throw now degrades to the same 0/0 a null cursor already produced,
      * which `probeRow` documents as "unknown … treated as ours": the URI is
      * recorded, the tamper half of the guard is forced false, and the next
-     * sync REWRITEs the row in place. Losing the baseline for one cycle costs
-     * nothing that matters; discarding the published row instead would throw
-     * away a correct image to protect a number that is optional by design.
+     * sync REWRITEs the row in place. That is a full truncate-and-rewrite on
+     * every sync until a baseline read succeeds, not a one-cycle cost —
+     * accepted, because the row stays correct throughout, and discarding the
+     * published row instead would throw away a correct image to protect a
+     * number the design already declares optional.
      */
     private fun outcomeOf(uri: Uri): Outcome {
         var modified = 0L

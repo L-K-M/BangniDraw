@@ -2515,3 +2515,11 @@ touchscreen hover too, not only a pen.
   CanvasSurface."** It is: lazily on the first event of each surface,
   hover included — `attachPredictor(v)` runs in both `onTouch` and
   `onHover`, keyed on the view, exactly as before the seam.
+
+- **R-042 ⏸️ (declined) PR #173 round 6: carry pending frame work across a
+  scheduler swap.** The only real attach path — the Android adapter's
+  `init` — runs before any event can post, so there is never pending work
+  to carry; the live-host mid-hover swap the finding describes is not a
+  flow that exists. Re-posting would add a double-run hazard for a
+  hypothetical. The attach-before-events contract is now stated at the
+  setter.

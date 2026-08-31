@@ -868,6 +868,9 @@ class CanvasTouchHandler(
         set(value) {
             // Swapping or detaching must not strand posted callbacks on the
             // old scheduler: they would fire once more against a retired host.
+            // Pending work is dropped, not carried over — attach the scheduler
+            // before events flow (the Android adapter does, in its init), so a
+            // queued hover notification is never the thing in flight.
             if (field !== value) {
                 framePosted = false
                 hoverFramePosted = false

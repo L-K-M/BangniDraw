@@ -9,8 +9,49 @@ enum class CanvasPanel {
     OVERFLOW,
 }
 
+/**
+ * What a merge down silently changes about the surviving layer, and so what
+ * its confirmation has to say (`docs/plan/05-layers.md` §4.1).
+ *
+ * `LayerStack.mergeDown` rewrites the bottom layer's props to Normal at 100 %
+ * with no alpha lock. Two of those resets are visible decisions:
+ *
+ * - **Blend mode** — the two layers' modes are baked into a Normal result.
+ * - **Alpha lock** — the surviving layer's lock is cleared. `mergeDown`'s own
+ *   comment calls this out as "the one prop a merge silently changes", and
+ *   silent is what it was: the confirmation was gated on blend mode alone, so
+ *   a painter using alpha lock to protect a silhouette got no dialog at all
+ *   and their next stroke painted straight through the protected area. Undo
+ *   restores the flag, which makes it a workflow trap rather than data loss —
+ *   the cost is whatever they paint before noticing.
+ *
+ * The other three resets need no warning: `opacity` and `visible` are the
+ * merge's whole point, and `locked` is provably a no-op because `mergeDown`
+ * refuses outright when either partner is locked.
+ */
+object MergeConfirmation {
+
+    /** A prop of the surviving layer the merge changes without being asked. */
+    enum class Change { BLEND_MODE, ALPHA_LOCK }
+
+    /**
+     * What [top] merging into [below] would change. Empty means the merge is
+     * lossless in the ways a user tracks, and needs no confirmation.
+     */
+    fun changes(top: LayerProps, below: LayerProps): Set<Change> = buildSet {
+        if (top.blendMode != BlendMode.NORMAL || below.blendMode != BlendMode.NORMAL) {
+            add(Change.BLEND_MODE)
+        }
+        // Only the survivor's lock matters: the top layer ceases to exist.
+        if (below.alphaLock) add(Change.ALPHA_LOCK)
+    }
+}
+
 sealed interface CanvasDialog {
-    data class MergeLayers(val index: Int) : CanvasDialog
+    data class MergeLayers(
+        val index: Int,
+        val changes: Set<MergeConfirmation.Change>,
+    ) : CanvasDialog
     data object FlattenLayers : CanvasDialog
     data class ClearLayer(val index: Int) : CanvasDialog
     data class RenameLayer(val index: Int, val currentName: String) : CanvasDialog

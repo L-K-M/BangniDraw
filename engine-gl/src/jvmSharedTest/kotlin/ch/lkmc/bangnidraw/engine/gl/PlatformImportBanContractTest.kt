@@ -33,7 +33,7 @@ class PlatformImportBanContractTest {
             }
             .toList()
 
-        assertTrue(offenders.isEmpty, offenders.joinToString("\n"))
+        assertTrue(offenders.isEmpty(), offenders.joinToString("\n"))
     }
 
     private fun String.isComment(): Boolean {

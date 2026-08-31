@@ -202,13 +202,21 @@ class GalleryExporterContractTest {
             "sync's three cross-process paths — probe, rewrite, insert — must " +
                 "each contain a dead provider",
         )
+        // Loud when the delimiter moves, like `section` above: a missing one
+        // makes `substringBefore` return the whole haystack, which would
+        // quietly widen this from a probe-region pin to a presence check
+        // anywhere in `sync`.
+        assertTrue(
+            DECIDE_CALL in sync,
+            "missing $DECIDE_CALL in $EXPORTER_PATH — renamed? it ends the probe region",
+        )
         // The probe needs the commoner fault too. It sits outside both
         // writes' try blocks, and probeRow's own catch is SecurityException
         // only, so without this an SQLiteException from the query reaches
         // viewModelScope — the exact crash the RemoteException clause was
         // added to prevent, through the commoner door.
         assertTrue(
-            "catch (e: RuntimeException)" in sync.substringBefore("GallerySyncDecision.decide"),
+            "catch (e: RuntimeException)" in sync.substringBefore(DECIDE_CALL),
             "the probe must contain a faulting provider, not only a dead one",
         )
 
@@ -220,6 +228,16 @@ class GalleryExporterContractTest {
             REMOTE_CATCH.findAll(withdraw).count(),
             "withdraw's two cross-process paths — probe and delete — must " +
                 "each contain a dead provider",
+        )
+        // Counted rather than merely present, for the same reason the line
+        // above counts: withdraw has two of these, so a presence check would
+        // still pass with either one dropped — reopening in withdraw exactly
+        // the half-containment this change closed in sync.
+        assertEquals(
+            2,
+            RUNTIME_CATCH.findAll(withdraw).count(),
+            "withdraw's probe and delete must each contain a faulting " +
+                "provider, not only a dead one",
         )
     }
 
@@ -254,7 +272,9 @@ class GalleryExporterContractTest {
         const val APP_DIRECTORY = "app/src/main"
         const val EXPORTER_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/data/GalleryExporter.kt"
+        const val DECIDE_CALL = "GallerySyncDecision.decide"
         val REMOTE_CATCH = Regex("catch \\(e: RemoteException\\)")
+        val RUNTIME_CATCH = Regex("catch \\(e: RuntimeException\\)")
         val WHITESPACE = Regex("\\s+")
     }
 }

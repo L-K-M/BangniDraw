@@ -2675,3 +2675,30 @@ touchscreen hover too, not only a pen.
   unguarded — and the pin's own stated purpose ("so the next cross-process
   call added to sync has to be contained too") applied to one function only.
   Both counts are pinned now, and both mutation-checked.
+
+- **R-230 ✅ (applied) round 8: `withdraw`'s `RuntimeException` clauses were
+  still unpinned.** R-229 pinned `withdraw`'s `RemoteException` count and left
+  its `RuntimeException` pair uncovered — a third turn of the same
+  half-containment R-211, R-221 and R-228 each caught, this time in the pin
+  rather than the code. Applied with a stronger assertion than the one
+  suggested: the round asked for `"catch (e: RuntimeException)" in withdraw`,
+  but `withdraw` has *two* of them (probe and delete), so a presence check
+  passes with either one deleted. Pinned as a count of 2, symmetric with the
+  `RemoteException` line above it. Mutation-checked by deleting the probe's
+  clause: fails at the new assertion, and the deletion still compiles, so the
+  test is what catches it.
+- **R-231 ✅ (applied) round 8: a drifted delimiter would have silently widened
+  the probe pin.** `substringBefore` returns the *whole* receiver when the
+  delimiter is absent, so renaming or restructuring the `GallerySyncDecision.decide`
+  call would have turned a probe-region check into a presence-anywhere-in-`sync`
+  check — and passed, since `sync` carries the clause in its writers too.
+  Applied with a louder remedy than the suggested
+  `substringBefore(DECIDE_CALL, "")`: an empty region does fail, but with
+  "the probe must contain a faulting provider", sending the reader to hunt a
+  missing catch clause that is right there. The delimiter is asserted present
+  first, by name, the way `section` already fails for its own two markers.
+  Mutation-checked both halves — pointing `DECIDE_CALL` at a name the file
+  does not contain fails with `missing GallerySyncDecision.decideNow in
+  app/.../GalleryExporter.kt — renamed? it ends the probe region`, and with
+  the new guard removed that same drift passes green, which is the vacuity
+  the finding described.

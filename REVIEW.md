@@ -2554,3 +2554,18 @@ touchscreen hover too, not only a pen.
   and both numbers. Verified it fires: a single-quoted `name='…'` — an entry
   shape the regex does not cover — fails loudly instead of quietly shrinking
   the map.
+
+- **R-226 ✅ (applied) round 4: the coverage-failure message named one of
+  three causes.** A `declared` vs `parsed` mismatch can equally come from a
+  duplicated `name` — `associate` silently keeps the last — or from a
+  self-closing `<string …/>`, which `STRING_OPEN_TAG` counts and
+  `STRING_ENTRY` can never parse. Blaming "the entry regex" would send the
+  next investigator hunting exotic attribute syntax for a duplicate key. All
+  three named.
+- **R-227 ✅ (applied) round 4: adding `STRING_OPEN_TAG` orphaned the KDoc
+  below it.** The same mistake R-197 caught on #179, made again: the new
+  declaration went *between* the existing KDoc and the `STRING_ENTRY` it
+  documents, so the load-bearing `\s` note — the one that explains why
+  `<string-array` stays out — no longer sits next to the regex it is about,
+  and would be read as describing the wrong one. Each declaration now carries
+  its own doc, and the open-tag one cross-references the same reason.

@@ -103,8 +103,9 @@ class ZhHansTerminologyContractTest {
         assertEquals(
             declared,
             parsed.size,
-            "$ZH_HANS_PATH declares $declared string entries but only " +
-                "${parsed.size} parsed — the entry regex has a gap",
+            "$ZH_HANS_PATH declares $declared entries but only ${parsed.size} " +
+                "parsed — a duplicate name, a self-closing <string …/>, or a " +
+                "shape STRING_ENTRY does not cover",
         )
 
         return parsed
@@ -147,6 +148,12 @@ class ZhHansTerminologyContractTest {
             "fill_reference_composite" to "help_fill_body",
         )
         /**
+         * Open tags, for the parse-coverage check in [labels]. The same
+         * load-bearing `\s` as below, for the same reason.
+         */
+        val STRING_OPEN_TAG = Regex("""<string\s[^>]*>""")
+
+        /**
          * Attributes in any position, because XML permits any order and a
          * dropped entry is a silent hole: `translatable="false"` and
          * `formatted="false"` both appear in the English file, and a label
@@ -155,8 +162,6 @@ class ZhHansTerminologyContractTest {
          * The `\s` after `<string` is load-bearing — it keeps `<string-array`
          * out, whose items are not labels.
          */
-        /** Open tags, for the parse-coverage check in [labels]. */
-        val STRING_OPEN_TAG = Regex("""<string\s[^>]*>""")
         val STRING_ENTRY = Regex(
             """<string\s[^>]*?name="([^"]+)"[^>]*>(.*?)</string>""",
             RegexOption.DOT_MATCHES_ALL,

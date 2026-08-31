@@ -248,51 +248,62 @@ class GalleryExporter @Inject constructor(
         return true
     }
 
+    /**
+     * Drops a row this class was midway through writing, so no half-written
+     * state survives — §9.2's never-a-ghost rule, extended to never a *corrupt*
+     * or *stranded* one.
+     *
+     * Guarded, because a provider that also refuses the delete must not replace
+     * the failure being reported with its own: the log line for the real fault
+     * is the only diagnostic either caller leaves behind.
+     */
+    private fun discardRow(uri: Uri, what: String) {
+        runCatching { context.contentResolver.delete(uri, null, null) }
+            .onFailure { Log.w(TAG, "could not delete the row a failed $what left behind", it) }
+    }
+
     private fun rewrite(uri: Uri, displayName: String, png: ByteArray): Outcome {
         val resolver = context.contentResolver
         resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 1) }, null, null)
+        // Claiming the row pending and truncating it is the start of one
+        // transaction that only the publish below closes, so the write and the
+        // publish share a single failure path: either the row ends up
+        // published, or it ends up gone.
+        //
+        // "wt" truncates on open, so by the time a write can fail the previous
+        // pixels are already destroyed. Clearing IS_PENDING regardless (this
+        // used to be a `finally`) published whatever survived — a partial PNG,
+        // visible in the user's gallery — and it stayed there, because the
+        // failure is not self-correcting the way it looks: `sync` catches and
+        // returns null, so `project.json` keeps the *pre-write* size and date,
+        // the next `probeRow` reads that mismatch as another app's edit, and
+        // `GallerySyncDecision.REINSERT` answers that by design with "the URI
+        // is forgotten, the item stays as the user left it". The tamper guard
+        // built to protect someone else's edit ended up protecting our own
+        // corruption, permanently, beside a fresh duplicate.
+        //
+        // The publish is inside the same `try` for exactly that reason: a row
+        // left IS_PENDING with *complete* pixels strands identically — the
+        // size/date still mismatch what was recorded, so REINSERT abandons a
+        // perfectly good image as an invisible pending row while the user's
+        // gallery item stays missing until a duplicate lands. Same defect, one
+        // call later.
         try {
-            // "wt" = truncate: rewrites in place, keeping the one-item
-            // promise (§9.2).
             (resolver.openOutputStream(uri, "wt") ?: throw IOException("no stream for $uri"))
                 .use { it.write(png) }
+            resolver.update(
+                uri,
+                ContentValues().apply {
+                    put(MediaStore.Images.Media.IS_PENDING, 0)
+                    put(MediaStore.Images.Media.DISPLAY_NAME, "$displayName.png")
+                },
+                null,
+                null,
+            )
         } catch (e: Throwable) {
-            // Never a ghost, and never a *corrupt* one — the same rule
-            // `insert` states below, which this branch was missing.
-            //
-            // "wt" truncated the row on open, so by the time a write can fail
-            // the previous pixels are already gone. Clearing IS_PENDING here
-            // (this used to be a `finally`) published whatever survived: a
-            // partial PNG, visible in the user's gallery. And it stayed
-            // there, because the failure is not self-correcting the way it
-            // looks. `sync` catches and returns null, so `project.json` keeps
-            // the *pre-write* size and date; the next sync's `probeRow` reads
-            // that mismatch as another app's edit, and
-            // `GallerySyncDecision.REINSERT` answers that by design with
-            // "the URI is forgotten, the item stays as the user left it" — so
-            // the tamper guard that exists to protect someone else's edit
-            // ends up protecting our own truncated file, for good, beside a
-            // fresh duplicate.
-            //
-            // Deleting the row instead leaves nothing half-written: the next
-            // probe finds no row and the sync is a clean INSERT.
-            //
-            // The delete is guarded so a provider that also refuses it cannot
-            // replace the real failure with its own — `insert`'s bare call
-            // can mask the exception it is reporting.
-            runCatching { resolver.delete(uri, null, null) }
-                .onFailure { Log.w(TAG, "could not delete the row a failed rewrite truncated", it) }
+            discardRow(uri, "rewrite")
             throw e
         }
-        resolver.update(
-            uri,
-            ContentValues().apply {
-                put(MediaStore.Images.Media.IS_PENDING, 0)
-                put(MediaStore.Images.Media.DISPLAY_NAME, "$displayName.png")
-            },
-            null,
-            null,
-        )
         return outcomeOf(uri)
     }
 
@@ -326,7 +337,9 @@ class GalleryExporter @Inject constructor(
             )
         } catch (e: Exception) {
             // Never a ghost: a failed insert deletes its pending row (§9.2).
-            resolver.delete(uri, null, null)
+            // Guarded like rewrite's, so a provider that refuses the delete
+            // cannot mask the failure this is reporting.
+            discardRow(uri, "insert")
             throw e
         }
         return outcomeOf(uri)

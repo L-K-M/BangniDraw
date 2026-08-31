@@ -809,8 +809,14 @@ and the contradiction is noted here.
   URI and leaving the item alone. So the tamper guard built to protect
   someone else's edit ends up protecting our own corruption. Both `insert`
   and `rewrite` therefore delete the row they were writing and let the next
-  sync start clean. Guard the delete itself (`runCatching`) so a provider
-  that also refuses it cannot mask the failure being reported.
+  sync start clean, through the shared `discardRow` helper. Guard the delete
+  itself (`runCatching`) so a provider that also refuses it cannot mask the
+  failure being reported — that log line is the only diagnostic either caller
+  leaves behind. The **publish belongs inside the same guarded region as the
+  write**, not after it: a row left `IS_PENDING` with *complete* pixels
+  strands exactly like a truncated one, because the recorded size/date still
+  mismatch and `REINSERT` abandons a perfectly good image as an invisible
+  pending row while the user's gallery item stays missing.
 - **MediaStore entry points contain `RuntimeException`, not just
   `SecurityException`/`IOException`.** `sync` and `withdraw` both run from
   `StudioViewModel`'s background sweep on `viewModelScope`, where an escape

@@ -48,8 +48,8 @@ class GalleryExporterContractTest {
             "rewrite must own its failure path, not leak a truncated row",
         )
         assertTrue(
-            "resolver.delete(uri, null, null)" in rewrite,
-            "a failed rewrite must delete the row it truncated",
+            """discardRow(uri, "rewrite")""" in rewrite,
+            "a failed rewrite must discard the row it truncated",
         )
         // The publish must be reachable only on success; a finally block here
         // is exactly the defect, because it clears IS_PENDING even when the
@@ -59,6 +59,41 @@ class GalleryExporterContractTest {
         assertFalse(
             "finally {" in rewrite,
             "clearing IS_PENDING in a finally block publishes a truncated image",
+        )
+        // ...and the publish must sit INSIDE the guarded region rather than
+        // after it. A row left IS_PENDING with *complete* pixels strands
+        // exactly like a truncated one: the recorded size/date still mismatch,
+        // so the next probe reads another app's edit and REINSERT abandons a
+        // perfectly good image as an invisible pending row while the user's
+        // gallery item stays missing. Same defect, one call later. Pinned as
+        // an ordering, so a publish moved back out past the catch fails.
+        val guard = rewrite.indexOf("catch (e: Throwable)")
+        val publish = rewrite.indexOf("MediaStore.Images.Media.IS_PENDING, 0")
+        if (guard < 0 || publish < 0) fail("rewrite lost its guard or its publish step")
+        assertTrue(
+            publish < guard,
+            "the publish must be inside the guarded region, not after it",
+        )
+    }
+
+    /**
+     * The never-a-ghost rule covers both writers, and the cleanup delete is
+     * guarded itself: a provider that also refuses the delete must not replace
+     * the failure being reported with its own, which is the only diagnostic
+     * either caller leaves behind.
+     */
+    @Test
+    fun `both writers discard through the guarded helper`() {
+        val insert = section("private fun insert(", "private fun outcomeOf(")
+        assertTrue(
+            """discardRow(uri, "insert")""" in insert,
+            "a failed insert must discard its pending row",
+        )
+
+        val helper = section("private fun discardRow(", "private fun rewrite(")
+        assertTrue(
+            "runCatching" in helper,
+            "the cleanup delete must not mask the failure it is reporting",
         )
     }
 

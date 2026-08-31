@@ -6,8 +6,10 @@ target here before packaging; jpackage picks them up via
 appResourcesRootDir. Linux uses the system GLES natively (Mesa/NVIDIA);
 its fallback folders are recreated only if an ANGLE-on-Linux path ever lands.
 
-Distributing binaries here requires recording their provenance in
-AGENTS.md (the repo's third-party rule); none are checked in.
+Note: CI dispatches only an arm64 macOS job; x64 packaging is manual
+and untested by the pipeline. Distributing binaries here requires
+recording their provenance in AGENTS.md (the repo's third-party
+rule); none are checked in.
 
 Files in this directory are packaged verbatim into the app image —
 remove this placeholder when the real dylibs are staged.

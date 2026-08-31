@@ -50,6 +50,9 @@ compose.desktop {
             // placeholder is removed when real dylibs are staged.
             appResourcesRootDir = project.file("packaging/angle")
 
+            // Windows is out of scope for the desktop port (DESKTOP.md covers
+            // macOS and Linux); if it returns, restore a windows { menuGroup … }
+            // block alongside an Msi/Exe target format.
             macOS {
                 bundleID = "ch.lkmc.bangnidraw.desktop"
             }

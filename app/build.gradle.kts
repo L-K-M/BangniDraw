@@ -143,6 +143,12 @@ dependencies {
     testImplementation(libs.kotlin.test)
 }
 
+/** Repo files a unit test pins that no compilation would otherwise track. */
+val WORKFLOW_CONTRACT_FILES = listOf(
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+)
+
 tasks.withType<Test>().configureEach {
     // The golden-stroke test regenerates its pinned file when this is set
     // (`docs/plan/11-testing.md` §6). Gradle does not forward the launching
@@ -166,9 +172,3 @@ tasks.withType<Test>().configureEach {
         .withPropertyName("workflowContracts")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }
-
-/** Repo files a unit test pins that no compilation would otherwise track. */
-val WORKFLOW_CONTRACT_FILES = listOf(
-    ".github/workflows/ci.yml",
-    ".github/workflows/release.yml",
-)

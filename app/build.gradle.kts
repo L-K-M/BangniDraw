@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.PathSensitivity
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -153,4 +154,25 @@ tasks.withType<Test>().configureEach {
             .orElse(providers.systemProperty("bangni.updateGolden"))
             .getOrElse("false"),
     )
+
+    // ZhHansTerminologyContractTest reads the translated strings, which are
+    // not inputs to anything a unit test compiles — resource merging feeds
+    // the packaged APK, not testDebugUnitTest. Without declaring them,
+    // editing a translation leaves the task UP-TO-DATE and the pin silently
+    // does not run, exactly on the change it exists to catch. Verified: with
+    // this in place and only the strings file reverted, the test fails
+    // without --rerun-tasks.
+    //
+    // Extend this list rather than adding a second declaration when another
+    // contract test starts reading a non-source repo file.
+    inputs
+        .files(rootProject.layout.projectDirectory.files(CONTRACT_INPUT_FILES))
+        .withPropertyName("contractInputs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
+
+/** Repo files a unit test pins that no compilation would otherwise track. */
+val CONTRACT_INPUT_FILES = listOf(
+    "app/src/main/res/values-b+zh+Hans/strings.xml",
+    "app/src/main/res/values/strings.xml",
+)

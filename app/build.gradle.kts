@@ -118,6 +118,9 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 
+    // Pure-JVM engine model layer (DESKTOP.md Phase 1, M1).
+    implementation(project(":engine-core"))
+
     // The drawing stack — pulled in from the scaffold on so CI proves
     // resolution before roadmap step 2 depends on them.
     implementation(libs.androidx.graphics.core)

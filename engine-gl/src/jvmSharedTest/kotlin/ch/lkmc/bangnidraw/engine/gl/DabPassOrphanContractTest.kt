@@ -45,8 +45,13 @@ class DabPassOrphanContractTest {
         // the end, and the driver answers GL_INVALID_VALUE by dropping that
         // tile's dabs. Silent vanishing ink, which is exactly what this test
         // exists to catch. No spaces: compactSection strips all whitespace.
+        //
+        // Scoped to the orphan call's own argument list rather than the whole
+        // window, so the needle cannot be satisfied by some future sizing
+        // expression elsewhere in uploadInstances. The two indices already
+        // bracket exactly this call.
         assertTrue(
-            "instanceCapacityDabs*DAB_FLOATS*4" in upload,
+            "instanceCapacityDabs*DAB_FLOATS*4" in upload.substring(orphan, write),
             "the orphan must re-specify the committed capacity — a smaller " +
                 "orphan lets a later glBufferSubData overflow the allocation",
         )

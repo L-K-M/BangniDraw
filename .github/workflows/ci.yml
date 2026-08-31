@@ -100,8 +100,8 @@ jobs:
         # that createDistributable never touches; rpmbuild is absent on
         # ubuntu runners, so Rpm stays a manual format. mixbox=false here is
         # deliberate coverage: this job pins the stripped desktop variant
-        # (D12's gap) while the dispatched macOS job builds the default one,
-        # so both variants build on every commit that touches them.
+        # (D12's gap); the default/Mixbox variant is only built when the
+        # dispatched macOS job runs, not on every commit.
         run: >-
           ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
           :desktop:test :desktop:createDistributable :desktop:packageDeb
@@ -149,7 +149,7 @@ jobs:
         # desktop/packaging/angle/macos-<arch>/ before any release packaging.
         uses: actions/upload-artifact@v7
         with:
-          name: bangnidraw-desktop-macos-${{ github.sha }}
+          name: bangnidraw-desktop-macos-noangle-${{ github.sha }}
           path: desktop/build/compose/binaries/main/**
           if-no-files-found: error
           retention-days: 14

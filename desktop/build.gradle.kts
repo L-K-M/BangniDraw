@@ -42,9 +42,12 @@ compose.desktop {
             vendor = "BangniDraw"
 
             // macOS needs ANGLE's dylibs beside the app at runtime (see the
-            // README's desktop section). This root arranges per-OS/arch
-            // resource folders for when those dylibs are staged; the checked-in
-            // placeholders document the layout and NO binaries are committed.
+            // README's desktop section). Only the macOS folders exist: Linux
+            // uses the system GLES natively and its fallback folders are
+            // recreated when such a thing ever lands. The checked-in
+            // placeholders document the layout and NO binaries are committed;
+            // appResourcesRootDir packages the folders verbatim, so the
+            // placeholder is removed when real dylibs are staged.
             appResourcesRootDir = project.file("packaging/angle")
 
             windows {
@@ -52,6 +55,11 @@ compose.desktop {
             }
             macOS {
                 bundleID = "ch.lkmc.bangnidraw.desktop"
+            }
+            linux {
+                // Debian policy: package names are lowercase — mixed case
+                // builds green but dpkg refuses the install.
+                packageName = "bangnidraw"
             }
         }
     }

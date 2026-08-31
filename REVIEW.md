@@ -2523,3 +2523,10 @@ touchscreen hover too, not only a pen.
   flow that exists. Re-posting would add a double-run hazard for a
   hypothetical. The attach-before-events contract is now stated at the
   setter.
+
+- **R-043 ⏸️ (refuted) PR #174 round 3: "actions/upload-artifact@v7 does
+  not exist."** The pin predates this PR (the whole repo uses the v7/v5
+  action set — checkout@v7, setup-java@v5) and the step passes on every CI
+  run, including this PR's (run 33376923717, "Upload debug APK":
+  success). The reviewer's action-version knowledge is stale for this
+  timeline; no change.

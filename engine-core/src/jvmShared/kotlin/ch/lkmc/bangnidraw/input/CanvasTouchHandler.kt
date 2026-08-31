@@ -1,11 +1,5 @@
 package ch.lkmc.bangnidraw.input
 
-import android.os.Build
-import android.os.SystemClock
-import android.view.Choreographer
-import android.view.InputDevice
-import android.view.MotionEvent
-import android.view.View
 import ch.lkmc.bangnidraw.engine.core.ActualSizePolicy
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
@@ -110,55 +104,35 @@ interface CanvasInputHost {
 }
 
 /** Main-thread deadline driver, abstracted so stationary gestures stay JVM-testable. */
-internal interface GestureDeadlineScheduler {
+interface GestureDeadlineScheduler {
     fun scheduleAt(deadlineNs: Long, callback: Runnable)
     fun cancel(callback: Runnable)
 }
 
-private class ViewGestureDeadlineScheduler(
-    private val view: View,
-) : GestureDeadlineScheduler {
-
-    override fun scheduleAt(deadlineNs: Long, callback: Runnable) {
-        val nowNs = SystemClock.uptimeMillis() * NANOS_PER_MILLISECOND
-        val remainingNs = deadlineNs - nowNs
-        val delayMs = if (remainingNs <= 0L) {
-            0L
-        } else {
-            (remainingNs + NANOS_PER_MILLISECOND - 1L) / NANOS_PER_MILLISECOND
-        }
-
-        view.postDelayed(callback, delayMs)
-    }
-
-    override fun cancel(callback: Runnable) {
-        view.removeCallbacks(callback)
-    }
-}
-
-private const val NANOS_PER_MILLISECOND = 1_000_000L
-
 /**
- * The **only** code that touches `MotionEvent`
- * (`docs/plan/07-input-and-stylus.md` §2, `02-architecture.md` §2.6).
+ * The pointer-gesture brain: it consumes [PointerSample]s and feeds
+ * [GestureArbiter], [StylusState] and [PalmRejection], then turns
+ * navigation decisions into [ViewTransform] steps. Everything it decides
+ * lives in `engine/core`; what is here is the translation and the wiring.
  *
- * It translates events into primitives and feeds [GestureArbiter],
- * [StylusState] and [PalmRejection], then turns navigation decisions into
- * [ViewTransform] steps. Everything it decides lives in `engine/core`; what is
- * here is the translation and the wiring.
+ * Platform events never reach this class. The Android `MotionEvent`
+ * adapter (app module) flattens events into reused samples; the desktop
+ * host fills the same record from its pointer events. The platform-touching
+ * halves — unbuffered dispatch, `Choreographer`, the predictor — are the
+ * glue's, injected here as a [FrameScheduler] and a [StrokePredictor].
  *
- * **Zero allocation in [onTouch]** (`10-performance.md` §2.4). The pointer
- * scratch arrays, the [NavigationStep] and the arbiter's listener are all
- * fields; nothing on this path returns an object, takes a lambda, or boxes.
- * The handler's logic is reachable from the JVM through the `handle*` methods
- * below, which take primitives — `MotionEvent` cannot be constructed in a unit
- * test, so a handler that only had `onTouch` would be untestable, and its
- * wiring is exactly the part worth testing.
+ * **Zero allocation on the sample path** (`10-performance.md` §2.4). The
+ * pointer scratch arrays, the [NavigationStep] and the arbiter's listener
+ * are all fields; nothing on this path returns an object, takes a lambda,
+ * or boxes. The handler's logic is reachable from the JVM through the
+ * `handle*` methods below, which take primitives — the record-consuming
+ * `onPointer*` entries are thin wrappers over them, so a host can drive
+ * either surface and the tests pin the primitive one.
  */
 class CanvasTouchHandler(
     density: Float,
     private val host: CanvasInputHost,
-) : View.OnTouchListener, View.OnHoverListener, View.OnGenericMotionListener {
+) {
 
     val stylus = StylusState()
     val arbiter = GestureArbiter(density)
@@ -168,7 +142,6 @@ class CanvasTouchHandler(
     /** One retained callback; touch events only reschedule its absolute deadline. */
     private var deadlineScheduler: GestureDeadlineScheduler? = null
     private var deadlineSchedulerInjected = false
-    private var deadlineView: View? = null
     private var scheduledDeadlineNs = GestureArbiter.NO_DEADLINE_NS
     private val gestureDeadlineCallback = Runnable {
         val deadlineNs = scheduledDeadlineNs
@@ -200,7 +173,7 @@ class CanvasTouchHandler(
         get() = screen?.effectiveScale ?: view.scale
 
     /** The current canvas→window mapping, for chrome overlays drawn in window px. */
-    internal val screenTransform: ScreenTransform?
+    val screenTransform: ScreenTransform?
         get() = screen
 
     var stylusOnly: Boolean
@@ -395,13 +368,26 @@ class CanvasTouchHandler(
         screen = fit?.let { ScreenTransform.of(it, view) }
     }
 
-    private fun attachGestureDeadlineScheduler(view: View?) {
-        if (deadlineSchedulerInjected || view == null || view === deadlineView) return
+    private fun attachGestureDeadlineScheduler(scheduler: GestureDeadlineScheduler?) {
+        if (deadlineSchedulerInjected || scheduler == null || scheduler === deadlineScheduler) return
 
         cancelGestureDeadline()
-        deadlineView = view
-        deadlineScheduler = ViewGestureDeadlineScheduler(view)
+        deadlineScheduler = scheduler
         syncGestureDeadline()
+    }
+
+    /**
+     * The platform glue installs its main-thread deadline driver here — the
+     * Android one wraps the dispatching `View`. Swapping drivers resyncs any
+     * pending deadline, so a replaced surface keeps its stationary-gesture
+     * clock. [reset] and [dispose] clear a scheduler attached this way — it
+     * goes with its surface, so the glue re-attaches for the next handler.
+     * Reuse one scheduler instance per surface: attachment is
+     * identity-compared, so a fresh wrapper per event would cancel and
+     * resync the deadline on every sample.
+     */
+    fun attachDeadlineScheduler(scheduler: GestureDeadlineScheduler) {
+        attachGestureDeadlineScheduler(scheduler)
     }
 
     private fun syncGestureDeadline() {
@@ -424,23 +410,23 @@ class CanvasTouchHandler(
     }
 
     /** Replacing a handler rolls any live gesture back through its host. */
-    internal fun reset() {
+    fun reset() {
         arbiter.cancel(decisions)
         clearHandlerState()
     }
 
     /** Surface teardown is silent because session detachment owns the rollback. */
-    internal fun dispose() {
+    fun dispose() {
         arbiter.reset()
         clearHandlerState()
     }
 
     private fun clearHandlerState() {
         cancelGestureDeadline()
-        // The production adapter owns a View; retired handlers must release it.
+        // A scheduler the glue attached goes with the surface; one the tests
+        // injected stays for the next handler on the same clock.
         if (!deadlineSchedulerInjected) {
             deadlineScheduler = null
-            deadlineView = null
         }
 
         navigating = false
@@ -454,14 +440,13 @@ class CanvasTouchHandler(
 
         if (hoverFramePosted) {
             hoverFramePosted = false
-            Choreographer.getInstance().removeFrameCallback(hoverFrameCallback)
+            frameScheduler?.cancel(hoverFrameCallback)
         }
 
         for (i in trackIds.indices) trackIds[i] = NO_POINTER
         navIds[0] = NO_POINTER
         navIds[1] = NO_POINTER
         predictor = null
-        predictorView = null
     }
 
     // ------------------------------------------------------- primitive path
@@ -491,7 +476,7 @@ class CanvasTouchHandler(
      * One pointer's new position. Call [handleMoveEnd] once the whole event's
      * pointers have been fed.
      *
-     * The split is not ceremony. A `MotionEvent` carries *every* pointer's
+     * The split is not ceremony. A pointer event carries *every* pointer's
      * current position, and §7's formula reads both fingers' previous and
      * current positions in one step. Applying a step per pointer instead moves
      * the canvas twice per event, each time with one finger stale — the anchor
@@ -686,30 +671,6 @@ class CanvasTouchHandler(
         navIds[1] = NO_POINTER
     }
 
-    /**
-     * Rolls back only a rejected stroke owner or the gesture's last pointer.
-     *
-     * A flagged `ACTION_POINTER_UP` may be a rejected palm beside a live pen;
-     * that pointer follows normal per-pointer cleanup without touching the pen.
-     */
-    internal fun handlePlatformCancellation(
-        pointerId: Int,
-        action: Int,
-        flags: Int,
-        apiLevel: Int,
-        timeNs: Long,
-    ): Boolean {
-        // The flag is delivered only on T+ to apps targeting T+; the runtime
-        // check is a safe superset of that platform contract.
-        if (apiLevel < Build.VERSION_CODES.TIRAMISU) return false
-        if (action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_POINTER_UP) return false
-        if (flags and MotionEvent.FLAG_CANCELED == 0) return false
-        if (action == MotionEvent.ACTION_POINTER_UP && pointerId != drawingId) return false
-
-        handleCancel(timeNs)
-        return true
-    }
-
     /** Drives the pending window and the long press when no event arrives. */
     internal fun handleTick(timeNs: Long) {
         arbiter.tick(timeNs, decisions)
@@ -884,33 +845,40 @@ class CanvasTouchHandler(
     val latency = LatencyTrace()
 
     /**
-     * Built from the `View` that dispatches to us, on the first event, and
-     * rebuilt if that view is ever replaced (§8: one per surface).
+     * The predicted-tail source, injected by the platform glue — the Android
+     * adapter's `MotionEventPredictor` wrapper, or null where none exists.
      *
      * **Null on the JVM, and that is what keeps this class testable.** Only
-     * [onTouch] and [onHover] ever set it, and neither can run in a unit test —
-     * `MotionEvent` cannot be constructed there. Everything below is therefore
-     * guarded on it rather than on a flag, so the `handle*` path the tests
-     * drive never reaches `Choreographer.getInstance()`, which needs a Looper.
+     * the glue ever sets it, and the glue cannot run in a unit test. The
+     * desktop host leaves it null: prediction is platform-tailored, and
+     * desktop input rates are modest (DESKTOP.md seam 3).
      */
-    private var predictor: Predictor? = null
+    var predictor: StrokePredictor? = null
 
     /**
-     * The view [predictor] was last *attempted* for, whether or not it worked.
-     *
-     * Without it a device where `newInstance` throws re-entered the constructor
-     * on **every** event — a `RuntimeException` built, caught and logged with a
-     * full stack trace per touch sample, several hundred a second during a
-     * drag, on exactly the devices the catch exists for. `predictor` alone
-     * cannot carry that, because a failure leaves it null and null is
-     * indistinguishable from "not tried yet".
-     *
-     * Keyed on the view rather than latched for the process: §8 ties a
-     * predictor to a surface, so a new surface deserves a fresh attempt, and a
-     * process-wide flag would make one failing surface disable prediction for
-     * every canvas afterwards.
+     * The next-frame poster, injected by the platform glue — the Android
+     * `Choreographer`, or null where none exists. Null leaves the
+     * frame-driven paths (predicted tail, hover coalescing) inert, which is
+     * exactly the JVM-test posture this class has always had. Unlike
+     * [predictor], [reset] and [dispose] leave this scheduler attached —
+     * the glue owns its lifecycle and must detach it if it holds
+     * per-surface state.
      */
-    private var predictorView: View? = null
+    var frameScheduler: FrameScheduler? = null
+        set(value) {
+            // Swapping or detaching must not strand posted callbacks on the
+            // old scheduler: they would fire once more against a retired host.
+            // Pending work is dropped, not carried over — attach the scheduler
+            // before events flow (the Android adapter does, in its init), so a
+            // queued hover notification is never the thing in flight.
+            if (field !== value) {
+                framePosted = false
+                hoverFramePosted = false
+                field?.cancel(frameCallback)
+                field?.cancel(hoverFrameCallback)
+            }
+            field = value
+        }
 
     /** The tail handed to the host, refilled every frame. */
     private val predictedSamples = StrokeInputBatch()
@@ -939,7 +907,7 @@ class CanvasTouchHandler(
     /** Hover is UI-only, but still coalesced so a fast digitizer cannot recompose per sample. */
     private var hoverFramePosted = false
 
-    private val hoverFrameCallback = Choreographer.FrameCallback {
+    private val hoverFrameCallback = Runnable {
         hoverFramePosted = false
         host.onHoverChanged()
     }
@@ -947,7 +915,7 @@ class CanvasTouchHandler(
     /**
      * The source the stroke opened with, carried onto every predicted sample.
      *
-     * Read from the arbiter's decision rather than from [stylus] at fill time:
+     * Read from the arbiter's decision rather than from [stylus] at predict time:
      * the pen can be lifted and its eraser end put down while the tail's last
      * frame is still in flight, and a tail that changed tool mid-stroke would
      * describe a stroke that does not exist. The same reason `CanvasScreen`
@@ -961,12 +929,12 @@ class CanvasTouchHandler(
      * A field rather than a lambda at the post site — one object for the life
      * of the handler instead of one per frame (`10-performance.md` §2.4).
      */
-    private val frameCallback = Choreographer.FrameCallback {
+    private val frameCallback = Runnable {
         framePosted = false
-        // The surface check is the loop's own kill switch, and it is load
+        // The scheduler check is the loop's own kill switch, and it is load
         // bearing rather than defensive: this callback reposts itself for as
         // long as a stroke is live, and a surface torn down mid-stroke does not
-        // reliably deliver an `ACTION_CANCEL` to end that stroke. Without it a
+        // reliably deliver a cancellation to end that stroke. Without it a
         // back navigation during a stroke leaves a frame callback running for
         // the life of the process, holding this handler and its host.
         if (predicting && predictor?.isUsable == true) {
@@ -1008,19 +976,24 @@ class CanvasTouchHandler(
         predicting = false
         if (!framePosted) return
         framePosted = false
-        Choreographer.getInstance().removeFrameCallback(frameCallback)
+        frameScheduler?.cancel(frameCallback)
     }
 
     private fun postFrame() {
+        // Without a scheduler there is no loop to join: latching `framePosted`
+        // would strand every later frame behind a flag nothing clears — the
+        // JVM posture, identical to when Choreographer was unreachable.
+        if (frameScheduler == null) return
         if (framePosted) return
         framePosted = true
-        Choreographer.getInstance().postFrameCallback(frameCallback)
+        frameScheduler?.post(frameCallback)
     }
 
     private fun postHoverFrame() {
+        if (frameScheduler == null) return
         if (hoverFramePosted) return
         hoverFramePosted = true
-        Choreographer.getInstance().postFrameCallback(hoverFrameCallback)
+        frameScheduler?.post(hoverFrameCallback)
     }
 
     /**
@@ -1037,13 +1010,11 @@ class CanvasTouchHandler(
         if (id == NO_POINTER) return
         val slot = trackIndexOf(id)
         if (slot < 0) return
-        val e = p.predict() ?: return
-        val pointer = e.findPointerIndex(id)
-        if (pointer < 0) return
+        val count = p.predict(id)
+        if (count == 0) return
 
         predictedSamples.clear()
-        for (h in 0 until e.historySize) fill(e, pointer, h)
-        fill(e, pointer, CURRENT)
+        for (h in 0 until count) appendPredicted(p.predictedAt(h))
         if (predictedSamples.size == 0) return
 
         // §8's PREDICT_MAX_NS, measured from the last REAL sample rather than
@@ -1069,393 +1040,169 @@ class CanvasTouchHandler(
      * Appends one predicted sample — canvas px into [predictedSamples], window
      * px into the parallel arrays — or does nothing if the batch is full.
      *
-     * [history] is the historical index, or [CURRENT] for the event's own
-     * sample. A predicted event lays its lookahead out in the same
-     * chronological order a real event lays out its backlog — **historical
-     * samples are the nearest predictions and the event's own is the furthest
-     * ahead** — so both have to be read, by §2's rule for real events verbatim
-     * rather than mirrored.
-     *
-     * Read off the 1.0.0 bytecode rather than assumed, because the order is
-     * what the two steps after this one depend on: `MultiPointerPredictor.predict`
-     * builds the event with `MotionEvent.obtain` for the first predicted instant
-     * and then `addBatch` for each later one, and `addBatch` pushes the current
-     * sample into history and makes the new one current. So the last-added —
-     * furthest-ahead — sample is the event's own. An earlier draft of this
-     * comment had it backwards; the *code* was right, which is exactly why the
-     * comment was worth checking. Inverting the fill order to match the wrong
-     * comment would have made `keepCount`'s prefix truncation drop the nearest
-     * samples and keep the furthest, and fed [prediction] the least demanding
-     * point instead of the tip.
+     * Samples arrive from the predictor nearest-first, laid out in the same
+     * chronological order a real event lays out its backlog — **the nearest
+     * predictions come first and the furthest-ahead sample is last** — by
+     * §2's rule for real events verbatim rather than mirrored. Read off the
+     * 1.0.0 bytecode rather than assumed, because the order is what the two
+     * steps after this one depend on: `MultiPointerPredictor.predict` builds
+     * its event for the first predicted instant and then `addBatch`es each
+     * later one, so the last-added — furthest-ahead — sample is the event's
+     * own. Inverting the order would make `keepCount`'s prefix truncation
+     * drop the nearest samples and keep the furthest, and fed [prediction]
+     * the least demanding point instead of the tip.
      */
-    private fun fill(e: MotionEvent, pointer: Int, history: Int) {
+    private fun appendPredicted(predicted: PointerSample) {
         val slot = predictedSamples.size
         val sample = predictedSamples.next() ?: return
-        val current = history == CURRENT
-        val windowX = if (current) e.getX(pointer) else e.getHistoricalX(pointer, history)
-        val windowY = if (current) e.getY(pointer) else e.getHistoricalY(pointer, history)
+        val windowX = predicted.x
+        val windowY = predicted.y
         predictedWindowX[slot] = windowX
         predictedWindowY[slot] = windowY
         sample.set(
             x = canvasX(windowX, windowY),
             y = canvasY(windowX, windowY),
-            pressure = pressureFor(
-                predictedSource,
-                if (current) e.getPressure(pointer) else e.getHistoricalPressure(pointer, history),
-            ),
-            tilt = if (current) {
-                e.getAxisValue(MotionEvent.AXIS_TILT, pointer)
-            } else {
-                e.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointer, history)
-            },
+            pressure = pressureFor(predictedSource, predicted.pressure),
+            tilt = predicted.tilt,
             // Canvas-relative, exactly as the real path converts it in
             // [emitSample]. A tail whose azimuth were left in screen space
             // would draw a chisel tip at a different angle from the real dabs
             // it is predicting — §7.5's "the preview does not lie", broken by
             // the one path that never goes through `onStrokeSample`.
-            orientation = canvasOrientation(
-                if (current) {
-                    e.getOrientation(pointer)
-                } else {
-                    e.getHistoricalOrientation(pointer, history)
-                },
-            ),
-            timeNs = if (current) {
-                e.eventTime * NANOS_PER_MILLISECOND
-            } else {
-                e.getHistoricalEventTime(history) * NANOS_PER_MILLISECOND
-            },
+            orientation = canvasOrientation(predicted.orientation),
+            timeNs = predicted.timeNs,
             source = predictedSource,
             predicted = true,
         )
     }
 
-    // -------------------------------------------------------- MotionEvent
+    // ------------------------------------------------------ pointer records
 
     /**
-     * The translation layer, and the only place `MotionEvent` appears.
+     * The record-consuming surface: the platform glue flattens its events
+     * into reused [PointerSample]s and drives these entries, each of which
+     * is a thin wrapper over the primitive `handle*` path above.
      *
-     * Historical samples are consumed before the current one (§2): a 240 Hz
-     * digitizer batches several samples into one 60 Hz event, and dropping them
-     * turns a smooth curve into four straight segments.
+     * Historical samples are the adapter's job (§2): it feeds one
+     * [onPointerMove] per historical sample and closes each event's worth
+     * with [onPointerMoveEnd]. A 240 Hz digitizer batches several samples
+     * into one event, and dropping them turns a smooth curve into four
+     * straight segments.
      */
-    override fun onTouch(v: View?, event: MotionEvent?): Boolean {
-        val e = event ?: return false
-        val action = e.actionMasked
-        val index = e.actionIndex
-        val id = e.getPointerId(index)
-        val timeNs = e.eventTime * NANOS_PER_MILLISECOND
-        if (handlePlatformCancellation(
-                id, action, e.flags, Build.VERSION.SDK_INT, timeNs,
-            )
-        ) {
-            return true
-        }
-        attachGestureDeadlineScheduler(v)
-        // §8: one predictor per surface, recreated with it. `v` is the
-        // SurfaceView the session draws into, so building it from here means
-        // nothing has to be plumbed through the composable that owns both.
-        attachPredictor(v)
-        recordForPrediction(e)
-        syncStylusButton(e)
-        // Before the `when`, not inside its DOWN arm. That arm matches
-        // ACTION_POINTER_DOWN too, so the call needed a nested re-check of the
-        // value the `when` had already switched on — invisible to anyone
-        // scanning the arms, and silently inherited by whatever action is added
-        // to that arm next.
-        if (action == MotionEvent.ACTION_DOWN) requestUnbuffered(v, e)
-        when (action) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                handleDown(
-                    id, toolOf(e.getToolType(index)), e.getX(index), e.getY(index), timeNs,
-                    e.getPressure(index),
-                    e.getAxisValue(MotionEvent.AXIS_TILT, index),
-                    e.getOrientation(index),
-                )
-            }
-
-            MotionEvent.ACTION_MOVE -> {
-                for (h in 0 until e.historySize) {
-                    val hNs = e.getHistoricalEventTime(h) * NANOS_PER_MILLISECOND
-                    for (p in 0 until e.pointerCount) {
-                        // Axes read at index `p`, the same pointer handleMove
-                        // is given. For ACTION_MOVE the action's pointer-index
-                        // bits are always zero, so reading them at
-                        // `actionIndex` gave every pointer the FIRST pointer's
-                        // pressure and tilt — wrong exactly when it matters
-                        // most, with a palm down as pointer 0 and the pen
-                        // drawing as pointer 1.
-                        handleMove(
-                            e.getPointerId(p),
-                            e.getHistoricalX(p, h),
-                            e.getHistoricalY(p, h),
-                            hNs,
-                            e.getHistoricalPressure(p, h),
-                            e.getHistoricalAxisValue(MotionEvent.AXIS_TILT, p, h),
-                            e.getHistoricalOrientation(p, h),
-                        )
-                    }
-                    // Each historical sample is a complete event's worth of
-                    // pointers, so it gets its own step.
-                    handleMoveEnd(hNs)
-                }
-                for (p in 0 until e.pointerCount) {
-                    handleMove(
-                        e.getPointerId(p), e.getX(p), e.getY(p), timeNs,
-                        e.getPressure(p),
-                        e.getAxisValue(MotionEvent.AXIS_TILT, p),
-                        e.getOrientation(p),
-                    )
-                }
-                handleMoveEnd(timeNs)
-            }
-
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> handleUp(
-                id, e.getX(index), e.getY(index), timeNs,
-                e.getPressure(index),
-                e.getAxisValue(MotionEvent.AXIS_TILT, index),
-                e.getOrientation(index),
-            )
-            // §6's barrel button. Without these StylusState.buttonPressed could
-            // never leave false, and its KDoc promising these two actions was a
-            // description of code that did not exist.
-            //
-            // The press is scoped to the pen: a mouse's secondary button also
-            // arrives as ACTION_BUTTON_PRESS, and letting it through would latch
-            // barrel state on the stylus model for a device §6 never described.
-            // The release is deliberately NOT scoped — clearing state is
-            // fail-safe, and a guarded press with an unguarded release can only
-            // ever under-latch, while the reverse would leave it stuck on.
-            MotionEvent.ACTION_BUTTON_PRESS -> {
-                val tool = toolOf(e.getToolType(index))
-                if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
-                    syncStylusButton(e)
-                }
-            }
-            MotionEvent.ACTION_BUTTON_RELEASE -> stylus.onButton(ButtonState.Released)
-            MotionEvent.ACTION_CANCEL -> handleCancel(timeNs)
-            else -> return false
-        }
-        val downTool = toolOf(e.getToolType(index))
-        val isDown = action == MotionEvent.ACTION_DOWN ||
-            action == MotionEvent.ACTION_POINTER_DOWN
-        if (isDown && (downTool == PointerTool.STYLUS || downTool == PointerTool.ERASER)) {
+    fun onPointerDown(sample: PointerSample) {
+        handleDown(
+            sample.pointerId, sample.tool, sample.x, sample.y, sample.timeNs,
+            sample.pressure, sample.tilt, sample.orientation,
+        )
+        if (sample.tool == PointerTool.STYLUS || sample.tool == PointerTool.ERASER) {
             postHoverFrame()
         }
-        return true
     }
 
-    override fun onHover(v: View?, event: MotionEvent?): Boolean {
-        val e = event ?: return false
-        val timeNs = e.eventTime * NANOS_PER_MILLISECOND
-        attachPredictor(v)
-        // §8 records hover too: hover history improves the first predicted
-        // samples after contact, which is the moment the tail is least accurate
-        // and the pen is moving fastest.
-        recordForPrediction(e)
-        when (e.actionMasked) {
-            MotionEvent.ACTION_HOVER_ENTER -> {
-                requestUnbufferedHover(v)
-                stylus.onHoverEnter(e.x, e.y, e.getAxisValue(MotionEvent.AXIS_DISTANCE), toolOf(e.getToolType(0)))
-            }
-            MotionEvent.ACTION_HOVER_MOVE ->
-                stylus.onHoverMove(e.x, e.y, e.getAxisValue(MotionEvent.AXIS_DISTANCE))
-            MotionEvent.ACTION_HOVER_EXIT -> stylus.onHoverExit(timeNs)
-            else -> return false
-        }
-        postHoverFrame()
+    fun onPointerMove(sample: PointerSample) {
+        handleMove(
+            sample.pointerId, sample.x, sample.y, sample.timeNs,
+            sample.pressure, sample.tilt, sample.orientation,
+        )
+    }
+
+    /** Closes one event's worth of moves; see [handleMoveEnd]. */
+    fun onPointerMoveEnd(timeNs: Long) = handleMoveEnd(timeNs)
+
+    fun onPointerUp(sample: PointerSample) {
+        handleUp(
+            sample.pointerId, sample.x, sample.y, sample.timeNs,
+            sample.pressure, sample.tilt, sample.orientation,
+        )
+    }
+
+    fun onPointerCancel(timeNs: Long) = handleCancel(timeNs)
+
+    /**
+     * A lift the platform flagged as canceled — Android API 33+'s retroactive
+     * `FLAG_CANCELED` on an `UP`/`POINTER_UP`, with the platform facts already
+     * neutralized by the glue ([kind], [flagged], [apiLevel]).
+     *
+     * Rolls the whole gesture back and returns true — the event is consumed —
+     * or returns false when the gate declines: a flag below the platform that
+     * delivers it, a non-lift action, or a non-primary flagged lift belonging
+     * to a pointer that was not drawing (a rejected palm beside a live pen
+     * follows normal per-pointer cleanup instead, exactly as `handleUp`
+     * would give it).
+     */
+    fun onPlatformCanceledUp(
+        kind: PointerUpKind,
+        flagged: Boolean,
+        apiLevel: Int,
+        pointerId: Int,
+        timeNs: Long,
+    ): Boolean {
+        // The flag is delivered only on T+ to apps targeting T+; the runtime
+        // check is a safe superset of that platform contract.
+        if (apiLevel < PLATFORM_CANCEL_MIN_API) return false
+        if (kind == PointerUpKind.OTHER) return false
+        if (!flagged) return false
+        if (kind == PointerUpKind.POINTER_UP && pointerId != drawingId) return false
+
+        handleCancel(timeNs)
         return true
     }
 
     /**
-     * Wheel and trackpad scroll — the one generic-motion event the canvas
-     * consumes. Pointer-class sources zoom about the cursor. `SOURCE_TOUCHPAD`
-     * is position-class, not pointer-class, so it is accepted by name: most
-     * touchpads scroll through a synthesized mouse pointer, but one that
-     * reports directly carries pad-relative coordinates — the viewport centre
-     * is the only honest pivot there, and before layout has provided one
-     * the event is dropped rather than zoomed about pad coordinates. A
-     * rotary encoder or joystick also delivers `ACTION_SCROLL` and stays refused: no cursor, no pad, nothing
-     * to zoom about.
-     *
-     * Historical samples are summed with the current one — a batching device
-     * folds several movements into one event, and dropping them under-zooms a
-     * fling. The per-event tick bound applies to the sum.
-     *
-     * `AXIS_VSCROLL` is positive with the wheel rolled away from the user,
-     * which zooms in — the shared convention of maps and every desktop
-     * canvas app. Horizontal scroll is deliberately left unconsumed until it
-     * has a defined meaning.
+     * §6's barrel button state, already resolved by the glue. The glue's
+     * contract: presses are scoped to stylus/eraser pointers (a mouse's
+     * secondary button must not latch barrel state), releases are forwarded
+     * unconditionally — clearing state is fail-safe, and a guarded press
+     * with an unguarded release can only ever under-latch.
      */
-    override fun onGenericMotion(v: View?, event: MotionEvent?): Boolean {
-        val e = event ?: return false
-        if (e.actionMasked != MotionEvent.ACTION_SCROLL) return false
-        val pointerClass = e.isFromSource(InputDevice.SOURCE_CLASS_POINTER)
-        if (!pointerClass && !e.isFromSource(InputDevice.SOURCE_TOUCHPAD)) return false
+    fun onStylusButton(state: ButtonState) = stylus.onButton(state)
 
-        var ticks = 0f
-        for (h in 0 until e.historySize) {
-            ticks += e.getHistoricalAxisValue(MotionEvent.AXIS_VSCROLL, h)
-        }
-        ticks += e.getAxisValue(MotionEvent.AXIS_VSCROLL)
+    /** Hover arrival; the sample's [PointerSample.distance] is the hover axis. */
+    fun onHoverEnter(sample: PointerSample) {
+        stylus.onHoverEnter(sample.x, sample.y, sample.distance, sample.tool)
+        postHoverFrame()
+    }
 
-        val f = fit
+    fun onHoverMove(sample: PointerSample) {
+        stylus.onHoverMove(sample.x, sample.y, sample.distance)
+        postHoverFrame()
+    }
+
+    fun onHoverExit(timeNs: Long) {
+        stylus.onHoverExit(timeNs)
+        postHoverFrame()
+    }
+
+    /**
+     * Wheel and trackpad scroll, with the pivot policy applied here because
+     * the handler owns the viewport ([handleScroll]'s semantics; the
+     * platform half — `AXIS_VSCROLL` reads and tick sums — stays with the
+     * glue). [pointerClass] is true for pointer-class sources, false for a
+     * touchpad reporting directly (pad-relative coordinates pivot at the
+     * viewport centre instead).
+     */
+    fun onScroll(eventX: Float, eventY: Float, ticks: Float, pointerClass: Boolean): Boolean {
+        val f = fit ?: return false
         val pivot = ScrollZoom.pivot(
             pointerClass = pointerClass,
-            eventX = e.x,
-            eventY = e.y,
-            viewWidth = f?.viewWidth,
-            viewHeight = f?.viewHeight,
+            eventX = eventX,
+            eventY = eventY,
+            viewWidth = f.viewWidth,
+            viewHeight = f.viewHeight,
         ) ?: return false
         return handleScroll(pivot.first, pivot.second, ticks)
-    }
-
-    /**
-     * Builds the predictor for [v] the first time this view dispatches to us,
-     * and **once only** — a view whose attempt failed is not retried.
-     *
-     * See [predictorView] for why the failure has to be remembered separately
-     * from the predictor itself.
-     */
-    private fun attachPredictor(v: View?) {
-        if (v == null || v === predictorView) return
-        predictorView = v
-        predictor = Predictor.forView(v, predictor)
-    }
-
-    /**
-     * Feeds one real event to the predictor — §8's "every `DOWN`/`MOVE`/`UP`
-     * for a stylus pointer, including `ACTION_HOVER_MOVE`".
-     *
-     * Scoped to the pen: a finger or a mouse dragging across the glass is
-     * history the predictor would fit a curve to and then answer the pen's next
-     * `predict()` with. §8 does not predict fingers in v1 at all.
-     *
-     * **Every pointer is checked, not index 0.** A `MotionEvent` carries one
-     * tool type per pointer, so a palm that landed first is pointer 0 and the
-     * pen is pointer 1 — and reading the tool at 0 classified the whole event
-     * as finger input and recorded no pen history at all. That fails exactly on
-     * palm-heavy usage, which is the hardware a predicted tail is for, and it
-     * fails silently: the tail either never appears or keeps extrapolating from
-     * pre-palm samples. Same defect class as the `actionIndex` bug the axis
-     * parameters fixed, and as the one `trackTimeNs` fixed — a per-pointer fact
-     * read at a single fixed index.
-     *
-     * Nothing predicted is ever recorded back (§8), which holds here by
-     * construction: this is only ever reached from [onTouch] and [onHover], and
-     * a predicted event never arrives through either.
-     */
-    private fun recordForPrediction(e: MotionEvent) {
-        val p = predictor ?: return
-        for (i in 0 until e.pointerCount) {
-            val tool = toolOf(e.getToolType(i))
-            if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
-                // The whole event, once: `record` takes the event, not a
-                // pointer, and the library splits it per pointer itself
-                // (`MultiPointerPredictor.onTouchEvent`).
-                p.record(e)
-                return
-            }
-        }
-    }
-
-    /**
-     * §2.1's unbuffered dispatch: events at the digitizer's rate instead of
-     * batched to vsync.
-     *
-     * On `ACTION_DOWN` only. The `MotionEvent` overload returns early unless
-     * the event is a touch event with action DOWN or MOVE, so calling it on
-     * `ACTION_POINTER_DOWN` would do nothing — and the request already lasts
-     * until the whole gesture ends, so a second pointer has nothing to add.
-     * Re-issued per stroke for the same reason: it does *not* survive the
-     * gesture that requested it.
-     *
-     * For **all** tool types, as §2.1 says: the finger path benefits equally on
-     * a phone. The cost is more main-thread wakeups while a pointer is down,
-     * which is the entire point — the front-buffered path of §8.1 turns each
-     * extra sample into ink under the pen sooner, and this thread does nothing
-     * else while a stroke is live.
-     */
-    private fun requestUnbuffered(v: View?, e: MotionEvent) {
-        v?.requestUnbufferedDispatch(e)
-    }
-
-    /**
-     * The hover half, which needs the **other** overload.
-     *
-     * `requestUnbufferedDispatch(MotionEvent)` is documented to act only on
-     * touch streams, so it does nothing for hover; the source-taking overload
-     * is what covers a hovering pen, and it is API 30 while this app's minSdk
-     * is 29 (both levels read out of the SDK's own `api-versions.xml`, not
-     * assumed). On 29 hover stays vsync-batched, which costs a slightly
-     * coarser hover cursor and nothing else — no stroke has begun yet.
-     *
-     * A *class* is broader than the pen: `SOURCE_MOUSE` is `0x2002` and
-     * `SOURCE_TOUCHSCREEN` is `0x1002`, so both carry `SOURCE_CLASS_POINTER`'s
-     * `0x2` and both get unbuffered hover out of this call as well. Harmless —
-     * a smoother cursor, and more main-thread wakeups while pointer-class
-     * events target this view — but it is what the code does, and "covers a
-     * hovering pen" implied a narrower effect than that.
-     *
-     * **How long the request stands is deliberately not stated here.** An
-     * earlier version of this comment priced it as "one wakeup per mouse move
-     * while the pointer is over the canvas", which assumes the request dies
-     * with the hover stream. A hover stream ends in `ACTION_HOVER_EXIT`, not
-     * `ACTION_UP` or `ACTION_CANCEL`, so it may well stand until some later
-     * gesture ends — but the platform javadoc is not in the SDK's stub sources
-     * and could not be reached to settle it. Rather than swap one unverified
-     * bound for another, the cost is left unquantified: whoever trims wakeups
-     * here should read `ViewRootImpl`'s input path first. The `ACTION_DOWN`
-     * path asks for pointer-class unbuffered dispatch anyway, so nothing here
-     * depends on the answer.
-     *
-     * **`SOURCE_CLASS_POINTER`, not `SOURCE_STYLUS`**, which is what
-     * `07-input-and-stylus.md` §2.1 writes — it flagged the call "(to verify)",
-     * and this is the verification. The parameter is annotated
-     * `@InputSourceClass`, so it takes a source *class* rather than a source:
-     * `SOURCE_STYLUS` is `0x4002`, whose low bit happens to be
-     * `SOURCE_CLASS_POINTER`, so it would most likely have worked by accident
-     * while being the wrong constant. Android Lint rejects it outright
-     * (`WrongConstant`), which is how this was caught rather than shipped.
-     */
-    private fun requestUnbufferedHover(v: View?) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-        v?.requestUnbufferedDispatch(InputDevice.SOURCE_CLASS_POINTER)
-    }
-
-    private fun toolOf(toolType: Int): PointerTool = when (toolType) {
-        MotionEvent.TOOL_TYPE_STYLUS -> PointerTool.STYLUS
-        MotionEvent.TOOL_TYPE_ERASER -> PointerTool.ERASER
-        MotionEvent.TOOL_TYPE_MOUSE -> PointerTool.MOUSE
-        else -> PointerTool.FINGER
-    }
-
-    private fun syncStylusButton(event: MotionEvent) {
-        var hasStylus = false
-        for (index in 0 until event.pointerCount) {
-            val tool = toolOf(event.getToolType(index))
-            if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
-                hasStylus = true
-                break
-            }
-        }
-        if (!hasStylus) return
-
-        val state = StylusButtonPolicy.resolve(
-            event.buttonState,
-            MotionEvent.BUTTON_STYLUS_PRIMARY,
-            MotionEvent.BUTTON_SECONDARY,
-        )
-        stylus.onButton(state)
     }
 
     private companion object {
         const val NO_POINTER = -1
 
+        /** The platform release whose retroactive-cancellation flag is honored. */
+        const val PLATFORM_CANCEL_MIN_API = 33
+
         /** Android orientation zero is screen-up; engine angle zero is +x. */
         val ANDROID_ORIENTATION_BASIS_RAD = (PI / 2.0).toFloat()
-
-        /** [fill]'s "not a historical sample, the event's own". */
-        const val CURRENT = -1
     }
 }
+
+/** The lift flavor a cancellation flag can ride on, neutralized from the platform's action codes. */
+enum class PointerUpKind { UP, POINTER_UP, OTHER }

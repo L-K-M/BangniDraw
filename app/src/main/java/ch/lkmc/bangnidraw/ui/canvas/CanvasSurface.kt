@@ -81,6 +81,14 @@ internal fun CanvasSurface(
     val touchHandlerHolder = remember {
         arrayOfNulls<ch.lkmc.bangnidraw.input.CanvasTouchHandler>(1)
     }
+
+    // The Android half of the input seam (DESKTOP.md seam 3): flattens
+    // MotionEvents into the shared handler's PointerSamples. Rebuilt with
+    // the handler, so a replaced handler gets a fresh predictor and deadline
+    // view — the lifecycle the handler's own fields carried before the seam.
+    val inputAdapter = remember(touchHandler) {
+        touchHandler?.let { ch.lkmc.bangnidraw.input.AndroidCanvasInput(it) }
+    }
     val appliedStack = remember { arrayOfNulls<LayerStack>(1) }
     val appliedPaperColor = remember { arrayOfNulls<Int>(1) }
     val appliedTracingReference = remember { arrayOfNulls<TracingReference>(1) }
@@ -170,9 +178,9 @@ internal fun CanvasSurface(
             // would keep dispatching to the stale one while reset-view drove
             // the new one. These setters replace rather than accumulate, so
             // calling them on every recomposition is idempotent.
-            surface.setOnTouchListener(touchHandler)
-            surface.setOnHoverListener(touchHandler)
-            surface.setOnGenericMotionListener(touchHandler)
+            surface.setOnTouchListener(inputAdapter)
+            surface.setOnHoverListener(inputAdapter)
+            surface.setOnGenericMotionListener(inputAdapter)
             updateGestureExclusion(
                 surface,
                 surface.width,

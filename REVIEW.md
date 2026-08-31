@@ -2469,3 +2469,57 @@ touchscreen hover too, not only a pen.
   trades the miss for a different one (`Class.forName("android.x")`
   stops being caught). The desktop compiler is the hard gate this test
   only front-runs.
+
+- **R-035 ⏸️ (refuted) PR #173 round 1: "FLAG_CANCELED path removed with
+  no replacement."** The replacement is in the same PR:
+  `AndroidCanvasInput.consumesPlatformCancellation` neutralizes the
+  platform facts (flag, action kind, SDK level) and the engine-side
+  `onPlatformCanceledUp` keeps the `drawingId` scoping the reviewer's own
+  suggested fix sketches; `requestUnbuffered` moved with it. The six
+  cancellation tests pin the whole gate on the JVM.
+- **R-036 ⏸️ (refuted) PR #173 outside-diff: "adapter recreation breaks
+  once-per-view predictor attach."** It replicates the pre-PR behavior:
+  `predictorView`/`predictor` lived per *handler* instance, and
+  `CanvasScreen` builds a new handler per key change — a swap always
+  re-attempted `newInstance` for the same view. Cross-handler memoization
+  would be new behavior, not restored behavior.
+- **R-037 ⏸️ (declined) PR #173: Robolectric test pinning the predicted
+  event's sample layout.** The repo's test suite is JVM-only by policy
+  (AGENTS.md); adding Robolectric is a build decision, not a review fix.
+  The layout stays documented from the 1.0.0 bytecode read.
+
+- **R-038 ⏸️ (declined) PR #173 round 3: evict the frame-callback cache on
+  run.** The leak premise is hypothetical: the handler's two frame
+  callbacks are fields for its whole life (`10-performance.md` §2.4 pins
+  that), so the per-adapter cache is bounded at two entries. Evicting on
+  run would allocate a fresh Choreographer wrapper every predicted frame —
+  trading a bounded two-entry map for a per-frame allocation on the one
+  path the zero-alloc rule was written for. The contract is now stated at
+  the cache.
+
+- **R-039 ⏸️ (refuted) PR #173 round 5: "`getHistoricalAxisValue(AXIS_VSCROLL, h)`
+  passes history position as pointer index."** Checked against the platform
+  docs: the 2-argument overload is `(axis, pos)` where `pos` is the
+  historical-sample position and the pointer index is implicitly 0 — the
+  same family as `getHistoricalX(int pos)`. The line is byte-identical to
+  the pre-PR `onGenericMotion`; the suggested "fix" would change nothing
+  semantically.
+- **R-040 ⏸️ (declined) PR #173 round 5: guard `ACTION_UP` in
+  onPlatformCanceledUp with drawingId.** Pre-existing semantics moved
+  verbatim (the original gate only scoped POINTER_UP). The claimed harm —
+  rolling back a committed stroke — cannot happen: `handleCancel`'s
+  CancelStroke is gated on `strokeLive`, which a completed stroke has
+  cleared. Changing the gate here is a behavior change outside M3's
+  no-visible-change mandate; filed as a follow-up question instead.
+- **R-041 ⏸️ (no action) PR #173 round 5: "confirm predictor attached in
+  CanvasSurface."** It is: lazily on the first event of each surface,
+  hover included — `attachPredictor(v)` runs in both `onTouch` and
+  `onHover`, keyed on the view, exactly as before the seam.
+
+- **R-042 ⏸️ (declined) PR #173 round 6: carry pending frame work across a
+  scheduler swap.** The only real attach path — the Android adapter's
+  `init` — runs before any event can post, so there is never pending work
+  to carry; the live-host mid-hover swap the finding describes is not a
+  flow that exists. Re-posting would add a double-run hazard for a
+  hypothetical. The attach-before-events contract is now stated at the
+  setter.

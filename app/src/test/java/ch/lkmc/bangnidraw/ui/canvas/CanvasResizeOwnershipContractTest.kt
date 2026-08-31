@@ -97,7 +97,7 @@ class CanvasResizeOwnershipContractTest {
         const val ROOT_MARKER = "settings.gradle.kts"
         const val APP_DIRECTORY = "app/src/main"
         const val INPUT_PATH =
-            "app/src/main/java/ch/lkmc/bangnidraw/input/CanvasTouchHandler.kt"
+            "engine-core/src/jvmShared/kotlin/ch/lkmc/bangnidraw/input/CanvasTouchHandler.kt"
         const val SCREEN_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasScreen.kt"
         const val RENDERER_PATH =

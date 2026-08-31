@@ -66,6 +66,14 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   events stop at `input/AndroidCanvasInput` (:app), the MotionEvent adapter;
   the handler's platform services arrive as injected seams
   (`GestureDeadlineScheduler`, `FrameScheduler`, `StrokePredictor`).
+  `:desktop` is the Compose Desktop shell: a plain JVM module with a
+  GLFW/EGL ES 3.0 context on its own GL thread (macOS adds the
+  `GLFW_ANGLE_PLATFORM_TYPE_METAL` init hint), engine → offscreen FBO →
+  glReadPixels → Compose image (the per-frame copy is DESKTOP.md
+  architecture 1's accepted v1 cost), mouse → PointerSample records,
+  in-memory undo from the readback mirror, prefs on the JVM DataStore, and
+  Save PNG to `~/Pictures/BangniDraw`. Its Kotlin files nest comments
+  badly: a `/*` inside KDoc (e.g. `brushes/*.json`) opens a nested comment.
 - **Kotlin `internal` does not cross module boundaries.** Declarations in
   `:engine-core` that `:app` (or app tests) consume must be `public`; the
   ~135 declarations widened in the M1 extraction are now that module's API

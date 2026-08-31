@@ -21,6 +21,9 @@ graphicsCore = "1.0.4"
 inputMotionPrediction = "1.0.0"
 # Desktop GL stack (DESKTOP.md): LWJGL 3.4 bindings for the desktop target.
 lwjgl = "3.4.3"
+# Compose Multiplatform (DESKTOP.md "UI layer"), same androidx.compose.*
+# packages as the Android app's Jetpack Compose.
+composeMultiplatform = "1.12.0"
 # Mixbox 2.0 — CC BY-NC 4.0, see ADR 0003 and third-party/mixbox/.
 mixbox = "2.0.0"
 junit = "4.13.2"
@@ -61,6 +64,7 @@ kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test-junit", vers
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }

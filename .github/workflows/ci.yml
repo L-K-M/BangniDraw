@@ -44,10 +44,11 @@ jobs:
 
       - name: Test, lint, and assemble
         # The KMP libraries register no Android unit tests; their JVM suites
-        # run on the desktop targets (DESKTOP.md Phase 1, M1/M2).
+        # run on the desktop targets (DESKTOP.md Phase 1, M1/M2), and the
+        # desktop shell's own tests ride the same job (M4).
         run: >-
           ./gradlew testDebugUnitTest lintDebug assembleDebug
-          :engine-core:desktopTest :engine-gl:desktopTest
+          :engine-core:desktopTest :engine-gl:desktopTest :desktop:test
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7

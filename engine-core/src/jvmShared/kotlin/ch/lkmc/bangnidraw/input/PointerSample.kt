@@ -70,7 +70,8 @@ class PointerSample {
         return this
     }
 
-    fun set(
+    /** The hover fill: position, hover distance, time — named apart from [set] so the fifth-float collision (`pressure` vs `distance`) cannot be written by accident. */
+    fun setHover(
         pointerId: Int,
         tool: PointerTool,
         x: Float,

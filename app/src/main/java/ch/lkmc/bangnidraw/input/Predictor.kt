@@ -73,6 +73,11 @@ class Predictor private constructor(
      * collector. The asymmetry decides it.
      *
      * Read within the frame and never kept, either way.
+     *
+     * Every flattened sample inherits the current sample's tool type —
+     * `MotionEvent` has no per-sample tool history — which is safe today
+     * because a tool change cannot be reported within one event, and worth
+     * knowing before anyone assumes otherwise.
      */
     override fun predict(pointerId: Int): Int {
         count = 0

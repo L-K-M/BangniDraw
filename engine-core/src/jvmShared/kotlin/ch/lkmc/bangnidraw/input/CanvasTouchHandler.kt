@@ -865,6 +865,17 @@ class CanvasTouchHandler(
      * per-surface state.
      */
     var frameScheduler: FrameScheduler? = null
+        set(value) {
+            // Swapping or detaching must not strand posted callbacks on the
+            // old scheduler: they would fire once more against a retired host.
+            if (field !== value) {
+                framePosted = false
+                hoverFramePosted = false
+                field?.cancel(frameCallback)
+                field?.cancel(hoverFrameCallback)
+            }
+            field = value
+        }
 
     /** The tail handed to the host, refilled every frame. */
     private val predictedSamples = StrokeInputBatch()
@@ -1134,7 +1145,13 @@ class CanvasTouchHandler(
         return true
     }
 
-    /** §6's barrel button state, already resolved by the glue. */
+    /**
+     * §6's barrel button state, already resolved by the glue. The glue's
+     * contract: presses are scoped to stylus/eraser pointers (a mouse's
+     * secondary button must not latch barrel state), releases are forwarded
+     * unconditionally — clearing state is fail-safe, and a guarded press
+     * with an unguarded release can only ever under-latch.
+     */
     fun onStylusButton(state: ButtonState) = stylus.onButton(state)
 
     /** Hover arrival; the sample's [PointerSample.distance] is the hover axis. */

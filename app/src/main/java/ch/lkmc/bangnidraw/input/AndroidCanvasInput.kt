@@ -215,7 +215,7 @@ class AndroidCanvasInput(
             MotionEvent.ACTION_HOVER_ENTER -> {
                 requestUnbufferedHover(v)
                 handler.onHoverEnter(
-                    sample.set(
+                    sample.setHover(
                         pointerId = e.getPointerId(0),
                         tool = toolOf(e.getToolType(0)),
                         x = e.x,
@@ -226,7 +226,7 @@ class AndroidCanvasInput(
                 )
             }
             MotionEvent.ACTION_HOVER_MOVE -> handler.onHoverMove(
-                sample.set(
+                sample.setHover(
                     pointerId = e.getPointerId(0),
                     tool = toolOf(e.getToolType(0)),
                     x = e.x,

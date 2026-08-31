@@ -160,6 +160,7 @@ class CanvasTouchHandlerRecordTest {
         h.onPointerMoveEnd(1_000_000L)
 
         assertEquals(2, host.samples.size)
+        assertEquals(listOf(0L, 1_000_000L), host.times, "timestamps ride the record unchanged")
         assertEquals(0.75f, host.samples[1][2])
         assertEquals(0.5f, host.samples[1][3])
         // Canvas azimuth: screen orientation minus the quarter-turn basis
@@ -196,10 +197,13 @@ class CanvasTouchHandlerRecordTest {
     fun `hover records update the shared stylus`() {
         val host = Host()
         val h = handler(host)
+        val frames = QueuedFrameScheduler()
+        h.frameScheduler = frames
 
-        h.onHoverEnter(sample.set(0, PointerTool.ERASER, 10f, 20f, distance = 3f, timeNs = 0L))
-        h.onHoverMove(sample.set(0, PointerTool.ERASER, 30f, 40f, distance = 2f, timeNs = 1_000_000L))
+        h.onHoverEnter(sample.setHover(0, PointerTool.ERASER, 10f, 20f, distance = 3f, timeNs = 0L))
+        h.onHoverMove(sample.setHover(0, PointerTool.ERASER, 30f, 40f, distance = 2f, timeNs = 1_000_000L))
         h.onHoverExit(2_000_000L)
+        frames.pump()
 
         assertEquals(30f, h.stylus.hoverX)
         assertEquals(40f, h.stylus.hoverY)
@@ -207,6 +211,23 @@ class CanvasTouchHandlerRecordTest {
         assertEquals(PointerTool.ERASER, h.stylus.tool)
         assertFalse(h.stylus.isHovering)
         assertTrue(h.stylus.isNear(2_000_000L), "the grace window follows a record hover exit")
+    }
+
+    @Test
+    fun `hover records coalesce to one host notification per frame`() {
+        val host = Host()
+        val h = handler(host)
+        val frames = QueuedFrameScheduler()
+        h.frameScheduler = frames
+
+        h.onHoverEnter(sample.setHover(0, PointerTool.STYLUS, 10f, 20f, distance = 3f, timeNs = 0L))
+        h.onHoverMove(sample.setHover(0, PointerTool.STYLUS, 30f, 40f, distance = 2f, timeNs = 1_000_000L))
+        h.onHoverMove(sample.setHover(0, PointerTool.STYLUS, 50f, 60f, distance = 1f, timeNs = 2_000_000L))
+        h.onHoverExit(3_000_000L)
+
+        assertEquals(0, host.hoverChanged, "nothing notifies before the frame runs")
+        frames.pump()
+        assertEquals(1, host.hoverChanged, "a fast digitizer cannot recompose per sample")
     }
 
     @Test

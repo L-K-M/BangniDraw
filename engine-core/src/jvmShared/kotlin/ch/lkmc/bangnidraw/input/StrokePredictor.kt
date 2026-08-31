@@ -35,6 +35,11 @@ interface StrokePredictor {
      */
     fun predict(pointerId: Int): Int
 
-    /** Sample [index] of the last [predict] result, nearest-first. */
+    /**
+     * Sample [index] of the last [predict] result, nearest-first.
+     * Implementations may return the same reused instance for every index
+     * — copy what you keep before requesting the next one or calling
+     * [predict] again.
+     */
     fun predictedAt(index: Int): PointerSample
 }

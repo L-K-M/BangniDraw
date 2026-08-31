@@ -2496,3 +2496,22 @@ touchscreen hover too, not only a pen.
   trading a bounded two-entry map for a per-frame allocation on the one
   path the zero-alloc rule was written for. The contract is now stated at
   the cache.
+
+- **R-039 ⏸️ (refuted) PR #173 round 5: "`getHistoricalAxisValue(AXIS_VSCROLL, h)`
+  passes history position as pointer index."** Checked against the platform
+  docs: the 2-argument overload is `(axis, pos)` where `pos` is the
+  historical-sample position and the pointer index is implicitly 0 — the
+  same family as `getHistoricalX(int pos)`. The line is byte-identical to
+  the pre-PR `onGenericMotion`; the suggested "fix" would change nothing
+  semantically.
+- **R-040 ⏸️ (declined) PR #173 round 5: guard `ACTION_UP` in
+  onPlatformCanceledUp with drawingId.** Pre-existing semantics moved
+  verbatim (the original gate only scoped POINTER_UP). The claimed harm —
+  rolling back a committed stroke — cannot happen: `handleCancel`'s
+  CancelStroke is gated on `strokeLive`, which a completed stroke has
+  cleared. Changing the gate here is a behavior change outside M3's
+  no-visible-change mandate; filed as a follow-up question instead.
+- **R-041 ⏸️ (no action) PR #173 round 5: "confirm predictor attached in
+  CanvasSurface."** It is: lazily on the first event of each surface,
+  hover included — `attachPredictor(v)` runs in both `onTouch` and
+  `onHover`, keyed on the view, exactly as before the seam.

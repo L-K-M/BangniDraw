@@ -2532,14 +2532,23 @@ touchscreen hover too, not only a pen.
   on `cfc4b7f`, the exact commit reviewed. The finding assumed `percent` is a
   `@Composable fun` imported from `BrushSettingsSheet`. It is not.
   `RmwSettingsSheet` declares its own local `val percent: @Composable (Float)
-  -> String` in each enclosing composable (RmwSettingsSheet.kt:53 and :128),
-  which is exactly the type `DeferredSettingSlider.valueText` takes, so the
+  -> String` in **every** enclosing composable that uses it —
+  `SmudgeSettingsSheet`, `WaterSettingsSheet` and `BlurSettingsSheet`, three
+  declarations, named rather than numbered because line numbers rot — which is
+  exactly the type `DeferredSettingSlider.valueText` takes, so the
   unapplied reference is the correct adaptation — the old call sites applied
   it (`percent(active.hardness)`) only because the old `SettingSlider` took a
   `String`. The accompanying claim that "a top-level val can't even hold a
   composable lambda" is both wrong and beside the point, since these are local
   vals. Refuted on the PR, per CLAUDE.md's rule for claims that would
   otherwise mislead a merge decision.
+
+  *(Round 2 corrected this entry's own citation, which named two of the three
+  declarations — the search behind it had been truncated. The refutation is
+  unchanged and rests on what `percent` is, not on how many there are, but a
+  reader following an undercount would go looking for a missing declaration
+  and could reopen a settled claim, which is the opposite of what this log is
+  for.)*
 - **R-191 ⏸️ (declined) round 1: delegate `FillSlider` to
   `DeferredSettingSlider`.** The finding names the right caveat and it is the
   one that decides this: the two layouts are not the same. `SettingSlider`

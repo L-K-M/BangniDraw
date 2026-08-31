@@ -718,6 +718,17 @@ and the contradiction is noted here.
   the ViewModel only consults it. No `kotlinx-coroutines-test` dependency
   exists yet; add it when a real coroutine-clock test earns it, not before.
 
+- **`PointerSample.tool` is filled only where it is read**, so on the other
+  paths it holds a stale value rather than a wrong-but-plausible one. Reading
+  it costs a `MotionEvent.getToolType` JNI call per sample, and only a down
+  (palm rejection, the eraser end) and a hover-enter (the cursor) consume it;
+  a move, a lift and every predicted sample continue a gesture whose tool was
+  settled at its down. Those fill through `setWithoutTool`/
+  `setHoverWithoutTool`, which leave the field alone. If a consumer ever needs
+  the tool there, move its call site back to the full `set` — do not read the
+  field and hope. `PointerSampleToolContractTest` pins both halves and will
+  fail first.
+
 - **The scaffold's `detectTransformGestures` was deleted, not rewired.** It
   drove a Compose drawing of the paper; pointing it at the engine would make it
   a second owner of touch input, and `07-input-and-stylus.md` §2 makes

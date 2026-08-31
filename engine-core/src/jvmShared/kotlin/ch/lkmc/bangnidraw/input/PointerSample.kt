@@ -56,8 +56,38 @@ class PointerSample {
         orientation: Float,
         timeNs: Long,
     ): PointerSample {
-        this.pointerId = pointerId
         this.tool = tool
+        return setWithoutTool(pointerId, x, y, pressure, tilt, orientation, timeNs)
+    }
+
+    /**
+     * The contact fill for the paths whose consumer never reads [tool].
+     *
+     * Reading the tool costs a JNI call per sample on Android, and only two
+     * of the six sample paths spend it: a down decides palm rejection and the
+     * eraser end, a hover-enter decides the cursor. A move, a lift and a
+     * predicted sample each carry a gesture whose tool was already settled at
+     * its down, so computing it again per historical sample — several per
+     * frame from a 240 Hz digitizer — buys nothing.
+     *
+     * **[tool] is left as the last full fill wrote it**, which is a stale
+     * value and deliberately not a plausible one: writing `FINGER` here would
+     * hand a future reader a specific wrong answer where palm rejection
+     * treats fingers differently from pens. `PointerSampleToolContractTest`
+     * pins the three handler entries and `appendPredicted` against reading
+     * it, so a consumer that starts needing the tool fails there and moves to
+     * [set] rather than silently getting the previous gesture's.
+     */
+    fun setWithoutTool(
+        pointerId: Int,
+        x: Float,
+        y: Float,
+        pressure: Float,
+        tilt: Float,
+        orientation: Float,
+        timeNs: Long,
+    ): PointerSample {
+        this.pointerId = pointerId
         this.x = x
         this.y = y
         this.pressure = pressure
@@ -79,8 +109,23 @@ class PointerSample {
         distance: Float,
         timeNs: Long,
     ): PointerSample {
-        this.pointerId = pointerId
         this.tool = tool
+        return setHoverWithoutTool(pointerId, x, y, distance, timeNs)
+    }
+
+    /**
+     * The hover fill for hover *moves*, whose consumer never reads [tool] —
+     * the cursor was decided at hover-enter. Leaves [tool] exactly as
+     * [setWithoutTool] does, for the same reason and under the same pin.
+     */
+    fun setHoverWithoutTool(
+        pointerId: Int,
+        x: Float,
+        y: Float,
+        distance: Float,
+        timeNs: Long,
+    ): PointerSample {
+        this.pointerId = pointerId
         this.x = x
         this.y = y
         this.distance = distance

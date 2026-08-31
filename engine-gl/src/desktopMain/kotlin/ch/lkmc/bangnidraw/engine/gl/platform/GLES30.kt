@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.engine.gl.platform
 
 import org.lwjgl.opengles.GLES30 as LwjglGles30
+import org.lwjgl.system.MemoryStack
 import java.nio.ByteBuffer
 import java.nio.FloatBuffer
 import java.nio.IntBuffer
@@ -14,17 +15,20 @@ import java.nio.IntBuffer
  * return values instead of out-parameters. The adapters below bridge those
  * three differences while honoring the facade's Android semantics exactly:
  *
- *  - Array forms become `IntBuffer.wrap(array, offset, count)` views —
- *    LWJGL then reads or writes exactly `count` elements.
- *  - Explicit byte sizes (`glBufferData`, `glBufferSubData`) become a
- *    temporary `limit` pinned to `position + size`, restored after the
- *    call. LWJGL would otherwise transfer the whole remaining range,
- *    which the Android call never does (`uploadInstances` deliberately
- *    uploads `n` dabs of a larger staging buffer).
+ *  - Array forms become **stack** buffers (`MemoryStack`) — `*Buffer.wrap`
+ *   views are always heap-backed, and LWJGL hands the driver the raw
+ *   address of whatever it is given, heap or not, so a wrapped view is a
+ *   guaranteed segfault, not a slow path (ANALYSIS.md D11; verified against
+ *   the pinned 3.4.3: a wrapped heap buffer's `memAddress` is `0x10`).
+ *  - Buffer parameters the shared engine may legitimately pass as heap
+ *   buffers (Android's JNI glue tolerates them; LWJGL does not) go through
+ *   a grow-only **direct staging** buffer: copy-in for uploads, copy-back
+ *   for out-parameters. Direct buffers pass through untouched.
  *  - `glVertexAttribPointer`'s offset widens to LWJGL's `long`.
  *
  * LWJGL binds lazily against the context's EGL library; nothing here may
- * touch the class until a context is current on this thread.
+ * touch the class until a context is current on this thread. All state is
+ * single-threaded by the GL contract the facade states.
  */
 actual object GLES30 {
 
@@ -132,10 +136,10 @@ actual object GLES30 {
             // pinned limit makes equal to `size`.
             null -> LwjglGles30.glBufferData(target, size.toLong(), usage)
             is ByteBuffer -> withByteLimit(data, size) { b ->
-                LwjglGles30.glBufferData(target, b, usage)
+                LwjglGles30.glBufferData(target, directOrStaged(b), usage)
             }
             is FloatBuffer -> withFloatLimit(data, size) { f ->
-                LwjglGles30.glBufferData(target, f, usage)
+                LwjglGles30.glBufferData(target, directOrStaged(f, size), usage)
             }
             else -> throw IllegalArgumentException("unsupported buffer type: ${data::class.java}")
         }
@@ -144,10 +148,10 @@ actual object GLES30 {
     actual fun glBufferSubData(target: Int, offset: Int, size: Int, data: java.nio.Buffer) {
         when (data) {
             is ByteBuffer -> withByteLimit(data, size) { b ->
-                LwjglGles30.glBufferSubData(target, offset.toLong(), b)
+                LwjglGles30.glBufferSubData(target, offset.toLong(), directOrStaged(b))
             }
             is FloatBuffer -> withFloatLimit(data, size) { f ->
-                LwjglGles30.glBufferSubData(target, offset.toLong(), f)
+                LwjglGles30.glBufferSubData(target, offset.toLong(), directOrStaged(f, size))
             }
             else -> throw IllegalArgumentException("unsupported buffer type: ${data::class.java}")
         }
@@ -173,11 +177,13 @@ actual object GLES30 {
 
     actual fun glCreateShader(type: Int): Int = LwjglGles30.glCreateShader(type)
 
-    actual fun glDeleteBuffers(n: Int, buffers: IntArray, offset: Int) =
-        LwjglGles30.glDeleteBuffers(IntBuffer.wrap(buffers, offset, n))
+    actual fun glDeleteBuffers(n: Int, buffers: IntArray, offset: Int) {
+        stackInts(n) { view -> view.put(buffers, offset, n); view.flip(); LwjglGles30.glDeleteBuffers(view) }
+    }
 
-    actual fun glDeleteFramebuffers(n: Int, framebuffers: IntArray, offset: Int) =
-        LwjglGles30.glDeleteFramebuffers(IntBuffer.wrap(framebuffers, offset, n))
+    actual fun glDeleteFramebuffers(n: Int, framebuffers: IntArray, offset: Int) {
+        stackInts(n) { view -> view.put(framebuffers, offset, n); view.flip(); LwjglGles30.glDeleteFramebuffers(view) }
+    }
 
     actual fun glDeleteProgram(program: Int) = LwjglGles30.glDeleteProgram(program)
 
@@ -185,11 +191,13 @@ actual object GLES30 {
 
     actual fun glDeleteSync(sync: Long) = LwjglGles30.glDeleteSync(sync)
 
-    actual fun glDeleteTextures(n: Int, textures: IntArray, offset: Int) =
-        LwjglGles30.glDeleteTextures(IntBuffer.wrap(textures, offset, n))
+    actual fun glDeleteTextures(n: Int, textures: IntArray, offset: Int) {
+        stackInts(n) { view -> view.put(textures, offset, n); view.flip(); LwjglGles30.glDeleteTextures(view) }
+    }
 
-    actual fun glDeleteVertexArrays(n: Int, arrays: IntArray, offset: Int) =
-        LwjglGles30.glDeleteVertexArrays(IntBuffer.wrap(arrays, offset, n))
+    actual fun glDeleteVertexArrays(n: Int, arrays: IntArray, offset: Int) {
+        stackInts(n) { view -> view.put(arrays, offset, n); view.flip(); LwjglGles30.glDeleteVertexArrays(view) }
+    }
 
     actual fun glDetachShader(program: Int, shader: Int) = LwjglGles30.glDetachShader(program, shader)
 
@@ -224,37 +232,49 @@ actual object GLES30 {
         layer: Int,
     ) = LwjglGles30.glFramebufferTextureLayer(target, attachment, texture, level, layer)
 
-    actual fun glGenBuffers(n: Int, buffers: IntArray, offset: Int) =
-        LwjglGles30.glGenBuffers(IntBuffer.wrap(buffers, offset, n))
+    actual fun glGenBuffers(n: Int, buffers: IntArray, offset: Int) {
+        stackInts(n) { view -> LwjglGles30.glGenBuffers(view); view.get(buffers, offset, n) }
+    }
 
-    actual fun glGenFramebuffers(n: Int, framebuffers: IntArray, offset: Int) =
-        LwjglGles30.glGenFramebuffers(IntBuffer.wrap(framebuffers, offset, n))
+    actual fun glGenFramebuffers(n: Int, framebuffers: IntArray, offset: Int) {
+        stackInts(n) { view -> LwjglGles30.glGenFramebuffers(view); view.get(framebuffers, offset, n) }
+    }
 
-    actual fun glGenTextures(n: Int, textures: IntArray, offset: Int) =
-        LwjglGles30.glGenTextures(IntBuffer.wrap(textures, offset, n))
+    actual fun glGenTextures(n: Int, textures: IntArray, offset: Int) {
+        stackInts(n) { view -> LwjglGles30.glGenTextures(view); view.get(textures, offset, n) }
+    }
 
-    actual fun glGenVertexArrays(n: Int, arrays: IntArray, offset: Int) =
-        LwjglGles30.glGenVertexArrays(IntBuffer.wrap(arrays, offset, n))
+    actual fun glGenVertexArrays(n: Int, arrays: IntArray, offset: Int) {
+        stackInts(n) { view -> LwjglGles30.glGenVertexArrays(view); view.get(arrays, offset, n) }
+    }
 
     actual fun glGetError(): Int = LwjglGles30.glGetError()
 
-    actual fun glGetIntegerv(pname: Int, params: IntArray, offset: Int) =
-        LwjglGles30.glGetIntegerv(pname, IntBuffer.wrap(params, offset, params.size - offset))
+    actual fun glGetIntegerv(pname: Int, params: IntArray, offset: Int) {
+        stackInts(params.size - offset) { view ->
+            LwjglGles30.glGetIntegerv(pname, view)
+            view.get(params, offset, view.remaining())
+        }
+    }
 
     actual fun glGetProgramInfoLog(program: Int): String? =
         LwjglGles30.glGetProgramInfoLog(program)
 
     actual fun glGetProgramiv(program: Int, pname: Int, params: IntArray, offset: Int) {
-        val view = IntBuffer.wrap(params, offset, params.size - offset)
-        LwjglGles30.glGetProgramiv(program, pname, view)
+        stackInts(params.size - offset) { view ->
+            LwjglGles30.glGetProgramiv(program, pname, view)
+            view.get(params, offset, view.remaining())
+        }
     }
 
     actual fun glGetShaderInfoLog(shader: Int): String? =
         LwjglGles30.glGetShaderInfoLog(shader)
 
     actual fun glGetShaderiv(shader: Int, pname: Int, params: IntArray, offset: Int) {
-        val view = IntBuffer.wrap(params, offset, params.size - offset)
-        LwjglGles30.glGetShaderiv(shader, pname, view)
+        stackInts(params.size - offset) { view ->
+            LwjglGles30.glGetShaderiv(shader, pname, view)
+            view.get(params, offset, view.remaining())
+        }
     }
 
     actual fun glGetString(name: Int): String? = LwjglGles30.glGetString(name)
@@ -277,11 +297,24 @@ actual object GLES30 {
         format: Int,
         type: Int,
         pixels: java.nio.Buffer,
-    ) = when (pixels) {
-        is ByteBuffer -> LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels)
-        is IntBuffer -> LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels)
-        is FloatBuffer -> LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels)
-        else -> throw IllegalArgumentException("unsupported pixels buffer: ${pixels::class.java}")
+    ) {
+        when (pixels) {
+            is ByteBuffer -> {
+                if (pixels.isDirect) {
+                    LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels)
+                } else {
+                    // D11: a heap out-parameter cannot be handed to LWJGL — read
+                    // through staging, then copy back to the caller's buffer.
+                    val staged = stagingFor(pixels.remaining())
+                    LwjglGles30.glReadPixels(x, y, width, height, format, type, staged)
+                    staged.flip()
+                    pixels.put(staged)
+                }
+            }
+            is IntBuffer -> directOnly(pixels) { LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels) }
+            is FloatBuffer -> directOnly(pixels) { LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels) }
+            else -> throw IllegalArgumentException("unsupported pixels buffer: ${pixels::class.java}")
+        }
     }
 
     actual fun glReadPixels(x: Int, y: Int, width: Int, height: Int, format: Int, type: Int, offset: Int) =
@@ -305,9 +338,9 @@ actual object GLES30 {
         pixels: java.nio.Buffer?,
     ) = when (pixels) {
         null -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, null as ByteBuffer?)
-        is ByteBuffer -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels)
-        is IntBuffer -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels)
-        is FloatBuffer -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels)
+        is ByteBuffer -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, directOrStaged(pixels))
+        is IntBuffer -> directOnly(pixels) { LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels) }
+        is FloatBuffer -> directOnly(pixels) { LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels) }
         else -> throw IllegalArgumentException("unsupported pixels buffer: ${pixels::class.java}")
     }
 
@@ -340,14 +373,14 @@ actual object GLES30 {
         pixels: java.nio.Buffer,
     ) = when (pixels) {
         is ByteBuffer -> LwjglGles30.glTexSubImage3D(
-            target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels,
+            target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, directOrStaged(pixels),
         )
-        is IntBuffer -> LwjglGles30.glTexSubImage3D(
-            target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels,
-        )
-        is FloatBuffer -> LwjglGles30.glTexSubImage3D(
-            target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels,
-        )
+        is IntBuffer -> directOnly(pixels) {
+            LwjglGles30.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels)
+        }
+        is FloatBuffer -> directOnly(pixels) {
+            LwjglGles30.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels)
+        }
         else -> throw IllegalArgumentException("unsupported pixels buffer: ${pixels::class.java}")
     }
 
@@ -370,9 +403,13 @@ actual object GLES30 {
         transpose: Boolean,
         value: FloatArray,
         offset: Int,
-    ) = LwjglGles30.glUniformMatrix4fv(
-        location, transpose, FloatBuffer.wrap(value, offset, count * FLOATS_PER_MAT4),
-    )
+    ) {
+        stackFloats(count * FLOATS_PER_MAT4) { view ->
+            view.put(value, offset, count * FLOATS_PER_MAT4)
+            view.flip()
+            LwjglGles30.glUniformMatrix4fv(location, transpose, view)
+        }
+    }
 
     actual fun glUnmapBuffer(target: Int): Boolean = LwjglGles30.glUnmapBuffer(target)
 
@@ -425,4 +462,105 @@ actual object GLES30 {
 
     private const val FLOATS_PER_MAT4 = 16
     private const val FLOAT_BYTES = 4
+
+    // ---------------------------------------------- direct-only adaptation
+
+    /**
+     * Runs [block] with a stack-allocated direct IntBuffer of [n] elements —
+     * the D11 fix for the array-form entries. `IntBuffer.wrap` views are
+     * heap-backed and LWJGL hands their garbage address to the driver, so
+     * every small array parameter and out-parameter crosses through here.
+     */
+    private inline fun <T> stackInts(n: Int, block: (IntBuffer) -> T): T =
+        MemoryStack.stackPush().use { stack -> block(stack.mallocInt(n)) }
+
+    /** The FloatBuffer twin of [stackInts]. */
+    private inline fun <T> stackFloats(n: Int, block: (FloatBuffer) -> T): T =
+        MemoryStack.stackPush().use { stack -> block(stack.mallocFloat(n)) }
+
+    /**
+     * The grow-only direct staging byte buffer for heap buffer parameters —
+     * single-threaded by the GL contract. Never shrunk: readbacks and uploads
+     * on one device have a stable high-water size, and re-allocating per call
+     * is the allocation churn the zero-allocation rule forbids.
+     */
+    private var stagingBytes: ByteBuffer = java.nio.ByteBuffer.allocateDirect(STAGING_INITIAL_BYTES)
+
+    /**
+     * A direct view of [source]: itself when it is already direct (the
+     * engine hot paths — PixelReadback, StrokeBuffer — all allocate direct),
+     * or a copy of its `[position, position + size)` range through staging.
+     * The returned buffer is shared scratch — consume it before the next
+     * facade call on this thread.
+     */
+    internal fun directOrStaged(source: ByteBuffer): ByteBuffer {
+        if (source.isDirect) return source
+
+        val savedPosition = source.position()
+        val staged = stagingFor(source.remaining())
+        staged.put(source).flip()
+        source.position(savedPosition)
+        return staged
+    }
+
+    /**
+     * The float-typed staging twin: copies [floats] floats from [source]
+     * into a direct byte view sized in bytes. Returns a ByteBuffer for the
+     * explicit-size LWJGL overloads.
+     */
+    internal fun directOrStaged(source: FloatBuffer, sizeBytes: Int): ByteBuffer {
+        if (source.isDirect) {
+            // Direct already: hand LWJGL the typed view it accepts, wrapped
+            // back as bytes for the explicit-size overload.
+            val savedLimit = source.limit()
+            source.limit(source.position() + sizeBytes / FLOAT_BYTES)
+            val view = directByteViewOf(source)
+            source.limit(savedLimit)
+            return view
+        }
+
+        val floats = sizeBytes / FLOAT_BYTES
+        val staged = stagingFor(sizeBytes)
+        // Copy exactly `floats` floats from the caller's position, whatever
+        // the caller's own limit is — the pinned-limit wrapper is a caller
+        // of this seam, not a precondition of it.
+        val limited = source.duplicate().limit(source.position() + floats)
+        staged.asFloatBuffer().put(limited)
+        return staged
+    }
+
+
+    /**
+     * A read-only-ish direct byte view over a direct FloatBuffer[s
+     * position, limit) — MemoryUtil.memByteBuffer over the float address.
+     * Only ever called for direct buffers, whose address LWJGL can take.
+     */
+    private fun directByteViewOf(source: FloatBuffer): ByteBuffer =
+        org.lwjgl.system.MemoryUtil.memByteBuffer(
+            org.lwjgl.system.MemoryUtil.memAddress(source),
+            source.remaining() * FLOAT_BYTES,
+        )
+
+    internal fun stagingFor(bytes: Int): ByteBuffer {
+        if (stagingBytes.capacity() < bytes) {
+            stagingBytes = java.nio.ByteBuffer.allocateDirect(
+                maxOf(bytes, stagingBytes.capacity() * 2),
+            )
+        }
+        stagingBytes.clear()
+        stagingBytes.limit(bytes)
+        return stagingBytes
+    }
+
+    /**
+     * The typed arms with no staging path: every live caller is a
+     * ByteBuffer (staged or direct), and a future heap Int/FloatBuffer
+     * caller must fail by name, not as the D11 segfault.
+     */
+    private inline fun <T> directOnly(buffer: java.nio.Buffer, block: () -> T): T {
+        require(buffer.isDirect) { "heap ${buffer::class.java.simpleName} would fault LWJGL (D11); pass a direct buffer" }
+        return block()
+    }
+
+    private const val STAGING_INITIAL_BYTES = 64 * 1024
 }

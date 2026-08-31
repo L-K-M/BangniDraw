@@ -51,6 +51,31 @@ gallery copies remain.
 `scripts/release.sh X.Y.Z --push` — never hand-edit `versionCode`, never
 create a `v*` tag by hand. CI publishes the APK to GitHub Releases.
 
+## Desktop (macOS, Linux)
+
+The same repo builds a desktop app (`DESKTOP.md` is the design study):
+
+```sh
+./gradlew :desktop:run              # needs a display
+./gradlew :desktop:test
+```
+
+Linux uses the system GLES (Mesa or the vendor driver's `libEGL`/
+`libGLESv2`); nothing extra to install. macOS has no native GLES — the
+context comes from ANGLE's Metal backend. Place ANGLE's
+`libEGL.dylib`/`libGLESv2.dylib` next to the jar Gradle runs (or put that
+directory on `java.library.path`, or `DYLD_LIBRARY_PATH`) before
+`:desktop:run`; Chromium installs and `gdx-angle-natives` are known-good
+sources. Startup logs the GL version and renderer on stderr — a missing
+ES 3.0 context exits with a message, not a crash.
+
+The desktop shell is v1-minimal: canvas, brush picker, color, undo/redo,
+Save PNG (to `~/Pictures/BangniDraw`), mouse input with synthetic
+pressure. Pens with real pressure are Phase 3 (per-OS native input shims,
+see DESKTOP.md). **Mixbox attribution carries over**: pigment mixing is
+Mixbox © Secret Weapons, CC BY-NC 4.0 — non-commercial; the About row in
+the app says so, and `-Pbangnidraw.mixbox=false` strips it here too.
+
 ## License
 
 [Unlicense](LICENSE) — public domain, for everything written here.

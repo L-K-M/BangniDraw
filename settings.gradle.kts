@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "BangniDraw"
 include(":app")
 include(":engine-core")
+include(":engine-gl")

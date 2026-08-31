@@ -52,7 +52,16 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   WITHOUT a version; a versioned alias fails with "already on the classpath".
   The KMP library plugin registers no Android unit tests: the module's
   tests run as `:engine-core:desktopTest` only, which is why CI appends it
-  to the test/lint/assemble line.
+  to the test/lint/assemble line. `:engine-gl` follows the same shape and
+  adds the GLES30 platform facade: all GL calls go through
+  `engine.gl.platform.GLES30` (expect object; Android actual delegates to
+  `android.opengl.GLES30`, desktop actual to LWJGL with the array/size
+  adapters), logging through `platform.GlLog`, assets through
+  `platform.EngineAssets` (`AssetManagerEngineAssets` / `ClasspathEngineAssets`).
+  The mixbox/nomixbox variant source sets (and the single copy of the
+  vendored `mixbox.glsl`/`mixbox_lut.png` in `engine-gl/src/mixbox/assets`)
+  live in `:engine-gl`; `:app` still packages those assets for Android from
+  that directory.
 - **Kotlin `internal` does not cross module boundaries.** Declarations in
   `:engine-core` that `:app` (or app tests) consume must be `public`; the
   ~135 declarations widened in the M1 extraction are now that module's API

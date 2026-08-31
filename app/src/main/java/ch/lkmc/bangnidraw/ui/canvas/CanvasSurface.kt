@@ -19,6 +19,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.getSystemService
 import androidx.core.view.ViewCompat
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.gl.platform.AssetManagerEngineAssets
 import ch.lkmc.bangnidraw.engine.core.DeviceMemory
 import ch.lkmc.bangnidraw.engine.core.EngineUpdate
 import ch.lkmc.bangnidraw.engine.core.EngineUpdatePolicy
@@ -133,7 +134,7 @@ internal fun CanvasSurface(
                     surface = surface,
                     canvas = canvas,
                     budget = budget,
-                    assets = ctx.assets,
+                    assets = AssetManagerEngineAssets(ctx.assets),
                     debugBuild = debugBuild,
                     onTile = onTile,
                     revisions = revisions,

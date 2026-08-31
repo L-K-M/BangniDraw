@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
-import android.content.res.AssetManager
+import ch.lkmc.bangnidraw.engine.gl.platform.AssetManagerEngineAssets
+import ch.lkmc.bangnidraw.engine.gl.platform.EngineAssets
 import android.os.Handler
 import android.os.Looper
 import android.view.SurfaceHolder
@@ -84,7 +85,7 @@ class EngineSession(
     surface: SurfaceView,
     canvas: CanvasSize,
     budget: MemoryBudget.Result,
-    assets: AssetManager,
+    assets: EngineAssets,
     private val debugBuild: Boolean,
     /**
      * §10.1's consumer, called on the GL thread once per merged tile; the

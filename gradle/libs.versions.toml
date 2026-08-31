@@ -19,6 +19,8 @@ kotlinxCoroutines = "1.11.0"
 # Drawing stack (docs/plan/03-canvas-engine.md, 07-input-and-stylus.md).
 graphicsCore = "1.0.4"
 inputMotionPrediction = "1.0.0"
+# Desktop GL stack (DESKTOP.md): LWJGL 3.4 bindings for the desktop target.
+lwjgl = "3.4.3"
 # Mixbox 2.0 — CC BY-NC 4.0, see ADR 0003 and third-party/mixbox/.
 mixbox = "2.0.0"
 junit = "4.13.2"
@@ -51,6 +53,9 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 
 mixbox = { group = "com.scrtwpns", name = "mixbox", version.ref = "mixbox" }
+
+lwjgl = { group = "org.lwjgl", name = "lwjgl" }
+lwjgl-opengles = { group = "org.lwjgl", name = "lwjgl-opengles" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test-junit", version.ref = "kotlin" }

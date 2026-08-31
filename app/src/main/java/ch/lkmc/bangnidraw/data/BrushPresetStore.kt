@@ -26,12 +26,21 @@ import kotlinx.serialization.json.put
  * The store takes a plain [File] and an asset abstraction. Its decisions and
  * disk behavior therefore run in the JVM suite without a Context.
  */
+/**
+ * The public entry points are `@Synchronized`, mirroring `PaletteStore`: the
+ * `@Singleton` instance is shared, and `CanvasViewModel` persists a preset
+ * from a fresh, untracked `appScope.launch(Dispatchers.IO)` per slider
+ * release, so two saves of the same preset genuinely overlap. `AtomicFiles`
+ * guarantees each write lands whole; only serializing the callers stops one
+ * of them being lost while its caller is told it succeeded.
+ */
 class BrushPresetStore internal constructor(
     private val root: File,
     private val assets: BrushPresetAssets,
 ) {
 
     /** Built-ins in asset order, replaced or extended by valid user files. */
+    @Synchronized
     fun load(): List<BrushPreset> {
         AtomicFiles.sweepTmp(root)
 
@@ -42,6 +51,7 @@ class BrushPresetStore internal constructor(
     }
 
     /** Writes a user preset or built-in override; asset bytes are never touched. */
+    @Synchronized
     @Throws(IOException::class)
     fun save(preset: BrushPreset) {
         require(isSafePathSegment(preset.id)) {
@@ -53,6 +63,7 @@ class BrushPresetStore internal constructor(
     }
 
     /** Deletes only the user file, revealing the immutable built-in again. */
+    @Synchronized
     fun reset(id: String): Boolean {
         if (!isSafePathSegment(id)) return false
 

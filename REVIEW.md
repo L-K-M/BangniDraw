@@ -2593,3 +2593,30 @@ touchscreen hover too, not only a pen.
   content hash, not mtime, so an mtime-only change is correctly a no-op — the
   check that actually proves the wiring is a content edit, which is what was
   run above.
+
+- **R-233 ✅ (applied) round 6: the Overlay ownership pin matched by exact
+  equality.** Real, and grounded in this file's own history rather than in a
+  hypothetical: the drift this PR fixed included 逐渐叠加 for the brush
+  build-up mode — a *compound* that claims 叠加 as firmly as a bare one would,
+  and that `it == OVERLAY` would have waved through. Now containment.
+  Two refinements the suggestion did not carry, both needed to keep it
+  correct rather than merely stricter:
+
+  Help bodies are excluded from the scan. Naming the blend mode in prose is
+  not a claim on the term — the two pins directly below *require* every help
+  paragraph to use its control's own label — so scanning prose here would
+  have put this test in conflict with them the first time the layer help
+  explained blend modes.
+
+  And the expected set names two keys, not one. `settings_latency_overlay` is
+  延迟叠加层: 叠加层 is "overlay layer" in the compositing sense, the debug HUD,
+  mirroring English's own reuse of the word in "Latency overlay". The round
+  said to report any second match as a genuine collision rather than weaken
+  the assertion; checked, and it is not one — it names itself, not the blend
+  mode. Listing it beats filtering it out, because a *third* claimant still
+  fails here and has to be argued for.
+
+  Mutation-checked three ways. A new label 正常叠加 fails the Overlay test and
+  only it. The same label under the old equality matcher passes — which is
+  the coverage this round adds, demonstrated rather than asserted. And a help
+  body containing 叠加 stays green, so the exclusion works.

@@ -47,12 +47,29 @@ class ZhHansTerminologyContractTest {
         // also been the label for the unrelated brush build-up mode, so a
         // user who learned it in the Layer panel met it in Brush settings
         // meaning whether repeated dabs keep darkening.
-        val owners = labels().filterValues { it == OVERLAY }.keys
+        // Containment, not equality. The drift this pin was written for
+        // included 逐渐叠加 for the brush build-up mode, a compound that
+        // claims the term as firmly as a bare 叠加 and that equality would
+        // have waved through — so the check has to be the broader one, and
+        // the two labels that may legitimately carry the term are named.
+        //
+        // Help bodies are excluded because naming the blend mode in prose is
+        // not a claim on it: the two pins below *require* help text to use
+        // each control's own label, so scanning prose here would fight them.
+        val claimants = labels()
+            .filterKeys { !it.startsWith(HELP_PREFIX) }
+            .filterValues { OVERLAY in it }
+            .keys
 
+        // settings_latency_overlay is 延迟叠加层. 叠加层 is "overlay layer" in
+        // the compositing sense — the debug HUD — and mirrors English reusing
+        // its own word in "Latency overlay"; it names itself, not the blend
+        // mode. Listed rather than filtered out, so a third claimant fails
+        // here and has to be argued for.
         assertEquals(
-            setOf("blend_overlay"),
-            owners,
-            "$OVERLAY is the Overlay blend mode's term; a second label claiming it is the collision",
+            setOf("blend_overlay", "settings_latency_overlay"),
+            claimants,
+            "$OVERLAY is the Overlay blend mode's term; a new label claiming it is the collision",
         )
     }
 
@@ -116,6 +133,7 @@ class ZhHansTerminologyContractTest {
         const val STYLUS = "触控笔"
         const val RETIRED_STYLUS = "手写笔"
         const val OVERLAY = "叠加"
+        const val HELP_PREFIX = "help_"
 
         /**
          * label key to the help body that heads a paragraph with that label.

@@ -61,7 +61,11 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   The mixbox/nomixbox variant source sets (and the single copy of the
   vendored `mixbox.glsl`/`mixbox_lut.png` in `engine-gl/src/mixbox/assets`)
   live in `:engine-gl`; `:app` still packages those assets for Android from
-  that directory.
+  that directory. The `input` package (CanvasTouchHandler, StylusState,
+  PalmRejection, PointerSample) also lives in `:engine-core` — platform
+  events stop at `input/AndroidCanvasInput` (:app), the MotionEvent adapter;
+  the handler's platform services arrive as injected seams
+  (`GestureDeadlineScheduler`, `FrameScheduler`, `StrokePredictor`).
 - **Kotlin `internal` does not cross module boundaries.** Declarations in
   `:engine-core` that `:app` (or app tests) consume must be `public`; the
   ~135 declarations widened in the M1 extraction are now that module's API

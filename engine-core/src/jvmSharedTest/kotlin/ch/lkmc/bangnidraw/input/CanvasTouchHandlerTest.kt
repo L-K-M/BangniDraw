@@ -1,7 +1,5 @@
 package ch.lkmc.bangnidraw.input
 
-import android.os.Build
-import android.view.MotionEvent
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.FitTransform
 import ch.lkmc.bangnidraw.engine.core.GestureArbiter
@@ -237,11 +235,11 @@ class CanvasTouchHandlerTest {
         host.events.clear()
 
         assertTrue(
-            h.handlePlatformCancellation(
+            h.onPlatformCanceledUp(
                 pointerId = 7,
-                action = MotionEvent.ACTION_UP,
-                flags = MotionEvent.FLAG_CANCELED,
-                apiLevel = Build.VERSION_CODES.TIRAMISU,
+                kind = PointerUpKind.UP,
+                flagged = true,
+                apiLevel = 33,
                 timeNs = ms(1),
             ),
         )
@@ -259,11 +257,11 @@ class CanvasTouchHandlerTest {
         host.events.clear()
 
         assertFalse(
-            h.handlePlatformCancellation(
+            h.onPlatformCanceledUp(
                 pointerId = 9,
-                action = MotionEvent.ACTION_POINTER_UP,
-                flags = MotionEvent.FLAG_CANCELED,
-                apiLevel = Build.VERSION_CODES.TIRAMISU,
+                kind = PointerUpKind.POINTER_UP,
+                flagged = true,
+                apiLevel = 33,
                 timeNs = ms(2),
             ),
         )
@@ -282,11 +280,11 @@ class CanvasTouchHandlerTest {
         host.events.clear()
 
         assertTrue(
-            h.handlePlatformCancellation(
+            h.onPlatformCanceledUp(
                 pointerId = 7,
-                action = MotionEvent.ACTION_POINTER_UP,
-                flags = MotionEvent.FLAG_CANCELED,
-                apiLevel = Build.VERSION_CODES.TIRAMISU,
+                kind = PointerUpKind.POINTER_UP,
+                flagged = true,
+                apiLevel = 33,
                 timeNs = ms(2),
             ),
         )
@@ -304,11 +302,11 @@ class CanvasTouchHandlerTest {
         host.events.clear()
 
         assertTrue(
-            h.handlePlatformCancellation(
+            h.onPlatformCanceledUp(
                 pointerId = 9,
-                action = MotionEvent.ACTION_UP,
-                flags = MotionEvent.FLAG_CANCELED,
-                apiLevel = Build.VERSION_CODES.TIRAMISU,
+                kind = PointerUpKind.UP,
+                flagged = true,
+                apiLevel = 33,
                 timeNs = ms(3),
             ),
         )
@@ -324,11 +322,11 @@ class CanvasTouchHandlerTest {
         host.events.clear()
 
         assertFalse(
-            h.handlePlatformCancellation(
+            h.onPlatformCanceledUp(
                 pointerId = 7,
-                action = MotionEvent.ACTION_MOVE,
-                flags = MotionEvent.FLAG_CANCELED,
-                apiLevel = Build.VERSION_CODES.TIRAMISU,
+                kind = PointerUpKind.OTHER,
+                flagged = true,
+                apiLevel = 33,
                 timeNs = ms(1),
             ),
         )
@@ -345,11 +343,11 @@ class CanvasTouchHandlerTest {
         host.events.clear()
 
         assertFalse(
-            h.handlePlatformCancellation(
+            h.onPlatformCanceledUp(
                 pointerId = 7,
-                action = MotionEvent.ACTION_UP,
-                flags = MotionEvent.FLAG_CANCELED,
-                apiLevel = Build.VERSION_CODES.S,
+                kind = PointerUpKind.UP,
+                flagged = true,
+                apiLevel = 31,
                 timeNs = ms(1),
             ),
         )

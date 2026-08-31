@@ -7,15 +7,64 @@ plugins {
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    `application`
 }
 
 kotlin {
     jvmToolchain(17)
 }
 
-application {
-    mainClass.set("ch.lkmc.bangnidraw.desktop.MainKt")
+// The desktop packages' version. jpackage/deb refuse Gradle's default
+// "unspecified"; aligned with the app's versionName by hand at release time
+// until the release script learns the desktop formats (M5+).
+version = "1.0.0"
+
+compose.desktop {
+    application {
+        mainClass = "ch.lkmc.bangnidraw.desktop.MainKt"
+        // Dmg (macOS) and Deb/Rpm (Linux). NO cross-compilation: each
+        // format's task builds only on its own OS (DESKTOP.md
+        // "Packaging and distribution"), so CI runs per-OS jobs and macOS
+        // packaging stays manual/dispatched. `TargetFormat.AppImage` is
+        // deliberately absent: it is jpackage's unpacked directory, not a
+        // real AppImage — do not label it as one.
+        nativeDistributions {
+            targetFormats(
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Dmg,
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb,
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Rpm,
+            )
+            packageName = "BangniDraw"
+            packageVersion = version.toString()
+            // ASCII only: jpackage writes desktop-entry metadata with the
+            // system charset, and a C locale turns non-ASCII into "Input
+            // length = 1" failures. The localized name lives in the app UI.
+            // Variant-neutral: the nomixbox CI build stamps the same
+            // metadata, so the description must not name Mixbox.
+            description = "BangniDraw - layered raster painting"
+            vendor = "BangniDraw"
+
+            // macOS needs ANGLE's dylibs beside the app at runtime (see the
+            // README's desktop section). Only the macOS folders exist: Linux
+            // uses the system GLES natively and its fallback folders are
+            // recreated when such a thing ever lands. The checked-in
+            // placeholders document the layout and NO binaries are committed;
+            // appResourcesRootDir packages the folders verbatim, so the
+            // placeholder is removed when real dylibs are staged.
+            appResourcesRootDir = project.file("packaging/angle")
+
+            // Windows is out of scope for the desktop port (DESKTOP.md covers
+            // macOS and Linux); if it returns, restore a windows { menuGroup … }
+            // block alongside an Msi/Exe target format.
+            macOS {
+                bundleID = "ch.lkmc.bangnidraw.desktop"
+            }
+            linux {
+                // Debian policy: package names are lowercase — mixed case
+                // builds green but dpkg refuses the install.
+                packageName = "bangnidraw"
+            }
+        }
+    }
 }
 
 dependencies {

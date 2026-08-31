@@ -75,3 +75,81 @@ jobs:
       # The stripped source set and its R8 graph differ from the default APK.
       - name: Assemble release without Mixbox
         run: ./gradlew -Pbangnidraw.mixbox=false assembleRelease
+
+  # The desktop shell (DESKTOP.md Phase 1/2): JVM suites plus the jpackage
+  # distributable. Ubuntu only — there is no cross-compilation, so macOS
+  # packaging lives in the dispatched job below.
+  desktop-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # Supply-chain gate: reject a tampered gradle-wrapper.jar.
+      - uses: gradle/actions/wrapper-validation@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Test and build the desktop distributable
+        # packageDeb exercises the deb metadata (version/vendor/charset)
+        # that createDistributable never touches; rpmbuild is absent on
+        # ubuntu runners, so Rpm stays a manual format. mixbox=false here is
+        # deliberate coverage: this job pins the stripped desktop variant
+        # (D12's gap); the default/Mixbox variant is only built when the
+        # dispatched macOS job runs, not on every commit.
+        run: >-
+          ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
+          :desktop:test :desktop:createDistributable :desktop:packageDeb
+          -Pbangnidraw.mixbox=false
+
+      - name: Upload desktop distributable
+        uses: actions/upload-artifact@v7
+        with:
+          name: bangnidraw-desktop-linux-nomixbox-${{ github.sha }}
+          path: desktop/build/compose/binaries/main/**
+          if-no-files-found: error
+          retention-days: 14
+
+  # macOS build: Dmg packaging and the ANGLE-on-Metal context can only be
+  # produced on macOS hardware, and macOS minutes cost 10x — dispatch only.
+  desktop-macos:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: gradle/actions/wrapper-validation@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Test and build the macOS distributable
+        # packageDistributionForCurrentOS = the real Dmg on macOS. Built
+        # WITHOUT -Pbangnidraw.mixbox=false deliberately: the default,
+        # Mixbox-enabled variant is the one macOS users get, and the Linux
+        # job already covers the stripped one.
+        run: >-
+          ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
+          :desktop:test :desktop:createDistributable
+          :desktop:packageDistributionForCurrentOS
+
+      - name: Upload macOS distributable
+        # Built WITHOUT the uncommitted ANGLE dylibs — a build/smoke-test
+        # artifact, not a shippable image: stage the dylibs into
+        # desktop/packaging/angle/darwin-<arch>/ before any release packaging.
+        uses: actions/upload-artifact@v7
+        with:
+          name: bangnidraw-desktop-macos-noangle-${{ github.sha }}
+          path: desktop/build/compose/binaries/main/**
+          if-no-files-found: error
+          retention-days: 14

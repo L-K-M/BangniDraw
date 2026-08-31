@@ -77,6 +77,13 @@ class ReleaseBuildCoverageContractTest {
             |          ./gradlew assembleRelease
             |      - name: Plain
             |        run: ./gradlew -Pbangnidraw.mixbox=false assembleRelease
+            |      - name: Stripped literal
+            |        run: |-
+            |          echo "bangnidraw.mixbox=false is not a build"
+            |          ./gradlew assembleDebug
+            |      - run: ./gradlew lintDebug
+            |        env:
+            |          FOO: bar
         """.trimMargin()
 
         assertEquals(
@@ -84,6 +91,12 @@ class ReleaseBuildCoverageContractTest {
                 "./gradlew testDebugUnitTest lintDebug :engine-core:desktopTest",
                 "./gradlew assembleRelease",
                 "./gradlew -Pbangnidraw.mixbox=false assembleRelease",
+                // `|-` is literal like `|`: its lines stay separate, so the
+                // echo above cannot lend its text to the gradlew line below.
+                "./gradlew assembleDebug",
+                // The compact `- run:` form, with a sibling key that must not
+                // be absorbed into the command.
+                "./gradlew lintDebug",
             ),
             gradleInvocations(workflow),
         )
@@ -124,14 +137,27 @@ class ReleaseBuildCoverageContractTest {
         while (index < lines.size) {
             val line = lines[index]
             index++
-            val trimmed = line.trim()
+            // `- run:` is the compact list form, and the commonest step
+            // style in real workflows. Its key sits two columns right of the
+            // dash, so the block scan has to measure from there or a sibling
+            // key of the same mapping would be swallowed into the command.
+            val compact = line.trimStart().startsWith(LIST_ITEM)
+            val trimmed = line.trim().removePrefix(LIST_ITEM)
             if (!trimmed.startsWith(RUN_KEY)) continue
 
-            val keyIndent = line.indexOfFirst { !it.isWhitespace() }
+            val keyIndent = line.indexOfFirst { !it.isWhitespace() } +
+                if (compact) LIST_ITEM.length else 0
             val head = trimmed.removePrefix(RUN_KEY).trim()
-            val folded = head != LITERAL_BLOCK
+            // Chomping indicators are part of the header, not the style: `|`,
+            // `|-` and `|+` are all literal — separate script lines — while
+            // `>`, `>-` and `>+` all fold into one command. Comparing the
+            // header for equality with "|" read `|-`, the commonest literal
+            // spelling in Actions, as folded, and joining a script's lines
+            // lets one line's text satisfy a check about another's.
+            val blockStyle = head.firstOrNull()?.takeIf { it in BLOCK_STYLES }
+            val folded = blockStyle != LITERAL
             val body = mutableListOf<String>()
-            if (head.isNotEmpty() && head !in BLOCK_MARKERS) body += head
+            if (head.isNotEmpty() && blockStyle == null) body += head
 
             while (index < lines.size) {
                 val next = lines[index]
@@ -157,7 +183,8 @@ class ReleaseBuildCoverageContractTest {
         const val MIXBOX_OFF = "bangnidraw.mixbox=false"
         const val RUN_KEY = "run:"
         const val GRADLEW = "./gradlew"
-        const val LITERAL_BLOCK = "|"
-        val BLOCK_MARKERS = setOf("|", "|-", ">", ">-")
+        const val LIST_ITEM = "- "
+        const val LITERAL = '|'
+        const val BLOCK_STYLES = "|>"
     }
 }

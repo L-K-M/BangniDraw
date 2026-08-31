@@ -75,11 +75,18 @@ android {
 
     sourceSets {
         getByName("main") {
-            kotlin.srcDir(if (mixboxEnabled) "src/mixbox/java" else "src/nomixbox/java")
-            if (mixboxEnabled) assets.srcDir("src/mixbox/assets")
-        }
-        if (mixboxEnabled) {
-            getByName("test").kotlin.srcDir("src/testMixbox/java")
+            // The engine-gl variant code and the licensed assets moved to
+            // :engine-gl (DESKTOP.md M2); the app still packages the assets
+            // from their single copy there. Gradle tolerates a missing
+            // srcDir silently, so guard it: a relocated directory must fail
+            // the build, not the GL runtime.
+            if (mixboxEnabled) {
+                val mixboxAssets = file("../engine-gl/src/mixbox/assets")
+                require(mixboxAssets.isDirectory) {
+                    ":engine-gl mixbox assets not found at $mixboxAssets"
+                }
+                assets.srcDir(mixboxAssets)
+            }
         }
     }
 }
@@ -125,8 +132,11 @@ dependencies {
     // resolution before roadmap step 2 depends on them.
     implementation(libs.androidx.graphics.core)
     implementation(libs.androidx.input.motionprediction)
-    // CC BY-NC 4.0 — ADR 0003. The app is non-commercial as distributed.
-    if (mixboxEnabled) implementation(libs.mixbox)
+
+    // The GLES 3.0 engine (DESKTOP.md M2): gl code, the GLES30 facade, and
+    // the mixbox/nomixbox variant now live in :engine-gl. The Mixbox java
+    // library dependency moved there with them.
+    implementation(project(":engine-gl"))
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)

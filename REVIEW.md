@@ -13,6 +13,18 @@ _Nothing open._
 
 ## Declined
 
+- **R-032 ⏸️ Contract-test root-walk consolidation (PR #172, round 1).**
+  Seven engine-gl suites still carry private `repositoryRoot()` copies
+  alongside the new `ContractTestSources`. Real cleanup, but the
+  duplication predates the PR (the :app twin has nine users) and folding
+  them in is churn on a PR that already moves 58 files; follow-up instead.
+- **R-033 ⏸️ (refuted) PR #172 "LWJGL aliases have no version — build
+  breaks" and "no LWJGL natives declared".** Both wrong on the code: the
+  catalog aliases were unused (coordinates are built in engine-gl's build
+  from the single `lwjgl` version pin, classifiers included — the loop the
+  review could not see), and `:engine-gl:desktopTest` resolving the full
+  runtime classpath (natives included) was green in CI before the review
+  ran. The dead aliases were still removed as tidying.
 - **R-030 ⏸️ `explicitApi()` on `:engine-core` (PR #171, round 1).** The
   concern (API grows by omission) is real, but enabling it rewrites every
   public block-bodied declaration across the 15.7k moved lines — exactly
@@ -2447,3 +2459,13 @@ touchscreen hover too, not only a pen.
   correctness invariants; here the three-line guard's contract is
   readable at a glance and the surrogate behavior it protects is already
   pinned by three tests through the public API.
+
+- **R-034 ⏸️ (declined) PR #172 round 4: strip string literals before the
+  `//` comment split in PlatformImportBanContractTest.** Declined: the
+  suite is a canary for accidental imports and fully-qualified calls —
+  both shapes that occurred in this codebase — not a Kotlin lexer. A
+  string literal containing `//` *and* a later qualified android
+  reference on the same line is contrived, and the reviewer's own fix
+  trades the miss for a different one (`Class.forName("android.x")`
+  stops being caught). The desktop compiler is the hard gate this test
+  only front-runs.

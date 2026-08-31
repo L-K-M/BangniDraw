@@ -101,6 +101,6 @@ class CanvasResizeOwnershipContractTest {
         const val SCREEN_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasScreen.kt"
         const val RENDERER_PATH =
-            "app/src/main/java/ch/lkmc/bangnidraw/engine/gl/CanvasRenderer.kt"
+            "engine-gl/src/jvmShared/kotlin/ch/lkmc/bangnidraw/engine/gl/CanvasRenderer.kt"
     }
 }

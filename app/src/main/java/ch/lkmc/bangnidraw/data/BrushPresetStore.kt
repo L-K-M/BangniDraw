@@ -25,8 +25,7 @@ import kotlinx.serialization.json.put
  *
  * The store takes a plain [File] and an asset abstraction. Its decisions and
  * disk behavior therefore run in the JVM suite without a Context.
- */
-/**
+ *
  * The public entry points are `@Synchronized`, mirroring `PaletteStore`: the
  * `@Singleton` instance is shared, and `CanvasViewModel` persists a preset
  * from a fresh, untracked `appScope.launch(Dispatchers.IO)` per slider

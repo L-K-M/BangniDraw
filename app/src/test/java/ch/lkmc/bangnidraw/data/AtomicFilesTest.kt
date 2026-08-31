@@ -148,23 +148,41 @@ class AtomicFilesTest {
         return name
     }
 
+    /**
+     * The `inFlight` guard covers `AtomicFiles`' own sweep; anything *else*
+     * that removes the file still has to surface as a failure rather than a
+     * silent success.
+     *
+     * Staging it needs the platform to allow deleting a file that is open for
+     * writing, which POSIX does and Windows does not — there `delete()`
+     * returns false rather than throwing, so the scenario simply does not
+     * occur and asserting on it would fail correct code. The staging reports
+     * whether it took effect and the assertions follow it.
+     *
+     * The same asymmetry makes `a sweep leaves a live writer's temp file
+     * alone` weaker on Windows than here: an open file cannot be deleted
+     * there, so that test would pass even with the guard removed. The guard is
+     * genuinely exercised on POSIX, which is where CI runs.
+     */
     @Test
     fun `a writer whose temp file is destroyed fails rather than reporting success`() {
-        // The guard covers AtomicFiles' own sweep; anything else that removes
-        // the file still has to surface as a failure, never a silent success.
         val target = File(dir, "project.json")
         val latch = CountDownLatch(1)
+        var staged = false
 
         val thrown = runCatching {
             AtomicFiles.write(target) { out ->
                 out.write("payload".toByteArray(Charsets.UTF_8))
-                dir.listFiles().orEmpty().filter { it.name.endsWith(AtomicFiles.TMP_SUFFIX) }
-                    .forEach { it.delete() }
+                staged = dir.listFiles().orEmpty()
+                    .filter { it.name.endsWith(AtomicFiles.TMP_SUFFIX) }
+                    .all { it.delete() }
                 latch.countDown()
             }
         }.exceptionOrNull()
 
         assertTrue(latch.await(5, TimeUnit.SECONDS))
+        if (!staged) return
+
         assertTrue(thrown != null, "a lost temp file must not be reported as a successful save")
         assertFalse(target.exists())
     }

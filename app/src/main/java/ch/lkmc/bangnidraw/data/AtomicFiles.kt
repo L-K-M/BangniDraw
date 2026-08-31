@@ -61,13 +61,27 @@ internal object AtomicFiles {
      * The check is sound despite being lock-free: a path is registered before
      * its file is created, so any temp file a sweep can list is already in
      * this set if a writer still owns it.
+     *
+     * Matched on the raw path, which assumes both sides spell the directory
+     * the same way — true because every caller derives the file it writes and
+     * the directory it sweeps from one `File` root (`ProjectStore.checkpoint`
+     * sweeps `dir` and writes `File(dir, …)`). Deliberately not
+     * `canonicalPath`: that is a syscall per candidate on a sweep that can
+     * cover a layer directory full of tiles, and it throws where this must
+     * not. A caller that ever reaches one directory by two spellings — the
+     * `/data/user/0` and `/data/data` aliases being the Android pair — would
+     * need to canonicalize instead, and the cost of the miss is a live
+     * writer's rename failing, not corruption.
      */
     private val inFlight: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     /**
-     * Writes [bytes] to [target] atomically: `<name>.tmp` in the same
-     * directory, fsync, rename. On any failure the tmp file is deleted and
-     * the previous [target] — if one existed — is untouched.
+     * Writes [bytes] to [target] atomically: `<name>.<token>.tmp` in the
+     * same directory, fsync, rename. On any failure the tmp file is deleted
+     * and the previous [target] — if one existed — is untouched.
+     *
+     * The token is part of the contract, not decoration: it is what gives
+     * two concurrent writers of one target separate inodes. See [nextToken].
      *
      * fsync before rename, because the rename is the commit point: ext4 and
      * f2fs may otherwise commit the rename before the data blocks, and a

@@ -85,6 +85,15 @@ class ReleaseBuildCoverageContractTest {
             |        env:
             |          FOO: bar
             |      -   run: ./gradlew testDebugUnitTest
+            |      - name: Folded across a blank line
+            |        run: >-
+            |          ./gradlew -Pbangnidraw.mixbox=false assembleDebug
+            |
+            |          ./gradlew assembleRelease
+            |      - name: Folded across a more-indented line
+            |        run: >-
+            |          ./gradlew -Pbangnidraw.mixbox=false lintDebug
+            |            ./gradlew assembleRelease
         """.trimMargin()
 
         assertEquals(
@@ -100,6 +109,17 @@ class ReleaseBuildCoverageContractTest {
                 "./gradlew lintDebug",
                 // An aligned dash: YAML allows any spacing after it.
                 "./gradlew testDebugUnitTest",
+                // A blank line inside a folded scalar folds to a real
+                // newline, so these are two commands to the shell. Joined,
+                // the first one's -P flag would satisfy a pin about the
+                // second — a stripped-release build standing in for the
+                // shipped one, silently.
+                "./gradlew -Pbangnidraw.mixbox=false assembleDebug",
+                "./gradlew assembleRelease",
+                // A more-indented line keeps its break for the same reason,
+                // and is its own command.
+                "./gradlew -Pbangnidraw.mixbox=false lintDebug",
+                "./gradlew assembleRelease",
             ),
             gradleInvocations(workflow),
         )
@@ -165,22 +185,53 @@ class ReleaseBuildCoverageContractTest {
             val blockStyle = head.firstOrNull()?.takeIf { it in BLOCK_STYLES }
             val folded = blockStyle != LITERAL
             val body = mutableListOf<String>()
+            var baseIndent = NO_INDENT
             if (head.isNotEmpty() && blockStyle == null) body += head
 
             while (index < lines.size) {
                 val next = lines[index]
+                // Folding is not "join the whole block". A blank line folds to
+                // a real newline, and a more-indented line keeps its break, so
+                // either one is a command separator to the shell. Joining
+                // across one is a silent false pass rather than a loud failure:
+                // the `-P` flag of the first command would satisfy a pin about
+                // the second, which is exactly the invisible gap this test
+                // exists to close.
                 if (next.isBlank()) {
                     index++
+                    if (folded) commands.foldInto(body)
                     continue
                 }
-                if (next.indexOfFirst { !it.isWhitespace() } <= keyIndent) break
-                body += next.trim()
+                val indent = next.indexOfFirst { !it.isWhitespace() }
+                // A block scalar's indentation is fixed by its first content
+                // line, so less than that ends the block just as a sibling key
+                // at the run: column does.
+                if (indent <= keyIndent) break
+                if (baseIndent == NO_INDENT) baseIndent = indent
+                if (indent < baseIndent) break
                 index++
+                if (folded && indent > baseIndent) {
+                    commands.foldInto(body)
+                    commands += next.trim()
+                    continue
+                }
+                body += next.trim()
             }
-            if (folded) commands += body.joinToString(" ") else commands += body
+            if (folded) commands.foldInto(body) else commands += body
         }
 
         return commands.filter { it.startsWith(GRADLEW) }
+    }
+
+    /**
+     * Ends a folded run: everything accumulated since the last break is one
+     * command. A no-op on an empty body, so a leading blank line or a block
+     * that ends on one does not emit a phantom command.
+     */
+    private fun MutableList<String>.foldInto(body: MutableList<String>) {
+        if (body.isEmpty()) return
+        this += body.joinToString(" ")
+        body.clear()
     }
 
     private companion object {
@@ -193,6 +244,7 @@ class ReleaseBuildCoverageContractTest {
         const val GRADLEW = "./gradlew"
         const val DASH = "-"
         const val LITERAL = '|'
+        const val NO_INDENT = -1
         const val BLOCK_STYLES = "|>"
     }
 }

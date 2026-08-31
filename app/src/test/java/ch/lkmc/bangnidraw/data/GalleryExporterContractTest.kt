@@ -202,6 +202,25 @@ class GalleryExporterContractTest {
             "sync's three cross-process paths — probe, rewrite, insert — must " +
                 "each contain a dead provider",
         )
+        // The probe needs the commoner fault too. It sits outside both
+        // writes' try blocks, and probeRow's own catch is SecurityException
+        // only, so without this an SQLiteException from the query reaches
+        // viewModelScope — the exact crash the RemoteException clause was
+        // added to prevent, through the commoner door.
+        assertTrue(
+            "catch (e: RuntimeException)" in sync.substringBefore("GallerySyncDecision.decide"),
+            "the probe must contain a faulting provider, not only a dead one",
+        )
+
+        // withdraw's containment is pinned too: it was extended in the same
+        // change, and a "simplification" that dropped it would otherwise pass.
+        val withdraw = section("fun withdraw(", "private fun rewrite(")
+        assertEquals(
+            2,
+            REMOTE_CATCH.findAll(withdraw).count(),
+            "withdraw's two cross-process paths — probe and delete — must " +
+                "each contain a dead provider",
+        )
     }
 
     /** Whitespace-normalized, and loud when either delimiter moves. */

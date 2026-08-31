@@ -133,6 +133,14 @@ class GalleryExporter @Inject constructor(
             } catch (e: RemoteException) {
                 Log.w(TAG, "gallery probe failed; the provider died; will retry", e)
                 return null
+            } catch (e: RuntimeException) {
+                // The commoner OEM fault, and the one `withdraw`'s probe
+                // already contained while this one did not: an SQLiteException
+                // or a closed connection pool is retryable, not a crash from a
+                // background sweep. Null rather than `threw` for the same
+                // reason as above.
+                Log.w(TAG, "gallery probe failed; will retry", e)
+                return null
             }
             uriPresent = row.present
             isOwner = row.owned

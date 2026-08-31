@@ -2658,3 +2658,20 @@ touchscreen hover too, not only a pen.
   discard the row then and there. Worth the edit precisely because these are
   agent-facing instruction files, and a false rationale is the argument
   someone later uses to delete the thing it was defending.
+
+- **R-228 ✅ (applied) round 7, Major: the probe's containment caught the rare
+  fault and not the common one.** Correct, and it is the same half-fix shape
+  R-221 had just criticised in R-211, made one round later in the fix for it.
+  R-221 added `catch (e: RemoteException)` around `sync`'s `probeRow` call and
+  stopped there — but the probe sits outside both writes' `try` blocks and
+  `probeRow`'s own catch is `SecurityException` only, so an `SQLiteException`
+  or a closed connection pool still reached `viewModelScope`. `withdraw`'s
+  probe already carried the `RuntimeException` clause that `sync`'s lacked,
+  which is exactly the asymmetry that should have been checked when the
+  clause was written.
+- **R-229 ✅ (applied) round 7: `withdraw`'s containment had no pin.** R-221
+  pinned `sync`'s count of three and wrote "withdraw's pair gained the same
+  clause" without pinning it, so half this PR's containment work was
+  unguarded — and the pin's own stated purpose ("so the next cross-process
+  call added to sync has to be contained too") applied to one function only.
+  Both counts are pinned now, and both mutation-checked.

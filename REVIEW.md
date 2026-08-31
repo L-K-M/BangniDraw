@@ -2524,6 +2524,55 @@ touchscreen hover too, not only a pen.
   hypothetical. The attach-before-events contract is now stated at the
   setter.
 
+## PR #176 — orphan the dab instance buffer (2026-08-31)
+
+- **R-185 ⏸️ (declined) Round 1 minor: replace the contract test's
+  comment-stripping regex with a string-literal-aware, nesting-aware state
+  machine.** The observation is correct — `Regex("//[^\n]*|/\*.*?\*/")` does
+  treat `//` and `/*` inside a string literal as comment starts, and Kotlin's
+  block comments nest while the non-greedy pattern stops at the first `*/`.
+
+  Declined on reachability and on the cost of the cure, which is the same
+  ground R-034 already settled for the import-ban scanner ("the desktop
+  compiler is the hard gate this test only front-runs"):
+
+  1. `DabPass.kt` contains no string literals at all, let alone GLSL carrying
+     comment markers — the shaders live in `Shaders.kt`. The finding's own
+     premise is that such files "tend to accumulate GLSL source strings";
+     this one has not, and if it ever did, the needles here are
+     `GLES30.glBufferData(`/`glBufferSubData(` call sites, which a shader
+     string would not contain.
+  2. The suggested replacement is a ~25-line hand-rolled parser living in a
+     test, and the sketch given is not correct: a per-quote toggle
+     desynchronizes on an escaped `\"` (which ends a normal string early), on
+     a `'"'` character literal (which flips the state and swallows the code
+     after it), and on a raw string containing a lone `"` — the last being
+     exactly the construct a file "accumulating GLSL source strings" would
+     use. A subtly wrong parser guarding an unreachable case is worse than a
+     regex whose limits are known.
+
+     *(Corrected in round 3, which caught this rationale stating the wrong
+     mechanism. The earlier text claimed the toggle "toggles on the first of
+     the three quotes and back off on the second", implying raw-string content
+     is read as out-of-string. It is not: three toggles leave the state
+     **in**-string, and the closing three restore it, so a plain `"""…"""`
+     round-trips correctly. Simulated over `"""hello // world"""`, `"a\"b"`,
+     `'"'` and `"""a"b"""` before rewriting. The decline itself is unchanged
+     and still rests on grounds 1 and 3; only its second ground is now
+     accurate, which matters because the entry ends with a revisit trigger and
+     a future reader would otherwise act on a wrong model.)*
+  3. The sibling `DabPassDirtyContractTest` — same directory, same file under
+     test — already uses this identical regex. Changing one and not the other
+     would leave two stripping strategies for one source file; changing both
+     doubles a refactor this PR has no reason to carry.
+
+  The failure mode the finding actually describes is a loud one ("missing
+  marker" / "no longer calls SubData"), and the pathological silent case
+  needs a `/*` inside a literal *before* the pinned call sites in the same
+  file. Revisit if `DabPass` ever gains embedded shader text — at which point
+  the right fix is one shared, tested stripper for every `engine-gl` contract
+  test, not a private copy in each.
+
 ## PR #177 — harden five source-contract tests (2026-08-31)
 
 - **R-186 ✅ (applied) round 1: whitespace collapse does not survive the wrap
@@ -2579,5 +2628,7 @@ broke `LayerPanelHeaderContractTest`'s `"modifier = Modifier.weight(1f),"`,
 which depended on the trailing comma it removes. The `)` terminates the match
 on its own — and is what keeps it from also matching the yielding title's
 `Modifier.weight(1f, fill = false)` — so the needle dropped the comma. The
-constraint is now stated on `ContractTestSources`: **needles must not depend on
-a trailing comma.**
+constraint is now stated on `ContractTestSources`, generalized in round 2 to
+its real scope: **needles must not depend on anything the canonicalizer
+deletes** — a trailing comma or whitespace hugging a paren, in quoted text as
+much as in code.

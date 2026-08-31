@@ -149,11 +149,26 @@ dependencies {
  * `ZhHansTerminologyContractTest` reads the translated strings;
  * `PluralResourceContractTest` reads the English ones, and was exposed to the
  * same stale-task hole before this list existed.
+ *
+ * A path matching no file is not an error to Gradle: it fingerprints as empty
+ * and the task goes back to being silently UP-TO-DATE across the very edits
+ * this declaration exists to notice. Two things keep that from happening.
+ * The paths are relative to this module, so they travel with it — repo-root
+ * paths reached through `rootProject` would survive a module rename by
+ * covering nothing. And they are resolved here, eagerly, so anything else that
+ * unhooks one — a moved resource file, a typo — fails configuration by name
+ * instead.
  */
 val CONTRACT_INPUT_FILES = listOf(
-    "app/src/main/res/values-b+zh+Hans/strings.xml",
-    "app/src/main/res/values/strings.xml",
+    "src/main/res/values-b+zh+Hans/strings.xml",
+    "src/main/res/values/strings.xml",
 )
+
+val contractInputFiles = CONTRACT_INPUT_FILES.map { path ->
+    layout.projectDirectory.file(path).asFile.also {
+        require(it.isFile) { "contract test input is missing: $it" }
+    }
+}
 
 tasks.withType<Test>().configureEach {
     // The golden-stroke test regenerates its pinned file when this is set
@@ -178,7 +193,7 @@ tasks.withType<Test>().configureEach {
     // Extend this list rather than adding a second declaration when another
     // contract test starts reading a non-source repo file.
     inputs
-        .files(rootProject.layout.projectDirectory.files(CONTRACT_INPUT_FILES))
+        .files(contractInputFiles)
         .withPropertyName("contractInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }

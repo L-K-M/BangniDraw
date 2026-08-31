@@ -2569,3 +2569,27 @@ touchscreen hover too, not only a pen.
   `<string-array` stays out — no longer sits next to the regex it is about,
   and would be read as describing the wrong one. Each declaration now carries
   its own doc, and the open-tag one cross-references the same reason.
+
+- **R-228 ✅ (applied) round 5: the contract inputs were repo-root paths
+  resolved through `rootProject`, from inside the app module's own script.**
+  Real, and the failure mode is the one this block exists to prevent: a path
+  that matches no file is not an error to Gradle — it fingerprints as empty,
+  and the task quietly goes back to UP-TO-DATE across the edits the pin is
+  supposed to catch. Applied the suggested change (module-relative paths,
+  `layout.projectDirectory`), and went one step further, because the suggested
+  fix only covers the *module* being renamed: the paths are now resolved
+  eagerly behind a `require`, so a moved resource file or a typo — far likelier
+  than a module rename — fails configuration by name instead of silently
+  covering nothing. Mutation-checked both ways: restoring an `app/` prefix
+  fails with `.../app/app/src/main/res/values/strings.xml` (which also proves
+  the resolution really is module-relative now), and a `string.xml` typo fails
+  with that path. The invalidation guarantee itself was re-verified after the
+  change: `:app:testDebugUnitTest` twice → UP-TO-DATE, a content edit to the
+  translated strings → re-runs, reverting it → FROM-CACHE.
+
+  One note on the finding's suggested verification, recorded so a later round
+  does not read it as a failure: `touch`ing the strings file does **not**
+  re-run the task, and should not. Gradle fingerprints declared inputs by
+  content hash, not mtime, so an mtime-only change is correctly a no-op — the
+  check that actually proves the wiring is a content edit, which is what was
+  run above.

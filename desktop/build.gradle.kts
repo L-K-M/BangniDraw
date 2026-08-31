@@ -50,9 +50,6 @@ compose.desktop {
             // placeholder is removed when real dylibs are staged.
             appResourcesRootDir = project.file("packaging/angle")
 
-            windows {
-                menuGroup = "BangniDraw"
-            }
             macOS {
                 bundleID = "ch.lkmc.bangnidraw.desktop"
             }

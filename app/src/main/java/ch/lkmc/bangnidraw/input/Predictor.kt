@@ -52,9 +52,10 @@ class Predictor private constructor(
     }
 
     /**
-     * Flattens this frame's guess for [pointerId] into [samples] — grown
-     * never shrunk, so the steady state allocates nothing — and returns how
-     * many: nearest prediction first, furthest-ahead last.
+     * Flattens this frame's guess for [pointerId] into the reused sample
+     * buffer and returns how many: nearest prediction first, furthest-ahead
+     * last. The samples are valid until the *next* [predict] of any
+     * pointer, not merely within the frame.
      *
      * Zero is routine rather than exceptional: the library returns null
      * before it has enough history, and the platform implementation can
@@ -74,12 +75,13 @@ class Predictor private constructor(
      * Read within the frame and never kept, either way.
      */
     override fun predict(pointerId: Int): Int {
+        count = 0
         val e = delegate.predict() ?: return 0
         val pointer = e.findPointerIndex(pointerId)
         if (pointer < 0) return 0
 
-        val count = e.historySize + 1
-        if (samples.size < count) samples = Array(count) { PointerSample() }
+        val sampleCount = e.historySize + 1
+        if (samples.size < sampleCount) samples = Array(sampleCount) { PointerSample() }
         for (h in 0 until e.historySize) {
             samples[h].set(
                 pointerId = pointerId,
@@ -102,12 +104,23 @@ class Predictor private constructor(
             orientation = e.getOrientation(pointer),
             timeNs = e.eventTime * NANOS_PER_MILLISECOND,
         )
-        return count
+        count = sampleCount
+        return sampleCount
     }
 
-    override fun predictedAt(index: Int): PointerSample = samples[index]
+    override fun predictedAt(index: Int): PointerSample {
+        // A tripwire, not a validation policy: reading past the last count
+        // serves stale samples from a previous frame silently.
+        require(index in 0 until count) {
+            "predictedAt($index) outside the last predict() range (0 until $count)"
+        }
+        return samples[index]
+    }
 
     private var samples = Array(1) { PointerSample() }
+
+    /** Valid entries in [samples] after the last [predict]; beyond it is stale. */
+    private var count = 0
 
     private fun toolOf(toolType: Int): PointerTool = when (toolType) {
         MotionEvent.TOOL_TYPE_STYLUS -> PointerTool.STYLUS

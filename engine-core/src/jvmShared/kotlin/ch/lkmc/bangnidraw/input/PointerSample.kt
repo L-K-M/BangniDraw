@@ -64,6 +64,9 @@ class PointerSample {
         this.tilt = tilt
         this.orientation = orientation
         this.timeNs = timeNs
+        // The hover axis does not survive contact: a reused record must not
+        // carry the last hover sample's distance into a contact path.
+        this.distance = 0f
         return this
     }
 
@@ -81,6 +84,12 @@ class PointerSample {
         this.y = y
         this.distance = distance
         this.timeNs = timeNs
+        // The contact-only axes do not survive a hover fill either — the
+        // positional collision between `pressure` and `distance` makes
+        // cross-population easy to write by accident.
+        this.pressure = 1f
+        this.tilt = 0f
+        this.orientation = 0f
         return this
     }
 }

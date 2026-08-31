@@ -9,7 +9,6 @@ import android.view.View
 import ch.lkmc.bangnidraw.engine.core.ButtonState
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.StylusButtonPolicy
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The Android half of the input seam (DESKTOP.md seam 3): the **only** code
@@ -30,8 +29,30 @@ class AndroidCanvasInput(
     init {
         // Before any event can run: the frame-driven paths (predicted tail,
         // hover coalescing) post through this, not through Choreographer
-        // directly.
-        handler.frameScheduler = ChoreographerFrameScheduler
+        // directly. An instance, not a singleton — the callback cache below
+        // lives and dies with this adapter, so a replaced handler cannot
+        // pin retired Runnables.
+        val choreographer = object : FrameScheduler {
+            override fun post(callback: Runnable) {
+                Choreographer.getInstance().postFrameCallback(frameCallbackFor(callback))
+            }
+
+            override fun cancel(callback: Runnable) {
+                // Evict while cancelling: the cache must not outlive the
+                // callback it wrapped, and removing a never-posted callback
+                // must not create an entry for it.
+                val wrapped = wraps.remove(callback) ?: return
+                Choreographer.getInstance().removeFrameCallback(wrapped)
+            }
+
+            private fun frameCallbackFor(callback: Runnable): Choreographer.FrameCallback =
+                wraps.computeIfAbsent(callback) { runnable ->
+                    Choreographer.FrameCallback { runnable.run() }
+                }
+
+            private val wraps = java.util.concurrent.ConcurrentHashMap<Runnable, Choreographer.FrameCallback>()
+        }
+        handler.frameScheduler = choreographer
     }
 
     /** The one sample every entry reuses — the touch path stays zero-alloc. */
@@ -153,10 +174,10 @@ class AndroidCanvasInput(
             // fail-safe, and a guarded press with an unguarded release can only
             // ever under-latch, while the reverse would leave it stuck on.
             MotionEvent.ACTION_BUTTON_PRESS -> {
-                val tool = toolOf(e.getToolType(index))
-                if (tool == PointerTool.STYLUS || tool == PointerTool.ERASER) {
-                    syncStylusButton(e)
-                }
+                // The pre-`when` syncStylusButton(e) already ran for this
+                // event with the stronger all-pointers pen scan; this arm
+                // only keeps the stream consumed. The historical guarded
+                // re-call duplicated an idempotent state set.
             }
             MotionEvent.ACTION_BUTTON_RELEASE -> handler.onStylusButton(ButtonState.Released)
             MotionEvent.ACTION_CANCEL -> handler.onPointerCancel(timeNs)
@@ -406,9 +427,10 @@ class AndroidCanvasInput(
 
 }
 
-/** The handler's [GestureDeadlineScheduler] on a dispatching `View`. */
+/** Converts uptime-based milliseconds (`MotionEvent.getEventTime`, `SystemClock.uptimeMillis`) to nanoseconds. */
 private const val NANOS_PER_MILLISECOND = 1_000_000L
 
+/** The handler's [GestureDeadlineScheduler] on a dispatching `View`. */
 private class ViewGestureDeadlineScheduler(
     private val view: View,
 ) : GestureDeadlineScheduler {
@@ -430,27 +452,3 @@ private class ViewGestureDeadlineScheduler(
     }
 }
 
-/**
- * The handler's [FrameScheduler]: next-vsync posting through `Choreographer`.
- *
- * One `FrameCallback` per distinct `Runnable`, cached — the handler posts the
- * same two callbacks for its whole life, so the steady state is a map lookup
- * and nothing per frame.
- */
-private object ChoreographerFrameScheduler : FrameScheduler {
-
-    override fun post(callback: Runnable) {
-        Choreographer.getInstance().postFrameCallback(frameCallbackFor(callback))
-    }
-
-    override fun cancel(callback: Runnable) {
-        Choreographer.getInstance().removeFrameCallback(frameCallbackFor(callback))
-    }
-
-    private fun frameCallbackFor(callback: Runnable): Choreographer.FrameCallback =
-        wraps.computeIfAbsent(callback) { runnable ->
-            Choreographer.FrameCallback { runnable.run() }
-        }
-
-    private val wraps = ConcurrentHashMap<Runnable, Choreographer.FrameCallback>()
-}

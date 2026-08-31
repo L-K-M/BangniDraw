@@ -2469,3 +2469,21 @@ touchscreen hover too, not only a pen.
   trades the miss for a different one (`Class.forName("android.x")`
   stops being caught). The desktop compiler is the hard gate this test
   only front-runs.
+
+- **R-035 ⏸️ (refuted) PR #173 round 1: "FLAG_CANCELED path removed with
+  no replacement."** The replacement is in the same PR:
+  `AndroidCanvasInput.consumesPlatformCancellation` neutralizes the
+  platform facts (flag, action kind, SDK level) and the engine-side
+  `onPlatformCanceledUp` keeps the `drawingId` scoping the reviewer's own
+  suggested fix sketches; `requestUnbuffered` moved with it. The six
+  cancellation tests pin the whole gate on the JVM.
+- **R-036 ⏸️ (refuted) PR #173 outside-diff: "adapter recreation breaks
+  once-per-view predictor attach."** It replicates the pre-PR behavior:
+  `predictorView`/`predictor` lived per *handler* instance, and
+  `CanvasScreen` builds a new handler per key change — a swap always
+  re-attempted `newInstance` for the same view. Cross-handler memoization
+  would be new behavior, not restored behavior.
+- **R-037 ⏸️ (declined) PR #173: Robolectric test pinning the predicted
+  event's sample layout.** The repo's test suite is JVM-only by policy
+  (AGENTS.md); adding Robolectric is a build decision, not a review fix.
+  The layout stays documented from the 1.0.0 bytecode read.

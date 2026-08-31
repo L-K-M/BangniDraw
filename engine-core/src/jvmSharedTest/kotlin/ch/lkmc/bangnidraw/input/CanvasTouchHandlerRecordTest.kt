@@ -33,6 +33,7 @@ class CanvasTouchHandlerRecordTest {
     private class Host : CanvasInputHost {
         val events = mutableListOf<String>()
         val samples = mutableListOf<FloatArray>()
+        val times = mutableListOf<Long>()
         var predicted: StrokeInputBatch? = null
         var hoverChanged = 0
 
@@ -50,14 +51,15 @@ class CanvasTouchHandlerRecordTest {
             orientation: Float,
             timeNs: Long,
         ) {
-            samples += floatArrayOf(x, y, pressure, tilt, orientation, timeNs.toFloat())
+            samples += floatArrayOf(x, y, pressure, tilt, orientation)
+            times += timeNs
         }
 
         override fun onStrokeEnd(pointerId: Int) { events += "end" }
         override fun onStrokeCancel() { events += "cancel" }
-        override fun onStrokePredicted(samples: StrokeInputBatch) {
-            predicted = samples
-            events += "predicted(${samples.size})"
+        override fun onStrokePredicted(batch: StrokeInputBatch) {
+            predicted = batch
+            events += "predicted(${batch.size})"
         }
 
         override fun onHoverChanged() { hoverChanged++ }

@@ -239,7 +239,7 @@ class CanvasTouchHandlerTest {
                 pointerId = 7,
                 kind = PointerUpKind.UP,
                 flagged = true,
-                apiLevel = 33,
+                apiLevel = API_TIRAMISU,
                 timeNs = ms(1),
             ),
         )
@@ -261,7 +261,7 @@ class CanvasTouchHandlerTest {
                 pointerId = 9,
                 kind = PointerUpKind.POINTER_UP,
                 flagged = true,
-                apiLevel = 33,
+                apiLevel = API_TIRAMISU,
                 timeNs = ms(2),
             ),
         )
@@ -284,7 +284,7 @@ class CanvasTouchHandlerTest {
                 pointerId = 7,
                 kind = PointerUpKind.POINTER_UP,
                 flagged = true,
-                apiLevel = 33,
+                apiLevel = API_TIRAMISU,
                 timeNs = ms(2),
             ),
         )
@@ -306,7 +306,7 @@ class CanvasTouchHandlerTest {
                 pointerId = 9,
                 kind = PointerUpKind.UP,
                 flagged = true,
-                apiLevel = 33,
+                apiLevel = API_TIRAMISU,
                 timeNs = ms(3),
             ),
         )
@@ -326,7 +326,7 @@ class CanvasTouchHandlerTest {
                 pointerId = 7,
                 kind = PointerUpKind.OTHER,
                 flagged = true,
-                apiLevel = 33,
+                apiLevel = API_TIRAMISU,
                 timeNs = ms(1),
             ),
         )
@@ -347,7 +347,7 @@ class CanvasTouchHandlerTest {
                 pointerId = 7,
                 kind = PointerUpKind.UP,
                 flagged = true,
-                apiLevel = 31,
+                apiLevel = API_S,
                 timeNs = ms(1),
             ),
         )
@@ -1200,6 +1200,12 @@ class CanvasTouchHandlerTest {
     private companion object {
         const val WARMUP = 200
         const val MOVES = 2000
+
+        /** Build.VERSION_CODES.TIRAMISU, where the retroactive-cancellation flag arrived. */
+        const val API_TIRAMISU = 33
+
+        /** Build.VERSION_CODES.S, the below-the-flag control. */
+        const val API_S = 31
 
         /**
          * Tight, and set from a measurement rather than a guess: the floor is

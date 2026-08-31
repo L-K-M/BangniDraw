@@ -10,6 +10,13 @@ package ch.lkmc.bangnidraw.input
  * no predicted tail, everything else identical. The desktop host passes
  * null (DESKTOP.md: prediction is platform-tailored, and desktop input
  * rates are modest).
+ *
+ * Recording is the host's job — this interface only predicts. The glue
+ * feeding real events must give the predictor every stylus/eraser event,
+ * hover included (§8: hover history improves the first predicted samples
+ * after contact), and must classify by scanning **every** pointer's tool
+ * type, not pointer index 0 — a palm that landed first is pointer 0, and
+ * the pen's history would silently never be recorded.
  */
 interface StrokePredictor {
 

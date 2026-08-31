@@ -380,8 +380,11 @@ class CanvasTouchHandler(
      * The platform glue installs its main-thread deadline driver here — the
      * Android one wraps the dispatching `View`. Swapping drivers resyncs any
      * pending deadline, so a replaced surface keeps its stationary-gesture
-     * clock. Once injected, [reset] and [dispose] leave it in place: the
-     * caller owns its lifecycle.
+     * clock. [reset] and [dispose] clear a scheduler attached this way — it
+     * goes with its surface, so the glue re-attaches for the next handler.
+     * Reuse one scheduler instance per surface: attachment is
+     * identity-compared, so a fresh wrapper per event would cancel and
+     * resync the deadline on every sample.
      */
     fun attachDeadlineScheduler(scheduler: GestureDeadlineScheduler) {
         attachGestureDeadlineScheduler(scheduler)
@@ -856,7 +859,10 @@ class CanvasTouchHandler(
      * The next-frame poster, injected by the platform glue — the Android
      * `Choreographer`, or null where none exists. Null leaves the
      * frame-driven paths (predicted tail, hover coalescing) inert, which is
-     * exactly the JVM-test posture this class has always had.
+     * exactly the JVM-test posture this class has always had. Unlike
+     * [predictor], [reset] and [dispose] leave this scheduler attached —
+     * the glue owns its lifecycle and must detach it if it holds
+     * per-surface state.
      */
     var frameScheduler: FrameScheduler? = null
 

@@ -2459,3 +2459,13 @@ touchscreen hover too, not only a pen.
   correctness invariants; here the three-line guard's contract is
   readable at a glance and the surrogate behavior it protects is already
   pinned by three tests through the public API.
+
+- **R-034 ⏸️ (declined) PR #172 round 4: strip string literals before the
+  `//` comment split in PlatformImportBanContractTest.** Declined: the
+  suite is a canary for accidental imports and fully-qualified calls —
+  both shapes that occurred in this codebase — not a Kotlin lexer. A
+  string literal containing `//` *and* a later qualified android
+  reference on the same line is contrived, and the reviewer's own fix
+  trades the miss for a different one (`Class.forName("android.x")`
+  stops being caught). The desktop compiler is the hard gate this test
+  only front-runs.

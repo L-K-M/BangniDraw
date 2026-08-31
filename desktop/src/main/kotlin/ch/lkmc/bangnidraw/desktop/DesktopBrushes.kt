@@ -25,7 +25,9 @@ object DesktopBrushes {
                 json.decodeFromString<BrushPreset>(text)
             }
         }
-        check(presets.isNotEmpty()) { "no brush presets found on the classpath" }
+        check(presets.size == names.size) {
+            "missing brush resources on the classpath (${presets.size} of ${names.size} loaded)"
+        }
         return presets
     }
 

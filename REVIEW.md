@@ -2524,6 +2524,185 @@ touchscreen hover too, not only a pen.
   hypothetical. The attach-before-events contract is now stated at the
   setter.
 
+## PR #175 — never publish a Gallery image a failed write truncated (2026-08-31)
+
+- **R-199 ✅ (applied) round 1: the success-path publish sat outside the
+  guard.** A provider fault on the `IS_PENDING = 0` update left the row
+  pending with *complete* pixels, which strands under `REINSERT` exactly like
+  a truncated one. Truncate-write-publish is now one guarded transaction:
+  either the row is published or it is gone. The `IS_PENDING = 1` claim stays
+  deliberately **outside** that guard — a claim that throws leaves the row
+  published and intact, so there is nothing to discard, and moving it inside
+  would delete a healthy image whenever the claim update happened to fail.
+  (Wording corrected in round 5, which caught this summary describing a shape
+  the code does not have; in a repo whose comments warn against load-bearing
+  simplification, an inaccurate summary is how the simplification gets made.)
+- **R-200 ✅ (applied) round 1: `insert`'s cleanup delete was bare** while the
+  comment and the AGENTS.md rule this PR added both directed guarding it.
+  Both writers now discard through a shared `discardRow(uri, what)`.
+- **R-201 ✅ (applied) round 2: the ordering pin asserted only
+  `publish < guard`.** Correct — that allowed a publish hoisted *above* the
+  write, republishing the row before `"wt"` truncates it. Mutation-checked:
+  the hoist passed the old pin and fails the new `write < publish`.
+- **R-202 ✅ (applied) round 2: the ISSUES.md supersede note recorded one
+  half of the fix.** The guarded delete and the publish's placement inside
+  the guard are both load-bearing and both the kind a later reader would
+  "simplify" away while believing they honored the documented fix.
+- **R-203 ✅ (applied, with a different remedy) round 3, Major: `outcomeOf`
+  ran outside the guarded region.** The best catch of this PR's review. The
+  post-publish baseline query turned a completely successful export into a
+  failure: the throw left `rewrite`/`insert`, `sync` returned null,
+  `project.json` kept the *pre-write* size and date, and the next `probeRow`
+  read that mismatch as another app's edit — REINSERT, a duplicate item, and
+  the row just written orphaned permanently, from one flaky metadata read.
+  Fixed **differently from the suggestion**, deliberately: the suggested
+  remedy deletes the published row, which throws away a correct image to
+  protect a number the design already declares optional. `outcomeOf` already
+  degraded to 0/0 on a null cursor, `probeRow` documents 0/0 as "unknown …
+  treated as ours", and `GallerySyncDecision.decide` turns that into REWRITE
+  — so a throw now degrades to exactly what a null cursor did, and the next
+  sync rewrites the row in place. Same defect closed, no deletion.
+- **R-204 ✅ (applied) round 3: `insert` caught `Exception` where `rewrite`
+  catches `Throwable`.** The realistic `Error` on that path is an
+  `OutOfMemoryError` during the PNG write — ISSUES.md item 3 records the
+  ~128 MiB peak at 4096² — and one that skipped `discardRow` would strand the
+  pending row the rule forbids.
+- **R-205 ✅ (applied) round 3: a third unpinned edge in the ordering
+  contract.** `write < publish < guard` still allowed the pair to be hoisted
+  above `try {`. `guarded < write` closes it.
+- **R-206 ❌ (refuted) round 4: "nothing ties the publish to before the
+  `catch (e: Throwable)` cleanup."** It does, and has since round 2. The
+  assertion the finding asks for —
+
+      assertTrue(publish < guard, "the publish must be inside the guarded
+          region, not after it")
+
+  — sits three lines below the `guarded < write` block the finding quotes,
+  and the suggested diff would insert a second copy of it. Checked against
+  the file rather than assumed, since "I already fixed that" is self-graded:
+  the assertion is present, and its semantics are the ones requested, not a
+  partial version of them.
+
+- **R-210 ✅ (applied, rewrite half) round 5, Major: process death between the
+  claim and the publish strands a pending row.** Correct, and the strongest
+  finding of this PR's review. The window predates the change, but the
+  invariant this PR states — "either the row is published or it is gone" — was
+  enforced only against exceptions, and a force-stop, low-memory or ANR kill
+  leaves the `IS_PENDING = 1` claim standing with no code left to run. Such a
+  row is invisible in gallery apps, so the painting has simply vanished, and
+  its `DATE_MODIFIED`/`SIZE` describe a half-finished write: matching
+  pre-write metadata reads as "unchanged", a mismatch reads as a foreign edit,
+  and that second answer abandons the invisible row permanently while
+  inserting a duplicate beside it. `probeRow` now reads `IS_PENDING` and
+  `GallerySyncDecision` reclaims a pending row we own, ahead of the tamper
+  check — nothing else can have edited a row no other app can see.
+
+  The `insert` half is **not** fixed and is filed as a follow-up: a kill
+  between `resolver.insert` and the publish leaves a pending row whose URI was
+  never recorded, so no later sync can find it without a query by display name
+  and folder. That is a different mechanism and a larger change.
+- **R-211 ✅ (applied) round 5, Major: the containment misses the
+  `RemoteException` family.** Correct, and verified against the platform jar
+  rather than argued: `DeadSystemException` -> `DeadObjectException` ->
+  `RemoteException` -> `AndroidException` -> `Exception`. A provider process
+  dying mid-call is a *sibling* of `RuntimeException`, not a subtype, so the
+  clause added for exactly that fault never contained it. Both `sync` paths
+  now catch it.
+- **R-212 ✅ (applied) round 5: R-199's summary described a shape the code does
+  not have.** The `IS_PENDING = 1` claim is outside the guard, deliberately —
+  a claim that throws leaves the row published and intact — and calling the
+  whole thing "one guarded transaction" invites moving the claim inside, which
+  would delete a healthy image on a flaky claim update.
+- **R-213 ✅ (applied) round 5: `outcomeOf`'s KDoc understated the cost.** A
+  persistently failing baseline read means a full truncate-and-rewrite every
+  sync, not a one-cycle loss. Still accepted — the row stays correct
+  throughout — but stated at its real price.
+- **R-214 ✅ (applied) round 5: `finally{` with no space evaded the needle.**
+  `section()` collapses whitespace *runs*, and there is no run to collapse in
+  `finally{`. This was the one negative assertion in the file that a
+  formatting choice could silently defeat; every other needle fails loudly
+  through an `indexOf` guard. Both spellings are now rejected.
+- **R-215 ✅ (applied) round 5: the helper test allowed a rethrow.**
+  `runCatching { … }.getOrThrow()` satisfies "contains runCatching" while
+  replacing the write's failure with the delete's — the masking the doc
+  forbids. Mirrors the `outcomeOf` test's `getOrThrow` ban.
+
+- **R-221 ✅ (applied) round 6, Major: the `RemoteException` containment
+  covered the writes but not the probe.** Correct, and it falsifies R-211's
+  own closing claim that "both `sync` paths now catch it" — the probe is a
+  third cross-process path, called outside either write's `try`, with only a
+  `SecurityException` catch of its own. A dead provider there still escaped to
+  `viewModelScope`'s background sweep, which is the exact failure the rule
+  exists to prevent. Contained now, and deliberately by returning null rather
+  than setting `threw`: `threw` means "ownership refused" and routes to
+  REINSERT, which would abandon a row that may be a reclaimable pending claim.
+  `withdraw`'s pair gained the same clause. Pinned as a count of three, so the
+  next cross-process call added to `sync` has to be contained too.
+- **R-222 ✅ (applied) round 6: the `IS_PENDING` read used a magic column
+  index.** `cursor.getInt(3)` was positionally coupled to a projection edited
+  in the same commit, and the failure mode is nasty in a specific way: since
+  `pending` now outranks `modifiedByOther`, an off-by-one reading `SIZE` would
+  report every present owned row as pending and silently turn the foreign-edit
+  guard off entirely. Read by name via `getColumnIndexOrThrow`.
+- **R-223 ✅ (applied) round 6: `GallerySyncDecision`'s KDoc cited `ownsRow`,
+  which does not exist** — the querying function is `probeRow`. Pre-existing
+  text, kept through the rewrite without checking. By R-212's own standard, a
+  summary naming a shape the code does not have is how the next wrong
+  simplification gets justified.
+- **R-224 ✅ (applied) round 6: AGENTS.md and ISSUES.md asserted a mechanism
+  the pending reclaim removed.** Both said a complete-but-pending row "strands
+  under REINSERT exactly like a truncated one" — true when written, false once
+  a pending row we own is rewritten ahead of the tamper check. The *rule* is
+  unchanged and both still state it: the reclaim needs a later probe to
+  succeed, whereas a publish that throws has code still running and must
+  discard the row then and there. Worth the edit precisely because these are
+  agent-facing instruction files, and a false rationale is the argument
+  someone later uses to delete the thing it was defending.
+
+- **R-228 ✅ (applied) round 7, Major: the probe's containment caught the rare
+  fault and not the common one.** Correct, and it is the same half-fix shape
+  R-221 had just criticised in R-211, made one round later in the fix for it.
+  R-221 added `catch (e: RemoteException)` around `sync`'s `probeRow` call and
+  stopped there — but the probe sits outside both writes' `try` blocks and
+  `probeRow`'s own catch is `SecurityException` only, so an `SQLiteException`
+  or a closed connection pool still reached `viewModelScope`. `withdraw`'s
+  probe already carried the `RuntimeException` clause that `sync`'s lacked,
+  which is exactly the asymmetry that should have been checked when the
+  clause was written.
+- **R-229 ✅ (applied) round 7: `withdraw`'s containment had no pin.** R-221
+  pinned `sync`'s count of three and wrote "withdraw's pair gained the same
+  clause" without pinning it, so half this PR's containment work was
+  unguarded — and the pin's own stated purpose ("so the next cross-process
+  call added to sync has to be contained too") applied to one function only.
+  Both counts are pinned now, and both mutation-checked.
+
+- **R-230 ✅ (applied) round 8: `withdraw`'s `RuntimeException` clauses were
+  still unpinned.** R-229 pinned `withdraw`'s `RemoteException` count and left
+  its `RuntimeException` pair uncovered — a third turn of the same
+  half-containment R-211, R-221 and R-228 each caught, this time in the pin
+  rather than the code. Applied with a stronger assertion than the one
+  suggested: the round asked for `"catch (e: RuntimeException)" in withdraw`,
+  but `withdraw` has *two* of them (probe and delete), so a presence check
+  passes with either one deleted. Pinned as a count of 2, symmetric with the
+  `RemoteException` line above it. Mutation-checked by deleting the probe's
+  clause: fails at the new assertion, and the deletion still compiles, so the
+  test is what catches it.
+- **R-231 ✅ (applied) round 8: a drifted delimiter would have silently widened
+  the probe pin.** `substringBefore` returns the *whole* receiver when the
+  delimiter is absent, so renaming or restructuring the `GallerySyncDecision.decide`
+  call would have turned a probe-region check into a presence-anywhere-in-`sync`
+  check — and passed, since `sync` carries the clause in its writers too.
+  Applied with a louder remedy than the suggested
+  `substringBefore(DECIDE_CALL, "")`: an empty region does fail, but with
+  "the probe must contain a faulting provider", sending the reader to hunt a
+  missing catch clause that is right there. The delimiter is asserted present
+  first, by name, the way `section` already fails for its own two markers.
+  Mutation-checked both halves — pointing `DECIDE_CALL` at a name the file
+  does not contain fails with `missing GallerySyncDecision.decideNow in
+  app/.../GalleryExporter.kt — renamed? it ends the probe region`, and with
+  the new guard removed that same drift passes green, which is the vacuity
+  the finding described.
+
 ## PR #176 — orphan the dab instance buffer (2026-08-31)
 
 - **R-185 ⏸️ (declined) Round 1 minor: replace the contract test's
@@ -2633,50 +2812,6 @@ its real scope: **needles must not depend on anything the canonicalizer
 deletes** — a trailing comma or whitespace hugging a paren, in quoted text as
 much as in code.
 
-## PR #179 — one scratch file per atomic write (2026-08-31)
-
-- **R-195 ✅ (applied) round 1, Major: the destroyed-temp test stages a
-  scenario Windows cannot produce.** Correct. It deletes the temp file while
-  `AtomicFiles` holds it open, which POSIX allows and Windows refuses —
-  there `delete()` returns false rather than throwing, so the staging quietly
-  does nothing, the rename succeeds, and both assertions fail against
-  *correct* code. The staging now reports whether it took effect and the
-  assertions follow it. The round's second observation is also right and is
-  written into the test: on Windows `a sweep leaves a live writer's temp file
-  alone` would pass even with the `inFlight` guard removed, because deleting
-  an open file fails there anyway — the guard is genuinely exercised only on
-  POSIX, which is where CI runs. Re-checked that the reworked test still
-  earns its place: making a failed rename return silently fails it.
-- **R-196 ✅ (applied) round 1: the KDoc still documented the pre-token temp
-  name.** `<name>.tmp`, where the file is now `<name>.<token>.tmp`. The token
-  is the whole fix, so a reader auditing atomicity from the KDoc alone would
-  have concluded temp paths still collide — and might have simplified the
-  token away. Corrected, and stated as contract rather than detail.
-- **R-197 ✅ (applied) round 1: two stacked KDoc blocks on
-  `BrushPresetStore`.** True and my error: adding the `@Synchronized`
-  rationale as a second block orphaned the original, since only the comment
-  adjacent to the declaration attaches. Merged into one.
-- **R-207b ✅ (applied) round 2: `all { it.delete() }` reports the scenario
-  staged even when nothing was deleted.** Correct, and a good catch on the
-  previous round's own fix. `all` is vacuously true on an empty list, so a
-  null `listFiles` — or a temp file not visible at that instant — set
-  `staged = true` with no deletion, and the assertions then failed a write
-  that legitimately succeeded. That is precisely the false failure R-195
-  removed, re-entering through the guard added to prevent it. Now
-  `temps.isNotEmpty() && temps.all { it.delete() }`.
-- **R-198 ⏸️ (declined, assumption documented) round 1, Info: match `inFlight`
-  on `canonicalPath` rather than the raw path.** The analysis is right that
-  the guard holds only while both sides spell the directory identically, and
-  the finding names its own cost. Declined on that cost: `canonicalPath` is a
-  syscall per candidate on a sweep that can cover a layer directory full of
-  tiles, and it throws `IOException` where this code must not. Every caller
-  today derives the file it writes and the directory it sweeps from one
-  `File` root — `ProjectStore.checkpoint` sweeps `dir` and writes
-  `File(dir, …)` — so the strings agree. Taking the finding's own fallback:
-  the assumption, the Android `/data/user/0` vs `/data/data` alias that would
-  break it, and the consequence if it ever does (a live writer's rename
-  fails; nothing is corrupted) are now stated next to `inFlight`.
-
 ## PR #178 — tool sheets publish on release; the layer caption ellipsizes (2026-08-31)
 
 - **R-190 ❌ (refuted) round 1, BLOCKER: "`valueText = percent` passes a bare
@@ -2781,3 +2916,74 @@ much as in code.
   needle here. Mutation-checked: removing the literal alternative fails the new
   case. `DabPass`'s own stripper is untouched and R-185 stands; migrating the
   `engine-gl` twin belongs with R-189.
+
+## PR #179 — one scratch file per atomic write (2026-08-31)
+
+- **R-195 ✅ (applied) round 1, Major: the destroyed-temp test stages a
+  scenario Windows cannot produce.** Correct. It deletes the temp file while
+  `AtomicFiles` holds it open, which POSIX allows and Windows refuses —
+  there `delete()` returns false rather than throwing, so the staging quietly
+  does nothing, the rename succeeds, and both assertions fail against
+  *correct* code. The staging now reports whether it took effect and the
+  assertions follow it. The round's second observation is also right and is
+  written into the test: on Windows `a sweep leaves a live writer's temp file
+  alone` would pass even with the `inFlight` guard removed, because deleting
+  an open file fails there anyway — the guard is genuinely exercised only on
+  POSIX, which is where CI runs. Re-checked that the reworked test still
+  earns its place: making a failed rename return silently fails it.
+- **R-196 ✅ (applied) round 1: the KDoc still documented the pre-token temp
+  name.** `<name>.tmp`, where the file is now `<name>.<token>.tmp`. The token
+  is the whole fix, so a reader auditing atomicity from the KDoc alone would
+  have concluded temp paths still collide — and might have simplified the
+  token away. Corrected, and stated as contract rather than detail.
+- **R-197 ✅ (applied) round 1: two stacked KDoc blocks on
+  `BrushPresetStore`.** True and my error: adding the `@Synchronized`
+  rationale as a second block orphaned the original, since only the comment
+  adjacent to the declaration attaches. Merged into one.
+- **R-207b ✅ (applied) round 2: `all { it.delete() }` reports the scenario
+  staged even when nothing was deleted.** Correct, and a good catch on the
+  previous round's own fix. `all` is vacuously true on an empty list, so a
+  null `listFiles` — or a temp file not visible at that instant — set
+  `staged = true` with no deletion, and the assertions then failed a write
+  that legitimately succeeded. That is precisely the false failure R-195
+  removed, re-entering through the guard added to prevent it. Now
+  `temps.isNotEmpty() && temps.all { it.delete() }`.
+- **R-198 ⏸️ (declined, assumption documented) round 1, Info: match `inFlight`
+  on `canonicalPath` rather than the raw path.** The analysis is right that
+  the guard holds only while both sides spell the directory identically, and
+  the finding names its own cost. Declined on that cost: `canonicalPath` is a
+  syscall per candidate on a sweep that can cover a layer directory full of
+  tiles, and it throws `IOException` where this code must not. Every caller
+  today derives the file it writes and the directory it sweeps from one
+  `File` root — `ProjectStore.checkpoint` sweeps `dir` and writes
+  `File(dir, …)` — so the strings agree. Taking the finding's own fallback:
+  the assumption, the Android `/data/user/0` vs `/data/data` alias that would
+  break it, and the consequence if it ever does (a live writer's rename
+  fails; nothing is corrupted) are now stated next to `inFlight`.
+
+## PR #182 — warn before a merge clears the alpha lock (2026-08-31)
+
+- **R-208 ✅ (applied) round 1: an empty change set renders a titled dialog
+  with no body.** Correct. The invariant that `changes` is non-empty lives in
+  `LayerPanel`, not in `CanvasDialog.MergeLayers`, so any other caller could
+  produce one — and a confirmation with nothing to say is what teaches people
+  to click through confirmations, the habit this PR exists to avoid. The
+  blend-mode sentence is the fallback because it is true of every merge: the
+  result is always Normal.
+- **R-209 ❌ (refuted; its documentation half applied) round 1: "merging into
+  a hidden layer silently un-hides it."** It cannot happen. `mergeDown`
+  returns `Refusal.HIDDEN_PARTNER` when either partner is hidden, two lines
+  before it builds the merged props, so `visible = true` is unreachable —
+  exactly like `locked = false`, which the entry already called a no-op for
+  that reason. `LayerStackTest`'s "merge down is refused without a layer
+  below, when locked, or when either partner is hidden" pins both refusals,
+  so no new test was added rather than duplicating it.
+
+  The finding was invited by this PR's own wording, though, and that half is
+  real: the KDoc dismissed `opacity` and `visible` together as "the merge's
+  whole point", which is true of opacity and false of visible. The two now
+  have their separate reasons, with the consequence spelled out — if either
+  guard is ever relaxed, the matching reset stops being a no-op and belongs in
+  `Change`. Un-hiding a layer someone deliberately hid would be the same class
+  of surprise as clearing their alpha lock, which is precisely why the reason
+  had to be right rather than merely conclusive.

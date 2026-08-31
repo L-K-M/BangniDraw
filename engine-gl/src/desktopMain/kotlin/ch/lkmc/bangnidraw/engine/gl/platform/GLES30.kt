@@ -311,8 +311,8 @@ actual object GLES30 {
                     pixels.put(staged)
                 }
             }
-            is IntBuffer -> LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels)
-            is FloatBuffer -> LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels)
+            is IntBuffer -> directOnly(pixels) { LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels) }
+            is FloatBuffer -> directOnly(pixels) { LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels) }
             else -> throw IllegalArgumentException("unsupported pixels buffer: ${pixels::class.java}")
         }
     }
@@ -339,8 +339,8 @@ actual object GLES30 {
     ) = when (pixels) {
         null -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, null as ByteBuffer?)
         is ByteBuffer -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, directOrStaged(pixels))
-        is IntBuffer -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels)
-        is FloatBuffer -> LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels)
+        is IntBuffer -> directOnly(pixels) { LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels) }
+        is FloatBuffer -> directOnly(pixels) { LwjglGles30.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels) }
         else -> throw IllegalArgumentException("unsupported pixels buffer: ${pixels::class.java}")
     }
 
@@ -375,12 +375,12 @@ actual object GLES30 {
         is ByteBuffer -> LwjglGles30.glTexSubImage3D(
             target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, directOrStaged(pixels),
         )
-        is IntBuffer -> LwjglGles30.glTexSubImage3D(
-            target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels,
-        )
-        is FloatBuffer -> LwjglGles30.glTexSubImage3D(
-            target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels,
-        )
+        is IntBuffer -> directOnly(pixels) {
+            LwjglGles30.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels)
+        }
+        is FloatBuffer -> directOnly(pixels) {
+            LwjglGles30.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels)
+        }
         else -> throw IllegalArgumentException("unsupported pixels buffer: ${pixels::class.java}")
     }
 
@@ -550,6 +550,16 @@ actual object GLES30 {
         stagingBytes.clear()
         stagingBytes.limit(bytes)
         return stagingBytes
+    }
+
+    /**
+     * The typed arms with no staging path: every live caller is a
+     * ByteBuffer (staged or direct), and a future heap Int/FloatBuffer
+     * caller must fail by name, not as the D11 segfault.
+     */
+    private inline fun <T> directOnly(buffer: java.nio.Buffer, block: () -> T): T {
+        require(buffer.isDirect) { "heap ${buffer::class.java.simpleName} would fault LWJGL (D11); pass a direct buffer" }
+        return block()
     }
 
     private const val STAGING_INITIAL_BYTES = 64 * 1024

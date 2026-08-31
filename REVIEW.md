@@ -2523,3 +2523,42 @@ touchscreen hover too, not only a pen.
   flow that exists. Re-posting would add a double-run hazard for a
   hypothetical. The attach-before-events contract is now stated at the
   setter.
+
+## PR #178 — tool sheets publish on release; the layer caption ellipsizes (2026-08-31)
+
+- **R-190 ❌ (refuted) round 1, BLOCKER: "`valueText = percent` passes a bare
+  function name, not a value — the whole app module stops compiling."** It
+  compiles, and did before the claim was made: the `android` check was green
+  on `cfc4b7f`, the exact commit reviewed. The finding assumed `percent` is a
+  `@Composable fun` imported from `BrushSettingsSheet`. It is not.
+  `RmwSettingsSheet` declares its own local `val percent: @Composable (Float)
+  -> String` in each enclosing composable (RmwSettingsSheet.kt:53 and :128),
+  which is exactly the type `DeferredSettingSlider.valueText` takes, so the
+  unapplied reference is the correct adaptation — the old call sites applied
+  it (`percent(active.hardness)`) only because the old `SettingSlider` took a
+  `String`. The accompanying claim that "a top-level val can't even hold a
+  composable lambda" is both wrong and beside the point, since these are local
+  vals. Refuted on the PR, per CLAUDE.md's rule for claims that would
+  otherwise mislead a merge decision.
+- **R-191 ⏸️ (declined) round 1: delegate `FillSlider` to
+  `DeferredSettingSlider`.** The finding names the right caveat and it is the
+  one that decides this: the two layouts are not the same. `SettingSlider`
+  styles its label `bodyMedium` and its readout `labelMedium`, both in the
+  default content color; `FillSlider` leaves both at the default style and
+  tints the readout `onSurfaceVariant`. Delegating would silently restyle the
+  Fill sheet, which is a visual decision this PR has no business making —
+  fable F-12 already tracks the same family of inconsistency across the
+  transient readout chips, and unifying them belongs there with the rest.
+  The duplicated part is three lines of draft mechanics, not the layout.
+- **R-192 ❌ (refuted, but its suggestion adopted) round 1, Info:
+  commit-on-release assumes every mutation fires `onValueChangeFinished`;
+  older Material fired only `onValueChange` for semantics actions.** Verified
+  against the artifact the build actually resolves —
+  `material3-android-1.4.0.aar`. In `SliderKt.sliderSemantics`, the
+  `setProgress` handler (`sliderSemantics$lambda$52$lambda$51`) sets the value
+  and then, at bytecode offset 242-250, loads `onValueChangeFinished` and
+  invokes it under a null guard. TalkBack and keyboard changes therefore
+  commit exactly as a release does, and the failure mode described cannot
+  occur on the pinned version. The suggestion's useful half — own the
+  assumption in the doc rather than leave it incidental — is applied, with the
+  verification recorded so the next reader does not have to redo it.

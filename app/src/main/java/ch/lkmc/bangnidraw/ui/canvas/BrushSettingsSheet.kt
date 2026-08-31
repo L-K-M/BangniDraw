@@ -655,6 +655,14 @@ internal fun SettingSlider(
  * [valueText] takes the draft rather than a pre-rendered string, because the
  * readout has to track the thumb rather than the last committed value.
  *
+ * Making the finish callback the sole commit path assumes every mutation
+ * reports it, accessibility ones included — a slider that moved without
+ * committing would show a value the tool never received. Verified against the
+ * pinned Material3 (1.4.0): `sliderSemantics`' `setProgress` handler sets the
+ * value and then invokes `onValueChangeFinished`, so TalkBack and keyboard
+ * changes commit like a release does. Re-check it if that dependency moves;
+ * older Material builds did fire only `onValueChange`.
+ *
  * Not used by the brush sheet: its live preview reads the committed preset, so
  * deferring there is ANALYSIS U12's call to make, together with the curve
  * knots it also covers.

@@ -2620,3 +2620,24 @@ touchscreen hover too, not only a pen.
   only it. The same label under the old equality matcher passes — which is
   the coverage this round adds, demonstrated rather than asserted. And a help
   body containing 叠加 stays green, so the exclusion works.
+
+- **R-234 ✅ (applied) round 7, Major: the help-body exclusion knew only one
+  of the file's two help conventions.** R-233 excluded `help_*` keys from the
+  Overlay scan; the file also stores the line under a settings row as
+  `*_help` — `settings_stylus_only_help`, `settings_gallery_sync_help` and
+  four more — and those stayed in the scan. Prose there mentioning 叠加, most
+  plausibly a help line for the latency overlay itself, would have failed the
+  test as a collision it is not. Real, and the exclusion's own stated
+  rationale is what condemns it. Both conventions are excluded now.
+
+  One deliberate difference from the suggested one-liner, recorded because it
+  is a small loss rather than a free win: `canvas_help` is 帮助, the help
+  button's *label*, not prose, and the suffix rule sweeps it out of the scan
+  with the six real bodies. Taking it is better than carrying a named
+  exception for one string, which would rot the first time the label is
+  renamed; noted at the predicate so the next reader knows it was seen.
+
+  Mutation-checked: 叠加 added to `settings_stylus_only_help` keeps the test
+  green, and the same prose with the suffix exclusion removed fails it —
+  which is the false collision this round prevents, demonstrated rather than
+  asserted.

@@ -56,8 +56,13 @@ class ZhHansTerminologyContractTest {
         // Help bodies are excluded because naming the blend mode in prose is
         // not a claim on it: the two pins below *require* help text to use
         // each control's own label, so scanning prose here would fight them.
+        // Both of the file's help conventions, since it has two: `help_*` for
+        // the (i) sheets, `*_help` for the line under a settings row. The
+        // suffix rule also sweeps up `canvas_help`, which is the help
+        // button's label (帮助) rather than prose — one label out of the scan,
+        // accepted, because the alternative is naming an exception that rots.
         val claimants = labels()
-            .filterKeys { !it.startsWith(HELP_PREFIX) }
+            .filterKeys { !it.startsWith(HELP_PREFIX) && !it.endsWith(HELP_SUFFIX) }
             .filterValues { OVERLAY in it }
             .keys
 
@@ -134,6 +139,7 @@ class ZhHansTerminologyContractTest {
         const val RETIRED_STYLUS = "手写笔"
         const val OVERLAY = "叠加"
         const val HELP_PREFIX = "help_"
+        const val HELP_SUFFIX = "_help"
 
         /**
          * label key to the help body that heads a paragraph with that label.

@@ -1,9 +1,16 @@
-# Release: a pushed v* tag builds, verifies, and publishes the release APK.
+# Release: a pushed v* tag builds, verifies, and publishes the release APK
+# plus the desktop distributables (Linux deb, macOS dmg — DESKTOP.md Phase
+# 2; there is no cross-compilation, so each format builds on its own OS).
 #
 # Signing: BOTH build types are signed with the checked-in app/debug.keystore —
 # zero secrets, reproducible by anyone, deliberately sideload-only
 # (docs/decisions/0005). Switching to a real key later breaks upgrades for
 # every installed user, which is why this was decided on day one.
+#
+# The desktop packages are the DEFAULT (Mixbox-enabled) variant, matching the
+# APK's licensing posture (CC BY-NC 4.0, ADR 0003). The macOS dmg bundles no
+# ANGLE dylibs — they are deliberately not committed — so the release body
+# must keep telling macOS users where to get them (README, desktop section).
 #
 # Hardening (family contract): least-privilege permissions, no cancellation
 # (a half-cancelled publish is worse than a slow one), timeout, wrapper
@@ -71,14 +78,98 @@ jobs:
       - name: Upload verified release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bangnidraw-release-${{ github.sha }}
+          name: bangnidraw-release-apk-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  build-desktop-linux:
+    name: Build Linux desktop package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      # The released deb carries the desktop shell's own version; the tag↔APK
+      # gate above already pinned this tag to a real versionName, and the
+      # desktop version is aligned with it at cut time (desktop/build.gradle.kts).
+      - name: Build desktop tests and deb
+        run: >-
+          ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
+          :desktop:test :desktop:packageDeb
+
+      - name: Stage release artifacts
+        run: |
+          mkdir -p dist
+          cp desktop/build/compose/binaries/main/deb/*.deb \
+            "dist/bangnidraw-desktop-${GITHUB_REF_NAME}-linux-amd64.deb"
+          (cd dist && sha256sum "bangnidraw-desktop-${GITHUB_REF_NAME}-linux-amd64.deb" \
+            > "bangnidraw-desktop-${GITHUB_REF_NAME}-linux-amd64.deb.sha256")
+
+      - name: Upload verified release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bangnidraw-release-linux-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  build-desktop-macos:
+    name: Build macOS desktop package
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      # packageDistributionForCurrentOS = the Dmg on macOS. No ANGLE dylibs
+      # are committed; the dmg runs wherever ANGLE is discoverable — the
+      # release body carries the instruction.
+      - name: Build desktop tests and dmg
+        run: >-
+          ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
+          :desktop:test :desktop:packageDistributionForCurrentOS
+
+      - name: Stage release artifacts
+        run: |
+          mkdir -p dist
+          cp desktop/build/compose/binaries/main/dmg/*.dmg \
+            "dist/bangnidraw-desktop-${GITHUB_REF_NAME}-macos-arm64.dmg"
+          (cd dist && shasum -a 256 "bangnidraw-desktop-${GITHUB_REF_NAME}-macos-arm64.dmg" \
+            > "bangnidraw-desktop-${GITHUB_REF_NAME}-macos-arm64.dmg.sha256")
+
+      - name: Upload verified release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bangnidraw-release-macos-${{ github.sha }}
           path: dist/
           if-no-files-found: error
           retention-days: 1
 
   publish:
-    name: Publish release APK
-    needs: build
+    name: Publish release
+    needs: [build, build-desktop-linux, build-desktop-macos]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -87,18 +178,49 @@ jobs:
       - name: Download verified release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: bangnidraw-release-${{ github.sha }}
+          name: bangnidraw-release-apk-${{ github.sha }}
+          path: dist
+
+      - name: Download verified Linux artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bangnidraw-release-linux-${{ github.sha }}
+          path: dist
+
+      - name: Download verified macOS artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bangnidraw-release-macos-${{ github.sha }}
           path: dist
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          # The product name, as the user sees it; the APK basename stays
-          # ASCII (bangnidraw-vX.Y.Z.apk) for shells and download managers.
+          # The product name, as the user sees it; the file basenames stay
+          # ASCII (bangnidraw-vX.Y.Z) for shells and download managers.
           name: 帮你Draw ${{ github.ref_name }}
-          generate_release_notes: true
+          body: |
+            **This release ships the first desktop builds** — Linux (deb) and
+            macOS (dmg) — alongside the Android APK.
+
+            - **Android**: `bangnidraw-<tag>.apk` — sideload as usual
+              (minSdk 29).
+            - **Linux**: `bangnidraw-desktop-<tag>-linux-amd64.deb` — needs
+              GLES from Mesa or your vendor driver; nothing else.
+            - **macOS**: `bangnidraw-desktop-<tag>-macos-arm64.dmg` — the app
+              needs ANGLE's `libEGL.dylib`/`libGLESv2.dylib` discoverable
+              (place them next to the app or on `DYLD_LIBRARY_PATH`; see the
+              repo README's Desktop section). Without them the app opens with
+              an instruction panel instead of a crash.
+
+            Desktop is v1-minimal: canvas, brushes, color, undo/redo, Save
+            PNG, mouse input (no pen pressure yet — Phase 3 of DESKTOP.md).
+            Both desktop builds include Mixbox pigment mixing (CC BY-NC 4.0,
+            non-commercial).
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
           files: |
             dist/*.apk
+            dist/*.deb
+            dist/*.dmg
             dist/*.sha256

@@ -83,7 +83,7 @@ object DesktopPalette {
     val SWATCHES = listOf(
         0xFF212121.toInt(), 0xFF6D4C41.toInt(), 0xFFD84F45.toInt(), 0xFFFF9E1B.toInt(),
         0xFFFFDB44.toInt(), 0xFF7CB342.toInt(), 0xFF26A69A.toInt(), 0xFF3E86C8.toInt(),
-        0xFF5C4BC8.toInt(), 0xFFB65AC4.toInt(), 0xFFFFFFFF.toInt(), 0x00000000,
+        0xFF5C4BC8.toInt(), 0xFFB65AC4.toInt(), 0xFFFFFFFF.toInt(), 0xFF000000.toInt(),
     )
 
     /** The stroke color as normalized RGB floats — what the engine's `u_color` takes. */

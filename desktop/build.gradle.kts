@@ -62,5 +62,13 @@ sourceSets.main {
 }
 
 tasks.processResources {
-    include("brushes/**")
+    // Scope the filter to the shared Android assets dir so desktop's own
+    // src/main/resources still package normally. The path is a local File
+    // (serializable) — a script-level val would capture the script object
+    // and break the configuration cache.
+    val androidAssets = layout.projectDirectory.dir("../app/src/main/assets").asFile
+    exclude { details ->
+        val rel = details.relativePath.pathString
+        details.file.startsWith(androidAssets) && rel != "brushes" && !rel.startsWith("brushes/")
+    }
 }

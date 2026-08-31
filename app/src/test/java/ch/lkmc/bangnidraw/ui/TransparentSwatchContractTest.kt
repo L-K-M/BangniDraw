@@ -31,20 +31,38 @@ class TransparentSwatchContractTest {
         // both pickers.
         assertTrue("drawQuadrantChecker(checkerA, checkerB)" in swatch)
         assertTrue("drawRect(color)" in swatch)
-        val dialog = ContractTestSources.read(NEW_CANVAS_PATH)
-        assertFalse("paper_transparent_symbol" in dialog, "the ∅ stand-in is retired")
+        assertRetiredGlyph(NEW_CANVAS_PATH)
+    }
+
+    @Test
+    fun `the retired glyph is gone from both swatch sites`() {
+        // The retirement pin used to cover the New Canvas dialog only, so the
+        // ∅ stand-in could have come back in the Layer panel — the other site
+        // sharing the quadrant checker — without failing anything.
+        assertRetiredGlyph(NEW_CANVAS_PATH)
+        assertRetiredGlyph(LAYER_PANEL_PATH)
+    }
+
+    private fun assertRetiredGlyph(path: String) {
+        assertFalse(
+            "paper_transparent_symbol" in ContractTestSources.read(path),
+            "the retired glyph must not come back; $path draws the checker",
+        )
     }
 
     @Test
     fun `both sites share the layer thumbnail's checker roles`() {
         for (path in listOf(LAYER_PANEL_PATH, NEW_CANVAS_PATH)) {
             val swatch = swatchOf(path)
-            // surfaceVariant contains "surface" as a prefix, so the bare
-            // role is checked against text with the variant stripped —
-            // otherwise the first condition is subsumed by the second.
+            // Every surface-prefixed role is stripped before the bare role is
+            // checked, not just surfaceVariant: "surface" is a prefix of
+            // surfaceTint, surfaceContainer, surfaceBright and the rest, so
+            // stripping one name by hand left the bare-role half satisfiable
+            // by any of the others — a swatch that used surfaceContainer for
+            // both cells would have passed.
+            val withoutPrefixed = swatch.replace(SURFACE_PREFIXED, "")
             assertTrue(
-                "MaterialTheme.colorScheme.surface" in
-                    swatch.replace("MaterialTheme.colorScheme.surfaceVariant", "") &&
+                "MaterialTheme.colorScheme.surface" in withoutPrefixed &&
                     "MaterialTheme.colorScheme.surfaceVariant" in swatch,
                 "$path must use the same two roles as the layer thumbnail checker",
             )
@@ -52,12 +70,12 @@ class TransparentSwatchContractTest {
     }
 
     /**
-     * Whitespace-normalized per the house rule for source-contract tests,
-     * and loud when the marker moves — a silent full-file fallback from
+     * Canonicalized per the house rule for source-contract tests, and loud
+     * when the marker moves — a silent full-file fallback from
      * `substringAfter` would point failures at the wrong code.
      */
     private fun swatchOf(path: String): String {
-        val source = ContractTestSources.read(path).replace(WHITESPACE, " ")
+        val source = ContractTestSources.readNormalized(path)
         val swatch = source
             .substringAfter(SWATCH_START, missingDelimiterValue = "")
             .substringBefore("@Composable")
@@ -70,6 +88,6 @@ class TransparentSwatchContractTest {
         const val LAYER_PANEL_PATH = "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/LayerPanel.kt"
         const val NEW_CANVAS_PATH = "app/src/main/java/ch/lkmc/bangnidraw/ui/home/NewCanvasDialog.kt"
         const val SWATCH_START = "private fun PaperSwatch("
-        val WHITESPACE = Regex("\\s+")
+        val SURFACE_PREFIXED = Regex("""MaterialTheme\.colorScheme\.surface[A-Za-z]+""")
     }
 }

@@ -75,3 +75,67 @@ jobs:
       # The stripped source set and its R8 graph differ from the default APK.
       - name: Assemble release without Mixbox
         run: ./gradlew -Pbangnidraw.mixbox=false assembleRelease
+
+  # The desktop shell (DESKTOP.md Phase 1/2): JVM suites plus the jpackage
+  # distributable. Ubuntu only — there is no cross-compilation, so macOS
+  # packaging lives in the dispatched job below.
+  desktop-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # Supply-chain gate: reject a tampered gradle-wrapper.jar.
+      - uses: gradle/actions/wrapper-validation@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Test and build the desktop distributable
+        run: >-
+          ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
+          :desktop:test :desktop:createDistributable
+          -Pbangnidraw.mixbox=false
+
+      - name: Upload desktop distributable
+        uses: actions/upload-artifact@v7
+        with:
+          name: bangnidraw-desktop-linux-${{ github.sha }}
+          path: desktop/build/compose/binaries/main/**
+          if-no-files-found: error
+          retention-days: 14
+
+  # macOS build: Dmg packaging and the ANGLE-on-Metal context can only be
+  # produced on macOS hardware, and macOS minutes cost 10x — dispatch only.
+  desktop-macos:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: gradle/actions/wrapper-validation@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Test and build the macOS distributable
+        run: >-
+          ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
+          :desktop:test :desktop:createDistributable
+
+      - name: Upload macOS distributable
+        uses: actions/upload-artifact@v7
+        with:
+          name: bangnidraw-desktop-macos-${{ github.sha }}
+          path: desktop/build/compose/binaries/main/**
+          if-no-files-found: error
+          retention-days: 14

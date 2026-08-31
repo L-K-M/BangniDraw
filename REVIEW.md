@@ -3250,3 +3250,23 @@ much as in code.
   commit, and its inline comment still said a move continues "a gesture whose
   tool was settled at its down" rather than at *a* down. Both now say what the
   code does. Docs only; the gate was re-run.
+
+- **R-043 ⏸️ (refuted) PR #174 round 3: "actions/upload-artifact@v7 does
+  not exist."** Refuted twice: the step passes on every CI run of this PR,
+  and the primary source settles it — `gh api
+  repos/actions/upload-artifact/git/matching-refs/tags/v` returns
+  `refs/tags/v7`, `v7.0.0`, `v7.0.1`, and `actions/checkout` likewise
+  carries `refs/tags/v7` (queried 2026-08-31). The reviewer's version
+  table predates these releases.
+- **R-044 ⏸️ (out of scope) PR #174 merge round: the four `AtomicFiles`
+  findings** (newKeySet API 24 floor, ignored timed-join outcomes, the
+  uncovered sweep interleaving, and its KDoc precision) target PR #176's
+  code, which reached this PR through the main merge. minSdk is 29, so the
+  API-24 concern is moot in fact; the join-assertion and comment-precision
+  points are reasonable follow-ups for #176's file.
+- **R-045 ⏸️ (refuted) PR #174: "`File.startsWith` is not a real API —
+  script fails to compile."** It is: `kotlin.io` ships
+  `File.startsWith(File)`/`(String)` extensions, and this exact commit
+  passed CI's full Gradle invocation including `:desktop:test`. Switched
+  to `Path.startsWith` anyway — element-wise comparison avoids the
+  `/assets-foo` string-prefix false positive.

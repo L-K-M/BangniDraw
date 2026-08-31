@@ -10,11 +10,18 @@ import kotlin.test.fail
  * The Chinese strings name one thing one way, and every help heading names
  * the control it explains.
  *
- * English holds both properties by construction — it has one word for
- * "stylus", and each help paragraph opens with the control's own label — so
- * a reader can map help text back to the control they are looking at. The
- * translation had drifted on both counts, twice onto a *different feature's*
- * term, which reads as help for the wrong control rather than as a synonym.
+ * The rule English follows, stated precisely: a help heading uses the
+ * control's **own term**, shortened where the label is long — "Snap right
+ * angles" heads "Snap rotation to right angles", "Stylus only" heads
+ * "Stylus-only drawing" — and reproduced exactly where it is already short,
+ * as "Eraser end" and "Pressure" are. What it never does is reach for a
+ * *different* word, and least of all for another control's word.
+ *
+ * The translation had drifted on both counts, twice onto a different
+ * feature's term, which reads as help for the wrong control rather than as a
+ * synonym. The pins below therefore cover the headings whose Chinese used
+ * another term, not the ones that merely shorten a long label the way English
+ * shortens the same label.
  *
  * Pinned rather than merely fixed: nothing else in the build compares a label
  * against the help that explains it, and a translation drifts one string at a
@@ -101,6 +108,7 @@ class ZhHansTerminologyContractTest {
             "brush_buffer_mode" to "help_brush_paint_body",
             "fill_reference" to "help_fill_body",
             "settings_snap_right_angles" to "help_drawing_body",
+            "settings_eraser_end" to "help_drawing_body",
         )
 
         /**
@@ -119,6 +127,12 @@ class ZhHansTerminologyContractTest {
             "fill_reference_current" to "help_fill_body",
             "fill_reference_composite" to "help_fill_body",
         )
-        val STRING_ENTRY = Regex("""<string name="([^"]+)">(.*?)</string>""", RegexOption.DOT_MATCHES_ALL)
+        // `[^>]*` for the attributes a string entry may carry —
+        // `translatable="false"` and `formatted="false"` both appear in the
+        // English file. Requiring `>` right after the name would drop such an
+        // entry from the map with no error, and a label missing from the map
+        // cannot collide with anything: the Overlay test would pass vacuously.
+        val STRING_ENTRY =
+            Regex("""<string name="([^"]+)"[^>]*>(.*?)</string>""", RegexOption.DOT_MATCHES_ALL)
     }
 }

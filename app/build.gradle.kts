@@ -171,7 +171,13 @@ tasks.withType<Test>().configureEach {
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
-/** Repo files a unit test pins that no compilation would otherwise track. */
+/**
+ * Repo files a unit test pins that no compilation would otherwise track.
+ *
+ * `ZhHansTerminologyContractTest` reads the translated strings;
+ * `PluralResourceContractTest` reads the English ones, and was exposed to the
+ * same stale-task hole before this list existed.
+ */
 val CONTRACT_INPUT_FILES = listOf(
     "app/src/main/res/values-b+zh+Hans/strings.xml",
     "app/src/main/res/values/strings.xml",

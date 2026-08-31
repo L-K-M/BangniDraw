@@ -2543,12 +2543,24 @@ touchscreen hover too, not only a pen.
      `GLES30.glBufferData(`/`glBufferSubData(` call sites, which a shader
      string would not contain.
   2. The suggested replacement is a ~25-line hand-rolled parser living in a
-     test, and the sketch given is not correct: `if (c == '"') inString =
-     true` mis-handles Kotlin's triple-quoted raw strings (it toggles on the
-     first of the three quotes and back off on the second), which is exactly
-     the construct a file "accumulating GLSL source strings" would use. A
-     subtly wrong parser guarding an unreachable case is worse than a regex
-     whose limits are known.
+     test, and the sketch given is not correct: a per-quote toggle
+     desynchronizes on an escaped `\"` (which ends a normal string early), on
+     a `'"'` character literal (which flips the state and swallows the code
+     after it), and on a raw string containing a lone `"` — the last being
+     exactly the construct a file "accumulating GLSL source strings" would
+     use. A subtly wrong parser guarding an unreachable case is worse than a
+     regex whose limits are known.
+
+     *(Corrected in round 3, which caught this rationale stating the wrong
+     mechanism. The earlier text claimed the toggle "toggles on the first of
+     the three quotes and back off on the second", implying raw-string content
+     is read as out-of-string. It is not: three toggles leave the state
+     **in**-string, and the closing three restore it, so a plain `"""…"""`
+     round-trips correctly. Simulated over `"""hello // world"""`, `"a\"b"`,
+     `'"'` and `"""a"b"""` before rewriting. The decline itself is unchanged
+     and still rests on grounds 1 and 3; only its second ground is now
+     accurate, which matters because the entry ends with a revisit trigger and
+     a future reader would otherwise act on a wrong model.)*
   3. The sibling `DabPassDirtyContractTest` — same directory, same file under
      test — already uses this identical regex. Changing one and not the other
      would leave two stripping strategies for one source file; changing both

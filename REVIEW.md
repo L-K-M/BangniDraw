@@ -2641,3 +2641,15 @@ touchscreen hover too, not only a pen.
   green, and the same prose with the suffix exclusion removed fails it —
   which is the false collision this round prevents, demonstrated rather than
   asserted.
+
+- **R-235 ✅ (applied) round 8: aligning the heading with the label made the
+  sentence circular.** Round 1 changed `help_brush_paint_body`'s first
+  paragraph to head with `brush_grain`'s exact label, 纸张纹理, which was the
+  right move and left the gloss behind it — 纸面纹理 — defining the term with
+  itself. English does not have this problem because it heads with the
+  shortened "Grain:" and glosses with "paper tooth", a different word; the
+  translation kept a gloss that had become a synonym of its own heading.
+  Now 模拟纸面的凹凸，让铅笔呈现斑驳质感 — which is also a truer rendering of
+  "paper tooth" than 纸面纹理 was. Everything after the first sentence is
+  byte-identical, and the paragraph still opens with the exact label, so the
+  heading pin still passes.

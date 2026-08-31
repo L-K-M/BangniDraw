@@ -84,6 +84,7 @@ class ReleaseBuildCoverageContractTest {
             |      - run: ./gradlew lintDebug
             |        env:
             |          FOO: bar
+            |      -   run: ./gradlew testDebugUnitTest
         """.trimMargin()
 
         assertEquals(
@@ -97,6 +98,8 @@ class ReleaseBuildCoverageContractTest {
                 // The compact `- run:` form, with a sibling key that must not
                 // be absorbed into the command.
                 "./gradlew lintDebug",
+                // An aligned dash: YAML allows any spacing after it.
+                "./gradlew testDebugUnitTest",
             ),
             gradleInvocations(workflow),
         )
@@ -137,16 +140,21 @@ class ReleaseBuildCoverageContractTest {
         while (index < lines.size) {
             val line = lines[index]
             index++
-            // `- run:` is the compact list form, and the commonest step
-            // style in real workflows. Its key sits two columns right of the
-            // dash, so the block scan has to measure from there or a sibling
-            // key of the same mapping would be swallowed into the command.
-            val compact = line.trimStart().startsWith(LIST_ITEM)
-            val trimmed = line.trim().removePrefix(LIST_ITEM)
+            // `- run:` is the compact list form and the commonest step style
+            // in real workflows. YAML allows any amount of whitespace after
+            // the dash, so the dash is stripped generically rather than as a
+            // fixed `"- "` — an aligned-dash style would otherwise leave
+            // leading spaces, fail the `run:` test, and drop the step in
+            // silence, which is the one thing this test exists to prevent.
+            val trimmed = line.trim().removePrefix(DASH).trim()
             if (!trimmed.startsWith(RUN_KEY)) continue
 
-            val keyIndent = line.indexOfFirst { !it.isWhitespace() } +
-                if (compact) LIST_ITEM.length else 0
+            // The key's own column, dash or no dash: the block scan measures
+            // from there, so a sibling key of the same mapping ends the block
+            // instead of being swallowed into the command. Safe because
+            // `trimmed` is a prefix-stripped substring of `line`, so its first
+            // occurrence is where the key begins.
+            val keyIndent = line.indexOf(trimmed)
             val head = trimmed.removePrefix(RUN_KEY).trim()
             // Chomping indicators are part of the header, not the style: `|`,
             // `|-` and `|+` are all literal — separate script lines — while
@@ -183,7 +191,7 @@ class ReleaseBuildCoverageContractTest {
         const val MIXBOX_OFF = "bangnidraw.mixbox=false"
         const val RUN_KEY = "run:"
         const val GRADLEW = "./gradlew"
-        const val LIST_ITEM = "- "
+        const val DASH = "-"
         const val LITERAL = '|'
         const val BLOCK_STYLES = "|>"
     }

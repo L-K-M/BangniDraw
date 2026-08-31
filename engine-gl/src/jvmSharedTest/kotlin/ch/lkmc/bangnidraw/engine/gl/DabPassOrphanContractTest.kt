@@ -37,6 +37,19 @@ class DabPassOrphanContractTest {
             orphan < write,
             "the orphan must precede the write, or it renames nothing",
         )
+        // The orphan's SIZE is load-bearing too, and ordering alone does not
+        // pin it. ensureInstanceCapacity only grows, so an orphan narrowed to
+        // this call's own `n` would leave the storage that size: the next
+        // tile in the same stamp loop with a larger n — still within the
+        // committed capacity, so no reallocation — would glBufferSubData past
+        // the end, and the driver answers GL_INVALID_VALUE by dropping that
+        // tile's dabs. Silent vanishing ink, which is exactly what this test
+        // exists to catch. No spaces: compactSection strips all whitespace.
+        assertTrue(
+            "instanceCapacityDabs*DAB_FLOATS*4" in upload,
+            "the orphan must re-specify the committed capacity — a smaller " +
+                "orphan lets a later glBufferSubData overflow the allocation",
+        )
     }
 
     /**

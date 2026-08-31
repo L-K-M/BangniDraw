@@ -2523,3 +2523,40 @@ touchscreen hover too, not only a pen.
   flow that exists. Re-posting would add a double-run hazard for a
   hypothetical. The attach-before-events contract is now stated at the
   setter.
+
+## PR #176 — orphan the dab instance buffer (2026-08-31)
+
+- **R-185 ⏸️ (declined) Round 1 minor: replace the contract test's
+  comment-stripping regex with a string-literal-aware, nesting-aware state
+  machine.** The observation is correct — `Regex("//[^\n]*|/\*.*?\*/")` does
+  treat `//` and `/*` inside a string literal as comment starts, and Kotlin's
+  block comments nest while the non-greedy pattern stops at the first `*/`.
+
+  Declined on reachability and on the cost of the cure, which is the same
+  ground R-034 already settled for the import-ban scanner ("the desktop
+  compiler is the hard gate this test only front-runs"):
+
+  1. `DabPass.kt` contains no string literals at all, let alone GLSL carrying
+     comment markers — the shaders live in `Shaders.kt`. The finding's own
+     premise is that such files "tend to accumulate GLSL source strings";
+     this one has not, and if it ever did, the needles here are
+     `GLES30.glBufferData(`/`glBufferSubData(` call sites, which a shader
+     string would not contain.
+  2. The suggested replacement is a ~25-line hand-rolled parser living in a
+     test, and the sketch given is not correct: `if (c == '"') inString =
+     true` mis-handles Kotlin's triple-quoted raw strings (it toggles on the
+     first of the three quotes and back off on the second), which is exactly
+     the construct a file "accumulating GLSL source strings" would use. A
+     subtly wrong parser guarding an unreachable case is worse than a regex
+     whose limits are known.
+  3. The sibling `DabPassDirtyContractTest` — same directory, same file under
+     test — already uses this identical regex. Changing one and not the other
+     would leave two stripping strategies for one source file; changing both
+     doubles a refactor this PR has no reason to carry.
+
+  The failure mode the finding actually describes is a loud one ("missing
+  marker" / "no longer calls SubData"), and the pathological silent case
+  needs a `/*` inside a literal *before* the pinned call sites in the same
+  file. Revisit if `DabPass` ever gains embedded shader text — at which point
+  the right fix is one shared, tested stripper for every `engine-gl` contract
+  test, not a private copy in each.

@@ -106,7 +106,12 @@ fun main() = application {
         }
     }
 
-    LaunchedEffect(Unit) { engine.start() }
+    // Start and stop with the composition: a daemon GL thread still owns a
+    // GLFW context and GL objects that must not outlive the window.
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        engine.start()
+        onDispose { engine.stop() }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -240,10 +245,9 @@ private fun SidePanel(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                for (groupStart in brushes.indices step BRUSH_COLUMNS) {
+                for (column in brushes.chunked(BRUSH_ROWS)) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (i in groupStart until minOf(groupStart + BRUSH_ROWS, brushes.size)) {
-                            val brush = brushes[i]
+                        for (brush in column) {
                             Button(onClick = { onSelectBrush(brush) }) {
                                 Text(
                                     if (brush.id == selectedBrush.id) "▸ ${brush.name}" else brush.name,
@@ -405,7 +409,8 @@ object DesktopShell {
     var erasing = false
 
     fun handler(engine: DesktopEngine): CanvasTouchHandler {
-        val handler = CanvasTouchHandler(density = 1f, host = DesktopInputHost(engine))
+        lateinit var handler: CanvasTouchHandler
+        handler = CanvasTouchHandler(density = 1f, host = DesktopInputHost(engine) { handler })
         handler.frameScheduler = SwingFrameScheduler
         return handler
     }
@@ -414,6 +419,9 @@ object DesktopShell {
 /** The stroke plumbing the Android CanvasScreen carries, minus its stylus-only features. */
 private class DesktopInputHost(
     private val engine: DesktopEngine,
+    // Late-bound: the handler the host reports view scale from is the one
+    // being constructed with this host.
+    private val handler: () -> CanvasTouchHandler,
 ) : CanvasInputHost {
     private var driver: StrokeDriver? = null
     private var source = StrokeSource.MOUSE
@@ -445,7 +453,10 @@ private class DesktopInputHost(
         driver = StrokeDriver(
             tool.preset,
             seed = System.nanoTime(),
-            zoom = 1f,
+            // The live canvas→screen scale, exactly as the Android host
+            // passes `handler.canvasToScreenScale`: dab spacing follows the
+            // zoom the user actually sees.
+            zoom = handler().canvasToScreenScale,
             spacingPolicy = DabSpacingPolicy.Brush,
         )
 
@@ -489,6 +500,9 @@ private class DesktopInputHost(
         while (driver.isActive) {
             val batch = engine.acquireDabBatch() ?: run {
                 driver.cancel()
+                // The engine-side stroke began at pen-down; leaving it open
+                // would wedge every later beginStroke (§4's pairing).
+                engine.cancelStroke()
                 return
             }
             val emitted = driver.end(batch)
@@ -537,7 +551,6 @@ private const val RGBA_BYTES = 4
 private const val MOUSE_POINTER_ID = 0
 private const val SYNTHETIC_PRESSURE = 1f
 private const val CANVAS_EDGE = 2048
-private const val BRUSH_COLUMNS = 2
 private const val BRUSH_ROWS = 8
 private const val WINDOW_TITLE = "BangniDraw Desktop"
 private const val WINDOW_MIN_W = 960

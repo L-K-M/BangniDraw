@@ -48,6 +48,11 @@ class DesktopPrefs {
     }
 
     fun close() {
+        // Drain queued edit writes so the last brush/color isn't lost on
+        // exit; the children run on Dispatchers.IO, so blocking here is safe.
+        kotlinx.coroutines.runBlocking {
+            scope.coroutineContext[kotlinx.coroutines.Job]?.children?.forEach { it.join() }
+        }
         scope.cancel()
     }
 

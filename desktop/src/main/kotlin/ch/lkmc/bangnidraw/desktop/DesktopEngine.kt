@@ -165,7 +165,7 @@ class DesktopEngine(
      * Merges the stroke, then drains this stroke's readback to completion
      * before journaling — the serialization that makes the mirror (and
      * therefore the undo journal) exact on a desktop with one input
-     * stream. [onCommitted] runs on the caller's thread afterwards.
+     * stream. [onCommitted] runs on the GL thread, not the caller.s.
      */
     fun endStroke(opacityCeiling: Float, onCommitted: () -> Unit) = post {
         val renderer = renderer ?: return@post
@@ -208,7 +208,7 @@ class DesktopEngine(
      * Saves the painting as a PNG under `~/Pictures/BangniDraw`, composed
      * from the readback mirror (the mirror is exact: every commit drains
      * its readback to completion first). [onSaved] reports the path on the
-     * caller's thread.
+     * GL thread, not the caller's.
      */
     fun savePng(onSaved: (String) -> Unit) = post {
         val renderer = renderer ?: return@post

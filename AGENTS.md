@@ -25,7 +25,7 @@ as they happen.
 ## Build, test, lint
 
 ```sh
-./gradlew testDebugUnitTest    # the whole test suite (JVM-only, by design)
+./gradlew testDebugUnitTest    # :app unit tests (engine-core's run below)
 ./gradlew lintDebug            # hard CI gate — keep it clean
 ./gradlew assembleDebug        # debug APK
 ./gradlew :engine-core:desktopTest  # engine model layer, desktop-JVM target

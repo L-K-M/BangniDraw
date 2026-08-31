@@ -14,6 +14,10 @@ plugins {
 }
 
 kotlin {
+    // JDK 17 is the repo's floor (AGENTS.md); pin it so the desktop target
+    // does not inherit whatever JDK happens to run Gradle.
+    jvmToolchain(17)
+
     androidLibrary {
         namespace = "ch.lkmc.bangnidraw.engine.core"
         compileSdk = 37

@@ -22,7 +22,11 @@ object DesktopBrushes {
                 System.err.println("missing brush resource: $path")
                 null
             } else {
-                json.decodeFromString<BrushPreset>(text)
+                try {
+                    json.decodeFromString<BrushPreset>(text)
+                } catch (e: kotlinx.serialization.SerializationException) {
+                    error("malformed brush resource: $path (${e.message})")
+                }
             }
         }
         check(presets.size == names.size) {

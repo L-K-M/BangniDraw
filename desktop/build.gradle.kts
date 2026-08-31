@@ -54,8 +54,13 @@ dependencies {
 }
 
 // The one copy of the shipped brush presets doubles as desktop classpath
-// resources (`brushes/*.json`), exactly as the vendored Mixbox assets do
-// for :engine-gl.
+// resources, exactly as the vendored Mixbox assets do for :engine-gl.
+// Packaging is scoped to the brushes so any future Android-only asset
+// stays Android-only.
 sourceSets.main {
     resources.srcDir(project.file("../app/src/main/assets"))
+}
+
+tasks.processResources {
+    include("brushes/**")
 }

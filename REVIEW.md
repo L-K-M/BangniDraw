@@ -2523,3 +2523,56 @@ touchscreen hover too, not only a pen.
   flow that exists. Re-posting would add a double-run hazard for a
   hypothetical. The attach-before-events contract is now stated at the
   setter.
+
+## PR #175 — never publish a Gallery image a failed write truncated (2026-08-31)
+
+- **R-199 ✅ (applied) round 1: the success-path publish sat outside the
+  guard.** A provider fault on the `IS_PENDING = 0` update left the row
+  pending with *complete* pixels, which strands under `REINSERT` exactly like
+  a truncated one. Claim-truncate-write-publish is now one guarded
+  transaction: either the row is published or it is gone.
+- **R-200 ✅ (applied) round 1: `insert`'s cleanup delete was bare** while the
+  comment and the AGENTS.md rule this PR added both directed guarding it.
+  Both writers now discard through a shared `discardRow(uri, what)`.
+- **R-201 ✅ (applied) round 2: the ordering pin asserted only
+  `publish < guard`.** Correct — that allowed a publish hoisted *above* the
+  write, republishing the row before `"wt"` truncates it. Mutation-checked:
+  the hoist passed the old pin and fails the new `write < publish`.
+- **R-202 ✅ (applied) round 2: the ISSUES.md supersede note recorded one
+  half of the fix.** The guarded delete and the publish's placement inside
+  the guard are both load-bearing and both the kind a later reader would
+  "simplify" away while believing they honored the documented fix.
+- **R-203 ✅ (applied, with a different remedy) round 3, Major: `outcomeOf`
+  ran outside the guarded region.** The best catch of this PR's review. The
+  post-publish baseline query turned a completely successful export into a
+  failure: the throw left `rewrite`/`insert`, `sync` returned null,
+  `project.json` kept the *pre-write* size and date, and the next `probeRow`
+  read that mismatch as another app's edit — REINSERT, a duplicate item, and
+  the row just written orphaned permanently, from one flaky metadata read.
+  Fixed **differently from the suggestion**, deliberately: the suggested
+  remedy deletes the published row, which throws away a correct image to
+  protect a number the design already declares optional. `outcomeOf` already
+  degraded to 0/0 on a null cursor, `probeRow` documents 0/0 as "unknown …
+  treated as ours", and `GallerySyncDecision.decide` turns that into REWRITE
+  — so a throw now degrades to exactly what a null cursor did, and the next
+  sync rewrites the row in place. Same defect closed, no deletion.
+- **R-204 ✅ (applied) round 3: `insert` caught `Exception` where `rewrite`
+  catches `Throwable`.** The realistic `Error` on that path is an
+  `OutOfMemoryError` during the PNG write — ISSUES.md item 3 records the
+  ~128 MiB peak at 4096² — and one that skipped `discardRow` would strand the
+  pending row the rule forbids.
+- **R-205 ✅ (applied) round 3: a third unpinned edge in the ordering
+  contract.** `write < publish < guard` still allowed the pair to be hoisted
+  above `try {`. `guarded < write` closes it.
+- **R-206 ❌ (refuted) round 4: "nothing ties the publish to before the
+  `catch (e: Throwable)` cleanup."** It does, and has since round 2. The
+  assertion the finding asks for —
+
+      assertTrue(publish < guard, "the publish must be inside the guarded
+          region, not after it")
+
+  — sits three lines below the `guarded < write` block the finding quotes,
+  and the suggested diff would insert a second copy of it. Checked against
+  the file rather than assumed, since "I already fixed that" is self-graded:
+  the assertion is present, and its semantics are the ones requested, not a
+  partial version of them.

@@ -26,8 +26,11 @@ class PlatformImportBanContractTest {
             .filter { it.isFile && it.extension == "kt" }
             .flatMap { file ->
                 file.readLines().mapIndexedNotNull { index, line ->
+                    // Trailing // comments stay legal too: only the code
+                    // half of a line is matched.
+                    val code = line.substringBefore("//")
                     val hit = line.startsWith("import android.") ||
-                        (!line.isComment() && QUALIFIED_ANDROID.containsMatchIn(line))
+                        (!line.isComment() && QUALIFIED_ANDROID.containsMatchIn(code))
                     if (hit) "${file.name}:${index + 1}: $line" else null
                 }
             }

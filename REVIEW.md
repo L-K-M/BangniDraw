@@ -2698,3 +2698,11 @@ much as in code.
   behavior for this PR's purposes. minSdk is 29, so the API-24 concern is
   moot in fact; the join-assertion and comment-precision points are
   reasonable follow-ups for #176's file.
+
+- **R-045 ⏸️ (refuted) PR #174 round N: "`File.startsWith` is not a real
+  API — script fails to compile."** It is: `kotlin.io` ships
+  `File.startsWith(File)`/`(String)` extensions, and this exact commit
+  passed CI's full Gradle invocation including `:desktop:test`. Switched
+  to `Path.startsWith` anyway — the element-wise comparison avoids the
+  `/assets-foo` string-prefix false positive the reviewer rightly
+  disfavors.

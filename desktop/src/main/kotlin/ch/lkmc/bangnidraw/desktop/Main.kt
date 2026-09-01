@@ -1,10 +1,11 @@
 @file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 
 package ch.lkmc.bangnidraw.desktop
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -38,21 +40,25 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
-import ch.lkmc.bangnidraw.engine.core.BrushMixingPolicy
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasPresetId
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.HsvColor
+import ch.lkmc.bangnidraw.engine.core.HsvSelection
 import ch.lkmc.bangnidraw.engine.core.PointerTool
 import ch.lkmc.bangnidraw.engine.core.RgbMixer
+import ch.lkmc.bangnidraw.engine.core.RmwStrokePolicy
+import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
+import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxBinding
 import ch.lkmc.bangnidraw.input.CanvasInputHost
@@ -72,66 +78,218 @@ import java.awt.Dimension
  * per-frame `glReadPixels` copy is the known cost of that architecture —
  * accepted for v1, revisitable with cross-API texture sharing later.
  */
-fun main() = application {
-    val canvasSize = CanvasSize(CANVAS_EDGE, CANVAS_EDGE)
-    val fatal = mutableStateOf<String?>(null)
-    val frameState = mutableStateOf<DesktopEngine.Frame?>(null)
 
-    val engine = remember {
+private sealed interface DesktopStartup {
+    data class Ready(
+        val memory: ch.lkmc.bangnidraw.engine.core.DeviceMemory,
+        val context: GlfwEsContext,
+    ) : DesktopStartup
+
+    data class Failed(val message: String) : DesktopStartup
+}
+
+private enum class DesktopLaunchMode {
+    Interactive,
+    VerifyRuntime,
+    SmokeStartupFailure,
+    SmokeWindow;
+
+    companion object {
+        fun from(args: Array<String>): DesktopLaunchMode = when {
+            VERIFY_RUNTIME_FLAG in args -> VerifyRuntime
+            SMOKE_STARTUP_FAILURE_FLAG in args -> SmokeStartupFailure
+            SMOKE_WINDOW_FLAG in args -> SmokeWindow
+            else -> Interactive
+        }
+    }
+}
+
+fun main(args: Array<String>) {
+    val mode = DesktopLaunchMode.from(args)
+    if (mode == DesktopLaunchMode.VerifyRuntime) {
+        verifyPackagedRuntime()
+        return
+    }
+
+    val startup = createDesktopStartup()
+    try {
+        application { DesktopApplication(startup, mode) }
+    } finally {
+        (startup as? DesktopStartup.Ready)?.context?.destroy()
+    }
+}
+
+private fun verifyPackagedRuntime() {
+    val memory = DesktopPlatform.deviceMemory()
+    println("${DesktopBrand.displayName} runtime OK: ${memory.totalMemBytes} bytes")
+}
+
+private fun createDesktopStartup(): DesktopStartup = try {
+    val memory = DesktopPlatform.deviceMemory()
+    DesktopNativeBootstrap.prepare().use { environment ->
+        val context = GlfwEsContext.create(INITIAL_GL_WIDTH, INITIAL_GL_HEIGHT, environment.backend)
+        if (context == null) {
+            DesktopStartup.Failed(NO_GLES_MESSAGE)
+        } else {
+            DesktopStartup.Ready(memory, context)
+        }
+    }
+} catch (failure: Throwable) {
+    val detail = failure.message ?: failure::class.simpleName ?: "unknown failure"
+    DesktopStartup.Failed("Desktop startup failed: $detail\n\n$NO_GLES_MESSAGE")
+}
+
+@Composable
+private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
+    startup: DesktopStartup,
+    mode: DesktopLaunchMode,
+) {
+    val canvasSize = CanvasSize(CANVAS_EDGE, CANVAS_EDGE)
+    val fatal = remember {
+        mutableStateOf((startup as? DesktopStartup.Failed)?.message)
+    }
+    val frameState = remember { mutableStateOf<DesktopEngine.Frame?>(null) }
+    val mixboxAttribution = remember {
+        if (MixboxBinding.create() == null) {
+            MixboxAttribution.Excluded
+        } else {
+            MixboxAttribution.Included
+        }
+    }
+    var showAbout by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val handler = DesktopAboutHandler.install {
+            java.awt.EventQueue.invokeLater { showAbout = true }
+        }
+        onDispose { handler.close() }
+    }
+
+    val engine = remember(startup) {
+        val ready = startup as? DesktopStartup.Ready ?: return@remember null
         DesktopEngine(
             canvas = canvasSize,
-            memory = DesktopPlatform.deviceMemory(),
-            onFrame = { frameState.value = it },
-            onFatal = { fatal.value = it },
+            memory = ready.memory,
+            context = ready.context,
+            onFrame = { frame ->
+                java.awt.EventQueue.invokeLater { frameState.value = frame }
+            },
+            onFatal = { message ->
+                java.awt.EventQueue.invokeLater { fatal.value = message }
+            },
         )
     }
 
-    Window(onCloseRequest = ::exitApplication, title = WINDOW_TITLE) {
+    Window(
+        onCloseRequest = ::exitApplication,
+        title = DesktopBrand.displayName,
+        icon = painterResource("bangnidraw.png"),
+    ) {
         window.minimumSize = Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
 
-        val fatalMessage = fatal.value
-        if (fatalMessage != null) {
-            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                Text(fatalMessage, style = MaterialTheme.typography.bodyLarge)
-            }
-            return@Window
-        }
-
         MaterialTheme(colorScheme = darkColorScheme()) {
-            Shell(engine, frameState.value, canvasSize)
+            val fatalMessage = fatal.value
+            if (fatalMessage != null) {
+                Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                    Text(fatalMessage, style = MaterialTheme.typography.bodyLarge)
+                }
+            } else if (engine != null) {
+                Shell(
+                    engine = engine,
+                    frame = frameState.value,
+                    canvasSize = canvasSize,
+                    mixboxAttribution = mixboxAttribution,
+                    onAbout = { showAbout = true },
+                )
+            }
+
+            if (showAbout) {
+                AlertDialog(
+                    onDismissRequest = { showAbout = false },
+                    title = { Text("About " + DesktopBrand.displayName) },
+                    text = { Text(DesktopAbout.body(mixboxAttribution)) },
+                    confirmButton = {
+                        Button(onClick = { showAbout = false }) { Text("Close") }
+                    },
+                )
+            }
         }
     }
 
-    // Start and stop with the composition: a daemon GL thread still owns a
-    // GLFW context and GL objects that must not outlive the window.
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        engine.start()
-        onDispose { engine.stop() }
+    androidx.compose.runtime.DisposableEffect(engine) {
+        engine?.start()
+        onDispose { engine?.stopAndJoin() }
+    }
+
+    LaunchedEffect(frameState.value, mode) {
+        val frame = frameState.value ?: return@LaunchedEffect
+        if (mode != DesktopLaunchMode.SmokeWindow) return@LaunchedEffect
+
+        check(frame.pixels.any { it != 0.toByte() }) {
+            "desktop smoke frame contains no rendered pixels"
+        }
+        println("${DesktopBrand.displayName} window OK: ${frame.width}x${frame.height}")
+        exitApplication()
+    }
+
+    LaunchedEffect(fatal.value, mode) {
+        val message = fatal.value ?: return@LaunchedEffect
+        if (mode != DesktopLaunchMode.SmokeStartupFailure) return@LaunchedEffect
+
+        // Wait for a Compose frame: this proves startup produced a window,
+        // not only the process-level macOS menu that hid the original crash.
+        androidx.compose.runtime.withFrameNanos { }
+        println("${DesktopBrand.displayName} error window OK: ${message.lineSequence().first()}")
+        exitApplication()
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Shell(engine: DesktopEngine, frame: DesktopEngine.Frame?, canvasSize: CanvasSize) {
+private fun Shell(
+    engine: DesktopEngine,
+    frame: DesktopEngine.Frame?,
+    canvasSize: CanvasSize,
+    mixboxAttribution: MixboxAttribution,
+    onAbout: () -> Unit,
+) {
     val brushes = remember { DesktopBrushes.loadAll() }
     val prefs = remember { DesktopPrefs() }
+    val restoreGate = remember { DesktopPreferenceRestoreGate() }
     androidx.compose.runtime.DisposableEffect(prefs) {
         onDispose { prefs.close() }
     }
     var selectedBrush by remember { mutableStateOf(brushes.first { it.id == BrushPresets.INK_PEN_ID }) }
     var brushSize by remember { mutableStateOf(selectedBrush.size) }
-    var colorArgb by remember { mutableStateOf(DesktopPalette.SWATCHES.first()) }
+    var colorSelection by remember {
+        mutableStateOf(HsvSelection.fromArgb(DesktopPalette.SWATCHES.first()))
+    }
+    val colorArgb = colorSelection.argb
     var savedMessage by remember { mutableStateOf<String?>(null) }
+    var preferencesReady by remember { mutableStateOf(false) }
 
-    // Restore the persisted choice once, before the first stroke.
+    // Input stays disabled until the initial choices are resolved.
     LaunchedEffect(Unit) {
-        prefs.readBrushId()?.let { id ->
-            brushes.firstOrNull { it.id == id }?.let {
-                selectedBrush = it
-                brushSize = it.size
+        try {
+            val brushId = prefs.readBrushId()
+            if (restoreGate.allows(DesktopPreferenceKind.Brush)) {
+                brushId?.let { id ->
+                    brushes.firstOrNull { it.id == id }?.let {
+                        selectedBrush = it
+                        brushSize = it.size
+                    }
+                }
             }
+
+            val color = prefs.readColorArgb()
+            if (restoreGate.allows(DesktopPreferenceKind.Color)) {
+                color?.let { colorSelection = colorSelection.sync(it) }
+            }
+        } catch (failure: java.io.IOException) {
+            System.err.println("desktop preferences could not be read: ${failure.message}")
+        } finally {
+            preferencesReady = true
         }
-        prefs.readColorArgb()?.let { colorArgb = it }
     }
 
     val mixer = remember { MixboxBinding.create() ?: RgbMixer }
@@ -141,9 +299,19 @@ private fun Shell(engine: DesktopEngine, frame: DesktopEngine.Frame?, canvasSize
     Column(Modifier.fillMaxSize()) {
         Toolbar(
             brushSize = brushSize,
-            onBrushSize = { brushSize = it },
+            brushSizeRange = DesktopBrushUi.sizeRange(selectedBrush),
+            onBrushSize = {
+                restoreGate.markChanged(DesktopPreferenceKind.Brush)
+                brushSize = it
+            },
             onSave = {
-                engine.savePng { path -> savedMessage = path }
+                engine.savePng { result ->
+                    val message = when (result) {
+                        is DesktopSaveResult.Saved -> result.path
+                        is DesktopSaveResult.Failed -> "Save failed: ${result.message}"
+                    }
+                    java.awt.EventQueue.invokeLater { savedMessage = message }
+                }
             },
             onUndo = { engine.undo() },
             onRedo = { engine.redo() },
@@ -163,15 +331,18 @@ private fun Shell(engine: DesktopEngine, frame: DesktopEngine.Frame?, canvasSize
                     }
                     .background(VIEWPORT_VOID),
             ) {
+                val canvasInput = if (preferencesReady) {
+                    Modifier.pointerInput(selectedBrush, brushSize, colorArgb, mixer) {
+                        awaitPointerEvents(handler, selectedBrush, brushSize, colorArgb, mixer)
+                    }
+                } else {
+                    Modifier
+                }
                 if (bitmap != null) {
                     Image(
                         bitmap = bitmap,
                         contentDescription = "canvas",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(selectedBrush, brushSize, colorArgb, mixer) {
-                                awaitPointerEvents(handler, selectedBrush, brushSize, colorArgb, mixer)
-                            },
+                        modifier = Modifier.fillMaxSize().then(canvasInput),
                     )
                 }
             }
@@ -180,15 +351,24 @@ private fun Shell(engine: DesktopEngine, frame: DesktopEngine.Frame?, canvasSize
                 brushes = brushes,
                 selectedBrush = selectedBrush,
                 onSelectBrush = {
+                    restoreGate.markChanged(DesktopPreferenceKind.Brush)
                     selectedBrush = it
                     brushSize = it.size
                     prefs.writeBrush(it)
                 },
-                colorArgb = colorArgb,
-                onColor = {
-                    colorArgb = it
-                    prefs.writeColor(it)
+                onColor = { argb ->
+                    restoreGate.markChanged(DesktopPreferenceKind.Color)
+                    colorSelection = colorSelection.commit(argb)
+                    prefs.writeColor(argb)
                 },
+                colorSelection = colorSelection,
+                onColorSelection = { selection ->
+                    restoreGate.markChanged(DesktopPreferenceKind.Color)
+                    colorSelection = selection
+                    prefs.writeColor(selection.argb)
+                },
+                mixboxAttribution = mixboxAttribution,
+                onAbout = onAbout,
             )
         }
     }
@@ -197,6 +377,7 @@ private fun Shell(engine: DesktopEngine, frame: DesktopEngine.Frame?, canvasSize
 @Composable
 private fun Toolbar(
     brushSize: Float,
+    brushSizeRange: ClosedFloatingPointRange<Float>,
     onBrushSize: (Float) -> Unit,
     onSave: () -> Unit,
     onUndo: () -> Unit,
@@ -210,7 +391,7 @@ private fun Toolbar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(WINDOW_TITLE, style = MaterialTheme.typography.titleMedium)
+        Text(DesktopBrand.displayName, style = MaterialTheme.typography.titleMedium)
         Button(onClick = onUndo, enabled = canUndo) { Text("Undo") }
         Button(onClick = onRedo, enabled = canRedo) { Text("Redo") }
         Button(onClick = onSave) { Text("Save PNG") }
@@ -218,7 +399,7 @@ private fun Toolbar(
         Slider(
             value = brushSize,
             onValueChange = onBrushSize,
-            valueRange = 1f..120f,
+            valueRange = brushSizeRange,
             modifier = Modifier.width(150.dp),
         )
         if (savedMessage != null) {
@@ -236,30 +417,31 @@ private fun SidePanel(
     brushes: List<BrushPreset>,
     selectedBrush: BrushPreset,
     onSelectBrush: (BrushPreset) -> Unit,
-    colorArgb: Int,
     onColor: (Int) -> Unit,
+    colorSelection: HsvSelection,
+    onColorSelection: (HsvSelection) -> Unit,
+    mixboxAttribution: MixboxAttribution,
+    onAbout: () -> Unit,
 ) {
     Column(
-        Modifier.width(230.dp).fillMaxSize().padding(10.dp),
+        Modifier.width(230.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("Brush", style = MaterialTheme.typography.titleSmall)
         Column(
-            Modifier.height(240.dp).horizontalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                for (column in brushes.chunked(BRUSH_ROWS)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        for (brush in column) {
-                            Button(onClick = { onSelectBrush(brush) }) {
-                                Text(
-                                    if (brush.id == selectedBrush.id) "▸ ${brush.name}" else brush.name,
-                                    maxLines = 1,
-                                )
-                            }
-                        }
-                    }
+            for (brush in brushes) {
+                val label = DesktopBrushUi.label(brush)
+                Button(
+                    onClick = { onSelectBrush(brush) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        if (brush.id == selectedBrush.id) "▸ " + label else label,
+                        maxLines = 1,
+                    )
                 }
             }
         }
@@ -279,35 +461,44 @@ private fun SidePanel(
             }
         }
 
-        HsvSliders(colorArgb, onColor)
+        HsvSliders(colorSelection, onColorSelection)
 
         Text(
             "Strokes save to\n${DesktopPlatform.picturesDir()}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(
-            "Pigment mixing: Mixbox © Secret Weapons,\nCC BY-NC 4.0 — non-commercial.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (mixboxAttribution == MixboxAttribution.Included) {
+            Text(
+                "Pigment mixing: Mixbox © Secret Weapons,\nCC BY-NC 4.0 — non-commercial.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Button(onClick = onAbout) { Text("About") }
     }
 }
 
 @Composable
-private fun HsvSliders(colorArgb: Int, onColor: (Int) -> Unit) {
-    val hsv = remember(colorArgb) { HsvColor.fromArgb(colorArgb) }
+private fun HsvSliders(
+    selection: HsvSelection,
+    onSelection: (HsvSelection) -> Unit,
+) {
+    val hsv = selection.hsv
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Slider(
-            value = hsv.h, onValueChange = { h -> onColor(HsvColor(h, hsv.s, hsv.v).toArgb()) },
+            value = hsv.h,
+            onValueChange = { h -> onSelection(selection.commit(HsvColor(h, hsv.s, hsv.v))) },
+            valueRange = 0f..HUE_MAX_DEGREES,
+        )
+        Slider(
+            value = hsv.s,
+            onValueChange = { s -> onSelection(selection.commit(HsvColor(hsv.h, s, hsv.v))) },
             valueRange = 0f..1f,
         )
         Slider(
-            value = hsv.s, onValueChange = { s -> onColor(HsvColor(hsv.h, s, hsv.v).toArgb()) },
-            valueRange = 0f..1f,
-        )
-        Slider(
-            value = hsv.v, onValueChange = { v -> onColor(HsvColor(hsv.h, hsv.s, v).toArgb()) },
+            value = hsv.v,
+            onValueChange = { v -> onSelection(selection.commit(HsvColor(hsv.h, hsv.s, v))) },
             valueRange = 0f..1f,
         )
     }
@@ -331,62 +522,71 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
     val sample = PointerSample()
     DesktopShell.tool = DesktopShell.Tool(preset.copy(size = size), colorArgb, mixer)
 
-    awaitPointerEventScope {
-        while (true) {
-            val event = awaitPointerEvent()
-            val change = event.changes.firstOrNull() ?: continue
-            val position = change.position
-            val timeNs = System.nanoTime()
+    try {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull() ?: continue
+                val position = change.position
+                val timeNs = System.nanoTime()
 
-            when (event.type) {
-                PointerEventType.Press -> {
-                    // This version exposes no PointerButtons.isPressed helpers;
-                    // the event's own button id decides.
-                    val secondary = event.button == PointerButton.Secondary
-                    DesktopShell.erasing = secondary
-                    val tool = if (secondary) PointerTool.ERASER else PointerTool.MOUSE
-                    handler.onPointerDown(
-                        sample.set(
-                            MOUSE_POINTER_ID, tool,
-                            position.x, position.y, SYNTHETIC_PRESSURE, 0f, 0f, timeNs,
-                        ),
-                    )
-                }
-
-                PointerEventType.Move -> {
-                    if (change.pressed) {
-                        val tool = if (DesktopShell.erasing) PointerTool.ERASER else PointerTool.MOUSE
-                        handler.onPointerMove(
+                when (event.type) {
+                    PointerEventType.Press -> {
+                        val secondary = event.button == PointerButton.Secondary
+                        DesktopShell.mouseMode = if (secondary) DesktopMouseMode.Erase else DesktopMouseMode.Draw
+                        handler.onPointerDown(
                             sample.set(
-                                MOUSE_POINTER_ID, tool,
+                                MOUSE_POINTER_ID, PointerTool.MOUSE,
                                 position.x, position.y, SYNTHETIC_PRESSURE, 0f, 0f, timeNs,
                             ),
                         )
-                        handler.onPointerMoveEnd(timeNs)
-                    } else {
-                        handler.onHoverMove(
-                            sample.setHover(
-                                MOUSE_POINTER_ID, PointerTool.MOUSE,
-                                position.x, position.y, 0f, timeNs,
-                            ),
+                    }
+
+                    PointerEventType.Move -> {
+                        if (change.pressed) {
+                            handler.onPointerMove(
+                                sample.set(
+                                    MOUSE_POINTER_ID, PointerTool.MOUSE,
+                                    position.x, position.y, SYNTHETIC_PRESSURE, 0f, 0f, timeNs,
+                                ),
+                            )
+                            handler.onPointerMoveEnd(timeNs)
+                        } else {
+                            handler.onHoverMove(
+                                sample.setHover(
+                                    MOUSE_POINTER_ID, PointerTool.MOUSE,
+                                    position.x, position.y, 0f, timeNs,
+                                ),
+                            )
+                        }
+                    }
+
+                    PointerEventType.Scroll -> {
+                        handler.onScroll(
+                            position.x,
+                            position.y,
+                            -change.scrollDelta.y / SCROLL_PIXELS_PER_TICK,
+                            pointerClass = true,
                         )
                     }
-                }
 
-                PointerEventType.Release -> {
-                    handler.onPointerUp(
-                        sample.set(
-                            MOUSE_POINTER_ID, PointerTool.MOUSE,
-                            position.x, position.y, SYNTHETIC_PRESSURE, 0f, 0f, timeNs,
-                        ),
-                    )
-                    DesktopShell.erasing = false
+                    PointerEventType.Release -> {
+                        handler.onPointerUp(
+                            sample.set(
+                                MOUSE_POINTER_ID, PointerTool.MOUSE,
+                                position.x, position.y, SYNTHETIC_PRESSURE, 0f, 0f, timeNs,
+                            ),
+                        )
+                        DesktopShell.mouseMode = DesktopMouseMode.Draw
+                    }
                 }
             }
         }
+    } finally {
+        handler.onPointerCancel(System.nanoTime())
+        DesktopShell.mouseMode = DesktopMouseMode.Draw
     }
 }
-
 private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPointerEventsSwatch(
     swatch: Int,
     onColor: (Int) -> Unit,
@@ -402,7 +602,7 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
 // ------------------------------------------------------------ shell state
 
 /** The tool state the [DesktopInputHost] reads; v1 shell simplicity. */
-object DesktopShell {
+private object DesktopShell {
     data class Tool(
         val preset: BrushPreset,
         val colorArgb: Int,
@@ -410,12 +610,13 @@ object DesktopShell {
     )
 
     var tool: Tool? = null
-    var erasing = false
+    var mouseMode = DesktopMouseMode.Draw
 
     fun handler(engine: DesktopEngine): CanvasTouchHandler {
         lateinit var handler: CanvasTouchHandler
         handler = CanvasTouchHandler(density = 1f, host = DesktopInputHost(engine) { handler })
         handler.frameScheduler = SwingFrameScheduler
+        handler.attachDeadlineScheduler(SwingGestureDeadlineScheduler())
         return handler
     }
 }
@@ -443,25 +644,37 @@ private class DesktopInputHost(
         val tool = DesktopShell.tool ?: return
         val active = engine.stack.layers.getOrNull(engine.stack.activeIndex) ?: return
 
-        this.source = source
+        driver?.cancel()
+        if (driver != null) engine.cancelStroke()
+        driver = null
+
+        val resolvedSource = DesktopStrokePolicy.source(source, DesktopShell.mouseMode)
+        this.source = resolvedSource
+        val mode = DesktopStrokePolicy.mode(resolvedSource, tool.preset, tool.mixer)
+        val rmw = if (resolvedSource == StrokeSource.ERASER_END) {
+            null
+        } else {
+            RmwStrokePolicy.spec(ToolKind.Brush(tool.preset), tool.mixer)
+        }
         val spec = StrokeSpec(
             layerId = active.id,
-            mode = BrushMixingPolicy.mode(tool.preset, tool.mixer),
+            mode = mode,
             opacity = tool.preset.opacity,
             alphaLock = active.props.alphaLock,
-            dilution = tool.preset.dilution,
+            dilution = if (mode == StrokeMode.MIX) tool.preset.dilution else 0f,
             grainMode = tool.preset.grainMode,
             brushModel = tool.preset.model,
-            rmw = null,
+            rmw = rmw,
         )
         driver = StrokeDriver(
             tool.preset,
             seed = System.nanoTime(),
-            // The live canvas→screen scale, exactly as the Android host
-            // passes `handler.canvasToScreenScale`: dab spacing follows the
-            // zoom the user actually sees.
             zoom = handler().canvasToScreenScale,
-            spacingPolicy = DabSpacingPolicy.Brush,
+            spacingPolicy = if (rmw == null) {
+                DabSpacingPolicy.Brush
+            } else {
+                DabSpacingPolicy.ReadModifyWrite
+            },
         )
 
         val rgb = DesktopPalette.toStrokeRgb(tool.colorArgb)
@@ -554,8 +767,20 @@ private val VIEWPORT_VOID = Color(0xFF2A2A2E)
 private const val RGBA_BYTES = 4
 private const val MOUSE_POINTER_ID = 0
 private const val SYNTHETIC_PRESSURE = 1f
+private const val SCROLL_PIXELS_PER_TICK = 40f
+private const val HUE_MAX_DEGREES = 360f
 private const val CANVAS_EDGE = 2048
-private const val BRUSH_ROWS = 8
-private const val WINDOW_TITLE = "BangniDraw Desktop"
+private const val VERIFY_RUNTIME_FLAG = "--verify-runtime"
+private const val SMOKE_STARTUP_FAILURE_FLAG = "--smoke-startup-failure"
+private const val SMOKE_WINDOW_FLAG = "--smoke-window"
+private const val INITIAL_GL_WIDTH = 1
+private const val INITIAL_GL_HEIGHT = 1
+private val NO_GLES_MESSAGE = """
+OpenGL ES 3.0 is unavailable.
+
+Linux: install Mesa libEGL and libGLESv2, or your GPU vendor driver.
+macOS: provide libEGL.dylib and libGLESv2.dylib with
+-Dbangnidraw.angle.dir=/path/to/angle, or place both in the app resources.
+""".trimIndent()
 private const val WINDOW_MIN_W = 960
 private const val WINDOW_MIN_H = 600

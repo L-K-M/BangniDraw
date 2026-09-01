@@ -10,7 +10,7 @@ import kotlinx.serialization.json.Json
  * resources (`brushes` JSON files). The Android app reads the same files as
  * assets; the engine-core tests pin their shipped values.
  */
-object DesktopBrushes {
+internal object DesktopBrushes {
 
     fun loadAll(): List<BrushPreset> {
         val json = Json { ignoreUnknownKeys = true }

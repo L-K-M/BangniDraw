@@ -65,6 +65,42 @@ class HeapStagingContractTest {
         assertTrue(second === first || second.capacity() >= 16, "smaller requests reuse the same stage")
         assertEquals(0, second.position(), "a reused stage starts rewound — cleared in the buffer sense")
     }
+
+    @Test
+    fun `absolute native writes copy back without advancing the staging position`() {
+        val destinationBytes = ByteArray(DESTINATION_OFFSET + READBACK_BYTES + 1) { UNTOUCHED_BYTE }
+        val destination = ByteBuffer.wrap(destinationBytes).apply {
+            position(DESTINATION_OFFSET)
+            limit(DESTINATION_OFFSET + READBACK_BYTES)
+        }
+        val staged = GLES30.stagingFor(READBACK_BYTES)
+
+        // Native GL writes through the address; it does not advance the Java
+        // buffer position as a relative ByteBuffer.put would.
+        for (i in 0 until READBACK_BYTES) staged.put(i, (FIRST_PIXEL_BYTE + i).toByte())
+        assertEquals(0, staged.position(), "the simulated native write is absolute")
+
+        GLES30.copyStagedReadback(staged, destination, READBACK_BYTES)
+
+        assertEquals(DESTINATION_OFFSET + READBACK_BYTES, destination.position())
+        assertEquals(0, staged.position(), "copyback preserves the reused staging buffer state")
+        for (i in 0 until READBACK_BYTES) {
+            assertEquals(
+                (FIRST_PIXEL_BYTE + i).toByte(),
+                destinationBytes[DESTINATION_OFFSET + i],
+                "readback byte $i",
+            )
+        }
+        assertEquals(UNTOUCHED_BYTE, destinationBytes[DESTINATION_OFFSET - 1])
+        assertEquals(UNTOUCHED_BYTE, destinationBytes[DESTINATION_OFFSET + READBACK_BYTES])
+    }
+
+    private companion object {
+        const val DESTINATION_OFFSET = 2
+        const val READBACK_BYTES = 8
+        const val FIRST_PIXEL_BYTE = 17
+        const val UNTOUCHED_BYTE: Byte = 0x55
+    }
 }
 
 /** Reaches the desktop actual's internal staging seam without a GL context. */

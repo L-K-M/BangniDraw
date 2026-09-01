@@ -1,10 +1,13 @@
-Placeholder for darwin-arm64's ANGLE dylibs (libEGL / libGLESv2) — NOT committed.
+Placeholder for macos-x64's ANGLE dylibs (libEGL / libGLESv2) — NOT committed.
 
 macOS has no native GLES; the desktop context needs ANGLE's Metal
 backend (see the README's desktop section). Place the dylibs for this
 target here before packaging; jpackage picks them up via
 appResourcesRootDir. Linux uses the system GLES natively (Mesa/NVIDIA);
 its fallback folders are recreated only if an ANGLE-on-Linux path ever lands.
+
+CI uses the architecture supplied by `macos-latest`; x64 is covered only
+when that runner label resolves to x64, or by a manual build.
 
 Distributing binaries here requires recording their provenance in
 AGENTS.md (the repo's third-party rule); none are checked in.

@@ -98,6 +98,11 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      - name: Install Linux desktop smoke dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          libegl1 libgles2 libgl1-mesa-dri xauth xvfb
+
       - name: Test and build the desktop distributable
         # packageDeb exercises the deb metadata (version/vendor/charset)
         # that createDistributable never touches; rpmbuild is absent on
@@ -109,6 +114,30 @@ jobs:
           ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
           :desktop:test :desktop:createDistributable :desktop:packageDeb
           -Pbangnidraw.mixbox=false
+
+      - name: Verify Linux desktop package
+        run: |
+          DEB="$(find desktop/build/compose/binaries/main/deb -name '*.deb' -print -quit)"
+          test "$(dpkg-deb -f "$DEB" Package)" = "bangnidraw"
+          test "$(dpkg-deb -f "$DEB" Maintainer)" = "L-K-M <L-K-M@users.noreply.github.com>"
+
+          ROOT="$RUNNER_TEMP/bangnidraw-deb"
+          dpkg-deb -x "$DEB" "$ROOT"
+          DESKTOP_ENTRY="$(find "$ROOT" -name '*.desktop' -print -quit)"
+          grep -Fx 'Name=帮你Draw' "$DESKTOP_ENTRY"
+          grep -Fx 'Categories=Graphics' "$DESKTOP_ENTRY"
+
+          ICON_PATH="$(sed -n 's/^Icon=//p' "$DESKTOP_ENTRY")"
+          ICON="$ROOT$ICON_PATH"
+          test "$(sha256sum "$ICON" | cut -d ' ' -f 1)" = \
+            "$(sha256sum desktop/packaging/icons/bangnidraw.png | cut -d ' ' -f 1)"
+
+          LAUNCHER="$(find desktop/build/compose/binaries/main/app -path '*/bin/*' -type f -executable -print -quit)"
+          "$LAUNCHER" --verify-runtime | grep -F '帮你Draw runtime OK:'
+
+          LIBGL_ALWAYS_SOFTWARE=1 timeout 30s xvfb-run -a \
+            "$LAUNCHER" --smoke-window 2>&1 | tee "$RUNNER_TEMP/desktop-smoke.log"
+          grep -F '帮你Draw window OK:' "$RUNNER_TEMP/desktop-smoke.log"
 
       - name: Upload desktop distributable
         uses: actions/upload-artifact@v7
@@ -146,10 +175,33 @@ jobs:
           :desktop:test :desktop:createDistributable
           :desktop:packageDistributionForCurrentOS
 
+      - name: Verify macOS desktop package
+        run: |
+          APP="$(find desktop/build/compose/binaries/main/app -name '*.app' -print -quit)"
+          PLIST="$APP/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$PLIST")" = "帮你Draw"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$PLIST")" = "帮你Draw"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")" = \
+            "ch.lkmc.bangnidraw.desktop"
+
+          ICON_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$PLIST")"
+          ICON="$APP/Contents/Resources/$ICON_NAME"
+          test "$(shasum -a 256 "$ICON" | cut -d ' ' -f 1)" = \
+            "$(shasum -a 256 desktop/packaging/icons/bangnidraw.icns | cut -d ' ' -f 1)"
+
+          LAUNCHER="$(find "$APP/Contents/MacOS" -type f -print -quit)"
+          test -x "$LAUNCHER"
+          "$LAUNCHER" --verify-runtime | grep -F '帮你Draw runtime OK:'
+
+          perl -e 'alarm shift; exec @ARGV' 30 \
+            "$LAUNCHER" --smoke-startup-failure 2>&1 | \
+            tee "$RUNNER_TEMP/desktop-macos-smoke.log"
+          grep -F '帮你Draw error window OK:' "$RUNNER_TEMP/desktop-macos-smoke.log"
+
       - name: Upload macOS distributable
         # Built WITHOUT the uncommitted ANGLE dylibs — a build/smoke-test
         # artifact, not a shippable image: stage the dylibs into
-        # desktop/packaging/angle/darwin-<arch>/ before any release packaging.
+        # desktop/packaging/angle/macos-<arch>/ before release packaging.
         uses: actions/upload-artifact@v7
         with:
           name: bangnidraw-desktop-macos-noangle-${{ github.sha }}

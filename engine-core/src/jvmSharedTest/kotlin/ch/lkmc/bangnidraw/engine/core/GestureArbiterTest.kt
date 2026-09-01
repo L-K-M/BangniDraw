@@ -107,6 +107,17 @@ class GestureArbiterTest {
     }
 
     @Test
+    fun `a mouse draws immediately with its own source`() {
+        val r = Recorder()
+        val a = arbiter()
+
+        a.down(1, PointerTool.MOUSE, 10f, 10f, ms(0), r)
+        a.up(1, ms(1), r)
+
+        assertEquals(listOf("draw(1,MOUSE)", "end(1)"), r.events)
+    }
+
+    @Test
     fun `the eraser end is a stroke with its own source`() {
         // The ViewModel swaps to the eraser preset off this, so the source has
         // to survive rather than collapsing to STYLUS.

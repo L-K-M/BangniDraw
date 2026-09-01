@@ -63,19 +63,32 @@ The same repo builds a desktop app (`DESKTOP.md` is the design study):
 
 Linux uses the system GLES (Mesa or the vendor driver's `libEGL`/
 `libGLESv2`); nothing extra to install. macOS has no native GLES — the
-context comes from ANGLE's Metal backend. Place ANGLE's
-`libEGL.dylib`/`libGLESv2.dylib` next to the jar Gradle runs (or put that
-directory on `java.library.path`, or `DYLD_LIBRARY_PATH`) before
-`:desktop:run`; Chromium installs and `gdx-angle-natives` are known-good
-sources. Startup logs the GL version and renderer on stderr — a missing
-ES 3.0 context exits with a message, not a crash.
+context comes from ANGLE's Metal backend. Builds do not vendor ANGLE.
+The GitHub DMG is an unsigned developer preview; Gatekeeper may require
+explicit approval. Production distribution still needs bundled, signed ANGLE, Developer ID
+signing, and notarization (DESKTOP.md Phase 4).
+Provide matching `libEGL.dylib` and `libGLESv2.dylib` either in the
+packaged app's Compose resources directory or explicitly:
+
+```sh
+JAVA_TOOL_OPTIONS=-Dbangnidraw.angle.dir=/absolute/path/to/angle \
+  ./gradlew :desktop:run
+```
+
+For an installed preview, run its launcher from Terminal with the same
+`JAVA_TOOL_OPTIONS`; Finder cannot supply that property.
+
+The packaged target directories are `desktop/packaging/angle/macos-arm64`
+and `macos-x64`. Startup logs the GL version and renderer. Missing ANGLE or
+ES 3.0 opens an instruction window; it no longer leaves a menu-only process.
 
 The desktop shell is v1-minimal: canvas, brush picker, color, undo/redo,
 Save PNG (to `~/Pictures/BangniDraw`), mouse input with synthetic
 pressure. Pens with real pressure are Phase 3 (per-OS native input shims,
-see DESKTOP.md). **Mixbox attribution carries over**: pigment mixing is
-Mixbox © Secret Weapons, CC BY-NC 4.0 — non-commercial; the About row in
-the app says so, and `-Pbangnidraw.mixbox=false` strips it here too.
+see DESKTOP.md). The app and native About menu use the canonical 帮你Draw
+name and project icon. **Mixbox attribution carries over**: pigment mixing
+is Mixbox © Secret Weapons, CC BY-NC 4.0 — non-commercial; the About button
+states this when included, and `-Pbangnidraw.mixbox=false` strips it.
 
 ## License
 

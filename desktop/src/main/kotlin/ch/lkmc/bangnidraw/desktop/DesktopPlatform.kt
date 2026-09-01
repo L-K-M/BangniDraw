@@ -4,7 +4,7 @@ import ch.lkmc.bangnidraw.engine.core.DeviceMemory
 import java.lang.management.ManagementFactory
 
 /** The desktop platform facts the shared engine asks for. */
-object DesktopPlatform {
+internal object DesktopPlatform {
 
     /**
      * System RAM via `com.sun.management.OperatingSystemMXBean` — the honest

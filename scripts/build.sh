@@ -13,8 +13,9 @@
 #   scripts/build.sh --debug          # debug build -> dist/
 #   scripts/build.sh --clean          # wipe Gradle build output first
 #   scripts/build.sh --check          # print resolved config; build nothing
+#   scripts/build.sh --install        # also install onto the connected device
 #
-# Usage: scripts/build.sh [--debug] [--clean] [--check]
+# Usage: scripts/build.sh [--debug] [--clean] [--check] [--install]
 # Requirements: JDK 17+; the Android SDK (local.properties or ANDROID_HOME).
 set -euo pipefail
 
@@ -28,11 +29,13 @@ usage() { awk 'NR==1 && /^#!/ {next} /^#/ {sub(/^# ?/,""); print; next} {exit}' 
 VARIANT="release"
 CLEAN=0
 CHECK=0
+INSTALL=0
 for arg in "$@"; do
   case "$arg" in
     --debug) VARIANT="debug" ;;
     --clean) CLEAN=1 ;;
     --check) CHECK=1 ;;
+    --install) INSTALL=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "!! unknown argument: $arg" >&2; usage >&2; exit 2 ;;
   esac
@@ -57,6 +60,7 @@ if [ "$CHECK" -eq 1 ]; then
   echo "-- version:  $VERSION"
   echo "-- task:     ./gradlew $TASK"
   echo "-- staged:   $OUT"
+  echo "-- install:  $INSTALL"
   exit 0
 fi
 
@@ -74,6 +78,17 @@ mkdir -p dist
 cp "$APK" "$OUT"
 echo "==> staged $OUT"
 
-# Reveal in Finder when running on a Mac desktop; harmless elsewhere.
-command -v open >/dev/null 2>&1 && open -R "$OUT" 2>/dev/null || true
+if [ "$INSTALL" -eq 1 ]; then
+  # Same AGP install task scripts/install.sh uses; fails loudly with no device.
+  echo "==> ./gradlew install${VARIANT^}  (installs to the connected device)"
+  ./gradlew "install${VARIANT^}"
+fi
+
+# Reveal the staged APK in the desktop file browser, best-effort: select it
+# in Finder on a Mac, open its directory elsewhere. Never fails the build.
+if command -v open >/dev/null 2>&1; then
+  open -R "$OUT" >/dev/null 2>&1 || true
+elif command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$(dirname "$OUT")" >/dev/null 2>&1 || true
+fi
 echo "==> Done."

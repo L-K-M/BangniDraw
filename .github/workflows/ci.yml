@@ -43,6 +43,9 @@ jobs:
       # android.suppressUnsupportedCompileSdk in gradle.properties).
       - uses: gradle/actions/setup-gradle@v6
 
+      - name: Lint shell scripts
+        run: bash -n scripts/*.sh
+
       - name: Test, lint, and assemble
         # The KMP libraries register no Android unit tests; their JVM suites
         # run on the desktop targets (DESKTOP.md Phase 1, M1/M2), and the

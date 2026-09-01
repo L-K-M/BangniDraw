@@ -34,6 +34,7 @@ between them.
 
 ```sh
 ./gradlew assembleDebug        # or: scripts/build.sh --debug
+scripts/build.sh --install     # stage + install onto the connected device
 scripts/install.sh             # build + install + launch on a device
 ```
 

@@ -46,10 +46,12 @@ VERSION="$(sed -nE 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"([^"]*)"
 
 if [ "$VARIANT" = "release" ]; then
   TASK="assembleRelease"
+  INSTALL_TASK="installRelease"
   APK="app/build/outputs/apk/release/app-release.apk"
   OUT="dist/bangnidraw-v${VERSION}-release.apk"
 else
   TASK="assembleDebug"
+  INSTALL_TASK="installDebug"
   APK="app/build/outputs/apk/debug/app-debug.apk"
   OUT="dist/bangnidraw-v${VERSION}-debug.apk"
 fi
@@ -80,8 +82,8 @@ echo "==> staged $OUT"
 
 if [ "$INSTALL" -eq 1 ]; then
   # Same AGP install task scripts/install.sh uses; fails loudly with no device.
-  echo "==> ./gradlew install${VARIANT^}  (installs to the connected device)"
-  ./gradlew "install${VARIANT^}"
+  echo "==> ./gradlew $INSTALL_TASK  (installs to the connected device)"
+  ./gradlew "$INSTALL_TASK"
 fi
 
 # Reveal the staged APK in the desktop file browser, best-effort: select it

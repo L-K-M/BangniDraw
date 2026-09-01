@@ -30,7 +30,7 @@ as they happen.
 ./gradlew assembleDebug        # debug APK
 ./gradlew :engine-core:desktopTest  # engine model layer, desktop-JVM target
 scripts/build.sh               # release APK staged into dist/
-scripts/build.sh --install     # stage + install onto the connected device
+scripts/build.sh --install     # desktop .app installed to /Applications (macOS)
 scripts/install.sh             # build + install + launch on a device
 python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-sources/icon.png
 ```

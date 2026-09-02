@@ -32,6 +32,8 @@ internal class DesktopExportTask(
         val result = try {
             export()
         } catch (failure: Throwable) {
+            if (failure is InterruptedException) Thread.currentThread().interrupt()
+
             try {
                 complete(DesktopPng.failureResult(failure))
             } finally {

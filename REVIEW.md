@@ -3318,3 +3318,8 @@ much as in code.
   cancellation propagates; and helper output drains concurrently. Each fix has
   a failing-first regression. The duplicated XML decoder is pinned by a golden
   test, and GL activation-thread visibility is explicit.
+
+- **R-250 ✅ (applied/refuted) PR #188 round 3.** Interrupted exports now
+  restore the thread flag. The stderr deadlock claim was false because
+  `redirectErrorStream(true)` already merges both pipes; the 4 MiB stress test
+  now pins stdout and stderr together.

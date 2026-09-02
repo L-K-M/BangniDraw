@@ -100,6 +100,25 @@ class DesktopRuntimeLifecycleContractTest {
     }
 
     @Test
+    fun `interrupted export restores status before completion`() {
+        Thread.interrupted()
+        val completionInterrupts = mutableListOf<Boolean>()
+        val task = DesktopExportTask(
+            export = { throw InterruptedException("interrupted export") },
+            onComplete = { completionInterrupts += Thread.currentThread().isInterrupted },
+        )
+
+        try {
+            task.run()
+
+            assertEquals(listOf(true), completionInterrupts)
+            assertTrue(Thread.currentThread().isInterrupted)
+        } finally {
+            Thread.interrupted()
+        }
+    }
+
+    @Test
     fun `GL failures retain platform recovery guidance`() {
         val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
         val context = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/GlfwEsContext.kt")

@@ -115,21 +115,27 @@ class DesktopPackagingContractTest {
     }
 
     @Test
-    fun `helper output is drained while the process runs`() {
+    fun `helper stdout and stderr are drained while the process runs`() {
         val result = runHelper(
             """
                 i=0
                 while ((i < PIPE_STRESS_REPETITIONS)); do
-                  printf '%s' "${'$'}PIPE_STRESS_CHUNK"
+                  printf '%s' "${'$'}PIPE_STRESS_STDOUT_CHUNK"
+                  printf '%s' "${'$'}PIPE_STRESS_STDERR_CHUNK" >&2
                   ((i += 1))
                 done
             """.trimIndent(),
             "PIPE_STRESS_REPETITIONS" to PIPE_STRESS_REPETITIONS.toString(),
-            "PIPE_STRESS_CHUNK" to PIPE_STRESS_CHUNK,
+            "PIPE_STRESS_STDOUT_CHUNK" to PIPE_STRESS_STDOUT_CHUNK,
+            "PIPE_STRESS_STDERR_CHUNK" to PIPE_STRESS_STDERR_CHUNK,
         )
 
+        val stdoutBytes = PIPE_STRESS_STDOUT_CHUNK.length * PIPE_STRESS_REPETITIONS
+        val stderrBytes = PIPE_STRESS_STDERR_CHUNK.length * PIPE_STRESS_REPETITIONS
+
         assertEquals(0, result.exitCode, result.output)
-        assertEquals(PIPE_STRESS_CHUNK.length * PIPE_STRESS_REPETITIONS, result.output.length)
+        assertEquals(stdoutBytes, result.output.count { it == PIPE_STRESS_STDOUT_MARKER })
+        assertEquals(stderrBytes, result.output.count { it == PIPE_STRESS_STDERR_MARKER })
     }
 
     @Test
@@ -251,6 +257,9 @@ class DesktopPackagingContractTest {
         const val HELPER_OUTPUT_TIMEOUT_SECONDS = 5L
         const val HELPER_OUTPUT_THREAD_NAME = "desktop-package-output"
         const val PIPE_STRESS_REPETITIONS = 32_768
-        const val PIPE_STRESS_CHUNK = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        const val PIPE_STRESS_STDOUT_MARKER = 'o'
+        const val PIPE_STRESS_STDERR_MARKER = 'e'
+        const val PIPE_STRESS_STDOUT_CHUNK = "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo"
+        const val PIPE_STRESS_STDERR_CHUNK = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
     }
 }

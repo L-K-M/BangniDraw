@@ -3323,3 +3323,27 @@ much as in code.
   restore the thread flag. The stderr deadlock claim was false because
   `redirectErrorStream(true)` already merges both pipes; the 4 MiB stress test
   now pins stdout and stderr together.
+
+- **R-251 ✅ (applied) PR #189 round 1.** Contract scopes now fail closed,
+  launcher smoke modes remain pinned, failed staging is cleaned, downloads
+  retry transport errors, and packaged license notices are verified. Each
+  behavioral fix has a failing-first regression.
+
+- **R-252 ⏸️ (refuted) PR #189 round 1: a missing Linux app-resources root
+  breaks packaging.** Both the local Debian gate and dispatched Linux CI
+  built it successfully; Compose treats the absent host resource directory
+  as `NO-SOURCE`, which is correct because Linux uses system EGL/GLES.
+
+- **R-253 ⏸️ (refuted) PR #189 round 1: `:desktop:run` skips ANGLE
+  staging.** Its actual dry-run graph is `stageMacAngle` →
+  `prepareAppResources` → `run`; Compose supplies that prepared resource
+  directory to the launched JVM.
+
+- **R-254 ⏸️ (declined) PR #189 round 1: replace JDK `jar` with
+  `/usr/bin/unzip`.** JDK 17 is a mandatory Gradle prerequisite, so `jar` is
+  already guaranteed wherever this Gradle-owned task can run. Adding another
+  extractor does not remove a dependency or improve the trust boundary.
+
+- **R-255 ✅ (applied) PR #189 macOS smoke.** GLFW's default Cocoa init
+  changed the process directory after ANGLE was exposed, so first-window EGL
+  lookup failed. Disabling `GLFW_COCOA_CHDIR_RESOURCES` preserves the guarded

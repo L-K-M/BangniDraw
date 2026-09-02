@@ -76,6 +76,31 @@ val lwjglNativeClassifier = when {
     else -> error("unsupported desktop host: $hostOsName $hostArchitecture")
 }
 
+val macAngleTarget = when (hostArchitecture) {
+    in arm64Architectures -> "macos-arm64"
+    in x64Architectures -> "macos-x64"
+    else -> error("unsupported macOS architecture: $hostArchitecture")
+}
+val macAngleResources = layout.buildDirectory.dir("generated/angle/resources")
+val stageMacAngle = tasks.register<Exec>("stageMacAngle") {
+    val fetchScript = layout.projectDirectory.file("../scripts/fetch-angle-macos.sh")
+    val angleVersion = libs.versions.electronAngle.get()
+
+    inputs.file(fetchScript)
+    inputs.property("electronAngleVersion", angleVersion)
+    inputs.property("macAngleTarget", macAngleTarget)
+    outputs.dir(macAngleResources.get().dir(macAngleTarget))
+
+    enabled = hostOsName.startsWith("Mac")
+    commandLine(
+        fetchScript.asFile.absolutePath,
+        angleVersion,
+        macAngleTarget,
+        macAngleResources.get().asFile.absolutePath,
+    )
+}
+
+
 kotlin {
     jvmToolchain(17)
 }
@@ -104,20 +129,16 @@ compose.desktop {
             vendor = "L-K-M"
             modules("java.instrument", "jdk.management", "jdk.unsupported")
 
-            // macOS needs ANGLE's dylibs beside the app at runtime (see the
-            // README's desktop section). Only the macOS folders exist: Linux
-            // uses the system GLES natively and its fallback folders are
-            // recreated when such a thing ever lands. The checked-in
-            // placeholders document the layout and NO binaries are committed;
-            // appResourcesRootDir packages the folders verbatim, so the
-            // placeholder is removed when real dylibs are staged.
-            appResourcesRootDir = project.file("packaging/angle")
+            // macOS packages stage pinned ANGLE binaries and notices here.
+            // Linux uses the system EGL/GLES implementation.
+            appResourcesRootDir = macAngleResources.get().asFile
 
             // Windows is out of scope for the desktop port (DESKTOP.md covers
             // macOS and Linux); if it returns, restore a windows { menuGroup … }
             // block alongside an Msi/Exe target format.
             macOS {
                 bundleID = "ch.lkmc.bangnidraw.desktop"
+                minimumSystemVersion = "12.0"
                 packageVersion = desktopMacPackageVersion
                 packageBuildVersion = desktopPackageBuildVersion
                 dockName = desktopDisplayName
@@ -145,6 +166,10 @@ compose.desktop {
             }
         }
     }
+}
+
+tasks.configureEach {
+    if (name == "prepareAppResources") dependsOn(stageMacAngle)
 }
 
 dependencies {

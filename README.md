@@ -62,25 +62,26 @@ The same repo builds a desktop app (`DESKTOP.md` is the design study):
 ```
 
 Linux uses the system GLES (Mesa or the vendor driver's `libEGL`/
-`libGLESv2`); nothing extra to install. macOS has no native GLES — the
-context comes from ANGLE's Metal backend. Builds do not vendor ANGLE.
-The GitHub DMG is an unsigned developer preview; Gatekeeper may require
-explicit approval. Production distribution still needs bundled, signed ANGLE, Developer ID
-signing, and notarization (DESKTOP.md Phase 4).
-Provide matching `libEGL.dylib` and `libGLESv2.dylib` either in the
-packaged app's Compose resources directory or explicitly:
+`libGLESv2`); nothing extra to install. macOS has no native GLES — normal
+Gradle run and packaging tasks fetch the pinned Electron distribution,
+verify it, and bundle its ANGLE Metal libraries and license files. The source
+tree contains no native binaries; source and license provenance is recorded
+in [`third-party/angle/`](third-party/angle/README.md).
+
+The GitHub DMG is an unsigned developer preview. On first launch,
+Control-click the app and choose **Open**. Production distribution still
+requires Developer ID signing and notarization (DESKTOP.md Phase 4).
+
+For ANGLE development, an explicit directory overrides the automatically
+staged runtime:
 
 ```sh
 JAVA_TOOL_OPTIONS=-Dbangnidraw.angle.dir=/absolute/path/to/angle \
   ./gradlew :desktop:run
 ```
 
-For an installed preview, run its launcher from Terminal with the same
-`JAVA_TOOL_OPTIONS`; Finder cannot supply that property.
-
-The packaged target directories are `desktop/packaging/angle/macos-arm64`
-and `macos-x64`. Startup logs the GL version and renderer. Missing ANGLE or
-ES 3.0 opens an instruction window; it no longer leaves a menu-only process.
+Startup logs the GL version and renderer. Missing ANGLE or ES 3.0 opens an
+instruction window; it no longer leaves a menu-only process.
 
 The desktop shell is v1-minimal: canvas, brush picker, color, undo/redo,
 Save PNG (to `~/Pictures/BangniDraw`), mouse input with synthetic

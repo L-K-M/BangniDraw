@@ -1,13 +1,5 @@
-Placeholder for macos-arm64's ANGLE dylibs (libEGL / libGLESv2) — NOT committed.
+This placeholder records Compose's macos-arm64 resource-directory name.
 
-macOS has no native GLES; the desktop context needs ANGLE's Metal
-backend (see the README's desktop section). Place the dylibs for this
-target here before packaging; jpackage picks them up via
-appResourcesRootDir. Linux uses the system GLES natively (Mesa/NVIDIA);
-its fallback folders are recreated only if an ANGLE-on-Linux path ever lands.
-
-Distributing binaries here requires recording their provenance in
-AGENTS.md (the repo's third-party rule); none are checked in.
-
-Files in this directory are packaged verbatim into the app image —
-remove this placeholder when the real dylibs are staged.
+Do not put binaries here. `stageMacAngle` fetches and verifies the pinned
+runtime, then writes generated resources under `desktop/build/`. See
+`third-party/angle/README.md` for provenance.

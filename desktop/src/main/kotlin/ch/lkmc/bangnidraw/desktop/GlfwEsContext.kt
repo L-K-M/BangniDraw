@@ -90,7 +90,10 @@ internal class GlfwEsContext private constructor(
             installErrorCallback()
 
             // Compose owns macOS menu and Dock integration; GLFW only owns GL.
+            // Keep the bootstrap's ANGLE lookup directory through
+            // first-window creation.
             GLFW.glfwInitHint(GLFW.GLFW_COCOA_MENUBAR, GLFW.GLFW_FALSE)
+            GLFW.glfwInitHint(GLFW.GLFW_COCOA_CHDIR_RESOURCES, GLFW.GLFW_FALSE)
             if (backend == DesktopGlBackend.AngleMetal) {
                 GLFW.glfwInitHint(GLFW.GLFW_ANGLE_PLATFORM_TYPE, GLFW.GLFW_ANGLE_PLATFORM_TYPE_METAL)
             }

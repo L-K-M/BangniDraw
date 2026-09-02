@@ -85,6 +85,23 @@ class DesktopNativeBootstrapTest {
     }
 
     @Test
+    fun `GLFW preserves the ANGLE directory until window creation`() {
+        val context = source(
+            "desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/GlfwEsContext.kt",
+        )
+        val create = context.substringAfter("fun create(", "").substringBefore("return GlfwEsContext", "")
+        val preserveDirectory = create.indexOf(
+            "GLFW.glfwInitHint(GLFW.GLFW_COCOA_CHDIR_RESOURCES, GLFW.GLFW_FALSE)",
+        )
+        val initialize = create.indexOf("GLFW.glfwInit()")
+        val createWindow = create.indexOf("GLFW.glfwCreateWindow(")
+
+        assertTrue(preserveDirectory >= 0, "GLFW must not replace the ANGLE working directory")
+        assertTrue(preserveDirectory < initialize, "the Cocoa init hint must precede glfwInit")
+        assertTrue(initialize < createWindow, "glfwInit must precede window creation")
+    }
+
+    @Test
     fun `incomplete ANGLE directory is rejected`() {
         val root = Files.createTempDirectory("bangnidraw-angle")
         val incomplete = root.resolve("incomplete").createDirectories()

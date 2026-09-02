@@ -57,14 +57,20 @@ mkdir -p "$CACHE_DIR"
 if ! [ -f "$ARCHIVE" ] || ! verify_sha256 "$ARCHIVE" "$ARCHIVE_SHA256"; then
   PARTIAL_ARCHIVE="${ARCHIVE}.part"
   rm -f "$PARTIAL_ARCHIVE"
-  curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+  curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --retry-all-errors \
     --output "$PARTIAL_ARCHIVE" "$ARCHIVE_URL"
   verify_sha256 "$PARTIAL_ARCHIVE" "$ARCHIVE_SHA256"
   mv "$PARTIAL_ARCHIVE" "$ARCHIVE"
 fi
 
 TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/bangnidraw-angle.XXXXXX")"
-trap 'rm -rf "$TEMP_ROOT"' EXIT
+cleanup() {
+  rm -rf "$TEMP_ROOT"
+  if [ -n "${STAGE_DIR:-}" ]; then
+    rm -rf "$STAGE_DIR"
+  fi
+}
+trap cleanup EXIT
 
 FRAMEWORK_ROOT="Electron.app/Contents/Frameworks/Electron Framework.framework/Versions/A"
 EGL_ENTRY="$FRAMEWORK_ROOT/Libraries/libEGL.dylib"

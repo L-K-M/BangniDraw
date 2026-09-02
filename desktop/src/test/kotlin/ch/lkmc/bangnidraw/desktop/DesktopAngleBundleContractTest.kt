@@ -40,6 +40,8 @@ class DesktopAngleBundleContractTest {
         assertTrue(fetch.contains("LICENSE"))
         assertTrue(fetch.contains("LICENSES.chromium.html"))
         assertTrue(fetch.contains("shasum -a 256"))
+        assertTrue(fetch.contains("--retry-all-errors"))
+        assertTrue(fetch.contains("${'$'}{STAGE_DIR:-}"))
         assertEquals(PINNED_SHA256_COUNT, SHA256.findAll(fetch).count())
 
         assertTrue(provenance.contains("Electron v$ELECTRON_ANGLE_VERSION"))
@@ -51,7 +53,7 @@ class DesktopAngleBundleContractTest {
     @Test
     fun `mac package targets the supported deployment floor`() {
         val build = source("desktop/build.gradle.kts")
-        val mac = build.substringAfter("macOS {")
+        val mac = build.substringAfter("macOS {", "")
 
         assertTrue(mac.contains("minimumSystemVersion = \"$MINIMUM_MACOS_VERSION\""))
     }
@@ -59,8 +61,8 @@ class DesktopAngleBundleContractTest {
     @Test
     fun `mac installer rejects an app without ANGLE`() {
         val script = source("scripts/build.sh")
-        val check = script.substringAfter("if ! desktop_app_has_angle")
-            .substringBefore("fi")
+        val check = script.substringAfter("if ! desktop_app_has_angle", "")
+            .substringBefore("\n  fi", "")
 
         assertTrue(check.contains("exit 1"))
         assertFalse(check.contains("warning:"))
@@ -69,10 +71,10 @@ class DesktopAngleBundleContractTest {
     @Test
     fun `mac CI and release require ANGLE and render a frame`() {
         val ciMac = source(".github/workflows/ci.yml")
-            .substringAfter("\n  desktop-macos:\n")
+            .substringAfter("\n  desktop-macos:\n", "")
         val releaseMac = source(".github/workflows/release.yml")
-            .substringAfter("\n  build-desktop-macos:\n")
-            .substringBefore("\n  publish:\n")
+            .substringAfter("\n  build-desktop-macos:\n", "")
+            .substringBefore("\n  publish:\n", "")
 
         listOf(ciMac, releaseMac).forEach { workflow ->
             assertTrue(workflow.contains("libEGL.dylib"))
@@ -89,8 +91,8 @@ class DesktopAngleBundleContractTest {
     @Test
     fun `release tells users that ANGLE is bundled`() {
         val releaseBody = source(".github/workflows/release.yml")
-            .substringAfter("body: |")
-            .substringBefore("generate_release_notes:")
+            .substringAfter("body: |", "")
+            .substringBefore("generate_release_notes:", "")
 
         assertTrue(BUNDLED_ANGLE.containsMatchIn(releaseBody))
         assertFalse(releaseBody.contains("needs ANGLE"))

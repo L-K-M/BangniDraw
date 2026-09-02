@@ -93,8 +93,10 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   app resources and the working directory. GLFW reopens ANGLE by leaf name
   while creating the first window, so the native working-directory guard must
   cover both `glfwInit` and `glfwCreateWindow`; absolute `System.load` or
-  LWJGL configuration alone is insufficient. macOS CI verifies both dylibs,
-  their host architecture, upstream signatures, an ANGLE GL log, and one
+  LWJGL configuration alone is insufficient. Set
+  `GLFW_COCOA_CHDIR_RESOURCES` to false before initialization; its default
+  would replace that ANGLE directory during `glfwInit`. macOS CI verifies both
+  dylibs, their host architecture, upstream signatures, an ANGLE GL log, and one
   packaged frame. The app bundle remains unsigned until Phase 4.
   Packaged runtimes require `java.instrument`, `jdk.management`, and
   `jdk.unsupported`.

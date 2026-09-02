@@ -3277,3 +3277,49 @@ much as in code.
   release workflow; ci.yml is `contents: read` and has always floated
   tags. Generalizing the pins is a deliberate posture change for its own
   PR, not part of a version bump.
+
+- **R-244 ✅ (applied) PR #188 round 1.** Hardened launcher selection and
+  probe timeouts; guarded release metadata; made brand parsing and export
+  filenames safe; added Windows ARM64 natives and prerelease RPM ordering;
+  preserved installer diagnostics; serialized gesture timers; enforced GL
+  ownership and bounded shutdown without unsafe teardown; drained exports;
+  atomically published PNGs; retained platform recovery guidance; and reused
+  one Mixbox binding. Focused regressions plus both complete Android/desktop
+  gates pass.
+
+- **R-245 ⏸️ (refuted) PR #188 round 1: restore the desktop frame's vertical
+  flip.** `CanvasRenderer.drawFrame` uses the engine's established top-first
+  framebuffer convention: `COMPOSITE_VERT` documents that offscreen passes
+  absorb GL's y-up coordinates, `Mat4Test` pins the projection, and
+  `DesktopFramePixelsTest` pins that Compose receives those rows unchanged.
+  Restoring the removed CPU flip would invert the canvas.
+
+- **R-246 ⏸️ (refuted) PR #188 round 1: a new direct pointer abandons the
+  active stroke.** `GestureArbiter` already emits cancel before mouse/stylus
+  takeover; committing it with `onStrokeEnd` would be wrong. The old pointer's
+  later up is ignored. New tests pin mouse → cancel → stylus, finger rejection
+  during mouse drawing, and clean release followed by cancellation.
+
+- **R-247 ⏸️ (refuted) PR #188 round 1: defensive stroke cleanup can cancel a
+  committed stroke or attach RMW to an eraser.** Both normal completion and
+  cancellation clear `DesktopInputHost.driver` before another begin. The
+  finite source mapping produces `ERASER_END` only for secondary mouse input,
+  while an eraser preset stays `MOUSE` with ERASE mode. Regression tests cover
+  every source/mouse-mode mapping and the eraser preset.
+
+- **R-248 ⏸️ (deferred) PR #188 round 1 information notes.** Workflow
+  deduplication, Windows Msi/Exe metadata, and a real-ANGLE macOS smoke require
+  separate infrastructure or future targets. The shipped no-ANGLE DMG remains
+  explicitly documented as an unsigned instruction build, not a verified GL
+  success path.
+
+- **R-249 ✅ (applied) PR #188 round 2.** Fatal exports now report once
+  before rethrowing; stale GLFW owners fail before native teardown; preference
+  cancellation propagates; and helper output drains concurrently. Each fix has
+  a failing-first regression. The duplicated XML decoder is pinned by a golden
+  test, and GL activation-thread visibility is explicit.
+
+- **R-250 ✅ (applied/refuted) PR #188 round 3.** Interrupted exports now
+  restore the thread flag. The stderr deadlock claim was false because
+  `redirectErrorStream(true)` already merges both pipes; the 4 MiB stress test
+  now pins stdout and stderr together.

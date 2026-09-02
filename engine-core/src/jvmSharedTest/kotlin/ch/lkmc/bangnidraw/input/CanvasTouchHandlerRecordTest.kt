@@ -136,6 +136,22 @@ class CanvasTouchHandlerRecordTest {
     }
 
     @Test
+    fun `a mouse record opens immediately without stylus proximity`() {
+        val host = Host()
+        val h = handler(host)
+
+        h.onPointerDown(
+            sample.set(9, PointerTool.MOUSE, 10f, 20f, 1f, 0f, 0f, 0L),
+        )
+        h.onPointerUp(
+            sample.set(9, PointerTool.MOUSE, 10f, 20f, 1f, 0f, 0f, 1_000_000L),
+        )
+
+        assertEquals(listOf("begin(MOUSE)", "end"), host.events)
+        assertFalse(h.stylus.isNear(1_000_000L))
+    }
+
+    @Test
     fun `a record down opens the stroke at the tracked sample`() {
         val host = Host()
         val h = handler(host)
@@ -180,6 +196,18 @@ class CanvasTouchHandlerRecordTest {
         assertEquals(2, host.samples.size)
         assertEquals(80f, host.samples[1][0])
         assertEquals(90f, host.samples[1][1])
+    }
+
+    @Test
+    fun `cancel after a clean release is a no-op`() {
+        val host = Host()
+        val h = handler(host)
+        stylusDown(h)
+
+        h.onPointerUp(sample.set(7, PointerTool.STYLUS, 80f, 90f, 0.25f, 0.1f, 0f, 2_000_000L))
+        h.onPointerCancel(3_000_000L)
+
+        assertEquals(listOf("begin(STYLUS)", "end"), host.events)
     }
 
     @Test

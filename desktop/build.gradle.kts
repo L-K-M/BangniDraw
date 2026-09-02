@@ -9,14 +9,79 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// Keep this packaging-time copy aligned with DesktopBrand.parseDisplayName.
+// Ampersand stays last so `&amp;lt;` decodes once to the literal `&lt;`.
+private fun decodeXmlText(value: String): String = value
+    .replace("&quot;", "\"")
+    .replace("&apos;", "'")
+    .replace("&#39;", "'")
+    .replace("&lt;", "<")
+    .replace("&gt;", ">")
+    .replace("&amp;", "&")
+
+private fun escapeXmlText(value: String): String = value
+    .replace("&", "&amp;")
+    .replace("<", "&lt;")
+    .replace(">", "&gt;")
+
+val androidStringsFile = layout.projectDirectory.file("../app/src/main/res/values/strings.xml")
+val desktopDisplayName = providers.fileContents(androidStringsFile).asText.map { text ->
+    Regex("""<string\b[^>]*\bname\s*=\s*["']app_name["'][^>]*>([^<]*)</string>""")
+        .find(text)
+        ?.groupValues
+        ?.get(1)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.let { decodeXmlText(it) }
+        ?: error("app_name is missing from ${androidStringsFile.asFile}")
+}.get()
+val desktopDisplayNameForPlist = escapeXmlText(desktopDisplayName)
+
+val androidBuildFile = layout.projectDirectory.file("../app/build.gradle.kts")
+val desktopPackageVersion = providers.fileContents(androidBuildFile).asText.map { text ->
+    Regex("""(?m)^\s*versionName\s*=\s*"([^"]+)"""")
+        .find(text)
+        ?.groupValues
+        ?.get(1)
+        ?: error("versionName is missing from ${androidBuildFile.asFile}")
+}.get()
+
+val desktopPackageBuildVersion = providers.fileContents(androidBuildFile).asText.map { text ->
+    Regex("""(?m)^\s*versionCode\s*=\s*(\d+)""")
+        .find(text)
+        ?.groupValues
+        ?.get(1)
+        ?: error("versionCode is missing from ${androidBuildFile.asFile}")
+}.get()
+
+// Apple accepts only MAJOR[.MINOR][.PATCH]; versionCode distinguishes RCs.
+val desktopMacPackageVersion = desktopPackageVersion.substringBefore('-')
+check(Regex("""\d+(?:\.\d+){0,2}""").matches(desktopMacPackageVersion)) {
+    "macOS package version must be numeric: $desktopMacPackageVersion"
+}
+val desktopDebPackageVersion = desktopPackageVersion.replaceFirst('-', '~')
+val desktopRpmPackageVersion = desktopPackageVersion.replaceFirst('-', '~')
+
+val hostOsName = providers.systemProperty("os.name").get()
+val hostArchitecture = providers.systemProperty("os.arch").get()
+val arm64Architectures = setOf("aarch64", "arm64")
+val x64Architectures = setOf("amd64", "x86_64")
+val lwjglNativeClassifier = when {
+    hostOsName.startsWith("Mac") && hostArchitecture in arm64Architectures -> "natives-macos-arm64"
+    hostOsName.startsWith("Mac") && hostArchitecture in x64Architectures -> "natives-macos"
+    hostOsName.startsWith("Linux") && hostArchitecture in arm64Architectures -> "natives-linux-arm64"
+    hostOsName.startsWith("Linux") && hostArchitecture in x64Architectures -> "natives-linux"
+    hostOsName.startsWith("Windows") && hostArchitecture in x64Architectures -> "natives-windows"
+    hostOsName.startsWith("Windows") && hostArchitecture in arm64Architectures -> "natives-windows-arm64"
+    else -> error("unsupported desktop host: $hostOsName $hostArchitecture")
+}
+
 kotlin {
     jvmToolchain(17)
 }
 
-// The desktop packages' version. jpackage/deb refuse Gradle's default
-// "unspecified"; aligned with the app's versionName by hand at release time
-// until the release script learns the desktop formats (M5+).
-version = "1.3.0"
+// Android and desktop packages share one release version source.
+version = desktopPackageVersion
 
 compose.desktop {
     application {
@@ -33,15 +98,11 @@ compose.desktop {
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb,
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Rpm,
             )
-            packageName = "BangniDraw"
+            packageName = desktopDisplayName
             packageVersion = version.toString()
-            // ASCII only: jpackage writes desktop-entry metadata with the
-            // system charset, and a C locale turns non-ASCII into "Input
-            // length = 1" failures. The localized name lives in the app UI.
-            // Variant-neutral: the nomixbox CI build stamps the same
-            // metadata, so the description must not name Mixbox.
-            description = "BangniDraw - layered raster painting"
-            vendor = "BangniDraw"
+            description = "Layered raster painting"
+            vendor = "L-K-M"
+            modules("java.instrument", "jdk.management", "jdk.unsupported")
 
             // macOS needs ANGLE's dylibs beside the app at runtime (see the
             // README's desktop section). Only the macOS folders exist: Linux
@@ -57,11 +118,30 @@ compose.desktop {
             // block alongside an Msi/Exe target format.
             macOS {
                 bundleID = "ch.lkmc.bangnidraw.desktop"
+                packageVersion = desktopMacPackageVersion
+                packageBuildVersion = desktopPackageBuildVersion
+                dockName = desktopDisplayName
+                iconFile.set(project.file("packaging/icons/bangnidraw.icns"))
+
+                // jpackage emits CFBundleName, but Finder prefers this key.
+                infoPlist {
+                    extraKeysRawXml = """
+                        <key>CFBundleDisplayName</key>
+                        <string>$desktopDisplayNameForPlist</string>
+                    """.trimIndent()
+                }
             }
             linux {
                 // Debian policy: package names are lowercase — mixed case
                 // builds green but dpkg refuses the install.
                 packageName = "bangnidraw"
+                debPackageVersion = desktopDebPackageVersion
+                rpmPackageVersion = desktopRpmPackageVersion
+                appRelease = desktopPackageBuildVersion
+                appCategory = "Graphics"
+                debMaintainer = "L-K-M@users.noreply.github.com"
+                menuGroup = "Graphics"
+                iconFile.set(project.file("packaging/icons/bangnidraw.png"))
             }
         }
     }
@@ -90,12 +170,7 @@ dependencies {
         implementation("org.lwjgl:$artifact:$lwjglVersion")
     }
     for (artifact in listOf("lwjgl", "lwjgl-opengles", "lwjgl-glfw")) {
-        for (natives in listOf(
-            "natives-linux", "natives-linux-arm64", "natives-macos",
-            "natives-macos-arm64", "natives-windows",
-        )) {
-            runtimeOnly("org.lwjgl:$artifact:$lwjglVersion:$natives")
-        }
+        runtimeOnly("org.lwjgl:$artifact:$lwjglVersion:$lwjglNativeClassifier")
     }
 
     testImplementation(libs.junit)
@@ -108,6 +183,13 @@ dependencies {
 // stays Android-only.
 sourceSets.main {
     resources.srcDir(project.file("../app/src/main/assets"))
+}
+
+tasks.processResources {
+    from(androidStringsFile) {
+        into("brand")
+        rename { "android-strings.xml" }
+    }
 }
 
 tasks.processResources {

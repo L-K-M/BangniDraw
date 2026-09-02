@@ -68,13 +68,38 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   the handler's platform services arrive as injected seams
   (`GestureDeadlineScheduler`, `FrameScheduler`, `StrokePredictor`).
   `:desktop` is the Compose Desktop shell: a plain JVM module with a
-  GLFW/EGL ES 3.0 context on its own GL thread (macOS adds the
-  `GLFW_ANGLE_PLATFORM_TYPE_METAL` init hint), engine → offscreen FBO →
-  glReadPixels → Compose image (the per-frame copy is DESKTOP.md
-  architecture 1's accepted v1 cost), mouse → PointerSample records,
-  in-memory undo from the readback mirror, prefs on the JVM DataStore, and
-  Save PNG to `~/Pictures/BangniDraw`. Its Kotlin files nest comments
-  badly: a `/*` inside KDoc (e.g. `brushes/*.json`) opens a nested comment.
+  hidden GLFW/EGL ES 3.0 context. GLFW init, window creation, destruction,
+  and termination stay on the process main thread; the GL thread activates
+  the context and owns the mandatory LWJGL `GLES.createCapabilities()`.
+  Rendering is engine → offscreen FBO → glReadPixels → Compose image
+  (DESKTOP.md architecture 1), mouse → PointerSample records, in-memory undo
+  from the readback mirror, JVM DataStore prefs, and Save PNG to
+  `~/Pictures/BangniDraw`. Mirror byte arrays are immutable after publication:
+  export shallow-copies its map on the GL thread, then composes and writes on
+  the export worker. Do not add an export-time fence wait — stroke commits
+  already drain readback, and holding the GL owner can exhaust `DabRing`.
+  Export encodes into a sibling temporary file and publishes only the complete
+  PNG. Shutdown drains that worker before interrupting GL. Its GL join is
+  bounded; if native code does not release the owner, mark the context
+  abandoned and skip GLFW teardown rather than destroying a current context.
+  GL readback row zero is already canvas top; do not flip it. Heap-buffer
+  readback needs an explicit bounded copy because native
+  writes do not advance a Java buffer's position.
+  On macOS, initialize AWT first, select LWJGL's `glfw_async`, disable GLFW's
+  Cocoa menu, and use the ANGLE Metal init hint. ANGLE is resolved from
+  `bangnidraw.angle.dir`, Compose app resources, then the working directory;
+  no native binaries are committed. GLFW reopens ANGLE by leaf name while
+  creating the first window, so the native working-directory guard must cover
+  both `glfwInit` and `glfwCreateWindow`; absolute `System.load` or LWJGL
+  configuration alone is insufficient. A no-ANGLE DMG verifies only the
+  instruction window, not rendering; it is also unsigned until Phase 4.
+  Packaged runtimes require `java.instrument`, `jdk.management`, and
+  `jdk.unsupported`.
+  Desktop display names come from Android's `app_name`; icons derive from
+  `media-sources/icon.png`. Linux keeps the internal id `bangnidraw`. Compose
+  resource directories are `macos-arm64`/`macos-x64`, and the desktop package
+  version reads Android's `versionName`. Its Kotlin files nest comments badly:
+  a `/*` inside KDoc (e.g. `brushes/*.json`) opens a nested comment.
 - **Kotlin `internal` does not cross module boundaries.** Declarations in
   `:engine-core` that `:app` (or app tests) consume must be `public`; the
   ~135 declarations widened in the M1 extraction are now that module's API

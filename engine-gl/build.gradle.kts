@@ -12,6 +12,19 @@ plugins {
 val mixboxEnabled = providers.gradleProperty("bangnidraw.mixbox")
     .map(String::toBooleanStrict)
     .getOrElse(true)
+val hostOsName = providers.systemProperty("os.name").get()
+val hostArchitecture = providers.systemProperty("os.arch").get()
+val arm64Architectures = setOf("aarch64", "arm64")
+val x64Architectures = setOf("amd64", "x86_64")
+val lwjglNativeClassifier = when {
+    hostOsName.startsWith("Mac") && hostArchitecture in arm64Architectures -> "natives-macos-arm64"
+    hostOsName.startsWith("Mac") && hostArchitecture in x64Architectures -> "natives-macos"
+    hostOsName.startsWith("Linux") && hostArchitecture in arm64Architectures -> "natives-linux-arm64"
+    hostOsName.startsWith("Linux") && hostArchitecture in x64Architectures -> "natives-linux"
+    hostOsName.startsWith("Windows") && hostArchitecture in x64Architectures -> "natives-windows"
+    hostOsName.startsWith("Windows") && hostArchitecture in arm64Architectures -> "natives-windows-arm64"
+    else -> error("unsupported desktop host: $hostOsName $hostArchitecture")
+}
 
 kotlin {
     // JDK 17 is the repo's floor (AGENTS.md); pin it so the desktop target
@@ -67,20 +80,15 @@ kotlin {
         )
 
         desktopMain.dependencies {
-            // The desktop GL binding (DESKTOP.md: LWJGL 3.4). All three
-            // platforms' natives ride along so one artifact runs on Linux
-            // and macOS alike; the context itself arrives with the M4 shell.
+            // The desktop GL binding (DESKTOP.md: LWJGL 3.4). Packaging
+            // carries only the host natives; each OS builds its own app.
+            // The context itself arrives with the M4 shell.
             // Classifiers and BOM platforms are not expressible inside this
             // block, so the coordinates are built from the catalog's pin.
             val lwjglVersion = libs.versions.lwjgl.get()
             for (artifact in listOf("lwjgl", "lwjgl-opengles")) {
                 implementation("org.lwjgl:$artifact:$lwjglVersion")
-                for (natives in listOf(
-                    "natives-linux", "natives-linux-arm64", "natives-macos",
-                    "natives-macos-arm64", "natives-windows",
-                )) {
-                    implementation("org.lwjgl:$artifact:$lwjglVersion:$natives")
-                }
+                implementation("org.lwjgl:$artifact:$lwjglVersion:$lwjglNativeClassifier")
             }
         }
     }

@@ -87,7 +87,7 @@ class GestureArbiter(
      */
     var stylusNear: Boolean = false
 
-    private enum class State { IDLE, STYLUS_DRAW, FINGER_PENDING, FINGER_DRAW, NAVIGATE, TAP_WAIT }
+    private enum class State { IDLE, STYLUS_DRAW, MOUSE_DRAW, FINGER_PENDING, FINGER_DRAW, NAVIGATE, TAP_WAIT }
 
     private var state = State.IDLE
 
@@ -138,11 +138,14 @@ class GestureArbiter(
     // ------------------------------------------------------------- events
 
     fun down(pointerId: Int, tool: PointerTool, x: Float, y: Float, timeNs: Long, out: GestureListener) {
-        val stylus = tool == PointerTool.STYLUS || tool == PointerTool.ERASER
-        // A stylus landing takes over from anything a finger was doing: at that
-        // point the pen is the intent (§5). Navigation ends without a step, a
-        // finger stroke is rolled back.
-        if (stylus) {
+        val directSource = when (tool) {
+            PointerTool.STYLUS -> StrokeSource.STYLUS
+            PointerTool.ERASER -> StrokeSource.ERASER_END
+            PointerTool.MOUSE -> StrokeSource.MOUSE
+            PointerTool.FINGER -> null
+        }
+        // Pens and mice draw immediately; neither needs touch-chord disambiguation.
+        if (directSource != null) {
             if (state == State.NAVIGATE) {
                 navigating = false
                 out.onNavigateEnd()
@@ -151,19 +154,19 @@ class GestureArbiter(
             }
             clearPointers()
             add(pointerId, x, y, timeNs)
-            state = State.STYLUS_DRAW
+            state = if (tool == PointerTool.MOUSE) State.MOUSE_DRAW else State.STYLUS_DRAW
             drawingId = pointerId
             maxDown = 1
             // clearPointers() + add() means count never passes through 0 here,
             // so the gesture-end reset is skipped. tapPossible is documented as
             // cleared "when a stroke begins", and this branch begins one.
             tapPossible = false
-            out.onDraw(pointerId, if (tool == PointerTool.ERASER) StrokeSource.ERASER_END else StrokeSource.STYLUS)
+            out.onDraw(pointerId, directSource)
             return
         }
 
         // A finger while the pen is down or near is a palm, always (§5).
-        if (state == State.STYLUS_DRAW || stylusNear) {
+        if (state == State.STYLUS_DRAW || state == State.MOUSE_DRAW || stylusNear) {
             val slot = add(pointerId, x, y, timeNs)
             if (slot >= 0) ignored[slot] = true
             out.onIgnore(pointerId)
@@ -217,7 +220,7 @@ class GestureArbiter(
                 ignored[slot] = true
                 out.onIgnore(pointerId)
             }
-            State.STYLUS_DRAW -> Unit // handled above
+            State.STYLUS_DRAW, State.MOUSE_DRAW -> Unit // handled above
         }
     }
 
@@ -307,7 +310,7 @@ class GestureArbiter(
         // What THIS pointer's lift means, if it was participating.
         if (!wasIgnored) {
             when (state) {
-                State.STYLUS_DRAW -> {
+                State.STYLUS_DRAW, State.MOUSE_DRAW -> {
                     out.onStrokeEnd(pointerId)
                     // A palm resting through the lift keeps count > 0, so the
                     // gesture never ends and resetGesture never runs. Leaving
@@ -337,7 +340,7 @@ class GestureArbiter(
             if (state == State.NAVIGATE) out.onNavigateEnd()
             // Motionless fingers reach here having entered navigation on the
             // second down: that is exactly what a multi-finger tap looks like.
-            if (state != State.STYLUS_DRAW && state != State.FINGER_DRAW) emitTap(out)
+            if (state != State.STYLUS_DRAW && state != State.MOUSE_DRAW && state != State.FINGER_DRAW) emitTap(out)
             resetGesture()
         }
     }

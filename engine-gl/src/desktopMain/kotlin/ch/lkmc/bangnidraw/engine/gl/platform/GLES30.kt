@@ -305,10 +305,10 @@ actual object GLES30 {
                 } else {
                     // D11: a heap out-parameter cannot be handed to LWJGL — read
                     // through staging, then copy back to the caller's buffer.
-                    val staged = stagingFor(pixels.remaining())
+                    val bytes = pixels.remaining()
+                    val staged = stagingFor(bytes)
                     LwjglGles30.glReadPixels(x, y, width, height, format, type, staged)
-                    staged.flip()
-                    pixels.put(staged)
+                    copyStagedReadback(staged, pixels, bytes)
                 }
             }
             is IntBuffer -> directOnly(pixels) { LwjglGles30.glReadPixels(x, y, width, height, format, type, pixels) }
@@ -550,6 +550,29 @@ actual object GLES30 {
         stagingBytes.clear()
         stagingBytes.limit(bytes)
         return stagingBytes
+    }
+
+    /** Copies a native out-parameter whose Java buffer position stayed unchanged. */
+    internal fun copyStagedReadback(staged: ByteBuffer, destination: ByteBuffer, bytes: Int) {
+        require(bytes >= 0 && bytes <= staged.limit()) {
+            "readback size $bytes exceeds staging limit ${staged.limit()}"
+        }
+        require(bytes <= destination.remaining()) {
+            "readback size $bytes exceeds destination remainder ${destination.remaining()}"
+        }
+
+        // Native GL writes through the address and does not advance position.
+        // Bound the written prefix explicitly; flip() would expose zero bytes.
+        val savedPosition = staged.position()
+        val savedLimit = staged.limit()
+        staged.position(0)
+        staged.limit(bytes)
+        try {
+            destination.put(staged)
+        } finally {
+            staged.limit(savedLimit)
+            staged.position(savedPosition)
+        }
     }
 
     /**

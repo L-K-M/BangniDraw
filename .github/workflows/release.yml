@@ -101,13 +101,50 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
-      # The released deb carries the desktop shell's own version; the tag↔APK
-      # gate above already pinned this tag to a real versionName, and the
-      # desktop version is aligned with it at cut time (desktop/build.gradle.kts).
+      - name: Install Linux desktop smoke dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          libegl1 libgles2 libgl1-mesa-dri xauth xvfb
+
       - name: Build desktop tests and deb
         run: >-
           ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
-          :desktop:test :desktop:packageDeb
+          :desktop:test :desktop:createDistributable
+          :desktop:packageDeb
+
+      - name: Verify Linux package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DEB_VERSION="${VERSION/-/~}"
+          DEB="$(find desktop/build/compose/binaries/main/deb -name '*.deb' -print -quit)"
+          PACKAGE_VERSION="$(dpkg-deb -f "$DEB" Version)"
+          PACKAGE_ID="$(dpkg-deb -f "$DEB" Package)"
+          case "$PACKAGE_VERSION" in
+            "$DEB_VERSION"|"$DEB_VERSION-"*) ;;
+            *)
+              echo "!! deb version $PACKAGE_VERSION does not match $DEB_VERSION" >&2
+              exit 1
+              ;;
+          esac
+          test "$PACKAGE_ID" = "bangnidraw"
+
+          ROOT="$RUNNER_TEMP/bangnidraw-deb"
+          dpkg-deb -x "$DEB" "$ROOT"
+          DESKTOP_ENTRY="$(find "$ROOT" -name '*.desktop' -print -quit)"
+          grep -Fx 'Name=帮你Draw' "$DESKTOP_ENTRY"
+          grep -Fx 'Categories=Graphics' "$DESKTOP_ENTRY"
+
+          ICON_PATH="$(sed -n 's/^Icon=//p' "$DESKTOP_ENTRY")"
+          ICON="$ROOT$ICON_PATH"
+          test "$(sha256sum "$ICON" | cut -d ' ' -f 1)" = \
+            "$(sha256sum desktop/packaging/icons/bangnidraw.png | cut -d ' ' -f 1)"
+
+          LAUNCHER="$(find desktop/build/compose/binaries/main/app -path '*/bin/*' ! -path '*/runtime/*' -type f -executable -print -quit)"
+          timeout 60s "$LAUNCHER" --verify-runtime | grep -F '帮你Draw runtime OK:'
+
+          LIBGL_ALWAYS_SOFTWARE=1 timeout 30s xvfb-run -a "$LAUNCHER" --smoke-window \
+            2>&1 | tee "$RUNNER_TEMP/desktop-smoke.log"
+          grep -F '帮你Draw window OK:' "$RUNNER_TEMP/desktop-smoke.log"
 
       - name: Stage release artifacts
         run: |
@@ -143,21 +180,66 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
-      # packageDistributionForCurrentOS = the Dmg on macOS. No ANGLE dylibs
-      # are committed; the dmg runs wherever ANGLE is discoverable — the
-      # release body carries the instruction.
+      # No ANGLE binaries are committed; the release body carries setup.
       - name: Build desktop tests and dmg
         run: >-
           ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
-          :desktop:test :desktop:packageDistributionForCurrentOS
+          :desktop:test :desktop:createDistributable
+          :desktop:packageDistributionForCurrentOS
+
+      - name: Verify macOS package
+        id: mac_package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          MAC_VERSION="${VERSION%%-*}"
+          VERSION_CODE="$(sed -nE 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' app/build.gradle.kts)"
+          test -n "$VERSION_CODE" || { echo "!! versionCode not found in app/build.gradle.kts" >&2; exit 1; }
+          APP="$(find desktop/build/compose/binaries/main/app -name '*.app' -print -quit)"
+          PLIST="$APP/Contents/Info.plist"
+          PACKAGE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
+          PACKAGE_BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
+          PACKAGE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$PLIST")"
+          DISPLAY_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$PLIST")"
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")"
+          test "$PACKAGE_VERSION" = "$MAC_VERSION"
+          test "$PACKAGE_BUILD_VERSION" = "$VERSION_CODE"
+          test "$PACKAGE_NAME" = "帮你Draw"
+          test "$DISPLAY_NAME" = "帮你Draw"
+          test "$BUNDLE_ID" = "ch.lkmc.bangnidraw.desktop"
+
+          ICON_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$PLIST")"
+          ICON="$APP/Contents/Resources/$ICON_NAME"
+          test "$(shasum -a 256 "$ICON" | cut -d ' ' -f 1)" = \
+            "$(shasum -a 256 desktop/packaging/icons/bangnidraw.icns | cut -d ' ' -f 1)"
+
+          LAUNCHER="$(find "$APP/Contents/MacOS" -type f -print -quit)"
+          test -x "$LAUNCHER"
+          perl -e 'alarm shift; exec @ARGV' 60 "$LAUNCHER" --verify-runtime | grep -F '帮你Draw runtime OK:'
+
+          perl -e 'alarm shift; exec @ARGV' 30 \
+            "$LAUNCHER" --smoke-startup-failure 2>&1 | \
+            tee "$RUNNER_TEMP/desktop-macos-smoke.log"
+          grep -F '帮你Draw error window OK:' "$RUNNER_TEMP/desktop-macos-smoke.log"
+
+          case "$(uname -m)" in
+            arm64) ARCH="arm64" ;;
+            x86_64) ARCH="x64" ;;
+            *)
+              echo "!! unsupported macOS architecture: $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+          echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
 
       - name: Stage release artifacts
+        env:
+          MAC_ARCH: ${{ steps.mac_package.outputs.arch }}
         run: |
           mkdir -p dist
           cp desktop/build/compose/binaries/main/dmg/*.dmg \
-            "dist/bangnidraw-desktop-${GITHUB_REF_NAME}-macos-arm64.dmg"
-          (cd dist && shasum -a 256 "bangnidraw-desktop-${GITHUB_REF_NAME}-macos-arm64.dmg" \
-            > "bangnidraw-desktop-${GITHUB_REF_NAME}-macos-arm64.dmg.sha256")
+            "dist/bangnidraw-desktop-${GITHUB_REF_NAME}-macos-${MAC_ARCH}.dmg"
+          (cd dist && shasum -a 256 "bangnidraw-desktop-${GITHUB_REF_NAME}-macos-${MAC_ARCH}.dmg" \
+            > "bangnidraw-desktop-${GITHUB_REF_NAME}-macos-${MAC_ARCH}.dmg.sha256")
 
       - name: Upload verified release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -204,12 +286,12 @@ jobs:
               (minSdk 29).
             - **Linux**: `bangnidraw-desktop-<tag>-linux-amd64.deb` — needs
               GLES from Mesa or your vendor driver; nothing else.
-            - **macOS**: `bangnidraw-desktop-<tag>-macos-arm64.dmg` (Apple
-              Silicon; the filename carries the runner's real arch) — the app
-              needs ANGLE's `libEGL.dylib`/`libGLESv2.dylib` discoverable
-              (place them next to the app or on `DYLD_LIBRARY_PATH`; see the
-              repo README's Desktop section). Without them the app opens with
-              an instruction panel instead of a crash.
+            - **macOS**: `bangnidraw-desktop-<tag>-macos-<arch>.dmg` — the app
+              needs ANGLE's `libEGL.dylib`/`libGLESv2.dylib`; set
+              `-Dbangnidraw.angle.dir=<directory>` or see the repo README.
+              Without ANGLE the app opens an instruction window. This DMG is
+              an unsigned developer preview; production still needs bundled,
+              signed ANGLE plus Developer ID signing and notarization.
 
             Desktop is mouse-first in this release line (no pen pressure
             yet — Phase 3 of DESKTOP.md). Both desktop builds include Mixbox

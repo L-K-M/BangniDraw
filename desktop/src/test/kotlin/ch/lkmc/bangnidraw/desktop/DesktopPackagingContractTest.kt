@@ -26,6 +26,8 @@ class DesktopPackagingContractTest {
         assertTrue(build.contains("dockName"))
         assertTrue(build.contains("iconFile"))
         assertTrue(build.contains("appCategory = \"Graphics\""))
+        assertTrue(build.contains("decodeXmlText"))
+        assertTrue(build.contains("escapeXmlText"))
         assertTrue(build.contains("debMaintainer"))
         assertFalse(build.contains("packageName = \"BangniDraw\""))
         assertFalse(main.contains("BangniDraw Desktop"))
@@ -37,7 +39,7 @@ class DesktopPackagingContractTest {
 
         assertTrue(build.contains("infoPlist {"))
         assertTrue(build.contains("<key>CFBundleDisplayName</key>"))
-        assertTrue(build.contains("<string>${'$'}desktopDisplayName</string>"))
+        assertTrue(build.contains("<string>${'$'}desktopDisplayNameForPlist</string>"))
     }
 
     @Test
@@ -45,9 +47,11 @@ class DesktopPackagingContractTest {
         val script = source("scripts/build.sh")
 
         assertTrue(script.contains("DESKTOP_NAME="))
+        assertTrue(script.contains("desktop_display_name app/src/main/res/values/strings.xml || true"))
+        assertTrue(script.contains("desktop_find_app \"\$DESKTOP_APP_ROOT\" \"\$DESKTOP_NAME\" || true"))
         assertTrue(script.contains("app_name"))
         assertTrue(script.contains("DESKTOP_APP_ROOT="))
-        assertTrue(script.contains("find "))
+        assertTrue(script.contains("desktop_find_app \"\$DESKTOP_APP_ROOT\" \"\$DESKTOP_NAME\""))
         assertTrue(script.contains("/Applications/${'$'}{DESKTOP_NAME}.app"))
         assertFalse(script.contains("BangniDraw.app"))
         assertFalse(script.contains("darwin-"))
@@ -71,6 +75,23 @@ class DesktopPackagingContractTest {
             )
             assertEquals(0, displayName.exitCode, displayName.output)
             assertEquals("帮你Draw", displayName.output.trim())
+
+            val strings = File(fixture, "strings.xml")
+            strings.writeText(
+                """
+                    <resources>
+                        <string translatable="false" name = "app_name"> Draw &amp; Paint </string>
+                    </resources>
+                """.trimIndent(),
+                Charsets.UTF_8,
+            )
+            val decodedName = runHelper(
+                "desktop_display_name \"\$STRINGS_FILE\"",
+                "STRINGS_FILE" to strings.path,
+            )
+            assertEquals(0, decodedName.exitCode, decodedName.output)
+            assertEquals("Draw & Paint", decodedName.output.trim())
+
 
             val found = runHelper(
                 "desktop_find_app \"\$APP_ROOT\" \"\$APP_NAME\"",
@@ -122,6 +143,7 @@ class DesktopPackagingContractTest {
         builds.forEach { build ->
             assertTrue(build.contains("val lwjglNativeClassifier"))
             assertFalse(build.contains("for (natives in listOf("))
+            assertTrue(build.contains("natives-windows-arm64"))
         }
     }
 
@@ -136,9 +158,14 @@ class DesktopPackagingContractTest {
         variables.forEach { (key, value) -> builder.environment()[key] = value }
 
         val process = builder.start()
-        val output = process.inputStream.bufferedReader().use { it.readText() }
+        if (!process.waitFor(HELPER_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            process.waitFor()
+            error("desktop-package.sh helper timed out: $command")
+        }
+        val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
 
-        return CommandResult(process.waitFor(), output)
+        return CommandResult(process.exitValue(), output)
     }
 
     private data class CommandResult(
@@ -146,7 +173,7 @@ class DesktopPackagingContractTest {
         val output: String,
     )
 
-    private fun source(path: String): String = repoFile(path).readText()
+    private fun source(path: String): String = repoFile(path).readText(Charsets.UTF_8)
 
     private fun repoFile(path: String): File = File(repoRoot(), path)
 
@@ -156,5 +183,9 @@ class DesktopPackagingContractTest {
             candidate = candidate.parentFile ?: error("repository root not found")
         }
         return candidate
+    }
+
+    private companion object {
+        const val HELPER_TIMEOUT_SECONDS = 60L
     }
 }

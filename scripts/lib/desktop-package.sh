@@ -5,9 +5,24 @@ DESKTOP_GLES_DYLIB="libGLESv2.dylib"
 
 desktop_display_name() {
   local strings_file="$1"
+  local encoded
 
-  sed -nE "s@.*<string[[:space:]]+name=['\"]app_name['\"][^>]*>([^<]+)</string>.*@\1@p" \
-    "$strings_file" | head -n 1
+  [ -f "$strings_file" ] || return 1
+  encoded="$(
+    tr '\n' ' ' < "$strings_file" |
+      sed -nE "s@.*<string[^>]*[[:space:]]name[[:space:]]*=[[:space:]]*['\"]app_name['\"][^>]*>([^<]*)</string>.*@\1@p"
+  )"
+  [ -n "$encoded" ] || return 1
+
+  printf '%s\n' "$encoded" | sed -E \
+    -e 's/^[[:space:]]+//' \
+    -e 's/[[:space:]]+$//' \
+    -e 's/&quot;/"/g' \
+    -e "s/&apos;/'/g" \
+    -e "s/&#39;/'/g" \
+    -e 's/&lt;/</g' \
+    -e 's/&gt;/>/g' \
+    -e 's/&amp;/\&/g'
 }
 
 desktop_find_app() {

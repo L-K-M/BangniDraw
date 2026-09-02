@@ -9,14 +9,31 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+private fun decodeXmlText(value: String): String = value
+    .replace("&quot;", "\"")
+    .replace("&apos;", "'")
+    .replace("&#39;", "'")
+    .replace("&lt;", "<")
+    .replace("&gt;", ">")
+    .replace("&amp;", "&")
+
+private fun escapeXmlText(value: String): String = value
+    .replace("&", "&amp;")
+    .replace("<", "&lt;")
+    .replace(">", "&gt;")
+
 val androidStringsFile = layout.projectDirectory.file("../app/src/main/res/values/strings.xml")
 val desktopDisplayName = providers.fileContents(androidStringsFile).asText.map { text ->
-    Regex("""<string\s+name=[\"']app_name[\"'][^>]*>([^<]+)</string>""")
+    Regex("""<string\b[^>]*\bname\s*=\s*["']app_name["'][^>]*>([^<]*)</string>""")
         .find(text)
         ?.groupValues
         ?.get(1)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.let { decodeXmlText(it) }
         ?: error("app_name is missing from ${androidStringsFile.asFile}")
 }.get()
+val desktopDisplayNameForPlist = escapeXmlText(desktopDisplayName)
 
 val androidBuildFile = layout.projectDirectory.file("../app/build.gradle.kts")
 val desktopPackageVersion = providers.fileContents(androidBuildFile).asText.map { text ->
@@ -41,6 +58,7 @@ check(Regex("""\d+(?:\.\d+){0,2}""").matches(desktopMacPackageVersion)) {
     "macOS package version must be numeric: $desktopMacPackageVersion"
 }
 val desktopDebPackageVersion = desktopPackageVersion.replaceFirst('-', '~')
+val desktopRpmPackageVersion = desktopPackageVersion.replaceFirst('-', '~')
 
 val hostOsName = providers.systemProperty("os.name").get()
 val hostArchitecture = providers.systemProperty("os.arch").get()
@@ -52,6 +70,7 @@ val lwjglNativeClassifier = when {
     hostOsName.startsWith("Linux") && hostArchitecture in arm64Architectures -> "natives-linux-arm64"
     hostOsName.startsWith("Linux") && hostArchitecture in x64Architectures -> "natives-linux"
     hostOsName.startsWith("Windows") && hostArchitecture in x64Architectures -> "natives-windows"
+    hostOsName.startsWith("Windows") && hostArchitecture in arm64Architectures -> "natives-windows-arm64"
     else -> error("unsupported desktop host: $hostOsName $hostArchitecture")
 }
 
@@ -106,7 +125,7 @@ compose.desktop {
                 infoPlist {
                     extraKeysRawXml = """
                         <key>CFBundleDisplayName</key>
-                        <string>$desktopDisplayName</string>
+                        <string>$desktopDisplayNameForPlist</string>
                     """.trimIndent()
                 }
             }
@@ -115,7 +134,7 @@ compose.desktop {
                 // builds green but dpkg refuses the install.
                 packageName = "bangnidraw"
                 debPackageVersion = desktopDebPackageVersion
-                rpmPackageVersion = desktopMacPackageVersion
+                rpmPackageVersion = desktopRpmPackageVersion
                 appRelease = desktopPackageBuildVersion
                 appCategory = "Graphics"
                 debMaintainer = "L-K-M@users.noreply.github.com"

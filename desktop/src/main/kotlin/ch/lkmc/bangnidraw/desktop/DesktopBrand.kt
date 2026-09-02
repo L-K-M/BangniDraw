@@ -7,13 +7,35 @@ internal object DesktopBrand {
             "desktop brand resource is missing"
         }.bufferedReader().use { it.readText() }
 
-        val value = APP_NAME_PATTERN.find(text)?.groupValues?.get(1)
-        check(!value.isNullOrBlank()) { "app_name is missing from the desktop brand resource" }
-        value
+        parseDisplayName(text)
     }
 
+    internal fun parseDisplayName(xml: String): String {
+        val encoded = APP_NAME_PATTERN.find(xml)?.groupValues?.get(1)?.trim()
+        check(!encoded.isNullOrEmpty()) { "app_name is missing from the desktop brand resource" }
+
+        return decodeXmlText(encoded)
+    }
+
+    fun exportFileStem(value: String): String {
+        val sanitized = UNSAFE_FILE_CHARACTERS.replace(value.trim(), "_")
+            .trimEnd('.', ' ')
+
+        return sanitized.ifEmpty { DEFAULT_EXPORT_FILE_STEM }
+    }
+
+    private fun decodeXmlText(value: String): String = value
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+
     private const val RESOURCE_PATH = "/brand/android-strings.xml"
+    private const val DEFAULT_EXPORT_FILE_STEM = "drawing"
+    private val UNSAFE_FILE_CHARACTERS = Regex("[\\u0000-\\u001F<>:\"/\\\\|?*]+")
     private val APP_NAME_PATTERN = Regex(
-        """<string\s+name=[\"']app_name[\"'][^>]*>([^<]+)</string>""",
+        """<string\b[^>]*\bname\s*=\s*["']app_name["'][^>]*>([^<]*)</string>""",
     )
 }

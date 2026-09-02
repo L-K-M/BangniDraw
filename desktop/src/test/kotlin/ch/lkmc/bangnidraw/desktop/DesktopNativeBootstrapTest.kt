@@ -100,7 +100,7 @@ class DesktopNativeBootstrapTest {
     }
 
 
-    private fun source(path: String): String = File(repoRoot(), path).readText()
+    private fun source(path: String): String = File(repoRoot(), path).readText(Charsets.UTF_8)
 
     private fun repoRoot(): File {
         var candidate = File(".").canonicalFile

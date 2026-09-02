@@ -139,8 +139,8 @@ jobs:
           test "$(sha256sum "$ICON" | cut -d ' ' -f 1)" = \
             "$(sha256sum desktop/packaging/icons/bangnidraw.png | cut -d ' ' -f 1)"
 
-          LAUNCHER="$(find desktop/build/compose/binaries/main/app -path '*/bin/*' -type f -executable -print -quit)"
-          "$LAUNCHER" --verify-runtime | grep -F '帮你Draw runtime OK:'
+          LAUNCHER="$(find desktop/build/compose/binaries/main/app -path '*/bin/*' ! -path '*/runtime/*' -type f -executable -print -quit)"
+          timeout 60s "$LAUNCHER" --verify-runtime | grep -F '帮你Draw runtime OK:'
 
           LIBGL_ALWAYS_SOFTWARE=1 timeout 30s xvfb-run -a "$LAUNCHER" --smoke-window \
             2>&1 | tee "$RUNNER_TEMP/desktop-smoke.log"
@@ -193,6 +193,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           MAC_VERSION="${VERSION%%-*}"
           VERSION_CODE="$(sed -nE 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' app/build.gradle.kts)"
+          test -n "$VERSION_CODE" || { echo "!! versionCode not found in app/build.gradle.kts" >&2; exit 1; }
           APP="$(find desktop/build/compose/binaries/main/app -name '*.app' -print -quit)"
           PLIST="$APP/Contents/Info.plist"
           PACKAGE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
@@ -213,7 +214,7 @@ jobs:
 
           LAUNCHER="$(find "$APP/Contents/MacOS" -type f -print -quit)"
           test -x "$LAUNCHER"
-          "$LAUNCHER" --verify-runtime | grep -F '帮你Draw runtime OK:'
+          perl -e 'alarm shift; exec @ARGV' 60 "$LAUNCHER" --verify-runtime | grep -F '帮你Draw runtime OK:'
 
           perl -e 'alarm shift; exec @ARGV' 30 \
             "$LAUNCHER" --smoke-startup-failure 2>&1 | \

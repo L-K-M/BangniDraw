@@ -199,6 +199,18 @@ class CanvasTouchHandlerRecordTest {
     }
 
     @Test
+    fun `cancel after a clean release is a no-op`() {
+        val host = Host()
+        val h = handler(host)
+        stylusDown(h)
+
+        h.onPointerUp(sample.set(7, PointerTool.STYLUS, 80f, 90f, 0.25f, 0.1f, 0f, 2_000_000L))
+        h.onPointerCancel(3_000_000L)
+
+        assertEquals(listOf("begin(STYLUS)", "end"), host.events)
+    }
+
+    @Test
     fun `a record cancel discards the stroke without an end`() {
         val host = Host()
         val h = handler(host)

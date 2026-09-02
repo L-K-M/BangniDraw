@@ -29,7 +29,8 @@ class DesktopReleaseContractTest {
         assertTrue(build.contains("packageBuildVersion = desktopPackageBuildVersion"))
         assertTrue(build.contains("desktopPackageVersion.replaceFirst('-', '~')"))
         assertTrue(build.contains("debPackageVersion = desktopDebPackageVersion"))
-        assertTrue(build.contains("rpmPackageVersion = desktopMacPackageVersion"))
+        assertTrue(build.contains("rpmPackageVersion = desktopRpmPackageVersion"))
+        assertTrue(build.contains("val desktopRpmPackageVersion = desktopPackageVersion.replaceFirst('-', '~')"))
         assertTrue(build.contains("appRelease = desktopPackageBuildVersion"))
     }
 
@@ -42,6 +43,7 @@ class DesktopReleaseContractTest {
         assertTrue(release.contains("CFBundleVersion"))
         assertTrue(release.contains("MAC_VERSION="))
         assertTrue(release.contains("DEB_VERSION=\"${'$'}{VERSION/-/~}\""))
+        assertTrue(release.contains("versionCode not found in app/build.gradle.kts"))
     }
 
     @Test
@@ -52,7 +54,7 @@ class DesktopReleaseContractTest {
         assertFalse(release.contains("macos-arm64.dmg\""))
     }
 
-    private fun source(path: String): String = repoFile(path).readText()
+    private fun source(path: String): String = repoFile(path).readText(Charsets.UTF_8)
 
     private fun repoFile(path: String): File = File(repoRoot(), path)
 

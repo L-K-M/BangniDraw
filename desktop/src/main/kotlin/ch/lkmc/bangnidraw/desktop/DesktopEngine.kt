@@ -21,6 +21,39 @@ import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
+/** One export whose completion is delivered at most once, including cancellation. */
+internal class DesktopExportTask(
+    private val export: () -> DesktopSaveResult,
+    private val onComplete: (DesktopSaveResult) -> Unit,
+) : Runnable {
+    private val completed = AtomicBoolean(false)
+
+    override fun run() {
+        val result = try {
+            export()
+        } catch (failure: Exception) {
+            DesktopPng.failureResult(failure)
+        }
+        complete(result)
+    }
+
+    fun cancel() {
+        complete(DesktopSaveResult.Failed(EXPORT_CANCELLED_MESSAGE))
+    }
+
+    fun fail(failure: Exception) {
+        complete(DesktopPng.failureResult(failure))
+    }
+
+    private fun complete(result: DesktopSaveResult) {
+        if (completed.compareAndSet(false, true)) onComplete(result)
+    }
+
+    private companion object {
+        const val EXPORT_CANCELLED_MESSAGE = "export cancelled while the app was closing"
+    }
+}
+
 /**
  * The desktop EngineSession equivalent (DESKTOP.md Phase 2, M4): one GL
  * thread owning the GLFW context and [CanvasRenderer], a task queue the UI
@@ -101,12 +134,43 @@ internal class DesktopEngine(
     }
 
     fun stopAndJoin() {
-        if (started.get()) {
-            glThread.interrupt()
-            if (Thread.currentThread() !== glThread) glThread.join()
+        shutdownExports()
+        if (!started.get()) return
+
+        glThread.interrupt()
+        if (Thread.currentThread() === glThread) return
+
+        try {
+            glThread.join(GL_SHUTDOWN_TIMEOUT_MS)
+        } catch (_: InterruptedException) {
+            context.abandonAfterOwnerTimeout()
+            Thread.currentThread().interrupt()
+            return
         }
 
-        exportExecutor.shutdownNow()
+        // Never destroy a context that may still be current in native code.
+        if (glThread.isAlive) context.abandonAfterOwnerTimeout()
+    }
+
+    private fun shutdownExports() {
+        exportExecutor.shutdown()
+        try {
+            val stopped = exportExecutor.awaitTermination(
+                EXPORT_SHUTDOWN_TIMEOUT_MS,
+                java.util.concurrent.TimeUnit.MILLISECONDS,
+            )
+            if (!stopped) cancelQueuedExports(exportExecutor.shutdownNow())
+        } catch (_: InterruptedException) {
+            cancelQueuedExports(exportExecutor.shutdownNow())
+            Thread.currentThread().interrupt()
+        }
+    }
+
+    private fun cancelQueuedExports(tasks: List<Runnable>) {
+        for (runnable in tasks) {
+            val task = runnable as? DesktopExportTask ?: continue
+            task.cancel()
+        }
     }
 
     /** Submits [block] to the GL thread; dropped after a fatal failure. */
@@ -257,7 +321,8 @@ internal class DesktopEngine(
             )
             file = java.io.File(
                 DesktopPlatform.picturesDir(),
-                DesktopBrand.displayName + "-" + System.currentTimeMillis() + ".png",
+                DesktopBrand.exportFileStem(DesktopBrand.displayName) + "-" +
+                    System.currentTimeMillis() + ".png",
             )
         } catch (failure: Exception) {
             onComplete(DesktopPng.failureResult(failure))
@@ -265,12 +330,14 @@ internal class DesktopEngine(
         }
 
         // Composition and ImageIO are CPU/disk work; never block the GL owner.
+        val task = DesktopExportTask(
+            export = { DesktopPng.export(snapshot, file) },
+            onComplete = onComplete,
+        )
         try {
-            exportExecutor.execute {
-                onComplete(DesktopPng.export(snapshot, file))
-            }
+            exportExecutor.execute(task)
         } catch (failure: Exception) {
-            onComplete(DesktopPng.failureResult(failure))
+            task.fail(failure)
         }
     }
 
@@ -328,7 +395,7 @@ internal class DesktopEngine(
             readbackRevisions.getOrPut(layerId) { HashMap() }[key] = revision
         }
         check(next.onContextCreated(strict = true)) {
-            "OpenGL ES 3.0 with texture arrays is required"
+            DesktopGlDiagnostics.rendererRequirements
         }
         next.setStack(stack)
         next.setPaperColor(DEFAULT_PAPER_ARGB)
@@ -449,6 +516,8 @@ internal class DesktopEngine(
 
     companion object {
         private const val EXPORT_THREAD_NAME = "BangniDraw-Export"
+        private const val EXPORT_SHUTDOWN_TIMEOUT_MS = 5_000L
+        private const val GL_SHUTDOWN_TIMEOUT_MS = 5_000L
         private const val INITIAL_FRAME_WIDTH = 1280
         private const val INITIAL_FRAME_HEIGHT = 800
         private const val IDLE_SLEEP_MS = 4L

@@ -118,6 +118,39 @@ class GestureArbiterTest {
     }
 
     @Test
+    fun `a finger landing during a mouse stroke is ignored`() {
+        val r = Recorder()
+        val a = arbiter()
+
+        a.down(1, PointerTool.MOUSE, 10f, 10f, ms(0), r)
+        a.down(2, PointerTool.FINGER, 30f, 30f, ms(5), r)
+        a.up(1, ms(10), r)
+
+        assertEquals(listOf("draw(1,MOUSE)", "ignore(2)", "end(1)"), r.events)
+    }
+
+    @Test
+    fun `a direct source takeover rolls back the old stroke before drawing`() {
+        val r = Recorder()
+        val a = arbiter()
+
+        a.down(1, PointerTool.MOUSE, 10f, 10f, ms(0), r)
+        a.down(2, PointerTool.STYLUS, 30f, 30f, ms(5), r)
+        a.up(1, ms(10), r)
+        a.up(2, ms(15), r)
+
+        assertEquals(
+            listOf(
+                "draw(1,MOUSE)",
+                "cancel",
+                "draw(2,STYLUS)",
+                "end(2)",
+            ),
+            r.events,
+        )
+    }
+
+    @Test
     fun `the eraser end is a stroke with its own source`() {
         // The ViewModel swaps to the eraser preset off this, so the source has
         // to survive rather than collapsing to STYLUS.

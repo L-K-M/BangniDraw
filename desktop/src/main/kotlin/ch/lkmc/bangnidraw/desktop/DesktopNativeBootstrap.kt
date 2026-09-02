@@ -50,7 +50,8 @@ internal object DesktopNativeBootstrap {
         Configuration.EGL_LIBRARY_NAME.set(angle.egl.absolutePath)
         Configuration.OPENGLES_LIBRARY_NAME.set(angle.gles.absolutePath)
 
-        // GLFW dlopens fixed names, so its first window must be created here.
+        // Keep the returned environment open until the first GLFW window: GLFW dlopens ANGLE lazily.
+        // Exposure temporarily changes the process CWD so those fixed names resolve here.
         val exposure = exposeAngleToGlfw(angle)
 
         return DesktopNativeEnvironment(backend, exposure)

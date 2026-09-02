@@ -22,6 +22,7 @@ val lwjglNativeClassifier = when {
     hostOsName.startsWith("Linux") && hostArchitecture in arm64Architectures -> "natives-linux-arm64"
     hostOsName.startsWith("Linux") && hostArchitecture in x64Architectures -> "natives-linux"
     hostOsName.startsWith("Windows") && hostArchitecture in x64Architectures -> "natives-windows"
+    hostOsName.startsWith("Windows") && hostArchitecture in arm64Architectures -> "natives-windows-arm64"
     else -> error("unsupported desktop host: $hostOsName $hostArchitecture")
 }
 

@@ -130,14 +130,14 @@ private fun createDesktopStartup(): DesktopStartup = try {
     DesktopNativeBootstrap.prepare().use { environment ->
         val context = GlfwEsContext.create(INITIAL_GL_WIDTH, INITIAL_GL_HEIGHT, environment.backend)
         if (context == null) {
-            DesktopStartup.Failed(NO_GLES_MESSAGE)
+            DesktopStartup.Failed(DesktopGlDiagnostics.unavailable)
         } else {
             DesktopStartup.Ready(memory, context)
         }
     }
 } catch (failure: Throwable) {
     val detail = failure.message ?: failure::class.simpleName ?: "unknown failure"
-    DesktopStartup.Failed("Desktop startup failed: $detail\n\n$NO_GLES_MESSAGE")
+    DesktopStartup.Failed("Desktop startup failed: $detail\n\n${DesktopGlDiagnostics.unavailable}")
 }
 
 @Composable
@@ -150,13 +150,10 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
         mutableStateOf((startup as? DesktopStartup.Failed)?.message)
     }
     val frameState = remember { mutableStateOf<DesktopEngine.Frame?>(null) }
-    val mixboxAttribution = remember {
-        if (MixboxBinding.create() == null) {
-            MixboxAttribution.Excluded
-        } else {
-            MixboxAttribution.Included
-        }
-    }
+    val mixer = remember { MixboxBinding.create() ?: RgbMixer }
+    val mixboxAttribution = if (mixer === RgbMixer) {
+        MixboxAttribution.Excluded
+    } else MixboxAttribution.Included
     var showAbout by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -200,6 +197,7 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
                     frame = frameState.value,
                     canvasSize = canvasSize,
                     mixboxAttribution = mixboxAttribution,
+                    mixer = mixer,
                     onAbout = { showAbout = true },
                 )
             }
@@ -252,6 +250,7 @@ private fun Shell(
     frame: DesktopEngine.Frame?,
     canvasSize: CanvasSize,
     mixboxAttribution: MixboxAttribution,
+    mixer: ch.lkmc.bangnidraw.engine.core.ColorMixer,
     onAbout: () -> Unit,
 ) {
     val brushes = remember { DesktopBrushes.loadAll() }
@@ -293,7 +292,6 @@ private fun Shell(
         }
     }
 
-    val mixer = remember { MixboxBinding.create() ?: RgbMixer }
     val bitmap = remember(frame) { frame?.toImageBitmap() }
     val handler = remember(engine) { DesktopShell.handler(engine) }
 
@@ -777,12 +775,21 @@ private const val SMOKE_STARTUP_FAILURE_FLAG = "--smoke-startup-failure"
 private const val SMOKE_WINDOW_FLAG = "--smoke-window"
 private const val INITIAL_GL_WIDTH = 1
 private const val INITIAL_GL_HEIGHT = 1
-private val NO_GLES_MESSAGE = """
-OpenGL ES 3.0 is unavailable.
-
-Linux: install Mesa libEGL and libGLESv2, or your GPU vendor driver.
-macOS: provide libEGL.dylib and libGLESv2.dylib with
--Dbangnidraw.angle.dir=/path/to/angle, or place both in the app resources.
-""".trimIndent()
 private const val WINDOW_MIN_W = 960
 private const val WINDOW_MIN_H = 600
+
+internal object DesktopGlDiagnostics {
+    private val platformGuidance = """
+        Linux: install Mesa libEGL and libGLESv2, or your GPU vendor driver.
+        macOS: provide libEGL.dylib and libGLESv2.dylib with
+        -Dbangnidraw.angle.dir=/path/to/angle, or place both in the app resources.
+        Windows: this desktop target supports macOS and Linux only.
+    """.trimIndent()
+
+    val unavailable = "OpenGL ES 3.0 is unavailable.\n\n$platformGuidance"
+
+    val contextFailure = "Could not create a GLES 3.0 EGL context.\n\n$platformGuidance"
+
+    val rendererRequirements =
+        "OpenGL ES 3.0 with texture arrays is required.\n\n$platformGuidance"
+}

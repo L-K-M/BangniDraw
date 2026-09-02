@@ -61,7 +61,7 @@ for arg in "$@"; do
 done
 
 DESKTOP_TASK=":desktop:createDistributable"
-DESKTOP_NAME="$(desktop_display_name app/src/main/res/values/strings.xml)"
+DESKTOP_NAME="$(desktop_display_name app/src/main/res/values/strings.xml || true)"
 [ -n "$DESKTOP_NAME" ] || { echo "!! could not read app_name from strings.xml" >&2; exit 1; }
 DESKTOP_APP_ROOT="desktop/build/compose/binaries/main/app"
 INSTALL_PATH="/Applications/${DESKTOP_NAME}.app"
@@ -121,7 +121,7 @@ if [ "$INSTALL" -eq 1 ]; then
   echo "==> ./gradlew $DESKTOP_TASK"
   ./gradlew "$DESKTOP_TASK"
 
-  DESKTOP_APP="$(desktop_find_app "$DESKTOP_APP_ROOT" "$DESKTOP_NAME")"
+  DESKTOP_APP="$(desktop_find_app "$DESKTOP_APP_ROOT" "$DESKTOP_NAME" || true)"
   [ -n "$DESKTOP_APP" ] || {
     echo "!! expected ${DESKTOP_NAME}.app under $DESKTOP_APP_ROOT" >&2
     exit 1

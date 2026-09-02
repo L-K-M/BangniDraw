@@ -78,8 +78,12 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   export shallow-copies its map on the GL thread, then composes and writes on
   the export worker. Do not add an export-time fence wait — stroke commits
   already drain readback, and holding the GL owner can exhaust `DabRing`.
-  GL readback row zero is already canvas top; do not
-  flip it. Heap-buffer readback needs an explicit bounded copy because native
+  Export encodes into a sibling temporary file and publishes only the complete
+  PNG. Shutdown drains that worker before interrupting GL. Its GL join is
+  bounded; if native code does not release the owner, mark the context
+  abandoned and skip GLFW teardown rather than destroying a current context.
+  GL readback row zero is already canvas top; do not flip it. Heap-buffer
+  readback needs an explicit bounded copy because native
   writes do not advance a Java buffer's position.
   On macOS, initialize AWT first, select LWJGL's `glfw_async`, disable GLFW's
   Cocoa menu, and use the ANGLE Metal init hint. ANGLE is resolved from

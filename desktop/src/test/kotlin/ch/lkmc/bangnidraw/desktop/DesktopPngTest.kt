@@ -5,6 +5,8 @@ import java.awt.image.BufferedImage
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 
@@ -48,6 +50,22 @@ class DesktopPngTest {
     }
 
     @Test
+    fun `composition rejects translucent paper`() {
+        val snapshot = DesktopExportSnapshot(
+            width = 1,
+            height = 1,
+            paperArgb = 0x80FFFFFF.toInt(),
+            tiles = emptyMap(),
+        )
+
+        val failure = assertFailsWith<IllegalArgumentException> {
+            DesktopPng.compose(snapshot)
+        }
+
+        assertEquals("paper color must be opaque", failure.message)
+    }
+
+    @Test
     fun `PNG write reports success`() {
         val file = Files.createTempDirectory("bangnidraw-png")
             .resolve("drawing.png")
@@ -57,6 +75,23 @@ class DesktopPngTest {
 
         assertIs<DesktopSaveResult.Saved>(result)
         assertEquals(file.absolutePath, result.path)
+    }
+
+    @Test
+    fun `interrupted PNG write does not publish a partial file`() {
+        val file = Files.createTempDirectory("bangnidraw-png-interrupted")
+            .resolve("drawing.png")
+            .toFile()
+
+        Thread.currentThread().interrupt()
+        val result = try {
+            DesktopPng.write(onePixelImage(), file)
+        } finally {
+            Thread.interrupted()
+        }
+
+        assertIs<DesktopSaveResult.Failed>(result)
+        assertFalse(file.exists())
     }
 
     @Test

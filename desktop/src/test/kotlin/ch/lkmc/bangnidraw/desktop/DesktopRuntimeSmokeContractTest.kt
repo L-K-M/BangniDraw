@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.desktop
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class DesktopRuntimeSmokeContractTest {
@@ -30,7 +31,26 @@ class DesktopRuntimeSmokeContractTest {
         assertTrue(release.contains("帮你Draw error window OK:"))
     }
 
-    private fun source(path: String): String = repoFile(path).readText()
+    @Test
+    fun `packaged runtime verification excludes the jlink JVM and is bounded`() {
+        val workflows = listOf(
+            source(".github/workflows/ci.yml"),
+            source(".github/workflows/release.yml"),
+        )
+
+        workflows.forEach { workflow ->
+            assertTrue(workflow.contains("! -path '*/runtime/*'"))
+            assertTrue(workflow.contains("timeout 60s \"\$LAUNCHER\" --verify-runtime"))
+            assertTrue(
+                workflow.contains(
+                    "perl -e 'alarm shift; exec @ARGV' 60 \"\$LAUNCHER\" --verify-runtime",
+                ),
+            )
+            assertEquals(2, "--verify-runtime".toRegex().findAll(workflow).count())
+        }
+    }
+
+    private fun source(path: String): String = repoFile(path).readText(Charsets.UTF_8)
 
     private fun repoFile(path: String): File = File(repoRoot(), path)
 

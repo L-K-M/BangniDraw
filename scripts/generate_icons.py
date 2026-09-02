@@ -11,7 +11,7 @@ Per density this writes mipmap-<dpi>/ic_launcher_bg.png at the 108dp adaptive
 canvas size. It also writes jpackage's Linux PNG and macOS ICNS derivatives.
 
 Usage: python3 scripts/generate_icons.py
-Requirements: Pillow.
+Requirements: Pillow (>= 9.1).
 """
 import os
 

@@ -6,8 +6,9 @@ target here before packaging; jpackage picks them up via
 appResourcesRootDir. Linux uses the system GLES natively (Mesa/NVIDIA);
 its fallback folders are recreated only if an ANGLE-on-Linux path ever lands.
 
-CI uses the architecture supplied by `macos-latest`; x64 is covered only
-when that runner label resolves to x64, or by a manual build.
+CI's `macos-latest` label currently resolves to arm64 runners; x64
+packaging is therefore manual and untested by the pipeline unless the
+workflow pins an Intel runner label.
 
 Distributing binaries here requires recording their provenance in
 AGENTS.md (the repo's third-party rule); none are checked in.

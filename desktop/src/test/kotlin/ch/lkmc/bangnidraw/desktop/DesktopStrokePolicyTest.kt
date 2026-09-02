@@ -32,6 +32,26 @@ class DesktopStrokePolicyTest {
     }
 
     @Test
+    fun `erase mouse mode remaps only mouse input`() {
+        for (source in StrokeSource.entries) {
+            val expected =
+                if (source == StrokeSource.MOUSE) StrokeSource.ERASER_END else source
+
+            assertEquals(expected, DesktopStrokePolicy.source(source, DesktopMouseMode.Erase))
+        }
+    }
+
+    @Test
+    fun `an eraser preset erases without changing mouse source`() {
+        val eraser = DesktopBrushes.loadAll().first { it.eraseMode }
+
+        assertEquals(
+            StrokeMode.ERASE,
+            DesktopStrokePolicy.mode(StrokeSource.MOUSE, eraser, RgbMixer),
+        )
+    }
+
+    @Test
     fun `ordinary mouse source retains brush mixing policy`() {
         val brush = DesktopBrushes.loadAll().first { !it.eraseMode }
 

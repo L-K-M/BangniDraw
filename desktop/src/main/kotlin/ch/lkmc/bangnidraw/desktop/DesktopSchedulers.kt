@@ -16,23 +16,36 @@ internal object DesktopDeadlinePolicy {
 
 /** Swing timer bridge so a stationary mouse press starts before release. */
 internal class SwingGestureDeadlineScheduler : GestureDeadlineScheduler {
+    private val timerLock = Any()
     private val timers = IdentityHashMap<Runnable, Timer>()
 
     override fun scheduleAt(deadlineNs: Long, callback: Runnable) {
-        cancel(callback)
-
-        val timer = Timer(
+        lateinit var timer: Timer
+        timer = Timer(
             DesktopDeadlinePolicy.delayMillis(System.nanoTime(), deadlineNs),
         ) {
-            timers.remove(callback)
-            callback.run()
+            val current = synchronized(timerLock) {
+                if (timers[callback] !== timer) {
+                    false
+                } else {
+                    timers.remove(callback)
+                    true
+                }
+            }
+            if (current) callback.run()
         }
         timer.isRepeats = false
-        timers[callback] = timer
-        timer.start()
+
+        synchronized(timerLock) {
+            timers.remove(callback)?.stop()
+            timers[callback] = timer
+            timer.start()
+        }
     }
 
     override fun cancel(callback: Runnable) {
-        timers.remove(callback)?.stop()
+        synchronized(timerLock) {
+            timers.remove(callback)?.stop()
+        }
     }
 }

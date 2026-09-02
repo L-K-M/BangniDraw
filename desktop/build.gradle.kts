@@ -101,6 +101,14 @@ compose.desktop {
                 packageBuildVersion = desktopPackageBuildVersion
                 dockName = desktopDisplayName
                 iconFile.set(project.file("packaging/icons/bangnidraw.icns"))
+
+                // jpackage emits CFBundleName, but Finder prefers this key.
+                infoPlist {
+                    extraKeysRawXml = """
+                        <key>CFBundleDisplayName</key>
+                        <string>$desktopDisplayName</string>
+                    """.trimIndent()
+                }
             }
             linux {
                 // Debian policy: package names are lowercase — mixed case

@@ -32,6 +32,15 @@ class DesktopPackagingContractTest {
     }
 
     @Test
+    fun `mac package exposes the canonical Finder display name`() {
+        val build = source("desktop/build.gradle.kts")
+
+        assertTrue(build.contains("infoPlist {"))
+        assertTrue(build.contains("<key>CFBundleDisplayName</key>"))
+        assertTrue(build.contains("<string>${'$'}desktopDisplayName</string>"))
+    }
+
+    @Test
     fun `mac installer follows the canonical package name`() {
         val script = source("scripts/build.sh")
 

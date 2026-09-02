@@ -339,6 +339,9 @@ internal class DesktopEngine(
         frameHeight = INITIAL_FRAME_HEIGHT
         allocateFrameTarget()
         next.onSurfaceChanged(frameWidth, frameHeight)
+
+        // Publish frame one without depending on Compose's first layout callback.
+        requestRepaintOnGl()
     }
 
     private fun runTasksAndFrames() {

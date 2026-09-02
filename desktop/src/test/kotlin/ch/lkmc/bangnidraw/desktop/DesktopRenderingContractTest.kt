@@ -49,6 +49,29 @@ class DesktopRenderingContractTest {
         assertFalse(saveBody.contains("requireReadback("))
     }
 
+    @Test
+    fun `empty canvas fills the row before its first frame`() {
+        val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
+        val canvas = main
+            .substringAfter("// The canvas viewport")
+            .substringBefore("SidePanel(")
+
+        assertTrue(
+            canvas.contains(".weight(1f)\n                    .fillMaxHeight()"),
+            "the empty canvas must have height before its bitmap exists",
+        )
+    }
+
+    @Test
+    fun `renderer initialization schedules the first frame`() {
+        val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
+        val initialization = engine
+            .substringAfter("private fun initializeRenderer()")
+            .substringBefore("private fun runTasksAndFrames()")
+
+        assertTrue(initialization.contains("requestRepaintOnGl()"))
+    }
+
     private fun source(path: String): String = repoFile(path).readText()
 
     private fun repoFile(path: String): File = File(repoRoot(), path)

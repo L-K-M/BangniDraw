@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.desktop
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class DesktopBrandTest {
 
@@ -24,6 +25,21 @@ class DesktopBrandTest {
             "Draw & Paint <Fast> \"Now\" 'Today' 'Again'",
             DesktopBrand.parseDisplayName(xml),
         )
+    }
+
+    @Test
+    fun `desktop brand decodes one XML layer and rejects blank text`() {
+        assertEquals(
+            "&lt;",
+            DesktopBrand.parseDisplayName(
+                """<string name="app_name">&amp;lt;</string>""",
+            ),
+        )
+        assertFailsWith<IllegalStateException> {
+            DesktopBrand.parseDisplayName(
+                """<string name="app_name">   </string>""",
+            )
+        }
     }
 
     @Test

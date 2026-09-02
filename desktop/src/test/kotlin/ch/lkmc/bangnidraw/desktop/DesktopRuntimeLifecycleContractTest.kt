@@ -3,7 +3,9 @@ package ch.lkmc.bangnidraw.desktop
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class DesktopRuntimeLifecycleContractTest {
@@ -22,10 +24,23 @@ class DesktopRuntimeLifecycleContractTest {
         val context = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/GlfwEsContext.kt")
 
         assertTrue(context.contains("@Volatile\n    private var active"))
-        assertTrue(context.contains("private var activationThread"))
+        assertTrue(context.contains("@Volatile\n    private var activationThread"))
         assertTrue(context.contains("Thread.currentThread() === activationThread"))
         assertTrue(context.contains("check(!ownsGlfw)"))
         assertTrue(context.contains("terminateOwnedGlfw()"))
+
+        val destroyBody = context
+            .substringAfter("fun destroy()")
+            .substringBefore("companion object")
+        val ownershipCheck = destroyBody.indexOf("check(ownsGlfw)")
+        val firstNativeCall = destroyBody.indexOf("GLFW.")
+
+        assertTrue(ownershipCheck >= 0, "destroy must check GLFW ownership")
+        assertTrue(firstNativeCall >= 0, "destroy must call GLFW after validation")
+        assertTrue(
+            ownershipCheck < firstNativeCall,
+            "destroy must reject stale contexts before calling GLFW",
+        )
     }
 
     @Test
@@ -65,6 +80,23 @@ class DesktopRuntimeLifecycleContractTest {
 
         assertEquals(1, results.size)
         assertIs<DesktopSaveResult.Failed>(results.single())
+    }
+
+    @Test
+    fun `fatal export completes once before rethrowing`() {
+        val failure = AssertionError("fatal export")
+        val results = mutableListOf<DesktopSaveResult>()
+        val task = DesktopExportTask(
+            export = { throw failure },
+            onComplete = results::add,
+        )
+
+        val thrown = assertFailsWith<AssertionError> { task.run() }
+        task.cancel()
+
+        assertSame(failure, thrown)
+        assertEquals(1, results.size)
+        assertEquals(DesktopSaveResult.Failed("fatal export"), results.single())
     }
 
     @Test

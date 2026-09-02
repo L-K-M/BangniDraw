@@ -13,6 +13,7 @@ internal class GlfwEsContext private constructor(
 ) {
     @Volatile
     private var active = false
+    @Volatile
     private var activationThread: Thread? = null
     @Volatile
     private var abandonedAfterOwnerTimeout = false
@@ -60,6 +61,7 @@ internal class GlfwEsContext private constructor(
 
     /** GLFW window destruction is restricted to the thread that created it. */
     fun destroy() {
+        check(ownsGlfw) { GLFW_OWNERSHIP_MESSAGE }
         check(Thread.currentThread() === creationThread) {
             "GLFW context must be destroyed on its creation thread"
         }
@@ -118,7 +120,7 @@ internal class GlfwEsContext private constructor(
 
         @Synchronized
         private fun terminateOwnedGlfw() {
-            check(ownsGlfw) { "GLFW initialization is not owned by this context" }
+            check(ownsGlfw) { GLFW_OWNERSHIP_MESSAGE }
             GLFW.glfwTerminate()
             ownsGlfw = false
         }
@@ -146,6 +148,8 @@ internal class GlfwEsContext private constructor(
 
         private const val GLES_MAJOR_VERSION = 3
         private const val GLES_MINOR_VERSION = 0
+        private const val GLFW_OWNERSHIP_MESSAGE =
+            "GLFW initialization is not owned by this context"
         private const val ABANDONED_CONTEXT_MESSAGE =
             "GL owner did not stop; leaving GLFW state for process teardown"
     }

@@ -1,6 +1,11 @@
 package ch.lkmc.bangnidraw.desktop
 
 import java.io.File
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -110,6 +115,24 @@ class DesktopPackagingContractTest {
     }
 
     @Test
+    fun `helper output is drained while the process runs`() {
+        val result = runHelper(
+            """
+                i=0
+                while ((i < PIPE_STRESS_REPETITIONS)); do
+                  printf '%s' "${'$'}PIPE_STRESS_CHUNK"
+                  ((i += 1))
+                done
+            """.trimIndent(),
+            "PIPE_STRESS_REPETITIONS" to PIPE_STRESS_REPETITIONS.toString(),
+            "PIPE_STRESS_CHUNK" to PIPE_STRESS_CHUNK,
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertEquals(PIPE_STRESS_CHUNK.length * PIPE_STRESS_REPETITIONS, result.output.length)
+    }
+
+    @Test
     fun `Compose receives mac resources from its actual target directories`() {
         assertTrue(repoFile("desktop/packaging/angle/macos-arm64").isDirectory)
         assertTrue(repoFile("desktop/packaging/angle/macos-x64").isDirectory)
@@ -158,14 +181,51 @@ class DesktopPackagingContractTest {
         variables.forEach { (key, value) -> builder.environment()[key] = value }
 
         val process = builder.start()
-        if (!process.waitFor(HELPER_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            process.waitFor()
-            error("desktop-package.sh helper timed out: $command")
+        val outputExecutor = Executors.newSingleThreadExecutor { task ->
+            Thread(task, HELPER_OUTPUT_THREAD_NAME).apply { isDaemon = true }
         }
-        val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        val outputFuture = outputExecutor.submit<String> {
+            process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        }
 
-        return CommandResult(process.exitValue(), output)
+        try {
+            if (!process.waitFor(HELPER_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                if (!process.waitFor(HELPER_TERMINATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    error("desktop-package.sh helper did not terminate: $command")
+                }
+
+                awaitOutput(outputFuture, process, command)
+                error("desktop-package.sh helper timed out: $command")
+            }
+
+            val output = awaitOutput(outputFuture, process, command)
+
+            return CommandResult(process.exitValue(), output)
+        } finally {
+            if (process.isAlive) {
+                process.destroyForcibly()
+                process.waitFor(HELPER_TERMINATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            }
+
+            process.inputStream.close()
+            outputExecutor.shutdownNow()
+            outputExecutor.awaitTermination(HELPER_OUTPUT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        }
+    }
+
+    private fun awaitOutput(
+        outputFuture: Future<String>,
+        process: Process,
+        command: String,
+    ): String = try {
+        outputFuture.get(HELPER_OUTPUT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+    } catch (failure: TimeoutException) {
+        process.inputStream.close()
+        outputFuture.cancel(true)
+        throw IllegalStateException("desktop-package.sh output timed out: $command", failure)
+    } catch (failure: ExecutionException) {
+        throw IllegalStateException("desktop-package.sh output failed: $command", failure.cause)
     }
 
     private data class CommandResult(
@@ -187,5 +247,10 @@ class DesktopPackagingContractTest {
 
     private companion object {
         const val HELPER_TIMEOUT_SECONDS = 60L
+        const val HELPER_TERMINATION_TIMEOUT_SECONDS = 5L
+        const val HELPER_OUTPUT_TIMEOUT_SECONDS = 5L
+        const val HELPER_OUTPUT_THREAD_NAME = "desktop-package-output"
+        const val PIPE_STRESS_REPETITIONS = 32_768
+        const val PIPE_STRESS_CHUNK = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     }
 }

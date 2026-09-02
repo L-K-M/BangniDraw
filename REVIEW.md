@@ -3312,3 +3312,9 @@ much as in code.
   separate infrastructure or future targets. The shipped no-ANGLE DMG remains
   explicitly documented as an unsigned instruction build, not a verified GL
   success path.
+
+- **R-249 ✅ (applied) PR #188 round 2.** Fatal exports now report once
+  before rethrowing; stale GLFW owners fail before native teardown; preference
+  cancellation propagates; and helper output drains concurrently. Each fix has
+  a failing-first regression. The duplicated XML decoder is pinned by a golden
+  test, and GL activation-thread visibility is explicit.

@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.desktop
 
+import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
@@ -45,6 +46,20 @@ class DesktopPrefsTest {
     }
 
     @Test
+    fun `writer rethrows coroutine cancellation`() {
+        val source = repoFile(
+            "desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopPrefs.kt",
+        ).readText(Charsets.UTF_8)
+        val writer = source
+            .substringAfter("private val writer")
+            .substringBefore("val brushId")
+
+        assertTrue(writer.contains("catch (cancelled: CancellationException)"))
+        assertTrue(writer.contains("throw cancelled"))
+        assertFalse(writer.contains("runCatching"))
+    }
+
+    @Test
     fun `late restore cannot overwrite a fresh user choice`() {
         val gate = DesktopPreferenceRestoreGate()
 
@@ -59,5 +74,15 @@ class DesktopPrefsTest {
 
     private companion object {
         const val WRITE_COUNT = 100
+    }
+
+    private fun repoFile(path: String): File = File(repoRoot(), path)
+
+    private fun repoRoot(): File {
+        var candidate = File(".").canonicalFile
+        while (!File(candidate, "settings.gradle.kts").isFile) {
+            candidate = candidate.parentFile ?: error("repository root not found")
+        }
+        return candidate
     }
 }

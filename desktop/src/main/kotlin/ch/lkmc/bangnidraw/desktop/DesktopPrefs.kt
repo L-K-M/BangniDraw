@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Dispatchers
@@ -46,14 +47,16 @@ internal class DesktopPrefs(
     private val updates = Channel<PreferenceUpdate>(Channel.UNLIMITED)
     private val writer = scope.launch {
         for (update in updates) {
-            runCatching {
+            try {
                 store.edit { preferences ->
                     when (update) {
                         is PreferenceUpdate.Brush -> preferences[BRUSH_ID] = update.id
                         is PreferenceUpdate.Color -> preferences[COLOR] = update.argb
                     }
                 }
-            }.onFailure { error ->
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
                 System.err.println("desktop preferences could not be saved: ${error.message}")
             }
         }

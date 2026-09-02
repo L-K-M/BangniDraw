@@ -31,9 +31,15 @@ internal class DesktopExportTask(
     override fun run() {
         val result = try {
             export()
-        } catch (failure: Exception) {
-            DesktopPng.failureResult(failure)
+        } catch (failure: Throwable) {
+            try {
+                complete(DesktopPng.failureResult(failure))
+            } finally {
+                if (failure is Error) throw failure
+            }
+            return
         }
+
         complete(result)
     }
 

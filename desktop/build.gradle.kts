@@ -9,6 +9,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// Keep this packaging-time copy aligned with DesktopBrand.parseDisplayName.
+// Ampersand stays last so `&amp;lt;` decodes once to the literal `&lt;`.
 private fun decodeXmlText(value: String): String = value
     .replace("&quot;", "\"")
     .replace("&apos;", "'")

@@ -45,7 +45,7 @@ internal object DesktopPng {
         failureResult(failure)
     }
 
-    fun failureResult(failure: Exception): DesktopSaveResult.Failed {
+    fun failureResult(failure: Throwable): DesktopSaveResult.Failed {
         val detail = failure.message ?: failure::class.simpleName ?: "unknown error"
         return DesktopSaveResult.Failed(detail)
     }

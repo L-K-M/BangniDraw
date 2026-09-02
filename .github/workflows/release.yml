@@ -8,9 +8,8 @@
 # every installed user, which is why this was decided on day one.
 #
 # The desktop packages are the DEFAULT (Mixbox-enabled) variant, matching the
-# APK's licensing posture (CC BY-NC 4.0, ADR 0003). The macOS dmg bundles no
-# ANGLE dylibs — they are deliberately not committed — so the release body
-# must keep telling macOS users where to get them (README, desktop section).
+# APK's licensing posture (CC BY-NC 4.0, ADR 0003). The macOS dmg bundles
+# pinned, verified ANGLE dylibs fetched while Gradle stages app resources.
 #
 # Hardening (family contract): least-privilege permissions, no cancellation
 # (a half-cancelled publish is worse than a slow one), timeout, wrapper
@@ -180,7 +179,6 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
-      # No ANGLE binaries are committed; the release body carries setup.
       - name: Build desktop tests and dmg
         run: >-
           ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
@@ -216,19 +214,34 @@ jobs:
           test -x "$LAUNCHER"
           perl -e 'alarm shift; exec @ARGV' 60 "$LAUNCHER" --verify-runtime | grep -F '帮你Draw runtime OK:'
 
-          perl -e 'alarm shift; exec @ARGV' 30 \
-            "$LAUNCHER" --smoke-startup-failure 2>&1 | \
-            tee "$RUNNER_TEMP/desktop-macos-smoke.log"
-          grep -F '帮你Draw error window OK:' "$RUNNER_TEMP/desktop-macos-smoke.log"
+          ANGLE_RESOURCES="$APP/Contents/app/resources"
+          EGL="$ANGLE_RESOURCES/libEGL.dylib"
+          GLES="$ANGLE_RESOURCES/libGLESv2.dylib"
+          LICENSE="$ANGLE_RESOURCES/LICENSE"
+          NOTICES="$ANGLE_RESOURCES/LICENSES.chromium.html"
+          test -f "$EGL"
+          test -f "$GLES"
+          test -f "$LICENSE"
+          test -f "$NOTICES"
 
-          case "$(uname -m)" in
+          NATIVE_ARCH="$(uname -m)"
+          case "$NATIVE_ARCH" in
             arm64) ARCH="arm64" ;;
             x86_64) ARCH="x64" ;;
-            *)
-              echo "!! unsupported macOS architecture: $(uname -m)" >&2
-              exit 1
-              ;;
+            *) echo "!! unsupported macOS architecture: $NATIVE_ARCH" >&2; exit 1 ;;
           esac
+          test "$(lipo -archs "$EGL")" = "$NATIVE_ARCH"
+          test "$(lipo -archs "$GLES")" = "$NATIVE_ARCH"
+          codesign --verify --strict "$EGL"
+          codesign --verify --strict "$GLES"
+
+          perl -e 'alarm shift; exec @ARGV' 60 \
+            "$LAUNCHER" --smoke-window 2>&1 | \
+            tee "$RUNNER_TEMP/desktop-macos-smoke.log"
+          grep -F '帮你Draw window OK:' "$RUNNER_TEMP/desktop-macos-smoke.log"
+          grep -E 'I/GlfwEsContext: GL context: .*ANGLE' \
+            "$RUNNER_TEMP/desktop-macos-smoke.log"
+
           echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
 
       - name: Stage release artifacts
@@ -286,12 +299,10 @@ jobs:
               (minSdk 29).
             - **Linux**: `bangnidraw-desktop-<tag>-linux-amd64.deb` — needs
               GLES from Mesa or your vendor driver; nothing else.
-            - **macOS**: `bangnidraw-desktop-<tag>-macos-<arch>.dmg` — the app
-              needs ANGLE's `libEGL.dylib`/`libGLESv2.dylib`; set
-              `-Dbangnidraw.angle.dir=<directory>` or see the repo README.
-              Without ANGLE the app opens an instruction window. This DMG is
-              an unsigned developer preview; production still needs bundled,
-              signed ANGLE plus Developer ID signing and notarization.
+            - **macOS**: `bangnidraw-desktop-<tag>-macos-<arch>.dmg` bundles
+              ANGLE for Metal. This unsigned developer preview requires
+              Control-click → Open. Production still requires Developer ID
+              signing and notarization.
 
             Desktop is mouse-first in this release line (no pen pressure
             yet — Phase 3 of DESKTOP.md). Both desktop builds include Mixbox

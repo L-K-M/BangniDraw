@@ -167,9 +167,7 @@ jobs:
 
       - name: Test and build the macOS distributable
         # packageDistributionForCurrentOS = the real Dmg on macOS. Built
-        # WITHOUT -Pbangnidraw.mixbox=false deliberately: the default,
-        # Mixbox-enabled variant is the one macOS users get, and the Linux
-        # job already covers the stripped one.
+        # with pinned ANGLE and Mixbox; Linux covers the stripped variant.
         run: >-
           ./gradlew :engine-core:desktopTest :engine-gl:desktopTest
           :desktop:test :desktop:createDistributable
@@ -193,18 +191,38 @@ jobs:
           test -x "$LAUNCHER"
           perl -e 'alarm shift; exec @ARGV' 60 "$LAUNCHER" --verify-runtime | grep -F '帮你Draw runtime OK:'
 
-          perl -e 'alarm shift; exec @ARGV' 30 \
-            "$LAUNCHER" --smoke-startup-failure 2>&1 | \
+          ANGLE_RESOURCES="$APP/Contents/app/resources"
+          EGL="$ANGLE_RESOURCES/libEGL.dylib"
+          GLES="$ANGLE_RESOURCES/libGLESv2.dylib"
+          LICENSE="$ANGLE_RESOURCES/LICENSE"
+          NOTICES="$ANGLE_RESOURCES/LICENSES.chromium.html"
+          test -f "$EGL"
+          test -f "$GLES"
+          test -f "$LICENSE"
+          test -f "$NOTICES"
+
+          NATIVE_ARCH="$(uname -m)"
+          case "$NATIVE_ARCH" in
+            arm64|x86_64) ;;
+            *) echo "!! unsupported macOS architecture: $NATIVE_ARCH" >&2; exit 1 ;;
+          esac
+          test "$(lipo -archs "$EGL")" = "$NATIVE_ARCH"
+          test "$(lipo -archs "$GLES")" = "$NATIVE_ARCH"
+          codesign --verify --strict "$EGL"
+          codesign --verify --strict "$GLES"
+
+          perl -e 'alarm shift; exec @ARGV' 60 \
+            "$LAUNCHER" --smoke-window 2>&1 | \
             tee "$RUNNER_TEMP/desktop-macos-smoke.log"
-          grep -F '帮你Draw error window OK:' "$RUNNER_TEMP/desktop-macos-smoke.log"
+          grep -F '帮你Draw window OK:' "$RUNNER_TEMP/desktop-macos-smoke.log"
+          grep -E 'I/GlfwEsContext: GL context: .*ANGLE' \
+            "$RUNNER_TEMP/desktop-macos-smoke.log"
 
       - name: Upload macOS distributable
-        # Built WITHOUT the uncommitted ANGLE dylibs — a build/smoke-test
-        # artifact, not a shippable image: stage the dylibs into
-        # desktop/packaging/angle/macos-<arch>/ before release packaging.
+        # The archive contains the verified ANGLE runtime exercised above.
         uses: actions/upload-artifact@v7
         with:
-          name: bangnidraw-desktop-macos-noangle-${{ github.sha }}
+          name: bangnidraw-desktop-macos-${{ github.sha }}
           path: desktop/build/compose/binaries/main/**
           if-no-files-found: error
           retention-days: 14

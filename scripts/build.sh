@@ -22,9 +22,9 @@
 #
 # Usage: scripts/build.sh [--debug] [--clean] [--check] [--install]
 # Requirements: JDK 17+; the Android SDK (local.properties or ANDROID_HOME);
-#   --install additionally needs macOS, and a working GL context needs
-#   ANGLE's dylibs staged under desktop/packaging/angle/macos-<arch>/
-#   (see that folder's README.txt and the README's desktop section).
+#   --install additionally needs macOS, curl, and network access on
+#   the first build so the pinned ANGLE runtime can be cached.
+
 set -euo pipefail
 
 # Absolute self-path first: usage() re-opens the script, which a relative $0
@@ -127,11 +127,10 @@ if [ "$INSTALL" -eq 1 ]; then
     exit 1
   }
 
-  # Check what jpackage bundled; its JDK architecture may differ from the host.
+  # Refuse to install a package that cannot create its GL context.
   if ! desktop_app_has_angle "$DESKTOP_APP"; then
-    echo "!! warning: ANGLE dylibs are not packaged in ${DESKTOP_NAME}.app" >&2
-    echo "   Stage libEGL.dylib/libGLESv2.dylib in the matching macos-* folder" >&2
-    echo "   under desktop/packaging/angle, then rebuild." >&2
+    echo "!! ANGLE dylibs are missing from ${DESKTOP_NAME}.app" >&2
+    exit 1
   fi
 
   echo "==> installing $INSTALL_PATH"

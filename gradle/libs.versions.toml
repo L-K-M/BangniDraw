@@ -24,6 +24,7 @@ lwjgl = "3.4.3"
 # Compose Multiplatform (DESKTOP.md "UI layer"), same androidx.compose.*
 # packages as the Android app's Jetpack Compose.
 composeMultiplatform = "1.12.0"
+electronAngle = "41.10.3"
 # Mixbox 2.0 — CC BY-NC 4.0, see ADR 0003 and third-party/mixbox/.
 mixbox = "2.0.0"
 junit = "4.13.2"

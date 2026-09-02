@@ -86,13 +86,16 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   readback needs an explicit bounded copy because native
   writes do not advance a Java buffer's position.
   On macOS, initialize AWT first, select LWJGL's `glfw_async`, disable GLFW's
-  Cocoa menu, and use the ANGLE Metal init hint. ANGLE is resolved from
-  `bangnidraw.angle.dir`, Compose app resources, then the working directory;
-  no native binaries are committed. GLFW reopens ANGLE by leaf name while
-  creating the first window, so the native working-directory guard must cover
-  both `glfwInit` and `glfwCreateWindow`; absolute `System.load` or LWJGL
-  configuration alone is insufficient. A no-ANGLE DMG verifies only the
-  instruction window, not rendering; it is also unsigned until Phase 4.
+  Cocoa menu, and use the ANGLE Metal init hint. Gradle fetches the pinned
+  Electron archive, verifies its SHA-256, and stages its ANGLE dylibs and
+  licenses as Compose app resources; no native binaries are committed.
+  `bangnidraw.angle.dir` remains a development override, followed by Compose
+  app resources and the working directory. GLFW reopens ANGLE by leaf name
+  while creating the first window, so the native working-directory guard must
+  cover both `glfwInit` and `glfwCreateWindow`; absolute `System.load` or
+  LWJGL configuration alone is insufficient. macOS CI verifies both dylibs,
+  their host architecture, upstream signatures, an ANGLE GL log, and one
+  packaged frame. The app bundle remains unsigned until Phase 4.
   Packaged runtimes require `java.instrument`, `jdk.management`, and
   `jdk.unsupported`.
   Desktop display names come from Android's `app_name`; icons derive from

@@ -21,14 +21,17 @@ class DesktopRuntimeSmokeContractTest {
     }
 
     @Test
-    fun `macOS CI and releases open the packaged failure window`() {
-        val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
+    fun `macOS CI and releases render one packaged frame`() {
         val ci = source(".github/workflows/ci.yml")
         val release = source(".github/workflows/release.yml")
+        val ciMac = ci.substringAfter("\n  desktop-macos:\n")
+        val releaseMac = release.substringAfter("\n  build-desktop-macos:\n")
+            .substringBefore("\n  publish:\n")
 
-        assertTrue(main.contains("--smoke-startup-failure"))
-        assertTrue(ci.contains("帮你Draw error window OK:"))
-        assertTrue(release.contains("帮你Draw error window OK:"))
+        listOf(ciMac, releaseMac).forEach { workflow ->
+            assertTrue(workflow.contains("--smoke-window"))
+            assertTrue(workflow.contains("帮你Draw window OK:"))
+        }
     }
 
     @Test

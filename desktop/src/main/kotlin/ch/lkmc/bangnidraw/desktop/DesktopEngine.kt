@@ -235,32 +235,42 @@ internal class DesktopEngine(
     /**
      * Saves the painting as a PNG under `~/Pictures/BangniDraw`, composed
      * from the readback mirror (the mirror is exact: every commit drains
-     * its readback to completion first). [onComplete] reports the result on
-     * the export worker, not the GL thread.
+     * its readback to completion first). [onComplete] is not UI-thread-bound;
+     * callers must marshal UI state themselves.
      */
     fun savePng(onComplete: (DesktopSaveResult) -> Unit) = post {
-        val renderer = renderer ?: return@post
-        requireReadback(renderer)
+        val snapshot: DesktopExportSnapshot
+        val file: java.io.File
+        try {
+            if (renderer == null) error("rendering is not ready")
 
-        val layerMirror = mirror[stack.layers[stack.activeIndex].id].orEmpty()
-        val tiles = HashMap<TileKey, ByteArray>(layerMirror.size)
-        for ((key, pixels) in layerMirror) tiles[key] = pixels.copyOf()
+            // Commits drain readback before updating history. Export captures
+            // that last committed mirror without another blocking fence wait,
+            // which could hold the GL owner long enough to exhaust DabRing.
 
-        val snapshot = DesktopExportSnapshot(
-            width = canvas.width,
-            height = canvas.height,
-            paperArgb = DEFAULT_PAPER_ARGB,
-            tiles = tiles,
-        )
-        val directory = DesktopPlatform.picturesDir()
-        val file = java.io.File(
-            directory,
-            DesktopBrand.displayName + "-" + System.currentTimeMillis() + ".png",
-        )
+            val layerMirror = mirror[stack.layers[stack.activeIndex].id].orEmpty()
+            snapshot = DesktopPng.snapshot(
+                width = canvas.width,
+                height = canvas.height,
+                paperArgb = DEFAULT_PAPER_ARGB,
+                tiles = layerMirror,
+            )
+            file = java.io.File(
+                DesktopPlatform.picturesDir(),
+                DesktopBrand.displayName + "-" + System.currentTimeMillis() + ".png",
+            )
+        } catch (failure: Exception) {
+            onComplete(DesktopPng.failureResult(failure))
+            return@post
+        }
 
         // Composition and ImageIO are CPU/disk work; never block the GL owner.
-        exportExecutor.execute {
-            onComplete(DesktopPng.write(DesktopPng.compose(snapshot), file))
+        try {
+            exportExecutor.execute {
+                onComplete(DesktopPng.export(snapshot, file))
+            }
+        } catch (failure: Exception) {
+            onComplete(DesktopPng.failureResult(failure))
         }
     }
 

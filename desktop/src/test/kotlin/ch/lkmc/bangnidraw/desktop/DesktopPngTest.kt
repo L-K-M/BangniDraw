@@ -6,6 +6,7 @@ import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 
 class DesktopPngTest {
 
@@ -63,6 +64,40 @@ class DesktopPngTest {
         val directory = Files.createTempDirectory("bangnidraw-png-directory").toFile()
 
         val result = DesktopPng.write(onePixelImage(), directory)
+
+        assertIs<DesktopSaveResult.Failed>(result)
+    }
+
+    @Test
+    fun `snapshot freezes tile versions without copying their immutable bytes`() {
+        val key = TileKey(0, 0)
+        val capturedBytes = ByteArray(TILE_BYTES) { 1 }
+        val liveTiles = mutableMapOf(key to capturedBytes)
+
+        val snapshot = DesktopPng.snapshot(
+            width = TILE_EDGE,
+            height = TILE_EDGE,
+            paperArgb = OPAQUE_WHITE,
+            tiles = liveTiles,
+        )
+        liveTiles[key] = ByteArray(TILE_BYTES) { 2 }
+
+        assertSame(capturedBytes, snapshot.tiles[key])
+    }
+
+    @Test
+    fun `export reports composition failure without throwing`() {
+        val invalid = DesktopExportSnapshot(
+            width = 0,
+            height = 1,
+            paperArgb = OPAQUE_WHITE,
+            tiles = emptyMap(),
+        )
+        val file = Files.createTempDirectory("bangnidraw-png-failure")
+            .resolve("drawing.png")
+            .toFile()
+
+        val result = DesktopPng.export(invalid, file)
 
         assertIs<DesktopSaveResult.Failed>(result)
     }

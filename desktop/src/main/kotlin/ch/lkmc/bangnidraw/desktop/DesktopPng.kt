@@ -18,6 +18,38 @@ internal sealed interface DesktopSaveResult {
 /** Pixel math for exporting premultiplied engine tiles over opaque paper. */
 internal object DesktopPng {
 
+    /**
+     * Freezes the GL-thread mirror's selected tile versions without copying
+     * their immutable byte arrays. Mirror updates replace arrays rather than
+     * mutating them, so the worker can safely encode these retained versions.
+     */
+    fun snapshot(
+        width: Int,
+        height: Int,
+        paperArgb: Int,
+        tiles: Map<TileKey, ByteArray>,
+    ): DesktopExportSnapshot = DesktopExportSnapshot(
+        width = width,
+        height = height,
+        paperArgb = paperArgb,
+        tiles = HashMap(tiles),
+    )
+
+    /** Composes and writes entirely on the export worker, returning failures. */
+    fun export(
+        snapshot: DesktopExportSnapshot,
+        file: java.io.File,
+    ): DesktopSaveResult = try {
+        write(compose(snapshot), file)
+    } catch (failure: Exception) {
+        failureResult(failure)
+    }
+
+    fun failureResult(failure: Exception): DesktopSaveResult.Failed {
+        val detail = failure.message ?: failure::class.simpleName ?: "unknown error"
+        return DesktopSaveResult.Failed(detail)
+    }
+
     fun compose(snapshot: DesktopExportSnapshot): java.awt.image.BufferedImage {
         require(snapshot.width > 0 && snapshot.height > 0) { "export dimensions must be positive" }
 
@@ -69,8 +101,7 @@ internal object DesktopPng {
                 DesktopSaveResult.Saved(file.absolutePath)
             }
         } catch (failure: Exception) {
-            val detail = failure.message ?: failure::class.simpleName ?: "unknown error"
-            DesktopSaveResult.Failed(detail)
+            failureResult(failure)
         }
     }
 

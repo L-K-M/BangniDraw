@@ -74,7 +74,11 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   Rendering is engine → offscreen FBO → glReadPixels → Compose image
   (DESKTOP.md architecture 1), mouse → PointerSample records, in-memory undo
   from the readback mirror, JVM DataStore prefs, and Save PNG to
-  `~/Pictures/BangniDraw`. GL readback row zero is already canvas top; do not
+  `~/Pictures/BangniDraw`. Mirror byte arrays are immutable after publication:
+  export shallow-copies its map on the GL thread, then composes and writes on
+  the export worker. Do not add an export-time fence wait — stroke commits
+  already drain readback, and holding the GL owner can exhaust `DabRing`.
+  GL readback row zero is already canvas top; do not
   flip it. Heap-buffer readback needs an explicit bounded copy because native
   writes do not advance a Java buffer's position.
   On macOS, initialize AWT first, select LWJGL's `glfw_async`, disable GLFW's

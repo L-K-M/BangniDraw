@@ -2,9 +2,20 @@ package ch.lkmc.bangnidraw.desktop
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DesktopRenderingContractTest {
+
+    @Test
+    fun `the full side panel scrolls at minimum window height`() {
+        val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
+        val panel = main.substringAfter("private fun SidePanel(")
+            .substringBefore("private fun HsvSliders(")
+
+        assertTrue(panel.contains("fillMaxSize().verticalScroll(rememberScrollState())"))
+        assertFalse(panel.contains("Modifier.height(240.dp).verticalScroll"))
+    }
 
     @Test
     fun `desktop validates its frame target and renderer output`() {
@@ -21,6 +32,21 @@ class DesktopRenderingContractTest {
         assertTrue(engine.contains("exportExecutor.execute"))
         assertTrue(main.contains("if (preferencesReady)"))
         assertTrue(main.contains("preferencesReady = true"))
+    }
+
+    @Test
+    fun `export snapshots briefly and cannot fail the GL loop`() {
+        val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
+        val saveBody = engine
+            .substringAfter("fun savePng")
+            .substringBefore("fun undo")
+
+        assertTrue(saveBody.contains("DesktopPng.snapshot("))
+        assertTrue(saveBody.contains("DesktopPng.export(snapshot, file)"))
+        assertTrue(saveBody.contains("catch (failure: Exception)"))
+        assertTrue(saveBody.contains("DesktopPng.failureResult(failure)"))
+        assertFalse(saveBody.contains("pixels.copyOf()"))
+        assertFalse(saveBody.contains("requireReadback("))
     }
 
     private fun source(path: String): String = repoFile(path).readText()

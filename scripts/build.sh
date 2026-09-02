@@ -23,7 +23,7 @@
 # Usage: scripts/build.sh [--debug] [--clean] [--check] [--install]
 # Requirements: JDK 17+; the Android SDK (local.properties or ANDROID_HOME);
 #   --install additionally needs macOS, and a working GL context needs
-#   ANGLE's dylibs staged under desktop/packaging/angle/darwin-<arch>/
+#   ANGLE's dylibs staged under desktop/packaging/angle/macos-<arch>/
 #   (see that folder's README.txt and the README's desktop section).
 set -euo pipefail
 
@@ -31,6 +31,7 @@ set -euo pipefail
 # would no longer find after the cd below.
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$SELF")/.."
+source scripts/lib/desktop-package.sh
 
 usage() { awk 'NR==1 && /^#!/ {next} /^#/ {sub(/^# ?/,""); print; next} {exit}' "$SELF"; }
 
@@ -60,8 +61,10 @@ for arg in "$@"; do
 done
 
 DESKTOP_TASK=":desktop:createDistributable"
-DESKTOP_APP="desktop/build/compose/binaries/main/app/BangniDraw/BangniDraw.app"
-INSTALL_PATH="/Applications/BangniDraw.app"
+DESKTOP_NAME="$(desktop_display_name app/src/main/res/values/strings.xml)"
+[ -n "$DESKTOP_NAME" ] || { echo "!! could not read app_name from strings.xml" >&2; exit 1; }
+DESKTOP_APP_ROOT="desktop/build/compose/binaries/main/app"
+INSTALL_PATH="/Applications/${DESKTOP_NAME}.app"
 
 if [ "$INSTALL" -eq 1 ]; then
   if [ "$(uname -s)" != "Darwin" ]; then
@@ -81,7 +84,7 @@ if [ "$INSTALL" -eq 1 ]; then
     echo "==> config"
     echo "-- product:  desktop .app (macOS)"
     echo "-- task:     ./gradlew $DESKTOP_TASK"
-    echo "-- app:      $DESKTOP_APP"
+    echo "-- app root: $DESKTOP_APP_ROOT"
     echo "-- installs: $INSTALL_PATH"
     exit 0
   fi
@@ -118,19 +121,17 @@ if [ "$INSTALL" -eq 1 ]; then
   echo "==> ./gradlew $DESKTOP_TASK"
   ./gradlew "$DESKTOP_TASK"
 
-  [ -d "$DESKTOP_APP" ] || { echo "!! expected .app not found: $DESKTOP_APP" >&2; exit 1; }
+  DESKTOP_APP="$(desktop_find_app "$DESKTOP_APP_ROOT" "$DESKTOP_NAME")"
+  [ -n "$DESKTOP_APP" ] || {
+    echo "!! expected ${DESKTOP_NAME}.app under $DESKTOP_APP_ROOT" >&2
+    exit 1
+  }
 
-  # ANGLE gives macOS its GL context; jpackage bundles whatever is staged in
-  # desktop/packaging/angle verbatim. Without the dylibs the app still
-  # installs but exits at launch with a missing-ES-3.0-context message.
-  case "$(uname -m)" in
-    arm64) ANGLE_DIR="darwin-arm64" ;;
-    *)     ANGLE_DIR="darwin-x86-64" ;;
-  esac
-  if [ ! -f "desktop/packaging/angle/$ANGLE_DIR/libEGL.dylib" ]; then
-    echo "!! warning: ANGLE dylibs are not staged in desktop/packaging/angle/$ANGLE_DIR" >&2
-    echo "   The .app installs, but needs libEGL.dylib/libGLESv2.dylib there to" >&2
-    echo "   open a GL context (that folder's README.txt explains the sources)." >&2
+  # Check what jpackage bundled; its JDK architecture may differ from the host.
+  if ! desktop_app_has_angle "$DESKTOP_APP"; then
+    echo "!! warning: ANGLE dylibs are not packaged in ${DESKTOP_NAME}.app" >&2
+    echo "   Stage libEGL.dylib/libGLESv2.dylib in the matching macos-* folder" >&2
+    echo "   under desktop/packaging/angle, then rebuild." >&2
   fi
 
   echo "==> installing $INSTALL_PATH"

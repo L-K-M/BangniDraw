@@ -3428,3 +3428,83 @@ own name promised; now both.
 
 Steady state at round 3: rounds 2 and 3 each raised only test and robustness
 nits, no correctness findings, and nothing was declined in either.
+
+## PR #191 — desktop wet-stroke preview and shared theme (2026-09-03)
+
+Round 1 (full-mode bootstrap, `50e6ccd`, 0 actionable per GLM; one Major and
+one Minor in blockquotes): one applied, one refuted; nothing security-relevant.
+
+- **R-261 ⏸️ (refuted) round 1, Major: "wet stroke may be blended twice on
+  Android".** GLM's claim is that `drawFrame` now folds the wet stroke on all
+  platforms, so if a multi-buffer draw fires mid-stroke while the front layer
+  still holds accumulated stroke, both layers show it and the compositor
+  double-blends. Two independent reasons it does not happen. First, Android
+  does not run `drawFrame` mid-stroke at all: `EngineRenderPolicy.requestRedraw`
+  returns `DEFER` while `strokeActive` is true, and `redraw()` gates its
+  dispatch on that. Chained COMMIT via `attachmentGate.multiDrawCompleted`
+  only fires when `scenePending` was set — and `requestScene` is only called
+  from `redraw()` and `endStroke()`, both when `strokeActive == false`. At
+  `endStroke` the GL FIFO runs `renderer.endStroke` (clearing the `stroke`
+  field) before `commit()`'s multi-buffered draw fires, so `drawFrame` sees
+  `stroke == null`.
+  Second, even if the two coincided, the front layer is a *full opaque*
+  composite in its drawn region (paper + committed layers + stroke through the
+  same `compositeIntoAccum` used everywhere else), so SurfaceControl composites
+  it over the multi-buffered layer with no source visibility — the case that
+  wet-strokes-only reaches the screen is exactly when the front layer is
+  cleared, which is the flicker window the change was written to close. The
+  suggested `isFrontBufferedLayerActive` conditional would gate against a
+  scenario the architecture already rules out.
+
+- **R-262 ✅ (applied) round 1, Minor: `DESKTOP_COLOR_SCHEME` leaves error/
+  tertiary/inverse roles at stock defaults.** Correct on error: `ThemeColorPolicy`
+  exposes `errorColors(tone)` returning `ErrorColors(error, onError, errorContainer,
+  onErrorContainer)`, and passing those through is the same "no hex mirroring"
+  discipline the palette read already uses. Threaded them. Not applicable to
+  tertiary/inverse: `ThemeColors` carries no such tokens (the Android palette
+  never grew them), so Compose's stock defaults are the only source — a note
+  in the scheme's KDoc says so.
+
+Round 2 (hybrid, `50e6ccd`..`19e17b7`, 0 actionable): one Info note applied,
+nothing declined. GLM flagged R-261's parenthetical line-number citations
+(`EngineRenderPolicy.kt` line 63, `EngineSession.kt` line 1357) as anchors
+that rot silently under unrelated edits while the symbol references beside
+them (`requestRedraw`, `redraw()`) already identify the code. Removed the
+numeric halves; the symbols carry the refutation on their own. The delta
+audit's sample turned up nothing new.
+
+Round 3 (hybrid, `19e17b7`..`8a48ddf`, 1 actionable): one Minor adopted;
+the suggested doc-only remediation was superseded by the full mapping below.
+GLM flagged that the round-1 palette only mapped
+`primary`/`secondary`/`background`/`surface`/`outline` and error, leaving
+`surfaceContainer*` (and tertiary/inverse) at Compose's stock cool greys —
+which matters because Material3's `AlertDialog` renders on
+`surfaceContainerHigh` and the desktop shell does show one (About). The
+finding under-counted what `ThemeColorPolicy` actually carries
+(`surfaceContainerArgb` and `surfaceContainerHighArgb` are both present,
+alongside error), and the doc-only patch it suggested would leave the
+About dialog looking wrong on purpose. Applied the full mapping instead:
+`DESKTOP_COLOR_SCHEME` now mirrors `bangniColorScheme` from
+`app/src/main/java/ch/lkmc/bangnidraw/ui/theme/Color.kt` role-for-role,
+with the same derivations Android uses (tertiary reuses secondary,
+surface-container family derives from surfaceContainer/High/Variant,
+inverse derives from onSurface/surface). Same convention as the
+CPU/GLSL twin rule in AGENTS.md: when one moves, the other moves in the
+same commit.
+
+Round 4 (hybrid, `8a48ddf`..`42ef1d1`, 0 actionable): one Info applied, one
+Minor declined below (R-264). The Info was a REVIEW.md self-contradiction —
+round 3's opening said "nothing declined" while the body declined the
+reviewer's suggested doc-only remediation. Rewrote the opening.
+
+- **R-264 ⏸️ (declined) round 4, Minor: extract `bangniColorScheme`'s role
+  derivations into a shared function consumed by both `:app` and `:desktop`.**
+  Right long-term direction — convention beats mechanism — but out of scope
+  for this PR, which is fixing two field-observed defects, not restructuring
+  the palette adapter. The extraction is not a one-line move either: engine-
+  core is Compose-free by design (AGENTS.md's "no Compose, no coroutines, no
+  GL"), so the shared function needs a new source set or module the palette
+  policy does not currently justify. The twin convention AGENTS.md already
+  pins for CPU/GLSL pairs (and now for the two schemes) covers the drift
+  risk until a Compose-visible shared module earns its keep on other work;
+  filed as a proposal candidate for that day.

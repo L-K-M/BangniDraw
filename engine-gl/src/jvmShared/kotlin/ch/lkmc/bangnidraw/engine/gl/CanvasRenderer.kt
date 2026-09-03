@@ -1385,7 +1385,18 @@ class CanvasRenderer(
 
     /**
      * `onDrawMultiDoubleBufferedLayer` (§8.2): the full viewport from
-     * committed state, into [frameBufferId] at [bufferWidth] × [bufferHeight].
+     * committed state — plus the open stroke's wet [strokeBuffer] whenever
+     * one is present — into [frameBufferId] at [bufferWidth] × [bufferHeight].
+     *
+     * The wet-stroke inclusion is the whole reason the desktop shell shows a
+     * live drawing: without it, DesktopEngine (which drives the sole
+     * `drawFrame` path — there is no front-buffered [drawStrokeFrame] on
+     * that platform) would only publish committed content, and marks would
+     * appear on the canvas at pen-up rather than under the pen. On Android
+     * the front-buffered layer sits on top of this one and still owns the
+     * mid-stroke path, so this composites correctly during the brief
+     * windows §8.1 flags where AndroidX clears the front layer after a
+     * multi-buffer draw.
      *
      * [bufferTransform] is graphics-core's pre-rotation matrix, applied in
      * **buffer pixel space before the projection** (§3.1's `projection ×
@@ -1439,8 +1450,17 @@ class CanvasRenderer(
         // carries the sandwich margin, and degrades to the full canvas on a
         // non-finite transform, so this is fullCanvasRect minus only the
         // off-screen tiles; zoomed out past the fit it IS the full canvas.
+        // `stroke` is null between strokes (preserving the committed-only
+        // frame that DESKTOP.md's architecture 1 originally described) and
+        // non-null while one is open — same [StrokeSpec] `drawStrokeFrame`
+        // hands to [compositeIntoAccum] on §8.1's front-buffered path, so
+        // the live preview uses identical semantics on both paths (raw spec,
+        // no [withOpacityCeiling] — that arrives only at merge time).
+        // `drawLayer` re-checks `strokeBuffer != null` and `previewsStroke`
+        // before touching them, so a non-null spec without a usable buffer
+        // no-ops safely.
         if (!compositeIntoAccum(
-                current, screenTransform, pass, visibleCanvasRect(screenTransform), null, null,
+                current, screenTransform, pass, visibleCanvasRect(screenTransform), null, stroke,
             )
         ) {
             return false

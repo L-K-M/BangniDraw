@@ -68,6 +68,7 @@ import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 import ch.lkmc.bangnidraw.input.FrameScheduler
 import ch.lkmc.bangnidraw.input.PointerSample
 import java.awt.Dimension
+import kotlin.system.exitProcess
 
 /**
  * The desktop shell (DESKTOP.md Phase 2, M4). Minimal by design: canvas,
@@ -158,6 +159,12 @@ private fun printGlReport() {
     println("${DesktopBrand.displayName} GL report")
     println(startup.report.text())
     println(if (usable) "GLES 3.0 context via $host" else "no GLES 3.0 context")
+    System.out.flush()
+
+    // Startup has already initialized AWT, whose threads are not daemons, so
+    // returning from main would leave the process alive with nothing to do —
+    // and a caller reading its output through a pipe waiting forever.
+    exitProcess(if (usable) 0 else 1)
 }
 
 private fun createDesktopStartup(): DesktopStartup = try {

@@ -141,11 +141,15 @@ jobs:
 
           # Both context hosts, every commit: the direct EGL path is the one
           # macOS depends on, and GLFW is only a safety net if it still works.
+          # Redirect rather than pipe: `timeout` kills the xvfb-run wrapper, not
+          # the JVM it forked, and a surviving grandchild holds a pipe open for
+          # the rest of the job.
           for HOST in egl glfw; do
+            HOST_LOG="$RUNNER_TEMP/desktop-gl-$HOST.log"
             JAVA_TOOL_OPTIONS="-Dbangnidraw.gl.host=$HOST" LIBGL_ALWAYS_SOFTWARE=1 \
-              timeout 30s xvfb-run -a "$LAUNCHER" --gl-report 2>&1 | \
-              tee "$RUNNER_TEMP/desktop-gl-$HOST.log"
-            grep -iF "GLES 3.0 context via $HOST" "$RUNNER_TEMP/desktop-gl-$HOST.log"
+              timeout -k 5s 60s xvfb-run -a "$LAUNCHER" --gl-report > "$HOST_LOG" 2>&1 || true
+            cat "$HOST_LOG"
+            grep -iF "GLES 3.0 context via $HOST" "$HOST_LOG"
           done
 
       - name: Upload desktop distributable

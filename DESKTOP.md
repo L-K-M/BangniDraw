@@ -164,9 +164,13 @@ Windowing/context: GLFW with `GLFW_CLIENT_API=GLFW_OPENGL_ES_API` +
 `GLFW_CONTEXT_CREATION_API=GLFW_EGL_CONTEXT_API`, plus GLFW 3.4's
 `GLFW_ANGLE_PLATFORM_TYPE` init hint (Metal/Vulkan/D3D11) — ANGLE is a
 first-class tested path in GLFW's EGL code. One deployment wrinkle: GLFW
-dlopens EGL under fixed sonames (`libEGL.dylib` on macOS, not
-configurable), so the bundled ANGLE dylibs must be discoverable — libGDX
-solves this by chdir-ing to the dylib directory around `glfwInit`.
+dlopens EGL under fixed sonames (`libEGL.dylib` on macOS), so the bundled
+ANGLE dylibs must be discoverable — libGDX solves this by chdir-ing to the
+dylib directory around `glfwInit`. *(Shipped differently: chdir is not
+reliable, because dyld searches the working directory for a leaf name only
+in an unrestricted process. LWJGL's `GLFWNativeEGL.setEGLPath` does make
+the soname configurable, and the context itself now comes from EGL without
+GLFW — see AGENTS.md's deviation "The desktop context is created from EGL".)*
 
 **Existence proof (with two deltas):** libGDX has shipped this plumbing —
 LWJGL3 + GLFW(EGL) + ANGLE-Metal — on macOS in production since 2021, at

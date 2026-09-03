@@ -34,13 +34,11 @@ desktop_find_app() {
 }
 
 desktop_app_has_angle() {
-  local contents="$1/Contents"
-  local egl
-  local gles
+  # The exact directory the app reads at runtime (jpackage resolves
+  # compose.application.resources.dir to $APPDIR/resources). Accepting the
+  # dylibs anywhere under Contents would pass a bundle whose runtime cannot
+  # find them.
+  local resources="$1/Contents/app/resources"
 
-  [ -d "$contents" ] || return 1
-  egl="$(find "$contents" -type f -name "$DESKTOP_EGL_DYLIB" -print -quit)"
-  gles="$(find "$contents" -type f -name "$DESKTOP_GLES_DYLIB" -print -quit)"
-
-  [ -n "$egl" ] && [ -n "$gles" ]
+  [ -f "$resources/$DESKTOP_EGL_DYLIB" ] && [ -f "$resources/$DESKTOP_GLES_DYLIB" ]
 }

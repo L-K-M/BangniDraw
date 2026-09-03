@@ -239,7 +239,7 @@ jobs:
             "$LAUNCHER" --smoke-window 2>&1 | \
             tee "$RUNNER_TEMP/desktop-macos-smoke.log"
           grep -F '帮你Draw window OK:' "$RUNNER_TEMP/desktop-macos-smoke.log"
-          grep -E 'I/GlfwEsContext: GL context: .*ANGLE' \
+          grep -E 'I/EglEsContext: GL context: .*ANGLE' \
             "$RUNNER_TEMP/desktop-macos-smoke.log"
 
           echo "arch=$ARCH" >> "$GITHUB_OUTPUT"

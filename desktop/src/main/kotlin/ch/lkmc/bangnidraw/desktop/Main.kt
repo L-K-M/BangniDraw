@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -83,7 +84,7 @@ import java.awt.Dimension
 private sealed interface DesktopStartup {
     data class Ready(
         val memory: ch.lkmc.bangnidraw.engine.core.DeviceMemory,
-        val context: GlfwEsContext,
+        val context: DesktopEsContext,
     ) : DesktopStartup
 
     data class Failed(val message: String) : DesktopStartup
@@ -92,12 +93,14 @@ private sealed interface DesktopStartup {
 private enum class DesktopLaunchMode {
     Interactive,
     VerifyRuntime,
+    GlReport,
     SmokeStartupFailure,
     SmokeWindow;
 
     companion object {
         fun from(args: Array<String>): DesktopLaunchMode = when {
             VERIFY_RUNTIME_FLAG in args -> VerifyRuntime
+            GL_REPORT_FLAG in args -> GlReport
             SMOKE_STARTUP_FAILURE_FLAG in args -> SmokeStartupFailure
             SMOKE_WINDOW_FLAG in args -> SmokeWindow
             else -> Interactive
@@ -109,6 +112,10 @@ fun main(args: Array<String>) {
     val mode = DesktopLaunchMode.from(args)
     if (mode == DesktopLaunchMode.VerifyRuntime) {
         verifyPackagedRuntime()
+        return
+    }
+    if (mode == DesktopLaunchMode.GlReport) {
+        printGlReport()
         return
     }
 
@@ -125,20 +132,51 @@ private fun verifyPackagedRuntime() {
     println("${DesktopBrand.displayName} runtime OK: ${memory.totalMemBytes} bytes")
 }
 
+/**
+ * Prints what the GL stack did, and exits. A user who double-clicks the app
+ * never sees stdout, so the failure window points at this flag: one run, one
+ * block of text to paste into a bug report.
+ */
+private fun printGlReport() {
+    val startup = DesktopGlStartup.start(INITIAL_GL_WIDTH, INITIAL_GL_HEIGHT)
+    val context = startup.context
+    val host = startup.report.path
+    // Creating a context is not the same as being able to make it current, and
+    // a report that stopped at creation would call a broken driver a success.
+    var usable = context != null
+    if (context != null) {
+        runCatching {
+            context.activate()
+            context.deactivate()
+        }.onFailure {
+            usable = false
+            startup.report.fail(host.orEmpty(), describe(it))
+        }
+        context.destroy()
+    }
+
+    println("${DesktopBrand.displayName} GL report")
+    println(startup.report.text())
+    println(if (usable) "GLES 3.0 context via $host" else "no GLES 3.0 context")
+}
+
 private fun createDesktopStartup(): DesktopStartup = try {
     val memory = DesktopPlatform.deviceMemory()
-    DesktopNativeBootstrap.prepare().use { environment ->
-        val context = GlfwEsContext.create(INITIAL_GL_WIDTH, INITIAL_GL_HEIGHT, environment.backend)
-        if (context == null) {
-            DesktopStartup.Failed(DesktopGlDiagnostics.unavailable)
-        } else {
-            DesktopStartup.Ready(memory, context)
-        }
+    val startup = DesktopGlStartup.start(INITIAL_GL_WIDTH, INITIAL_GL_HEIGHT)
+    val context = startup.context
+    if (context == null) {
+        DesktopStartup.Failed(DesktopGlDiagnostics.failure(startup.report))
+    } else {
+        DesktopStartup.Ready(memory, context)
     }
 } catch (failure: Throwable) {
-    val detail = failure.message ?: failure::class.simpleName ?: "unknown failure"
-    DesktopStartup.Failed("Desktop startup failed: $detail\n\n${DesktopGlDiagnostics.unavailable}")
+    DesktopStartup.Failed(
+        "Desktop startup failed: ${describe(failure)}\n\n${DesktopGlDiagnostics.unavailable}",
+    )
 }
+
+private fun describe(failure: Throwable): String =
+    failure.message ?: failure::class.simpleName ?: "unknown failure"
 
 @Composable
 private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
@@ -188,8 +226,16 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
         MaterialTheme(colorScheme = darkColorScheme()) {
             val fatalMessage = fatal.value
             if (fatalMessage != null) {
-                Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                    Text(fatalMessage, style = MaterialTheme.typography.bodyLarge)
+                // The startup report is long on purpose; a fixed-height window
+                // must not swallow the half that names the failure.
+                Box(
+                    Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // Selectable: this text is what a user pastes into a report.
+                    SelectionContainer {
+                        Text(fatalMessage, style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
             } else if (engine != null) {
                 Shell(
@@ -771,6 +817,7 @@ private const val SCROLL_PIXELS_PER_TICK = 40f
 private const val HUE_MAX_DEGREES = 360f
 private const val CANVAS_EDGE = 2048
 private const val VERIFY_RUNTIME_FLAG = "--verify-runtime"
+private const val GL_REPORT_FLAG = "--gl-report"
 private const val SMOKE_STARTUP_FAILURE_FLAG = "--smoke-startup-failure"
 private const val SMOKE_WINDOW_FLAG = "--smoke-window"
 private const val INITIAL_GL_WIDTH = 1
@@ -779,6 +826,11 @@ private const val WINDOW_MIN_W = 960
 private const val WINDOW_MIN_H = 600
 
 internal object DesktopGlDiagnostics {
+    private const val HEADLINE = "OpenGL ES 3.0 is unavailable."
+
+    private const val REPORT_HINT =
+        "Run this app from a terminal with --gl-report for the full report."
+
     private val platformGuidance = """
         Linux: install Mesa libEGL and libGLESv2, or your GPU vendor driver.
         macOS: provide libEGL.dylib and libGLESv2.dylib with
@@ -786,7 +838,20 @@ internal object DesktopGlDiagnostics {
         Windows: this desktop target supports macOS and Linux only.
     """.trimIndent()
 
-    val unavailable = "OpenGL ES 3.0 is unavailable.\n\n$platformGuidance"
+    val unavailable = "$HEADLINE\n\n$platformGuidance"
+
+    /**
+     * The failure window's text. It carries the evidence — which host refused,
+     * with which error, against which libraries — because the one thing a
+     * remote report of "OpenGL ES 3.0 is unavailable" cannot say is why.
+     */
+    fun failure(report: DesktopGlReport): String = listOf(
+        HEADLINE,
+        report.failures(),
+        "Details:\n${report.details()}",
+        REPORT_HINT,
+        platformGuidance,
+    ).filter { it.isNotBlank() }.joinToString("\n\n")
 
     val contextFailure = "Could not create a GLES 3.0 EGL context.\n\n$platformGuidance"
 

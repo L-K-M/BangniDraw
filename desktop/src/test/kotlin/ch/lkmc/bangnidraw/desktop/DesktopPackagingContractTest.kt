@@ -147,8 +147,10 @@ class DesktopPackagingContractTest {
     }
 
     @Test
-    fun `GLFW bootstrap disables its menu and initializes GLES bindings`() {
+    fun `both GL hosts install GLES bindings and startup owns their order`() {
         val glfw = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/GlfwEsContext.kt")
+        val egl = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/EglEsContext.kt")
+        val startup = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopGlStartup.kt")
         val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
 
@@ -156,9 +158,14 @@ class DesktopPackagingContractTest {
         assertTrue(glfw.contains("GLES.createCapabilities()"))
         assertTrue(glfw.contains("GLES.setCapabilities(null)"))
         assertTrue(glfw.contains("glfwTerminate()"))
+        assertTrue(egl.contains("GLES.createCapabilities()"))
+        assertTrue(egl.contains("GLES.setCapabilities(null)"))
+        assertTrue(egl.contains("eglTerminate("))
         assertFalse(engine.contains("GlfwEsContext.create"))
-        assertTrue(main.contains("DesktopNativeBootstrap.prepare()"))
-        assertTrue(main.contains("GlfwEsContext.create"))
+        assertFalse(engine.contains("EglEsContext.create"))
+        assertTrue(startup.contains("DesktopNativeBootstrap.prepare(report)"))
+        assertTrue(startup.contains("GlfwEsContext.create"))
+        assertTrue(main.contains("DesktopGlStartup.start"))
         assertTrue(main.contains("DesktopAboutHandler.install"))
     }
 

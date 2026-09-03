@@ -6,6 +6,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.createFile
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -49,9 +50,8 @@ class DesktopNativeBootstrapTest {
 
 
     @Test
-    fun `ANGLE libraries are exposed through the process working directory`() {
+    fun `a wrong-architecture ANGLE is named rather than left to fail silently`() {
         val root = Files.createTempDirectory("bangnidraw-angle")
-        val original = root.resolve("original").createDirectories().toFile()
         val directory = angleDirectory(root.resolve("angle").toFile())
         val angle = checkNotNull(
             DesktopNativeBootstrap.resolveAngle(
@@ -60,28 +60,44 @@ class DesktopNativeBootstrapTest {
                 workingDirectory = null,
             ),
         )
-        val changes = mutableListOf<File>()
 
-        val exposure = DesktopNativeBootstrap.exposeAngleToGlfw(
-            angle = angle,
-            originalDirectory = original,
-            changeDirectory = { changes += it },
-        )
-        exposure.close()
+        // The staged files are empty here, so the header reads as unknown: the
+        // description must still name the directory it will load from.
+        val described = DesktopNativeBootstrap.describe(angle, osArch = "aarch64")
 
-        assertEquals(listOf(directory.canonicalFile, original.canonicalFile), changes)
+        assertTrue(described.startsWith("ANGLE: ${directory.canonicalFile}"))
+        assertTrue(described.contains(DesktopNativeBootstrap.EGL_DYLIB))
+        assertTrue(described.contains(DesktopNativeBootstrap.GLES_DYLIB))
     }
 
     @Test
-    fun `first GLFW window is created while ANGLE is exposed`() {
-        val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
-        val scopedCreate = Regex(
-            """DesktopNativeBootstrap\.prepare\(\)\.use\s*\{\s*environment\s*->.*?""" +
-                """GlfwEsContext\.create\([^)]*environment\.backend\)""",
-            RegexOption.DOT_MATCHES_ALL,
-        )
+    fun `EGL is tried first and GLFW is handed absolute library paths`() {
+        val startup = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopGlStartup.kt")
+        val glfw = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/GlfwEsContext.kt")
+        val direct = startup.indexOf("EglEsContext.create(")
+        val fallback = startup.indexOf("GlfwEsContext.create(")
 
-        assertTrue(scopedCreate.containsMatchIn(main))
+        assertTrue(direct >= 0, "the direct EGL host must be attempted")
+        assertTrue(direct < fallback, "EGL must be attempted before the GLFW fallback")
+        assertTrue(glfw.contains("GLFWNativeEGL.setEGLPath(angle.egl.absolutePath)"))
+        assertTrue(glfw.contains("GLFWNativeEGL.setGLESPath(angle.gles.absolutePath)"))
+    }
+
+    @Test
+    fun `no GL host changes the process working directory`() {
+        listOf(
+            "DesktopNativeBootstrap.kt",
+            "DesktopGlStartup.kt",
+            "GlfwEsContext.kt",
+            "EglEsContext.kt",
+        ).forEach { name ->
+            val text = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/$name")
+
+            // A process-wide chdir used to be how ANGLE was found; absolute
+            // paths replaced it, and reintroducing it would break a hardened
+            // process all over again.
+            assertFalse(text.contains("chdir"), "$name must not move the process directory")
+        }
     }
 
     @Test

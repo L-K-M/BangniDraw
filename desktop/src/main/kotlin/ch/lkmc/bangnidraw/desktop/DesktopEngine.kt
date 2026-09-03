@@ -64,7 +64,7 @@ internal class DesktopExportTask(
 
 /**
  * The desktop EngineSession equivalent (DESKTOP.md Phase 2, M4): one GL
- * thread owning the GLFW context and [CanvasRenderer], a task queue the UI
+ * thread owning the GL context and [CanvasRenderer], a task queue the UI
  * thread submits to, and the offscreen-FBO → readback → [Frame] handoff
  * that carries pixels to Compose.
  *
@@ -78,7 +78,7 @@ internal class DesktopExportTask(
 internal class DesktopEngine(
     val canvas: CanvasSize,
     memory: DeviceMemory,
-    private val context: GlfwEsContext,
+    private val context: DesktopEsContext,
     private val onFrame: (Frame) -> Unit,
     private val onFatal: (String) -> Unit,
 ) {

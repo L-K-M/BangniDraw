@@ -67,10 +67,14 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   events stop at `input/AndroidCanvasInput` (:app), the MotionEvent adapter;
   the handler's platform services arrive as injected seams
   (`GestureDeadlineScheduler`, `FrameScheduler`, `StrokePredictor`).
-  `:desktop` is the Compose Desktop shell: a plain JVM module with a
-  hidden GLFW/EGL ES 3.0 context. GLFW init, window creation, destruction,
-  and termination stay on the process main thread; the GL thread activates
-  the context and owns the mandatory LWJGL `GLES.createCapabilities()`.
+  `:desktop` is the Compose Desktop shell: a plain JVM module with an
+  offscreen ES 3.0 context. `DesktopGlStartup` brings it up: `EglEsContext`
+  (EGL directly, no window) first on every platform, then `GlfwEsContext`
+  (the hidden GLFW window) as the fallback — `-Dbangnidraw.gl.host=egl|glfw`
+  forces one, which is how CI proves both still work. GLFW init, window
+  creation, destruction, and termination stay on the process main thread; the
+  GL thread activates either context and owns the mandatory LWJGL
+  `GLES.createCapabilities()`.
   Rendering is engine → offscreen FBO → glReadPixels → Compose image
   (DESKTOP.md architecture 1), mouse → PointerSample records, in-memory undo
   from the readback mirror, JVM DataStore prefs, and Save PNG to
@@ -90,14 +94,38 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   Electron archive, verifies its SHA-256, and stages its ANGLE dylibs and
   licenses as Compose app resources; no native binaries are committed.
   `bangnidraw.angle.dir` remains a development override, followed by Compose
-  app resources and the working directory. GLFW reopens ANGLE by leaf name
-  while creating the first window, so the native working-directory guard must
-  cover both `glfwInit` and `glfwCreateWindow`; absolute `System.load` or
-  LWJGL configuration alone is insufficient. Set
-  `GLFW_COCOA_CHDIR_RESOURCES` to false before initialization; its default
-  would replace that ANGLE directory during `glfwInit`. macOS CI verifies both
-  dylibs, their host architecture, upstream signatures, an ANGLE GL log, and one
-  packaged frame. The app bundle remains unsigned until Phase 4.
+  app resources and the working directory. **Every load of ANGLE goes through
+  an absolute path.** dyld searches the working directory for a leaf-name
+  `dlopen` only while AMFI leaves `allowAtPaths` set — the same flag that
+  enables `@executable_path`, cleared for setuid, `__RESTRICT` and
+  entitlement-signed main executables. GLFW's own `dlopen("libEGL.dylib")` —
+  issued at first window creation, not at `glfwInit` — therefore finds a
+  bundled ANGLE under jpackage's ad-hoc-signed launcher (what CI runs) and can
+  miss it under the entitlement-signed `java` that `./gradlew :desktop:run`
+  forks (what a developer runs, and what CI had never run). That is the
+  "OpenGL ES 3.0 is unavailable" report this fix answers, and neither `chdir`
+  nor an `LC_RPATH` answers it reliably — both ride that same flag, and Phase 4
+  signing would clear it for the packaged app too: the fix is
+  `Configuration.EGL_LIBRARY_NAME`/`OPENGLES_LIBRARY_NAME` for LWJGL's own
+  loads plus `GLFWNativeEGL.setEGLPath`/`setGLESPath` for
+  GLFW's, both absolute. LWJGL's `Configuration` alone never reaches GLFW —
+  that mismatch is exactly what `setEGLPath` exists for. ANGLE's own libEGL
+  then finds libGLESv2 beside itself (`dladdr` on its own module), so a flat
+  resources directory is the supported layout. Keep
+  `GLFW_COCOA_CHDIR_RESOURCES` false: its default would relocate the process
+  into `Contents/Resources` for no benefit. The staged dylibs are thin, so a
+  wrong-architecture or too-new-minimum-macOS library is *present* and
+  unloadable, which reads like a missing one — `MachOLibrary` reports both in
+  the startup report, and `--gl-report` prints that report for a user who
+  never sees stdout. Note the upstream asymmetry: the arm64 ANGLE is ad-hoc
+  signed and the x86_64 build carries no signature at all, so macOS CI verifies
+  signatures on arm64 only. When Phase 4 signs and notarizes the bundle, a
+  Developer-ID identity turns on library validation, which refuses a
+  third-party ANGLE: that build will need
+  `com.apple.security.cs.disable-library-validation`. macOS CI verifies both
+  dylibs, their host architecture, an ANGLE GL log, one packaged frame, both
+  context hosts, and the unpackaged `gradlew run` path. The app bundle remains
+  unsigned until Phase 4.
   Packaged runtimes require `java.instrument`, `jdk.management`, and
   `jdk.unsupported`.
   Desktop display names come from Android's `app_name`; icons derive from
@@ -330,6 +358,24 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 
 Recorded per PLAN.md's rule: when the plan contradicts itself, PLAN.md wins
 and the contradiction is noted here.
+
+- **The desktop GLES context is created from EGL directly; GLFW is only the
+  fallback.** DESKTOP.md's "The JVM binding" section specifies GLFW with
+  `GLFW_EGL_CONTEXT_API` and repeats libGDX's chdir trick for finding a
+  bundled ANGLE. Shipped as `EglEsContext` first instead, because the chdir
+  is not sound: GLFW opens EGL with `dlopen("libEGL.dylib")` — a leaf name —
+  and dyld searches the working directory for a leaf name **only while AMFI
+  leaves `allowAtPaths` set**. A jpackage launcher keeps it, so CI's packaged
+  smoke passed; an entitlement-signed `java` — what `./gradlew :desktop:run`
+  forks — need not, so the same build failed on a developer's Mac
+  with "OpenGL ES 3.0 is unavailable" and nothing else to go on. The window
+  GLFW provided was hidden, 1x1 and never drawn to — the engine renders to an
+  offscreen FBO — so GLFW was only ever a context provider, and EGL provides
+  the same context by absolute path, on any thread, with no NSWindow, no
+  NSApplication delegate (GLFW replaces AWT's) and no main-queue dispatch.
+  The GLFW host stays as a fallback with `GLFWNativeEGL.setEGLPath`/
+  `setGLESPath` instead of the chdir; `-Dbangnidraw.gl.host` forces either
+  one so CI can prove both still work on the machines that have them.
 
 - **`*.tmp` is swept "on every save" (06 §2) — except a live writer's own.**
   `ProjectStore.checkpoint` sweeps its directory before writing, so under the

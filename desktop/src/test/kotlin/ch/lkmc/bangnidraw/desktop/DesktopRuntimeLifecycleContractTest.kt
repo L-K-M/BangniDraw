@@ -130,15 +130,17 @@ class DesktopRuntimeLifecycleContractTest {
     }
 
     @Test
-    fun `ANGLE exposure documents its first-window lifetime`() {
-        val bootstrap = source(
-            "desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopNativeBootstrap.kt",
-        )
+    fun `both GL hosts record why ANGLE is loaded by absolute path`() {
+        val glfw = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/GlfwEsContext.kt")
+            .replace(Regex("\\s+"), " ")
+        val egl = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/EglEsContext.kt")
+            .replace(Regex("\\s+"), " ")
 
-        assertTrue(
-            bootstrap.replace(Regex("\\s+"), " ")
-                .contains("Keep the returned environment open until the first GLFW window"),
-        )
+        // The rule that cost a release: dyld searches the working directory for
+        // a leaf name only in an unrestricted process.
+        assertTrue(glfw.contains("dyld resolves a leaf name from the"))
+        assertTrue(glfw.contains("process directory only for *unrestricted* processes"))
+        assertTrue(egl.contains("EGL is loaded by absolute path"))
     }
 
     private fun source(path: String): String = File(repoRoot(), path).readText(Charsets.UTF_8)

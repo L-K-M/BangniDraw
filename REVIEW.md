@@ -3473,8 +3473,9 @@ them (`requestRedraw`, `redraw()`) already identify the code. Removed the
 numeric halves; the symbols carry the refutation on their own. The delta
 audit's sample turned up nothing new.
 
-Round 3 (hybrid, `19e17b7`..`8a48ddf`, 1 actionable): one Minor applied,
-nothing declined. GLM flagged that the round-1 palette only mapped
+Round 3 (hybrid, `19e17b7`..`8a48ddf`, 1 actionable): one Minor adopted;
+the suggested doc-only remediation was superseded by the full mapping below.
+GLM flagged that the round-1 palette only mapped
 `primary`/`secondary`/`background`/`surface`/`outline` and error, leaving
 `surfaceContainer*` (and tertiary/inverse) at Compose's stock cool greys —
 which matters because Material3's `AlertDialog` renders on
@@ -3490,3 +3491,20 @@ surface-container family derives from surfaceContainer/High/Variant,
 inverse derives from onSurface/surface). Same convention as the
 CPU/GLSL twin rule in AGENTS.md: when one moves, the other moves in the
 same commit.
+
+Round 4 (hybrid, `8a48ddf`..`42ef1d1`, 0 actionable): one Info applied, one
+Minor declined below (R-264). The Info was a REVIEW.md self-contradiction —
+round 3's opening said "nothing declined" while the body declined the
+reviewer's suggested doc-only remediation. Rewrote the opening.
+
+- **R-264 ⏸️ (declined) round 4, Minor: extract `bangniColorScheme`'s role
+  derivations into a shared function consumed by both `:app` and `:desktop`.**
+  Right long-term direction — convention beats mechanism — but out of scope
+  for this PR, which is fixing two field-observed defects, not restructuring
+  the palette adapter. The extraction is not a one-line move either: engine-
+  core is Compose-free by design (AGENTS.md's "no Compose, no coroutines, no
+  GL"), so the shared function needs a new source set or module the palette
+  policy does not currently justify. The twin convention AGENTS.md already
+  pins for CPU/GLSL pairs (and now for the two schemes) covers the drift
+  risk until a Compose-visible shared module earns its keep on other work;
+  filed as a proposal candidate for that day.

@@ -4,12 +4,18 @@ import ch.lkmc.bangnidraw.engine.gl.platform.GLES30
 import ch.lkmc.bangnidraw.engine.gl.platform.GlLog
 import org.lwjgl.glfw.GLFW
 import org.lwjgl.glfw.GLFWErrorCallback
-import org.lwjgl.glfw.GLFWNativeEGL
 import org.lwjgl.opengles.GLES
 
 /**
- * A hidden GLFW/EGL host for the engine's offscreen GLES context: the fallback
- * for a machine where [EglEsContext] cannot reach EGL directly.
+ * A hidden GLFW/EGL host for the engine's offscreen GLES context: the system-EGL
+ * fallback for a machine where [EglEsContext] cannot reach EGL directly.
+ *
+ * Not a fallback on macOS. GLFW loads EGL itself, with a bare
+ * `dlopen("libEGL.dylib")` at first window creation, and dyld resolves a leaf
+ * name from the process directory only while AMFI leaves `allowAtPaths` set —
+ * which is how a bundled ANGLE became invisible in the first place. LWJGL
+ * 3.4.3's supported override for that (`GLFWNativeEGL.setEGLPath`) is not
+ * usable either: neither shipped GLFW build exports the symbol it writes to.
  */
 internal class GlfwEsContext private constructor(
     private val window: Long,
@@ -95,23 +101,10 @@ internal class GlfwEsContext private constructor(
             width: Int,
             height: Int,
             backend: DesktopGlBackend,
-            angle: DesktopNativeBootstrap.AngleLibraries?,
             report: DesktopGlReport,
         ): GlfwEsContext? {
             check(!ownsGlfw) { "only one GLFW context may exist in this process" }
             installErrorCallback()
-
-            if (angle != null) {
-                // GLFW loads EGL itself, with a bare dlopen("libEGL.dylib") at
-                // first window creation. dyld resolves a leaf name from the
-                // process directory only for *unrestricted* processes, so a
-                // bundled ANGLE can be invisible here even though it is on
-                // disk. LWJGL's override hands GLFW the absolute path instead;
-                // it must be set before GLFW initializes EGL.
-                GLFWNativeEGL.setEGLPath(angle.egl.absolutePath)
-                GLFWNativeEGL.setGLESPath(angle.gles.absolutePath)
-                report.note("GLFW library override: ${angle.egl.absolutePath}")
-            }
 
             // Compose owns macOS menu and Dock integration; GLFW only owns GL.
             // Keep the bootstrap's ANGLE lookup directory through

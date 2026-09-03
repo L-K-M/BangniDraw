@@ -2,14 +2,16 @@ package ch.lkmc.bangnidraw.desktop
 
 import ch.lkmc.bangnidraw.engine.gl.platform.GLES30
 import ch.lkmc.bangnidraw.engine.gl.platform.GlLog
+import org.lwjgl.egl.EGL
 import org.lwjgl.egl.EGL10
 import org.lwjgl.egl.EGL11
 import org.lwjgl.egl.EGL12
 import org.lwjgl.egl.EGL14
 import org.lwjgl.egl.EGL15
-import org.lwjgl.egl.EXTPlatformBase
 import org.lwjgl.opengles.GLES
+import org.lwjgl.system.JNI
 import org.lwjgl.system.MemoryStack
+import org.lwjgl.system.MemoryUtil
 
 /**
  * The engine's offscreen ES 3.0 context, created straight from EGL.
@@ -32,6 +34,7 @@ internal class EglEsContext private constructor(
     private val display: Long,
     private val surface: Long,
     private val context: Long,
+    private val releasesThread: Boolean,
     private val creationThread: Thread,
 ) : DesktopEsContext {
     @Volatile
@@ -72,7 +75,7 @@ internal class EglEsContext private constructor(
 
         GLES.setCapabilities(null)
         EGL10.eglMakeCurrent(display, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT)
-        EGL12.eglReleaseThread()
+        if (releasesThread) EGL12.eglReleaseThread()
         activationThread = null
         active = false
     }
@@ -101,8 +104,8 @@ internal class EglEsContext private constructor(
 
         /**
          * Creates the context, recording every step in [report]. Returns null
-         * — rather than throwing — so startup can try the GLFW fallback and
-         * still show the user both failures.
+         * rather than throwing, so startup can try another host (Linux) or
+         * show the user every stage that refused (macOS).
          */
         fun create(
             width: Int,
@@ -126,30 +129,37 @@ internal class EglEsContext private constructor(
         ): EglEsContext? {
             val clientExtensions =
                 EGL10.eglQueryString(EGL10.EGL_NO_DISPLAY, EGL10.EGL_EXTENSIONS).orEmpty()
-            val angleMetal = backend == DesktopGlBackend.AngleMetal &&
-                clientExtensions.contains(PLATFORM_BASE_EXTENSION) &&
-                clientExtensions.contains(ANGLE_METAL_EXTENSION)
             report.note("EGL client extensions: ${clientExtensions.ifEmpty { "(none)" }}")
 
-            val display = if (angleMetal) {
-                EXTPlatformBase.eglGetPlatformDisplayEXT(
-                    EGL_PLATFORM_ANGLE_ANGLE,
-                    EGL14.EGL_DEFAULT_DISPLAY,
-                    intArrayOf(
-                        EGL_PLATFORM_ANGLE_TYPE_ANGLE,
-                        EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE,
-                        EGL10.EGL_NONE,
-                    ),
-                )
-            } else {
-                EGL10.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+            val metal = backend == DesktopGlBackend.AngleMetal &&
+                clientExtensions.contains(ANGLE_METAL_EXTENSION)
+            if (metal) {
+                val display = angleMetalDisplay(report)
+                if (display != null) {
+                    createOn(display, width, height, report)?.let { return it }
+                    // ANGLE has other backends. A Mac whose Metal display
+                    // refuses should still start on whatever ANGLE picks.
+                    report.note("EGL display: retrying ANGLE's default backend")
+                }
             }
-            report.note("EGL display: ${if (angleMetal) "ANGLE/Metal" else "default"}")
+
+            val display = EGL10.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+            report.note("EGL display: default")
             if (display == EGL10.EGL_NO_DISPLAY) {
                 report.fail("EGL", "no display: ${errorName(EGL10.eglGetError())}")
                 return null
             }
 
+            return createOn(display, width, height, report)
+        }
+
+        /** Brings up one display: initialize, choose a config, context, surface. */
+        private fun createOn(
+            display: Long,
+            width: Int,
+            height: Int,
+            report: DesktopGlReport,
+        ): EglEsContext? {
             MemoryStack.stackPush().use { stack ->
                 val major = stack.mallocInt(1)
                 val minor = stack.mallocInt(1)
@@ -163,22 +173,19 @@ internal class EglEsContext private constructor(
                         "(${EGL10.eglQueryString(display, EGL12.EGL_CLIENT_APIS)})",
                 )
 
-                if (!EGL12.eglBindAPI(EGL12.EGL_OPENGL_ES_API)) {
-                    report.fail("EGL", "eglBindAPI failed: ${errorName(EGL10.eglGetError())}")
-                    EGL10.eglTerminate(display)
-                    return null
+                // OpenGL ES is EGL's default bound API, so a display without
+                // EGL 1.2 needs no binding call — and asking LWJGL for one it
+                // never resolved would throw rather than return false.
+                val releasesThread = EGL.getCapabilities().EGL12
+                if (releasesThread && !EGL12.eglBindAPI(EGL12.EGL_OPENGL_ES_API)) {
+                    return failed(display, report, "eglBindAPI failed")
                 }
 
                 val configs = stack.mallocPointer(1)
                 val configCount = IntArray(1)
                 val chosen = EGL10.eglChooseConfig(display, CONFIG_ATTRIBUTES, configs, configCount)
                 if (!chosen || configCount[0] == 0) {
-                    report.fail(
-                        "EGL",
-                        "no ES 3.0 pbuffer config: ${errorName(EGL10.eglGetError())}",
-                    )
-                    EGL10.eglTerminate(display)
-                    return null
+                    return failed(display, report, "no ES 3.0 pbuffer config")
                 }
                 val config = configs.get(0)
 
@@ -189,9 +196,7 @@ internal class EglEsContext private constructor(
                     intArrayOf(EGL15.EGL_CONTEXT_MAJOR_VERSION, GLES_MAJOR_VERSION, EGL10.EGL_NONE),
                 )
                 if (context == EGL10.EGL_NO_CONTEXT) {
-                    report.fail("EGL", "eglCreateContext failed: ${errorName(EGL10.eglGetError())}")
-                    EGL10.eglTerminate(display)
-                    return null
+                    return failed(display, report, "eglCreateContext failed")
                 }
 
                 val surface = EGL10.eglCreatePbufferSurface(
@@ -200,15 +205,61 @@ internal class EglEsContext private constructor(
                     intArrayOf(EGL10.EGL_WIDTH, width, EGL10.EGL_HEIGHT, height, EGL10.EGL_NONE),
                 )
                 if (surface == EGL10.EGL_NO_SURFACE) {
-                    report.fail("EGL", "eglCreatePbufferSurface failed: ${errorName(EGL10.eglGetError())}")
                     EGL10.eglDestroyContext(display, context)
-                    EGL10.eglTerminate(display)
-                    return null
+                    return failed(display, report, "eglCreatePbufferSurface failed")
                 }
 
                 report.succeed("EGL")
-                return EglEsContext(display, surface, context, Thread.currentThread())
+                return EglEsContext(display, surface, context, releasesThread, Thread.currentThread())
             }
+        }
+
+        /** Reports [reason] with EGL's own error, releases the display, gives up on it. */
+        private fun failed(display: Long, report: DesktopGlReport, reason: String): EglEsContext? {
+            report.fail("EGL", "$reason: ${errorName(EGL10.eglGetError())}")
+            EGL10.eglTerminate(display)
+
+            return null
+        }
+
+        /**
+         * ANGLE's Metal display, or null when ANGLE cannot provide one.
+         *
+         * The entry point is resolved by name rather than through
+         * `EXTPlatformBase`, because LWJGL 3.4.3's `EGL.createClientCapabilities`
+         * reads the client extension string only to null-check it: it registers
+         * the core versions and no client extension, so every
+         * `EGL_EXT_platform_base` pointer in `EGLCapabilities` is NULL and
+         * calling one throws NullPointerException — which is exactly how this
+         * path first failed on macOS CI.
+         */
+        private fun angleMetalDisplay(report: DesktopGlReport): Long? {
+            val entryPoint = EGL.getFunctionProvider().getFunctionAddress(ANGLE_DISPLAY_FUNCTION)
+            if (entryPoint == 0L) {
+                report.note("EGL display: ANGLE/Metal unavailable ($ANGLE_DISPLAY_FUNCTION)")
+                return null
+            }
+
+            val display = MemoryStack.stackPush().use { stack ->
+                val attributes = stack.ints(
+                    EGL_PLATFORM_ANGLE_TYPE_ANGLE,
+                    EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE,
+                    EGL10.EGL_NONE,
+                )
+                JNI.invokePPP(
+                    EGL_PLATFORM_ANGLE_ANGLE,
+                    EGL14.EGL_DEFAULT_DISPLAY,
+                    MemoryUtil.memAddress(attributes),
+                    entryPoint,
+                )
+            }
+            if (display == EGL10.EGL_NO_DISPLAY) {
+                report.note("EGL display: ANGLE/Metal refused (${errorName(EGL10.eglGetError())})")
+                return null
+            }
+            report.note("EGL display: ANGLE/Metal")
+
+            return display
         }
 
         private fun describe(failure: Throwable): String =
@@ -248,7 +299,7 @@ internal class EglEsContext private constructor(
         private const val EGL_PLATFORM_ANGLE_TYPE_ANGLE = 0x3203
         private const val EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE = 0x3489
         private const val ANGLE_METAL_EXTENSION = "EGL_ANGLE_platform_angle_metal"
-        private const val PLATFORM_BASE_EXTENSION = "EGL_EXT_platform_base"
+        private const val ANGLE_DISPLAY_FUNCTION = "eglGetPlatformDisplayEXT"
         private const val ABANDONED_CONTEXT_MESSAGE =
             "GL owner did not stop; leaving EGL state for process teardown"
     }

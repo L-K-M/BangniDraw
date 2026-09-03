@@ -231,18 +231,13 @@ jobs:
           grep -E 'I/EglEsContext: GL context: .*ANGLE' \
             "$RUNNER_TEMP/desktop-macos-smoke.log"
 
-          # The packaged app must reach ANGLE through EGL directly, and the
-          # GLFW fallback must still work when it is asked for: the fallback
-          # loads ANGLE by a different mechanism, so only running it proves it.
+          # macOS has one host: the packaged app must reach ANGLE through EGL
+          # directly, on the Metal display rather than ANGLE's default.
           perl -e 'alarm shift; exec @ARGV' 60 "$LAUNCHER" --gl-report 2>&1 | \
-            tee "$RUNNER_TEMP/desktop-macos-gl-egl.log"
-          grep -F 'GLES 3.0 context via EGL' "$RUNNER_TEMP/desktop-macos-gl-egl.log"
-          grep -E 'GL context: .*ANGLE' "$RUNNER_TEMP/desktop-macos-gl-egl.log"
-
-          JAVA_TOOL_OPTIONS=-Dbangnidraw.gl.host=glfw \
-            perl -e 'alarm shift; exec @ARGV' 60 "$LAUNCHER" --gl-report 2>&1 | \
-            tee "$RUNNER_TEMP/desktop-macos-gl-glfw.log"
-          grep -F 'GLES 3.0 context via GLFW' "$RUNNER_TEMP/desktop-macos-gl-glfw.log"
+            tee "$RUNNER_TEMP/desktop-macos-gl.log"
+          grep -F 'GLES 3.0 context via EGL' "$RUNNER_TEMP/desktop-macos-gl.log"
+          grep -F 'EGL display: ANGLE/Metal' "$RUNNER_TEMP/desktop-macos-gl.log"
+          grep -E 'GL context: .*ANGLE' "$RUNNER_TEMP/desktop-macos-gl.log"
 
       - name: Verify the unpackaged developer run
         # README's own instruction, and the one path this job never covered:

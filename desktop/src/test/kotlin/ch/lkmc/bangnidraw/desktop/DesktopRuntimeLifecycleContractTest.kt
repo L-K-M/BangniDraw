@@ -137,9 +137,9 @@ class DesktopRuntimeLifecycleContractTest {
             .replace(Regex("\\s+"), " ")
 
         // The rule that cost a release: dyld searches the working directory for
-        // a leaf name only in an unrestricted process.
-        assertTrue(glfw.contains("dyld resolves a leaf name from the"))
-        assertTrue(glfw.contains("process directory only for *unrestricted* processes"))
+        // a leaf name only while AMFI leaves allowAtPaths set.
+        assertTrue(glfw.contains("dyld resolves a leaf"))
+        assertTrue(glfw.contains("name from the process directory only while AMFI leaves"))
         assertTrue(egl.contains("EGL is loaded by absolute path"))
     }
 

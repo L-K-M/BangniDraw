@@ -71,16 +71,17 @@ class DesktopNativeBootstrapTest {
     }
 
     @Test
-    fun `EGL is tried first and GLFW is handed absolute library paths`() {
+    fun `EGL is tried first and macOS never falls back to GLFW`() {
         val startup = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopGlStartup.kt")
-        val glfw = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/GlfwEsContext.kt")
         val direct = startup.indexOf("EglEsContext.create(")
         val fallback = startup.indexOf("GlfwEsContext.create(")
+        val macOsGuard = startup.indexOf("environment.backend == DesktopGlBackend.AngleMetal")
 
         assertTrue(direct >= 0, "the direct EGL host must be attempted")
         assertTrue(direct < fallback, "EGL must be attempted before the GLFW fallback")
-        assertTrue(glfw.contains("GLFWNativeEGL.setEGLPath(angle.egl.absolutePath)"))
-        assertTrue(glfw.contains("GLFWNativeEGL.setGLESPath(angle.gles.absolutePath)"))
+        // GLFW on macOS means a leaf-name dlopen for a bundled ANGLE, which is
+        // the failure this host order replaced.
+        assertTrue(macOsGuard in (direct + 1) until fallback, "macOS must stop before the fallback")
     }
 
     @Test

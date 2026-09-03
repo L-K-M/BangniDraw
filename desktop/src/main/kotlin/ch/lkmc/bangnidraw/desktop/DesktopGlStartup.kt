@@ -50,10 +50,10 @@ internal class DesktopGlReport {
  * Brings up the engine's GLES context.
  *
  * EGL first, on every platform: it loads its libraries by absolute path and
- * needs neither a window nor the process main thread. The hidden-window GLFW
- * host stays as the fallback — it is the path this app shipped with, and on
- * Linux it is one system EGL away from the same thing — so a machine where the
- * direct path fails still runs, and the report says which one answered.
+ * needs neither a window nor the process main thread. Where EGL comes from the
+ * system rather than a bundle — Linux — the hidden-window GLFW host stays as a
+ * fallback, so a machine whose EGL the direct path cannot open still runs. The
+ * report always says which host answered.
  */
 internal object DesktopGlStartup {
     data class Result(
@@ -75,10 +75,19 @@ internal object DesktopGlStartup {
             // -Dbangnidraw.gl.host=egl is how CI proves the direct path works
             // rather than silently landing on the fallback.
             if (requested == EGL_HOST) return Result(null, report)
+
+            if (environment.backend == DesktopGlBackend.AngleMetal) {
+                // Nothing to fall back to: on macOS GLFW would look for the
+                // bundled ANGLE by leaf name (the failure this replaced), and
+                // after EGL has already loaded it, LWJGL 3.4.3's glfw_async
+                // build crashes the JVM at init (CI run 33735259059). Only an
+                // explicit -Dbangnidraw.gl.host=glfw still tries it.
+                report.note("GLFW host is not used on macOS")
+                return Result(null, report)
+            }
         }
 
-        val fallback =
-            GlfwEsContext.create(width, height, environment.backend, environment.angle, report)
+        val fallback = GlfwEsContext.create(width, height, environment.backend, report)
 
         return Result(fallback, report)
     }

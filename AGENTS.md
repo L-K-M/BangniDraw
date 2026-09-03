@@ -67,10 +67,16 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   events stop at `input/AndroidCanvasInput` (:app), the MotionEvent adapter;
   the handler's platform services arrive as injected seams
   (`GestureDeadlineScheduler`, `FrameScheduler`, `StrokePredictor`).
-  `:desktop` is the Compose Desktop shell: a plain JVM module with a
-  hidden GLFW/EGL ES 3.0 context. GLFW init, window creation, destruction,
-  and termination stay on the process main thread; the GL thread activates
-  the context and owns the mandatory LWJGL `GLES.createCapabilities()`.
+  `:desktop` is the Compose Desktop shell: a plain JVM module with an
+  offscreen ES 3.0 context. `DesktopGlStartup` brings it up: `EglEsContext`
+  (EGL directly, no window) first on every platform, then — only where EGL is
+  the system's, i.e. Linux — `GlfwEsContext` (the hidden GLFW window) as the
+  fallback. macOS has no automatic fallback (see below).
+  `-Dbangnidraw.gl.host=egl|glfw` forces one, which is how Linux CI proves
+  both still work. GLFW init, window
+  creation, destruction, and termination stay on the process main thread; the
+  GL thread activates either context and owns the mandatory LWJGL
+  `GLES.createCapabilities()`.
   Rendering is engine → offscreen FBO → glReadPixels → Compose image
   (DESKTOP.md architecture 1), mouse → PointerSample records, in-memory undo
   from the readback mirror, JVM DataStore prefs, and Save PNG to
@@ -90,14 +96,64 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   Electron archive, verifies its SHA-256, and stages its ANGLE dylibs and
   licenses as Compose app resources; no native binaries are committed.
   `bangnidraw.angle.dir` remains a development override, followed by Compose
-  app resources and the working directory. GLFW reopens ANGLE by leaf name
-  while creating the first window, so the native working-directory guard must
-  cover both `glfwInit` and `glfwCreateWindow`; absolute `System.load` or
-  LWJGL configuration alone is insufficient. Set
-  `GLFW_COCOA_CHDIR_RESOURCES` to false before initialization; its default
-  would replace that ANGLE directory during `glfwInit`. macOS CI verifies both
-  dylibs, their host architecture, upstream signatures, an ANGLE GL log, and one
-  packaged frame. The app bundle remains unsigned until Phase 4.
+  app resources and the working directory. **Every load of ANGLE goes through
+  an absolute path.** GLFW opens EGL with a bare `dlopen("libEGL.dylib")` — a
+  leaf name, issued at first window creation, not at `glfwInit` — and the only
+  thing that ever made a bundled ANGLE answer that call was a process-wide
+  `chdir` into its directory. dyld does search the working directory for a leaf
+  name (unchanged from macOS 11 through 26, `Loader::forEachPath`), but only
+  while AMFI leaves `allowAtPaths` set, and the search is invisible,
+  process-global state that anything else can clobber: GLFW's own
+  `GLFW_COCOA_CHDIR_RESOURCES` did exactly that, and the resulting `GLFW error
+  65542: EGL: Library not found` produced the byte-identical "OpenGL ES 3.0 is
+  unavailable" window (CI run 33668171196). Phase 4 signing is the next thing
+  that could take it away. Do not build on it. So macOS loads ANGLE only
+  through `Configuration.EGL_LIBRARY_NAME`/`OPENGLES_LIBRARY_NAME`, absolute,
+  and **does not use GLFW at all**. LWJGL's `Configuration` never reaches GLFW,
+  and its documented remedy does not work either: neither shipped GLFW build
+  (`libglfw.dylib`, `libglfw_async.dylib`) exports the `_glfw_egl_library`
+  symbol `GLFWNativeEGL.setEGLPath` writes to, so the override silently does
+  nothing — and running the GLFW host after ANGLE is already loaded crashed the
+  JVM inside `libglfw_async` at init (CI run 33735259059). ANGLE's own libEGL
+  then finds libGLESv2 beside itself (`dladdr` on its own module), so a flat
+  resources directory is the supported layout. Keep
+  `GLFW_COCOA_CHDIR_RESOURCES` false for the Linux-only host's sake: its
+  default would relocate the process into `Contents/Resources`.
+  **Never reach ANGLE's `eglGetPlatformDisplayEXT` through LWJGL's
+  `EXTPlatformBase`.** `EGL.createClientCapabilities` in 3.4.3 reads the client
+  extension string only to null-check it — it registers the core versions and
+  no client extension — so every `EGL_EXT_platform_base` pointer in
+  `EGLCapabilities` is NULL and calling one throws `NullPointerException`.
+  `EglEsContext` resolves that entry point by name from the function provider
+  and calls it through `JNI`; the same gap is why `eglBindAPI` is guarded by
+  `EGLCapabilities.EGL12` (ES is EGL's default bound API anyway).
+  The staged dylibs are thin, so a wrong-architecture or too-new-minimum-macOS
+  library is *present* and unloadable, which reads like a missing one.
+  `resolveAngle` therefore prefers the first candidate this JVM can open over
+  the first that merely exists — a stale `-Dbangnidraw.angle.dir`, which README
+  hands to `JAVA_TOOL_OPTIONS` for every JVM in that shell, must not shadow the
+  bundle — and the report names every candidate with its architecture and
+  minimum macOS. `--gl-report` prints that report for a user who never sees
+  stdout. Note the upstream asymmetry: the arm64 ANGLE is ad-hoc
+  signed and the x86_64 build carries no signature at all, so macOS CI verifies
+  signatures on arm64 only. The runners are macOS 26 as of September 2026, and
+  Intel remains the untested axis: no runner has ever staged `macos-x64`.
+  When Phase 4 signs and notarizes the bundle, a Developer-ID identity turns on
+  library validation, which refuses a third-party ANGLE: that build will need
+  `com.apple.security.cs.disable-library-validation`. macOS CI verifies both
+  dylibs, their host architecture, an ANGLE GL log, one packaged frame,
+  the
+  Metal display, and the unpackaged `gradlew run` path; Linux CI covers both
+  context hosts on every commit. The app bundle remains
+  unsigned until Phase 4.
+  The diagnostic launch modes (`--gl-report`, `--smoke-window`,
+  `--smoke-startup-failure`) end with an explicit `exitProcess`: startup
+  initializes AWT, whose threads are not daemons, so the JVM lingers after main
+  returns about one run in three — and CI reads these modes through a pipe,
+  where a lingering process wedges the step instead of ending it. Redirect
+  rather than pipe in CI for the same reason: `timeout` kills the `xvfb-run`
+  wrapper, not the JVM it forked. The interactive path is deliberately left to
+  exit on its own; it may still be flushing preferences.
   Packaged runtimes require `java.instrument`, `jdk.management`, and
   `jdk.unsupported`.
   Desktop display names come from Android's `app_name`; icons derive from
@@ -330,6 +386,31 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 
 Recorded per PLAN.md's rule: when the plan contradicts itself, PLAN.md wins
 and the contradiction is noted here.
+
+- **The desktop GLES context is created from EGL directly; GLFW is only the
+  fallback.** DESKTOP.md's "The JVM binding" section specifies GLFW with
+  `GLFW_EGL_CONTEXT_API` and repeats libGDX's chdir trick for finding a
+  bundled ANGLE. Shipped as `EglEsContext` first instead, because the chdir
+  is not sound: GLFW opens EGL with `dlopen("libEGL.dylib")` — a leaf name —
+  and that resolves a bundled library only through a process-wide `chdir`
+  whose effect anything can clobber — GLFW's own `GLFW_COCOA_CHDIR_RESOURCES`
+  already did once, for the byte-identical "OpenGL ES 3.0 is unavailable"
+  window (CI run 33668171196). What failed on the developer's Mac was never
+  established: `gradlew :desktop:run` had no macOS CI coverage and was the
+  first suspect, but dyld's working-directory search survives a hardened,
+  entitlement-signed `java` (it is gated on AMFI's `allowAtPaths`, which that
+  same `java` needs for its own `@rpath/libjli.dylib`), so that story does not
+  hold up. The fix does not depend on which one it was. The window
+  GLFW provided was hidden, 1x1 and never drawn to — the engine renders to an
+  offscreen FBO — so GLFW was only ever a context provider, and EGL provides
+  the same context by absolute path, on any thread, with no NSWindow, no
+  NSApplication delegate (GLFW replaces AWT's) and no main-queue dispatch.
+  The GLFW host stays only where EGL belongs to the system — Linux, where no
+  leaf-name lookup of a bundled library is involved — and
+  `-Dbangnidraw.gl.host` forces either one so Linux CI proves both still work.
+  It is not a macOS fallback: LWJGL's supported path override is a no-op in
+  the shipped GLFW builds (the symbol is absent), and the host crashed the JVM
+  there once ANGLE was loaded.
 
 - **`*.tmp` is swept "on every save" (06 §2) — except a live writer's own.**
   `ProjectStore.checkpoint` sweeps its directory before writing, so under the

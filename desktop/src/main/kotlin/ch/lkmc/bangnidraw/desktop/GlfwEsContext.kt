@@ -6,11 +6,21 @@ import org.lwjgl.glfw.GLFW
 import org.lwjgl.glfw.GLFWErrorCallback
 import org.lwjgl.opengles.GLES
 
-/** A hidden GLFW/EGL host for the engine's offscreen GLES context. */
+/**
+ * A hidden GLFW/EGL host for the engine's offscreen GLES context: the system-EGL
+ * fallback for a machine where [EglEsContext] cannot reach EGL directly.
+ *
+ * Not a fallback on macOS. GLFW loads EGL itself, with a bare
+ * `dlopen("libEGL.dylib")` at first window creation, and dyld resolves a leaf
+ * name from the process directory only while AMFI leaves `allowAtPaths` set —
+ * process-global state this app should not stake a bundled library on. LWJGL
+ * 3.4.3's supported override for that (`GLFWNativeEGL.setEGLPath`) is not
+ * usable either: neither shipped GLFW build exports the symbol it writes to.
+ */
 internal class GlfwEsContext private constructor(
     private val window: Long,
     private val creationThread: Thread,
-) {
+) : DesktopEsContext {
     @Volatile
     private var active = false
     @Volatile
@@ -19,7 +29,7 @@ internal class GlfwEsContext private constructor(
     private var abandonedAfterOwnerTimeout = false
 
     /** Attaches the context and LWJGL capabilities to the render thread. */
-    fun activate() {
+    override fun activate() {
         check(!active) { "GL context is already active" }
 
         GLFW.glfwMakeContextCurrent(window)
@@ -41,7 +51,7 @@ internal class GlfwEsContext private constructor(
     }
 
     /** Detaches thread-local GLES state before the main thread destroys GLFW. */
-    fun deactivate() {
+    override fun deactivate() {
         // Activation can fail before installing capabilities; cleanup stays idempotent.
         if (!active) return
         check(Thread.currentThread() === activationThread) {
@@ -55,12 +65,12 @@ internal class GlfwEsContext private constructor(
     }
 
     /** Prevents unsafe native teardown when the GL owner did not stop. */
-    fun abandonAfterOwnerTimeout() {
+    override fun abandonAfterOwnerTimeout() {
         abandonedAfterOwnerTimeout = true
     }
 
     /** GLFW window destruction is restricted to the thread that created it. */
-    fun destroy() {
+    override fun destroy() {
         check(ownsGlfw) { GLFW_OWNERSHIP_MESSAGE }
         check(Thread.currentThread() === creationThread) {
             "GLFW context must be destroyed on its creation thread"
@@ -79,15 +89,25 @@ internal class GlfwEsContext private constructor(
     companion object {
         private const val TAG = "GlfwEsContext"
 
+        @Volatile
+        private var lastError: String? = null
         private var errorCallback: GLFWErrorCallback? = null
         private var previousErrorCallback: GLFWErrorCallback? = null
         private var ownsGlfw = false
 
         /** Creates the hidden window on the process main thread. */
         @Synchronized
-        fun create(width: Int, height: Int, backend: DesktopGlBackend): GlfwEsContext? {
+        fun create(
+            width: Int,
+            height: Int,
+            backend: DesktopGlBackend,
+            report: DesktopGlReport,
+        ): GlfwEsContext? {
             check(!ownsGlfw) { "only one GLFW context may exist in this process" }
             installErrorCallback()
+            // Each attempt reports only what it saw; a stale message would be
+            // attributed to whichever stage happens to fail next.
+            lastError = null
 
             // Compose owns macOS menu and Dock integration; GLFW only owns GL.
             // Keep the bootstrap's ANGLE lookup directory through
@@ -98,7 +118,7 @@ internal class GlfwEsContext private constructor(
                 GLFW.glfwInitHint(GLFW.GLFW_ANGLE_PLATFORM_TYPE, GLFW.GLFW_ANGLE_PLATFORM_TYPE_METAL)
             }
             if (!GLFW.glfwInit()) {
-                GlLog.e(TAG, "glfwInit failed — no window/context backend available", null)
+                report.fail("GLFW", "glfwInit failed${lastErrorSuffix()}")
                 restoreErrorCallback()
                 return null
             }
@@ -112,12 +132,14 @@ internal class GlfwEsContext private constructor(
 
             val window = GLFW.glfwCreateWindow(width, height, "${DesktopBrand.displayName} GL", 0L, 0L)
             if (window == 0L) {
+                report.fail("GLFW", "no GLES 3.0 EGL context${lastErrorSuffix()}")
                 GlLog.e(TAG, DesktopGlDiagnostics.contextFailure, null)
                 terminateOwnedGlfw()
                 restoreErrorCallback()
                 return null
             }
 
+            report.succeed("GLFW")
             return GlfwEsContext(window, Thread.currentThread())
         }
 
@@ -128,9 +150,12 @@ internal class GlfwEsContext private constructor(
             ownsGlfw = false
         }
 
+        private fun lastErrorSuffix(): String = lastError?.let { " ($it)" }.orEmpty()
+
         private fun installErrorCallback() {
             val callback = GLFWErrorCallback.create { error, description ->
                 val text = GLFWErrorCallback.getDescription(description)
+                lastError = "$text [$error]"
                 GlLog.w(TAG, "GLFW error $error: $text")
             }
 

@@ -130,18 +130,32 @@ class DesktopRuntimeLifecycleContractTest {
     }
 
     @Test
-    fun `ANGLE exposure documents its first-window lifetime`() {
-        val bootstrap = source(
-            "desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopNativeBootstrap.kt",
-        )
+    fun `both GL hosts record why ANGLE is loaded by absolute path`() {
+        val glfw = prose("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/GlfwEsContext.kt")
+        val egl = prose("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/EglEsContext.kt")
 
-        assertTrue(
-            bootstrap.replace(Regex("\\s+"), " ")
-                .contains("Keep the returned environment open until the first GLFW window"),
-        )
+        // Anchored on the technical tokens, not on prose: a reflow of these
+        // comments must not fail the build, but losing the rule must.
+        assertTrue(glfw.contains("dlopen"))
+        assertTrue(glfw.contains("allowAtPaths"))
+        assertTrue(glfw.contains("AMFI"))
+        // Whitespace is collapsed above, so a phrase survives a reflow while
+        // saying more than two words that could appear in any error string.
+        assertTrue(egl.contains("EGL is loaded by absolute path"))
     }
 
     private fun source(path: String): String = File(repoRoot(), path).readText(Charsets.UTF_8)
+
+    /**
+     * A source file with its comment scaffolding — KDoc and line comments
+     * alike — flattened, so an anchor can be a phrase: collapsing whitespace
+     * alone leaves the marker a wrapped comment line carries, which no
+     * quotable sentence contains.
+     */
+    private fun prose(path: String): String = source(path)
+        .replace(Regex("\\n\\s*\\*\\s?"), " ")
+        .replace(Regex("\\n\\s*//\\s?"), " ")
+        .replace(Regex("\\s+"), " ")
 
     private fun repoRoot(): File {
         var candidate = File(".").canonicalFile

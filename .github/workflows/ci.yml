@@ -135,9 +135,26 @@ jobs:
           LAUNCHER="$(find desktop/build/compose/binaries/main/app -path '*/bin/*' ! -path '*/runtime/*' -type f -executable -print -quit)"
           timeout 60s "$LAUNCHER" --verify-runtime | grep -F '帮你Draw runtime OK:'
 
-          LIBGL_ALWAYS_SOFTWARE=1 timeout 30s xvfb-run -a \
-            "$LAUNCHER" --smoke-window 2>&1 | tee "$RUNNER_TEMP/desktop-smoke.log"
+          # Redirect rather than pipe, as below: a JVM that outlives the
+          # xvfb-run wrapper `timeout` kills would hold a pipe open for the
+          # rest of the job.
+          LIBGL_ALWAYS_SOFTWARE=1 timeout -k 5s 60s xvfb-run -a \
+            "$LAUNCHER" --smoke-window > "$RUNNER_TEMP/desktop-smoke.log" 2>&1 || true
+          cat "$RUNNER_TEMP/desktop-smoke.log"
           grep -F '帮你Draw window OK:' "$RUNNER_TEMP/desktop-smoke.log"
+
+          # Both context hosts, every commit: the direct EGL path is the one
+          # macOS depends on, and GLFW is only a safety net if it still works.
+          # Redirect rather than pipe: `timeout` kills the xvfb-run wrapper, not
+          # the JVM it forked, and a surviving grandchild holds a pipe open for
+          # the rest of the job.
+          for HOST in egl glfw; do
+            HOST_LOG="$RUNNER_TEMP/desktop-gl-$HOST.log"
+            JAVA_TOOL_OPTIONS="-Dbangnidraw.gl.host=$HOST" LIBGL_ALWAYS_SOFTWARE=1 \
+              timeout -k 5s 60s xvfb-run -a "$LAUNCHER" --gl-report > "$HOST_LOG" 2>&1 || true
+            cat "$HOST_LOG"
+            grep -iF "GLES 3.0 context via $HOST" "$HOST_LOG"
+          done
 
       - name: Upload desktop distributable
         uses: actions/upload-artifact@v7
@@ -208,15 +225,41 @@ jobs:
           esac
           test "$(lipo -archs "$EGL")" = "$NATIVE_ARCH"
           test "$(lipo -archs "$GLES")" = "$NATIVE_ARCH"
-          codesign --verify --strict "$EGL"
-          codesign --verify --strict "$GLES"
+          # Upstream signs the arm64 ANGLE ad-hoc and ships the x86_64 build
+          # unsigned, so a strict verify on Intel would fail on a good file.
+          if [ "$NATIVE_ARCH" = arm64 ]; then
+            codesign --verify --strict "$EGL"
+            codesign --verify --strict "$GLES"
+          fi
 
           perl -e 'alarm shift; exec @ARGV' 60 \
             "$LAUNCHER" --smoke-window 2>&1 | \
             tee "$RUNNER_TEMP/desktop-macos-smoke.log"
           grep -F '帮你Draw window OK:' "$RUNNER_TEMP/desktop-macos-smoke.log"
-          grep -E 'I/GlfwEsContext: GL context: .*ANGLE' \
+          grep -E 'I/EglEsContext: GL context: .*ANGLE' \
             "$RUNNER_TEMP/desktop-macos-smoke.log"
+
+          # macOS has one host: the packaged app must reach ANGLE through EGL
+          # directly, on the Metal display rather than ANGLE's default.
+          perl -e 'alarm shift; exec @ARGV' 60 "$LAUNCHER" --gl-report 2>&1 | \
+            tee "$RUNNER_TEMP/desktop-macos-gl.log"
+          grep -F 'GLES 3.0 context via EGL' "$RUNNER_TEMP/desktop-macos-gl.log"
+          grep -F 'EGL display: ANGLE/Metal' "$RUNNER_TEMP/desktop-macos-gl.log"
+          grep -E 'GL context: .*ANGLE' "$RUNNER_TEMP/desktop-macos-gl.log"
+
+      - name: Verify the unpackaged developer run
+        # Gradle forks its own JVM, which `perl alarm` on this step would not
+        # reach; the job timeout is 45 minutes of 10x-billed macOS.
+        timeout-minutes: 10
+        # README's own instruction, and the one path this job never covered:
+        # `gradlew run` forks the JDK's own java rather than jpackage's
+        # launcher, with a different working directory and a different
+        # resources path. Covered now because a bundled ANGLE has to be found
+        # from both, not because either one is known to have failed.
+        run: |
+          ./gradlew :desktop:run --args=--gl-report 2>&1 | \
+            tee "$RUNNER_TEMP/desktop-macos-run.log"
+          grep -F 'GLES 3.0 context via EGL' "$RUNNER_TEMP/desktop-macos-run.log"
 
       - name: Upload macOS distributable
         # The archive contains the verified ANGLE runtime exercised above.

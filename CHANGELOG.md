@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fix "OpenGL ES 3.0 is unavailable" when running the desktop app on macOS:
+  the bundled ANGLE runtime is now loaded by absolute path, and a startup
+  that still fails names the stage, the libraries it found and their
+  architecture instead of only its own guidance.
 - Add (i) buttons with popup explanations to the Studio, New painting
   dialog, canvas overflow menu, layer and color panels, brush and tool
   settings sheets, tracing-image panel, and every Settings section.

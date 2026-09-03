@@ -346,6 +346,11 @@ data class LayoutSpec(
         const val TOP_STRIP_DP = 48
         /** The docked rail's height; both rails and the ledge above it read this. */
         const val DOCK_HEIGHT_DP = 56
+        /**
+         * The gap the slider ledge floats above what it sits on; the docked
+         * chrome reserves it here and the shell's ledge reads the same value.
+         */
+        const val LEDGE_GAP_DP = 8f
         const val COMPACT_GRID_CELL_DP = 150
         const val MEDIUM_GRID_CELL_DP = 180
         const val EXPANDED_GRID_CELL_DP = 220
@@ -376,6 +381,5 @@ data class LayoutSpec(
         private const val IN_RAIL_WIDTH_DP =
             SLIDER_COUNT * SLIDER_TOUCH_SLAB_DP + 2 * RAIL_HORIZONTAL_PADDING_DP
         private const val LEDGE_HEIGHT_DP = 48
-        private const val LEDGE_GAP_DP = 8f
     }
 }

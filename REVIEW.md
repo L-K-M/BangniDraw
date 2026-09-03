@@ -3678,3 +3678,60 @@ and the failure mode is quiet — a budget computed from stale spacing lays out
 paints the rail cannot fit, or overflows paints that would. `DesktopRailGeometry`
 owns the three numbers now; the rail, the budget and the budget's test all
 read them from it.
+
+Round 5 (hybrid, `758fe7d`..`9cd205b`, 0 actionable + 1 Minor): applied,
+nothing declined. Scored **`nits only`** per EXECUTION.md (d) — the one finding
+changed no behaviour, closed no hole and corrected no false claim; the two 8 dp
+constants held identical values, so the fix is dedup, not repair. Under the
+one-round thresholds this ends the loop.
+
+The finding: `LayoutSpec` kept `private const val LEDGE_GAP_DP = 8f` while
+`Main.kt` declared `private val LEDGE_GAP = 8.dp`, the same gap named twice —
+the ledge floating above the docked rail — linked by nothing but coincidence
+of value. Round 4 had just fixed this pattern for the rail spacing and round 4's
+own `DOCK_HEIGHT_DP` promotion for the dock height; this was the third instance
+and the reviewer was right that the delta which fixed the class had left a
+member of it standing. `LEDGE_GAP_DP` is public now and the shell reads it.
+
+Noticed while checking the claim, not raised and not fixed here: in SHORT mode
+`LayoutSpec.persistentChrome` models the ledge flush to the window bottom while
+the shell insets it by `LEDGE_GAP`, so a panel reserves marginally more than
+the widget occupies. Over-reservation is the safe direction and the rendered
+result looks right, but the two descriptions of SHORT's ledge are not identical.
+Worth reconciling when the ledge is next touched.
+
+### Scorecard — PR #192
+
+| Round | Scope | Score | Outcome |
+| --- | --- | --- | --- |
+| 1 | full, `2e0d4a0` | `useful feedback` | 6 major + 14 minor + 3 info; most applied, 1 refuted, 2 declined, 1 deferred to a proposal |
+| 2 | hybrid → `1f89ac3` | `useful feedback` | all applied; one half-applied round-1 fix completed |
+| 3 | hybrid → `b2b7774` | `useful feedback` | both applied; a contract test could false-pass |
+| 4 | hybrid → `758fe7d` | `useful feedback` | both applied; HSV snapping and formatting drifted from `:app` |
+| 5 | hybrid → `9cd205b` | `nits only` | one dedup; **loop ends** |
+
+Real: the colour swatches were unreachable by keyboard and fired on any mouse
+button; the dock's tooltips would have clipped off-window; the HSV channels
+neither snapped nor rounded as Android's do; a contract test could pass on a
+call that had moved; and four separate copies of shared geometry (glyph
+mapping, dock height, rail spacing, ledge gap) were held together by comments
+rather than by code.
+
+Refuted: the Mixbox CC BY-NC attribution was never removed (R-267) — it lives
+in the About dialog, screenshotted showing it during this PR's own
+verification run.
+
+Declined: the panel-level live region (R-266, mirrors `:app`'s `PanelHost`;
+changing one copy is the drift this PR removes) and a `distinctBy` guard
+(R-268, `PaintSlotAssignments.restore` already requires distinct ids and
+throws first).
+
+Deferred: the 37.8 MB deprecated icon artifact (R-265) →
+`docs/proposals/0005-desktop-icon-artifact.md`, because vendoring the eleven
+extended-only glyphs needs an asset-policy exception the repo does not
+currently grant. Raised with the user directly as well.
+
+Follow-ups owed to a later PR: `:app`'s `TopStrip` colour swatch has the same
+square-fill-under-rounded-border artifact fixed here; `Icons.Filled.Draw` and
+`Icons.Filled.Create` are similar silhouettes at rail size on both platforms;
+and the SHORT ledge discrepancy noted above.

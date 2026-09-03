@@ -956,7 +956,9 @@ private const val SMOKE_STARTUP_FAILURE_FLAG = "--smoke-startup-failure"
 private const val SMOKE_WINDOW_FLAG = "--smoke-window"
 private const val INITIAL_GL_WIDTH = 1
 private const val INITIAL_GL_HEIGHT = 1
-private val LEDGE_GAP = 8.dp
+// The gap LayoutSpec's docked chrome already reserves above the dock;
+// a second copy here could drift and leave the two disagreeing.
+private val LEDGE_GAP = LayoutSpec.LEDGE_GAP_DP.dp
 // The old floor existed for a fixed 230 dp sidebar beside a toolbar row.
 // The chrome is adaptive now — LayoutSpec shortens the rail, then docks it —
 // so the window may be as small as one a person could still draw in.

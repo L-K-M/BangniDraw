@@ -3440,13 +3440,13 @@ one Minor in blockquotes): one applied, one refuted; nothing security-relevant.
   still holds accumulated stroke, both layers show it and the compositor
   double-blends. Two independent reasons it does not happen. First, Android
   does not run `drawFrame` mid-stroke at all: `EngineRenderPolicy.requestRedraw`
-  returns `DEFER` while `strokeActive` is true (line 63 of `EngineRenderPolicy
-  .kt`), and `redraw()` (`EngineSession.kt` line 1357) gates its dispatch on
-  that. Chained COMMIT via `attachmentGate.multiDrawCompleted` only fires when
-  `scenePending` was set — and `requestScene` is only called from `redraw()`
-  and `endStroke()`, both when `strokeActive == false`. At `endStroke` the GL
-  FIFO runs `renderer.endStroke` (clearing the `stroke` field) before
-  `commit()`'s multi-buffered draw fires, so `drawFrame` sees `stroke == null`.
+  returns `DEFER` while `strokeActive` is true, and `redraw()` gates its
+  dispatch on that. Chained COMMIT via `attachmentGate.multiDrawCompleted`
+  only fires when `scenePending` was set — and `requestScene` is only called
+  from `redraw()` and `endStroke()`, both when `strokeActive == false`. At
+  `endStroke` the GL FIFO runs `renderer.endStroke` (clearing the `stroke`
+  field) before `commit()`'s multi-buffered draw fires, so `drawFrame` sees
+  `stroke == null`.
   Second, even if the two coincided, the front layer is a *full opaque*
   composite in its drawn region (paper + committed layers + stroke through the
   same `compositeIntoAccum` used everywhere else), so SurfaceControl composites
@@ -3464,3 +3464,11 @@ one Minor in blockquotes): one applied, one refuted; nothing security-relevant.
   tertiary/inverse: `ThemeColors` carries no such tokens (the Android palette
   never grew them), so Compose's stock defaults are the only source — a note
   in the scheme's KDoc says so.
+
+Round 2 (hybrid, `50e6ccd`..`19e17b7`, 0 actionable): one Info note applied,
+nothing declined. GLM flagged R-261's parenthetical line-number citations
+(`EngineRenderPolicy.kt` line 63, `EngineSession.kt` line 1357) as anchors
+that rot silently under unrelated edits while the symbol references beside
+them (`requestRedraw`, `redraw()`) already identify the code. Removed the
+numeric halves; the symbols carry the refutation on their own. The delta
+audit's sample turned up nothing new.

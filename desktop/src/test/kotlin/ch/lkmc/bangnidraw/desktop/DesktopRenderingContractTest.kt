@@ -11,8 +11,7 @@ class DesktopRenderingContractTest {
     @Test
     fun `the chrome is the shared adaptive layout, not a desktop-only one`() {
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
-        check("private fun Shell(" in main && "private fun railAlignment(" in main) { "Shell markers not found" }
-        val shell = main.substringAfter("private fun Shell(").substringBefore("private fun railAlignment(")
+        val shell = between(main, "private fun Shell(", "private fun railAlignment(")
 
         // Every rail/strip/panel dimension comes from LayoutSpec, so the two
         // products cannot drift apart on geometry.
@@ -61,10 +60,7 @@ class DesktopRenderingContractTest {
     @Test
     fun `empty canvas fills the window before its first frame`() {
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
-        check("// The canvas is full-bleed" in main && "DesktopTopStrip(" in main) { "canvas markers not found" }
-        val canvas = main
-            .substringAfter("// The canvas is full-bleed")
-            .substringBefore("DesktopTopStrip(")
+        val canvas = between(main, "// The canvas is full-bleed", "DesktopTopStrip(")
 
         // The viewport reports its size to the engine from onSizeChanged, so
         // it must be measured even while `bitmap` is still null.
@@ -91,6 +87,19 @@ class DesktopRenderingContractTest {
 
         assertEquals(1, Regex("MixboxBinding\\.create\\(\\)").findAll(main).count())
         assertTrue(main.contains("mixer = mixer"))
+    }
+
+    /**
+     * The region between two markers, requiring the second to follow the
+     * first. `substringAfter`/`substringBefore` silently return the rest of
+     * the file when the end marker does not follow the start one, which
+     * would quietly assert against the wrong code after a reorder.
+     */
+    private fun between(source: String, start: String, end: String): String {
+        val from = source.indexOf(start)
+        val to = source.indexOf(end, startIndex = from + 1)
+        check(from >= 0 && to > from) { "markers not found or misordered: $start .. $end" }
+        return source.substring(from, to)
     }
 
     private fun source(path: String): String = repoFile(path).readText(Charsets.UTF_8)

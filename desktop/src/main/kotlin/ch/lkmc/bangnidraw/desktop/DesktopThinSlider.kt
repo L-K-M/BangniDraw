@@ -72,7 +72,11 @@ internal fun DesktopThinSlider(
             onValueChange = onValueChange,
             range = range,
             // Measure at full length before the 48 dp parent rotates it.
+            // The height is pinned rather than inherited: after the quarter
+            // turn it becomes the drag target's thickness, and Material's
+            // own minimum is not something to depend on across versions.
             modifier = semantics
+                .height(TOUCH_SLAB)
                 .requiredWidth(length)
                 .rotate(-QUARTER_TURN_DEGREES),
         )

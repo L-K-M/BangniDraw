@@ -19,18 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Air
-import androidx.compose.material.icons.filled.Architecture
-import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.Create
-import androidx.compose.material.icons.filled.Draw
-import androidx.compose.material.icons.filled.FormatPaint
-import androidx.compose.material.icons.filled.Gradient
-import androidx.compose.material.icons.filled.HistoryEdu
 import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.OilBarrel
-import androidx.compose.material.icons.filled.Texture
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -66,7 +55,6 @@ import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushSizeScale
-import ch.lkmc.bangnidraw.engine.core.BrushToolGlyph
 import ch.lkmc.bangnidraw.engine.core.BrushToolGlyphPolicy
 import ch.lkmc.bangnidraw.engine.core.EraserTogglePolicy
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
@@ -78,16 +66,16 @@ import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ToolRailColorPolicy
 import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.ToolSliderSecondary
-import ch.lkmc.bangnidraw.ui.glyphs.ToolGlyphs
-import ch.lkmc.bangnidraw.ui.glyphs.WaterToolGlyphs
+import ch.lkmc.bangnidraw.ui.glyphs.brushGlyphIcon
 import kotlin.math.roundToInt
 
 /**
  * The desktop tool rail: the same object `:app`'s `ToolRail` draws — paint
  * slots, a rule, the eraser, and the size/secondary sliders standing in its
  * foot (`docs/plan/08-ui-and-layout.md` §3.2). Assignments, the visible
- * budget and the colours all come from shared engine-core policies, so the
- * two rails behave alike.
+ * budget and the button emphasis colours come from shared engine-core
+ * policies, and the surface/divider colours read the same Material roles
+ * `:app`'s rail does, so the two behave alike.
  *
  * The structural difference is what this shell cannot run: Android's five
  * secondary tools (smudge, water, blur, fill, eyedropper) have no desktop
@@ -101,7 +89,6 @@ internal fun DesktopToolRail(
     presets: List<BrushPreset>,
     paintSlots: PaintSlotAssignments,
     rail: DesktopRailState,
-    active: BrushPreset,
     windowWidth: Dp,
     windowHeight: Dp,
     onPaintSlot: (Int) -> Unit,
@@ -119,7 +106,8 @@ internal fun DesktopToolRail(
     val budget = DesktopRailPolicy.paintBudget(
         layout = layout,
         availableDp = railExtent.value.roundToInt(),
-        paintCount = paintsById.size,
+        // The rail lays out the assignments, so they are what must fit.
+        paintCount = paintSlots.presetIds.size,
     )
     val visible = RailSlotPolicy.visibleIndices(paintSlots, budget)
     val hidden = paintSlots.presetIds
@@ -129,13 +117,16 @@ internal fun DesktopToolRail(
     // catalogue does not ship.
     val eraser = presets.firstOrNull { it.id == rail.eraserId && it.eraseMode }
         ?: DesktopRailPolicy.eraserOrNull(presets)
+    // Derived, never passed in: the sliders must tune the preset the column
+    // is highlighting, and two parameters could disagree about which that is.
+    val active = presets.firstOrNull { it.id == rail.selectedId }
 
     val paintSlotButtons = buildList {
         for (index in visible) {
             val paint = paintsById[paintSlots.presetIds[index]] ?: continue
             add(
                 DesktopToolSlot(
-                    icon = iconFor(BrushToolGlyphPolicy.forPreset(paint)),
+                    icon = brushGlyphIcon(BrushToolGlyphPolicy.forPreset(paint)),
                     description = DesktopBrushUi.label(paint),
                     active = rail.selectedId == paint.id,
                     onClick = { onPaintSlot(index) },
@@ -151,7 +142,7 @@ internal fun DesktopToolRail(
                     onClick = {},
                     menuItems = hidden.map { paint ->
                         DesktopToolMenuItem(
-                            icon = iconFor(BrushToolGlyphPolicy.forPreset(paint)),
+                            icon = brushGlyphIcon(BrushToolGlyphPolicy.forPreset(paint)),
                             description = DesktopBrushUi.label(paint),
                             active = rail.selectedId == paint.id,
                             onClick = { onAssignPaint(paint) },
@@ -174,7 +165,7 @@ internal fun DesktopToolRail(
     } else {
         val alternates = EraserTogglePolicy.next(eraser.id, presets) != null
         paintSlotButtons + DesktopToolSlot(
-            icon = iconFor(BrushToolGlyphPolicy.forPreset(eraser)),
+            icon = brushGlyphIcon(BrushToolGlyphPolicy.forPreset(eraser)),
             description = DesktopBrushUi.label(eraser) + if (alternates) ERASER_TOGGLE_HINT else "",
             active = rail.selectedId == eraser.id,
             onClick = onEraserTap,
@@ -183,6 +174,8 @@ internal fun DesktopToolRail(
     val slot = layout.toolSlotDp.dp
 
     if (docked) {
+        // A dock runs along the bottom: a tooltip to a button's left would
+        // cover its neighbours, and clip off-screen at the window's edge.
         Dock(tools, dividerAfter, slot, modifier)
         return
     }
@@ -228,13 +221,16 @@ internal fun DesktopToolRail(
                 }
             }
 
-            if (layout.sliderLengthDp > 0) {
-                RailSliders(
-                    preset = active,
-                    length = layout.sliderLengthDp.dp,
-                    onSizeChanged = onSizeChanged,
-                    onSecondaryChanged = onSecondaryChanged,
-                )
+            if (layout.sliderLengthDp > 0 && active != null) {
+                Row {
+                    ToolSliders(
+                        preset = active,
+                        axis = DesktopSliderAxis.Vertical,
+                        length = layout.sliderLengthDp.dp,
+                        onSizeChanged = onSizeChanged,
+                        onSecondaryChanged = onSecondaryChanged,
+                    )
+                }
             }
         }
     }
@@ -261,55 +257,50 @@ internal fun DesktopSliderLedge(
             horizontalArrangement = Arrangement.spacedBy(LEDGE_PADDING),
             modifier = Modifier.padding(horizontal = LEDGE_PADDING),
         ) {
-            DesktopThinSlider(
-                value = BrushSizeScale.fraction(preset.size, preset.sizeMin, preset.sizeMax),
-                range = 0f..1f,
+            ToolSliders(
+                preset = preset,
                 axis = DesktopSliderAxis.Horizontal,
-                description = sizeDescription(preset),
-                onValueChange = {
-                    onSizeChanged(BrushSizeScale.size(it, preset.sizeMin, preset.sizeMax))
-                },
                 length = LEDGE_SLIDER_LENGTH,
-            )
-            DesktopThinSlider(
-                value = secondaryValue(preset),
-                range = 0f..1f,
-                axis = DesktopSliderAxis.Horizontal,
-                description = secondaryDescription(preset),
-                onValueChange = onSecondaryChanged,
-                length = LEDGE_SLIDER_LENGTH,
+                onSizeChanged = onSizeChanged,
+                onSecondaryChanged = onSecondaryChanged,
             )
         }
     }
 }
 
+/**
+ * The size and secondary pair, in the rail's foot or on the ledge. One
+ * implementation for both: the mapping between the slider's 0..1 and the
+ * preset's own range is the part that must not drift between the two
+ * surfaces, and it lives here once.
+ */
 @Composable
-private fun RailSliders(
+private fun ToolSliders(
     preset: BrushPreset,
+    axis: DesktopSliderAxis,
     length: Dp,
     onSizeChanged: (Float) -> Unit,
     onSecondaryChanged: (Float) -> Unit,
 ) {
-    Row {
-        DesktopThinSlider(
-            value = BrushSizeScale.fraction(preset.size, preset.sizeMin, preset.sizeMax),
-            range = 0f..1f,
-            axis = DesktopSliderAxis.Vertical,
-            description = sizeDescription(preset),
-            onValueChange = {
-                onSizeChanged(BrushSizeScale.size(it, preset.sizeMin, preset.sizeMax))
-            },
-            length = length,
-        )
-        DesktopThinSlider(
-            value = secondaryValue(preset),
-            range = 0f..1f,
-            axis = DesktopSliderAxis.Vertical,
-            description = secondaryDescription(preset),
-            onValueChange = onSecondaryChanged,
-            length = length,
-        )
-    }
+    val range = DesktopBrushUi.sizeRange(preset)
+    DesktopThinSlider(
+        value = BrushSizeScale.fraction(preset.size, range.start, range.endInclusive),
+        range = 0f..1f,
+        axis = axis,
+        description = sizeDescription(preset),
+        onValueChange = {
+            onSizeChanged(BrushSizeScale.size(it, range.start, range.endInclusive))
+        },
+        length = length,
+    )
+    DesktopThinSlider(
+        value = secondaryValue(preset),
+        range = 0f..1f,
+        axis = axis,
+        description = secondaryDescription(preset),
+        onValueChange = onSecondaryChanged,
+        length = length,
+    )
 }
 
 @Composable
@@ -339,7 +330,7 @@ private fun Dock(
                 .semantics { selectableGroup() },
         ) {
             for ((index, item) in tools.withIndex()) {
-                ToolButton(item, slot)
+                ToolButton(item, slot, tooltipAnchor = TooltipAnchorPosition.Above)
                 if (index == dividerAfter) {
                     VerticalDivider(
                         color = MaterialTheme.colorScheme.outline,
@@ -354,7 +345,11 @@ private fun Dock(
 }
 
 @Composable
-private fun ToolButton(item: DesktopToolSlot, slot: Dp) {
+private fun ToolButton(
+    item: DesktopToolSlot,
+    slot: Dp,
+    tooltipAnchor: TooltipAnchorPosition = TooltipAnchorPosition.Left,
+) {
     var menuExpanded by remember { mutableStateOf(false) }
     val shape = MaterialTheme.shapes.medium
     val emphasis = if (item.active) ToolButtonEmphasis.ACTIVE else ToolButtonEmphasis.INACTIVE
@@ -372,9 +367,7 @@ private fun ToolButton(item: DesktopToolSlot, slot: Dp) {
         // The rail replaced a column of labelled buttons, so every glyph
         // still has to say its own name somewhere a pointer can find it.
         TooltipBox(
-            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
-                TooltipAnchorPosition.Left,
-            ),
+            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(tooltipAnchor),
             tooltip = { PlainTooltip { Text(item.description) } },
             state = rememberTooltipState(),
         ) {
@@ -419,6 +412,12 @@ private fun ToolButton(item: DesktopToolSlot, slot: Dp) {
     }
 }
 
+/**
+ * Never actually null for a brush — `ToolSliderPreset.secondaryValue` only
+ * returns null for Fill and Eyedropper, which this shell has no path for —
+ * but the type is nullable, and opacity is the right reading of the
+ * OPACITY secondary this rail's presets all use.
+ */
 private fun secondaryValue(preset: BrushPreset): Float =
     ToolSliderPreset.secondaryValue(ToolKind.Brush(preset)) ?: preset.opacity
 
@@ -434,30 +433,6 @@ private fun secondaryDescription(preset: BrushPreset): String =
         ToolSliderSecondary.WATER -> "Water"
         ToolSliderSecondary.OPACITY -> "Opacity"
     }
-
-/**
- * One glyph per tool, identical to `ToolRail.iconFor` — the pencil must not
- * share a silhouette with another slot, or the rail loses the
- * glance-recognition it exists for.
- */
-private fun iconFor(glyph: BrushToolGlyph): ImageVector = when (glyph) {
-    BrushToolGlyph.PENCIL -> Icons.Filled.Draw
-    BrushToolGlyph.INK_PEN -> Icons.Filled.Create
-    BrushToolGlyph.PAINTBRUSH -> Icons.Filled.Brush
-    BrushToolGlyph.WATERCOLOR -> WaterToolGlyphs.Watercolor
-    BrushToolGlyph.AIRBRUSH -> Icons.Filled.Air
-    BrushToolGlyph.SPRAY_CAN -> ToolGlyphs.SprayCan
-    BrushToolGlyph.MARKER -> ToolGlyphs.Marker
-    BrushToolGlyph.CHARCOAL -> Icons.Filled.Texture
-    BrushToolGlyph.SOFT_PASTEL -> Icons.Filled.Gradient
-    BrushToolGlyph.TECHNICAL_PEN -> Icons.Filled.Architecture
-    BrushToolGlyph.CALLIGRAPHY -> Icons.Filled.HistoryEdu
-    BrushToolGlyph.DRY_BRUSH -> Icons.Filled.FormatPaint
-    BrushToolGlyph.OIL_PAINT -> Icons.Filled.OilBarrel
-    BrushToolGlyph.PIGMENT_WASH -> ToolGlyphs.PigmentWash
-    BrushToolGlyph.ERASER -> ToolGlyphs.Eraser
-    BrushToolGlyph.CUSTOM -> Icons.Filled.Tune
-}
 
 private data class DesktopToolSlot(
     val icon: ImageVector,
@@ -485,7 +460,7 @@ private val TOOL_VISUAL_INSET = 8.dp
 private val TOOL_GAP = 4.dp
 private val RAIL_PADDING = 12.dp
 private val RAIL_HORIZONTAL_PADDING = 4.dp
-private val DOCK_HEIGHT = 56.dp
+private val DOCK_HEIGHT = LayoutSpec.DOCK_HEIGHT_DP.dp
 private val ACTIVE_BORDER = 2.dp
 private val DIVIDER_MARGIN = 4.dp
 private val DIVIDER_INSET = 16.dp

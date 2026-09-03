@@ -477,7 +477,6 @@ private fun Shell(
             presets = presets,
             paintSlots = paintSlots,
             rail = rail,
-            active = activeBrush,
             windowWidth = maxWidth,
             windowHeight = maxHeight,
             onPaintSlot = { index ->
@@ -588,7 +587,9 @@ private fun Modifier.ledgePlacement(scope: BoxScope, layout: LayoutSpec): Modifi
         .absolutePadding(
             left = if (!docked && layout.railSide == Hand.LEFT) railWidth else 0.dp,
             right = if (!docked && layout.railSide == Hand.RIGHT) railWidth else 0.dp,
-            bottom = if (docked) DOCK_HEIGHT + LEDGE_GAP else LEDGE_GAP,
+            // The dock's own height, from LayoutSpec — a second copy of it
+            // here could drift and float the ledge off the dock.
+            bottom = if (docked) LayoutSpec.DOCK_HEIGHT_DP.dp + LEDGE_GAP else LEDGE_GAP,
         )
 }
 
@@ -939,7 +940,6 @@ private const val SMOKE_STARTUP_FAILURE_FLAG = "--smoke-startup-failure"
 private const val SMOKE_WINDOW_FLAG = "--smoke-window"
 private const val INITIAL_GL_WIDTH = 1
 private const val INITIAL_GL_HEIGHT = 1
-private val DOCK_HEIGHT = 56.dp
 private val LEDGE_GAP = 8.dp
 // The old floor existed for a fixed 230 dp sidebar beside a toolbar row.
 // The chrome is adaptive now — LayoutSpec shortens the rail, then docks it —

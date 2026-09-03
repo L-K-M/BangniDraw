@@ -3508,3 +3508,85 @@ reviewer's suggested doc-only remediation. Rewrote the opening.
   pins for CPU/GLSL pairs (and now for the two schemes) covers the drift
   risk until a Compose-visible shared module earns its keep on other work;
   filed as a proposal candidate for that day.
+
+## PR #192 — the desktop shell wears the Android canvas chrome (2026-09-03)
+
+Round 1 (full, `2e0d4a0`, 6 actionable + 14 minor + 3 info): most applied,
+three declined or refuted below. CI was green before and after.
+
+Applied: the colour swatches became `clickable` (they were a raw pointer loop
+with no focus, no Enter/Space, and a press handler that fired on *any* mouse
+button); the tooltip anchor became a parameter so the bottom dock anchors
+`Above` instead of `Left`, where a tooltip would cover its neighbours and clip
+at the window edge; the rotated slider pins its own 48 dp slab rather than
+inheriting whatever Material measures; hex formatting takes `Locale.ROOT`; the
+strip's saved-path message became a polite live region; the strip's colour
+swatch draws a rounded background instead of a square rect under a rounded
+border; `paintBudget` counts the assignments the rail lays out rather than the
+catalogue; the rail derives its active preset from `rail.selectedId` instead of
+taking a second, independently-passed one; the ledge and the rail's foot share
+one slider pair; `DesktopRailPolicy.initial` orders the paints once; the two
+source-contract tests extract their regions with ordered `indexOf` rather than
+`substringAfter`/`substringBefore`, which silently return the rest of the file
+when the end marker does not follow the start one; and the stale "600 dp
+minimum" text went with the 640×480 minimum this PR introduced.
+
+Two findings were right about a duplication this PR had left in place, and the
+fix went to the root rather than the desktop copy: the `BrushToolGlyph →
+ImageVector` mapping now lives in the shared `ui/glyphs/` directory that both
+modules compile, so `:app`'s rail and `:desktop`'s cannot drift on artwork
+(`ToolIconContractTest` follows it there); and `LayoutSpec` exposes
+`DOCK_HEIGHT_DP`, which the two rails and the slider ledge now read instead of
+keeping three copies of `56.dp`.
+
+- **R-265 ⏸️ (deferred) round 1, Major: the 37.8 MB deprecated
+  `compose.materialIconsExtended` ships while the decision is recorded as
+  open.** The size and the deprecation are both real and both this PR's doing.
+  The reviewer's own remediation prompt names the obstacle: Material Symbols
+  are Apache-2.0, and AGENTS.md requires third-party assets to be public
+  domain / CC0 — so vendoring the eleven extended-only glyphs needs a policy
+  exception, not a refactor. It also has to cover *both* rails to be worth
+  doing, since `:app` keeps the artifact for its other screens and a
+  desktop-only vendoring would reintroduce exactly the artwork drift the
+  shared `ui/glyphs/` directory just removed. Filed as
+  `docs/proposals/0005-desktop-icon-artifact.md` with the four options and a
+  recommendation (keep it until DESKTOP.md Phase 4, when distribution size
+  first has an audience), which is this repo's mechanism for an open
+  pre-decision — better than the `TODO(product)` the review suggested, because
+  a proposal carries the reasoning and a status.
+- **R-266 ⏸️ (declined) round 1, Minor: scope `DesktopColorPanel`'s
+  `liveRegion` to the hex readout so a slider drag does not re-announce the
+  whole panel.** The concern is real in isolation, but the panel-level
+  `liveRegion` + `paneTitle` pair is copied from `:app`'s `PanelHost`, which
+  hosts the Android `ColorPanel` — sliders and all — under the same
+  arrangement. Changing only the desktop copy would make the two panels
+  announce differently, which is the drift this PR exists to remove. If the
+  chatter is a real defect it is an Android defect first, and the fix belongs
+  in both surfaces on a PR that can verify the Android half on a device; this
+  one cannot.
+- **R-267 ⏸️ (refuted) round 1, Major: the Mixbox attribution was removed with
+  the side panel.** It was not. `DesktopAbout.body(MixboxAttribution.Included)`
+  returns "Mixbox © Secret Weapons, CC BY-NC 4.0 — non-commercial.", the About
+  dialog renders it, and `DesktopApplication` still computes and passes the
+  flag; only the sidebar's *duplicate* went away. AGENTS.md names the three
+  places the attribution must live — the About string, the README and
+  `third-party/mixbox/` — and all three are intact. Verified at runtime, not
+  just by reading: the About dialog was screenshotted showing the notice
+  during this PR's headless verification run. `DesktopAboutTest` pins both
+  halves (included carries "Mixbox" and "CC BY-NC 4.0", stripped carries
+  neither).
+- **R-268 ⏸️ (declined) round 1, Minor: `distinctBy` before `associateBy` so a
+  duplicate preset id cannot collapse a rail slot.** Duplicate ids cannot
+  reach the rail: `PaintSlotAssignments.restore` already *requires* distinct
+  ids and throws, and it runs first, on the same list. A silent `distinctBy`
+  downstream would hide a violation the constructor is there to surface. The
+  reviewer's own prompt offers this reading ("If uniqueness is already
+  enforced, an explicit require would be even better than the silent
+  distinctBy") — it is, and it already exists.
+
+Follow-up suggestions, out of scope here: `:app`'s `TopStrip` draws its colour
+swatch with the same square `drawRect` under a rounded border that was fixed on
+the desktop side, and would benefit from the same rounded background; and
+`Icons.Filled.Draw` (pencil) and `Icons.Filled.Create` (ink pen) are similar
+silhouettes at rail size on both platforms — a pre-existing Android mapping
+this PR only mirrors, worth a look when the rail's artwork is next revisited.

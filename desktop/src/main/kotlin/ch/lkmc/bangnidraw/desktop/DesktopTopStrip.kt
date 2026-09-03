@@ -2,7 +2,7 @@
 
 package ch.lkmc.bangnidraw.desktop
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,8 +39,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -49,11 +51,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
+import java.util.Locale
 
 /**
  * The Canvas's persistent actions, laid out as `:app`'s `TopStrip` does:
- * navigation on the rail's side, the colour and the overflow opposite it
- * (`docs/plan/08-ui-and-layout.md` §3.1).
+ * the colour and overflow cluster on the rail's side, the history cluster
+ * opposite it (`docs/plan/08-ui-and-layout.md` §3.1) — so the controls that
+ * pair with the rail sit next to it, and Back/Undo stay under the other
+ * hand.
  *
  * Android's Back and Layers buttons are absent: this shell opens straight
  * into one painting with one layer, so neither would do anything.
@@ -104,6 +109,7 @@ internal fun DesktopTopStrip(
                 if (savedMessage != null) {
                     Text(
                         savedMessage,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -151,7 +157,8 @@ private fun HistoryButton(
 
 @Composable
 private fun ColorButton(brushColor: Int, open: Boolean, onClick: () -> Unit) {
-    val description = "Colour #%06X".format(brushColor and RGB_MASK)
+    // Locale.ROOT: a locale with its own digits would shape the hex code.
+    val description = "Colour #%06X".format(Locale.ROOT, brushColor and RGB_MASK)
     TooltipBox(
         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
         tooltip = { PlainTooltip { Text(description) } },
@@ -165,9 +172,13 @@ private fun ColorButton(brushColor: Int, open: Boolean, onClick: () -> Unit) {
                 contentDescription = description
             },
         ) {
+            // The fill is a rounded background rather than a square rect
+            // drawn inside the border: modifier draws land under the content,
+            // so a square fill covers the rounded outline at each corner.
             Box(
                 modifier = Modifier
                     .size(COLOR_SWATCH)
+                    .background(Color(brushColor), RoundedCornerShape(COLOR_RADIUS))
                     .border(
                         width = 1.dp,
                         color = if (open) {
@@ -177,9 +188,7 @@ private fun ColorButton(brushColor: Int, open: Boolean, onClick: () -> Unit) {
                         },
                         shape = RoundedCornerShape(COLOR_RADIUS),
                     ),
-            ) {
-                Canvas(Modifier.size(COLOR_SWATCH)) { drawRect(Color(brushColor)) }
-            }
+            )
         }
     }
 }

@@ -123,6 +123,9 @@ class WaterToolUiContractTest {
 
         assertEquals(0.25f, tuned.flow)
         assertEquals(watercolor.opacity, tuned.opacity)
+        // The guard the deleted ViewModel branch carried: an unset secondary
+        // must not write NaN into flow and poison every watercolor stroke.
+        assertEquals(watercolor.flow, ToolSliderPreset.withSecondary(watercolor, Float.NaN).flow)
         assertEquals(0.6f, ToolSliderPreset.withSecondary(watercolor.copy(watercolor = null), 0.6f).opacity)
     }
 

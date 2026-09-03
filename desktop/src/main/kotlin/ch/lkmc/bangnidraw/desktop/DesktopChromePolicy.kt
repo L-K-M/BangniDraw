@@ -46,9 +46,9 @@ internal data class DesktopRailState(
 internal object DesktopRailPolicy {
 
     fun initial(presets: List<BrushPreset>): DesktopRailState {
-        val paint = BrushPresets.paintRailOrder(presets)
-            .firstOrNull { it.id == BrushPresets.INK_PEN_ID }
-            ?: BrushPresets.paintRailOrder(presets).firstOrNull()
+        val railPaints = paints(presets)
+        val paint = railPaints.firstOrNull { it.id == BrushPresets.INK_PEN_ID }
+            ?: railPaints.firstOrNull()
         val eraser = eraserOrNull(presets)
 
         return DesktopRailState(

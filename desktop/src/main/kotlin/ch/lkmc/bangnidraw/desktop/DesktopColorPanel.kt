@@ -2,6 +2,7 @@ package ch.lkmc.bangnidraw.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,9 +26,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.PointerInputScope
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -36,6 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.engine.core.HsvChannel
 import ch.lkmc.bangnidraw.engine.core.HsvSelection
+import java.util.Locale
 
 /**
  * The colour panel the top strip's swatch opens — the desktop stand-in for
@@ -98,7 +97,7 @@ internal fun DesktopColorPanel(
                         ),
                 )
                 Text(
-                    "#%06X".format(selection.argb and RGB_MASK),
+                    hex(selection.argb),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -121,9 +120,13 @@ internal fun DesktopColorPanel(
                                     RoundedCornerShape(SWATCH_RADIUS),
                                 )
                                 .semantics {
-                                    contentDescription = "#%06X".format(swatch and RGB_MASK)
+                                    contentDescription = hex(swatch)
                                 }
-                                .pointerInput(swatch) { awaitSwatchPress(swatch, onSwatch) },
+                                // clickable, not a raw pointer loop: the
+                                // swatch needs focus traversal, Enter/Space,
+                                // and a primary-button-only click. The loop
+                                // this replaces fired on any button.
+                                .clickable { onSwatch(swatch) },
                         )
                     }
                 }
@@ -163,18 +166,8 @@ private fun ChannelSlider(
     }
 }
 
-/**
- * A swatch commits on press, not on release: the panel is a palette, and a
- * press that has already chosen a colour should not wait for the lift.
- */
-private suspend fun PointerInputScope.awaitSwatchPress(swatch: Int, onSwatch: (Int) -> Unit) {
-    awaitPointerEventScope {
-        while (true) {
-            val event = awaitPointerEvent()
-            if (event.type == PointerEventType.Press) onSwatch(swatch)
-        }
-    }
-}
+/** Locale.ROOT: a locale with its own digits would shape the hex code. */
+private fun hex(argb: Int): String = "#%06X".format(Locale.ROOT, argb and RGB_MASK)
 
 private fun channelLabel(channel: HsvChannel): String = when (channel) {
     HsvChannel.HUE -> "Hue"

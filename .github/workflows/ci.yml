@@ -242,9 +242,9 @@ jobs:
       - name: Verify the unpackaged developer run
         # README's own instruction, and the one path this job never covered:
         # `gradlew run` forks the JDK's own java rather than jpackage's
-        # launcher, and an entitlement-signed main executable can lose AMFI's
-        # allowAtPaths — after which dyld never searches the working directory
-        # for the leaf-name dlopen GLFW uses to find a bundled ANGLE.
+        # launcher, with a different working directory and a different
+        # resources path. Covered now because a bundled ANGLE has to be found
+        # from both, not because either one is known to have failed.
         run: |
           ./gradlew :desktop:run --args=--gl-report 2>&1 | \
             tee "$RUNNER_TEMP/desktop-macos-run.log"

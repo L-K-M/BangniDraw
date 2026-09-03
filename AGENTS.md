@@ -97,25 +97,24 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   licenses as Compose app resources; no native binaries are committed.
   `bangnidraw.angle.dir` remains a development override, followed by Compose
   app resources and the working directory. **Every load of ANGLE goes through
-  an absolute path.** dyld searches the working directory for a leaf-name
-  `dlopen` only while AMFI leaves `allowAtPaths` set — the same flag that
-  enables `@executable_path`, cleared for setuid, `__RESTRICT` and
-  entitlement-signed main executables. GLFW's own `dlopen("libEGL.dylib")` —
-  issued at first window creation, not at `glfwInit` — therefore finds a
-  bundled ANGLE under jpackage's ad-hoc-signed launcher (what CI runs) and can
-  miss it under the entitlement-signed `java` that `./gradlew :desktop:run`
-  forks (what a developer runs, and what CI had never run). That is the
-  "OpenGL ES 3.0 is unavailable" report this fix answers, and neither `chdir`
-  nor an `LC_RPATH` answers it reliably — both ride that same flag, and Phase 4
-  signing would clear it for the packaged app too. So macOS loads ANGLE only
+  an absolute path.** GLFW opens EGL with a bare `dlopen("libEGL.dylib")` — a
+  leaf name, issued at first window creation, not at `glfwInit` — and the only
+  thing that ever made a bundled ANGLE answer that call was a process-wide
+  `chdir` into its directory. dyld does search the working directory for a leaf
+  name (unchanged from macOS 11 through 26, `Loader::forEachPath`), but only
+  while AMFI leaves `allowAtPaths` set, and the search is invisible,
+  process-global state that anything else can clobber: GLFW's own
+  `GLFW_COCOA_CHDIR_RESOURCES` did exactly that, and the resulting `GLFW error
+  65542: EGL: Library not found` produced the byte-identical "OpenGL ES 3.0 is
+  unavailable" window (CI run 33668171196). Phase 4 signing is the next thing
+  that could take it away. Do not build on it. So macOS loads ANGLE only
   through `Configuration.EGL_LIBRARY_NAME`/`OPENGLES_LIBRARY_NAME`, absolute,
-  and **does not use GLFW at all**. LWJGL's `Configuration` never reaches
-  GLFW, and its documented remedy does not work either: neither shipped GLFW
-  build (`libglfw.dylib`, `libglfw_async.dylib`) exports the
-  `_glfw_egl_library` symbol `GLFWNativeEGL.setEGLPath` writes to, so the
-  override silently does nothing — and running the GLFW host after ANGLE is
-  already loaded crashed the JVM inside `libglfw_async` at init (CI run
-  33735259059). ANGLE's own libEGL
+  and **does not use GLFW at all**. LWJGL's `Configuration` never reaches GLFW,
+  and its documented remedy does not work either: neither shipped GLFW build
+  (`libglfw.dylib`, `libglfw_async.dylib`) exports the `_glfw_egl_library`
+  symbol `GLFWNativeEGL.setEGLPath` writes to, so the override silently does
+  nothing — and running the GLFW host after ANGLE is already loaded crashed the
+  JVM inside `libglfw_async` at init (CI run 33735259059). ANGLE's own libEGL
   then finds libGLESv2 beside itself (`dladdr` on its own module), so a flat
   resources directory is the supported layout. Keep
   `GLFW_COCOA_CHDIR_RESOURCES` false for the Linux-only host's sake: its
@@ -129,16 +128,18 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   and calls it through `JNI`; the same gap is why `eglBindAPI` is guarded by
   `EGLCapabilities.EGL12` (ES is EGL's default bound API anyway).
   The staged dylibs are thin, so a wrong-architecture or too-new-minimum-macOS
-  library is *present* and
-  unloadable, which reads like a missing one — `MachOLibrary` reports both in
-  the startup report, and `--gl-report` prints that report for a user who
-  never sees stdout. Note the upstream asymmetry: the arm64 ANGLE is ad-hoc
+  library is *present* and unloadable, which reads like a missing one.
+  `resolveAngle` therefore prefers the first candidate this JVM can open over
+  the first that merely exists — a stale `-Dbangnidraw.angle.dir`, which README
+  hands to `JAVA_TOOL_OPTIONS` for every JVM in that shell, must not shadow the
+  bundle — and the report names every candidate with its architecture and
+  minimum macOS. `--gl-report` prints that report for a user who never sees
+  stdout. Note the upstream asymmetry: the arm64 ANGLE is ad-hoc
   signed and the x86_64 build carries no signature at all, so macOS CI verifies
   signatures on arm64 only. The runners are macOS 26 as of September 2026, and
   Intel remains the untested axis: no runner has ever staged `macos-x64`.
-  When Phase 4 signs and notarizes the bundle, a
-  Developer-ID identity turns on library validation, which refuses a
-  third-party ANGLE: that build will need
+  When Phase 4 signs and notarizes the bundle, a Developer-ID identity turns on
+  library validation, which refuses a third-party ANGLE: that build will need
   `com.apple.security.cs.disable-library-validation`. macOS CI verifies both
   dylibs, their host architecture, an ANGLE GL log, one packaged frame,
   the
@@ -383,11 +384,15 @@ and the contradiction is noted here.
   `GLFW_EGL_CONTEXT_API` and repeats libGDX's chdir trick for finding a
   bundled ANGLE. Shipped as `EglEsContext` first instead, because the chdir
   is not sound: GLFW opens EGL with `dlopen("libEGL.dylib")` — a leaf name —
-  and dyld searches the working directory for a leaf name **only while AMFI
-  leaves `allowAtPaths` set**. A jpackage launcher keeps it, so CI's packaged
-  smoke passed; an entitlement-signed `java` — what `./gradlew :desktop:run`
-  forks — need not, so the same build failed on a developer's Mac
-  with "OpenGL ES 3.0 is unavailable" and nothing else to go on. The window
+  and that resolves a bundled library only through a process-wide `chdir`
+  whose effect anything can clobber — GLFW's own `GLFW_COCOA_CHDIR_RESOURCES`
+  already did once, for the byte-identical "OpenGL ES 3.0 is unavailable"
+  window (CI run 33668171196). What failed on the developer's Mac was never
+  established: `gradlew :desktop:run` had no macOS CI coverage and was the
+  first suspect, but dyld's working-directory search survives a hardened,
+  entitlement-signed `java` (it is gated on AMFI's `allowAtPaths`, which that
+  same `java` needs for its own `@rpath/libjli.dylib`), so that story does not
+  hold up. The fix does not depend on which one it was. The window
   GLFW provided was hidden, 1x1 and never drawn to — the engine renders to an
   offscreen FBO — so GLFW was only ever a context provider, and EGL provides
   the same context by absolute path, on any thread, with no NSWindow, no

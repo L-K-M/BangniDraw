@@ -1,6 +1,8 @@
 package ch.lkmc.bangnidraw.desktop
 
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
 import kotlin.io.path.createFile
@@ -65,9 +67,43 @@ class DesktopNativeBootstrapTest {
         // description must still name the directory it will load from.
         val described = DesktopNativeBootstrap.describe(angle, osArch = "aarch64")
 
-        assertTrue(described.startsWith("ANGLE: ${directory.canonicalFile}"))
+        assertTrue(described.startsWith(directory.canonicalFile.toString()))
         assertTrue(described.contains(DesktopNativeBootstrap.EGL_DYLIB))
         assertTrue(described.contains(DesktopNativeBootstrap.GLES_DYLIB))
+    }
+
+    @Test
+    fun `a loadable ANGLE wins over a wrong-architecture one that comes first`() {
+        val root = Files.createTempDirectory("bangnidraw-angle")
+        val intel = angleDirectory(root.resolve("stale-override").toFile(), CPU_TYPE_X86_64)
+        val packaged = angleDirectory(root.resolve("packaged").toFile(), CPU_TYPE_ARM64)
+
+        val found = DesktopNativeBootstrap.resolveAngle(
+            explicitDirectory = intel,
+            packagedDirectory = packaged,
+            workingDirectory = null,
+            osArch = "aarch64",
+        )
+
+        // A stale -Dbangnidraw.angle.dir must not shadow the bundle: its dylibs
+        // are present and unloadable, which dlopen reports as simply missing.
+        assertEquals(packaged.canonicalFile, found?.directory)
+    }
+
+    @Test
+    fun `a wrong-architecture candidate is still used when nothing else exists`() {
+        val root = Files.createTempDirectory("bangnidraw-angle")
+        val intel = angleDirectory(root.resolve("only").toFile(), CPU_TYPE_X86_64)
+
+        val found = DesktopNativeBootstrap.resolveAngle(
+            explicitDirectory = intel,
+            packagedDirectory = null,
+            workingDirectory = null,
+            osArch = "aarch64",
+        )
+
+        // Reporting a dylib that cannot load beats reporting nothing at all.
+        assertEquals(intel.canonicalFile, found?.directory)
     }
 
     @Test
@@ -144,10 +180,28 @@ class DesktopNativeBootstrapTest {
 
         return candidate
     }
-    private fun angleDirectory(directory: File): File {
+    private fun angleDirectory(directory: File, cpuType: Int? = null): File {
         val path = directory.toPath().createDirectories()
-        path.resolve(DesktopNativeBootstrap.EGL_DYLIB).createFile()
-        path.resolve(DesktopNativeBootstrap.GLES_DYLIB).createFile()
+        listOf(DesktopNativeBootstrap.EGL_DYLIB, DesktopNativeBootstrap.GLES_DYLIB).forEach { name ->
+            val file = path.resolve(name).createFile().toFile()
+            if (cpuType != null) file.writeBytes(machOHeader(cpuType))
+        }
+
         return directory
+    }
+
+    /** Just enough of a 64-bit little-endian Mach-O header to carry a cputype. */
+    private fun machOHeader(cpuType: Int): ByteArray =
+        ByteBuffer.allocate(MACH_HEADER_64_BYTES).order(ByteOrder.LITTLE_ENDIAN).apply {
+            putInt(MH_MAGIC_64)
+            putInt(cpuType)
+            repeat(6) { putInt(0) }
+        }.array()
+
+    private companion object {
+        const val MH_MAGIC_64 = 0xfeedfacf.toInt()
+        const val CPU_TYPE_ARM64 = 0x0100000c
+        const val CPU_TYPE_X86_64 = 0x01000007
+        const val MACH_HEADER_64_BYTES = 32
     }
 }

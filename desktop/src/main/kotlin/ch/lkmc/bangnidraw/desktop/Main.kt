@@ -831,6 +831,20 @@ internal object DesktopGlDiagnostics {
     private const val REPORT_HINT =
         "Run this app from a terminal with --gl-report for the full report."
 
+    /**
+     * The same hint, naming this app's own launcher when it has one. A user who
+     * double-clicked a .app has no terminal and no reason to know its
+     * executable lives under Contents/MacOS.
+     */
+    private fun reportHint(): String {
+        val command = runCatching { ProcessHandle.current().info().command().orElse(null) }
+            .getOrNull()
+            ?.takeUnless { it.endsWith("/java") || it.endsWith("java.exe") }
+            ?: return REPORT_HINT
+
+        return "Run this for the full report:\n  \"$command\" --gl-report"
+    }
+
     private val platformGuidance = """
         Linux: install Mesa libEGL and libGLESv2, or your GPU vendor driver.
         macOS: provide libEGL.dylib and libGLESv2.dylib with
@@ -849,7 +863,7 @@ internal object DesktopGlDiagnostics {
         HEADLINE,
         report.failures(),
         "Details:\n${report.details()}",
-        REPORT_HINT,
+        reportHint(),
         platformGuidance,
     ).filter { it.isNotBlank() }.joinToString("\n\n")
 

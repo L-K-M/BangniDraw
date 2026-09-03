@@ -34,12 +34,10 @@ internal object DesktopNativeBootstrap {
         val explicit = System.getProperty(ANGLE_DIRECTORY_PROPERTY)?.let(::File)
         val packaged = System.getProperty(COMPOSE_RESOURCES_PROPERTY)?.let(::File)
         val working = File(System.getProperty("user.dir"))
-        val angle = resolveAngle(explicit, packaged, working)
+        report.note("$ANGLE_DIRECTORY_PROPERTY: ${explicit?.path ?: "(not set)"}")
+        val angle = resolveAngle(explicit, packaged, working, report = report)
         if (angle == null) {
             report.fail("ANGLE", "$EGL_DYLIB and $GLES_DYLIB were not found")
-            report.note(
-                "searched: " + listOfNotNull(explicit, packaged, working).joinToString(", "),
-            )
             report.note("set -D$ANGLE_DIRECTORY_PROPERTY=/path/to/angle to point at them")
             return DesktopNativeEnvironment(backend)
         }
@@ -48,13 +46,13 @@ internal object DesktopNativeBootstrap {
         // decides whether the bundled ANGLE is found.
         Configuration.EGL_LIBRARY_NAME.set(angle.egl.absolutePath)
         Configuration.OPENGLES_LIBRARY_NAME.set(angle.gles.absolutePath)
-        report.note(describe(angle))
+        report.note("ANGLE: ${describe(angle)}")
 
         return DesktopNativeEnvironment(backend, angle)
     }
 
     /**
-     * Names the ANGLE that will be loaded, plus the two facts that make a
+     * Names one candidate's libraries, plus the two facts that make a
      * present-but-unloadable library look identical to a missing one: the
      * architecture it was built for, and the oldest macOS it loads on.
      */
@@ -64,35 +62,60 @@ internal object DesktopNativeBootstrap {
     ): String {
         val egl = MachOLibrary.describe(angle.egl)
         val gles = MachOLibrary.describe(angle.gles)
-        val mismatch = MachOLibrary.runsOn(angle.egl, osArch) == false ||
-            MachOLibrary.runsOn(angle.gles, osArch) == false
         val minimum = MachOLibrary.minimumMacOs(angle.egl)
 
         return buildString {
-            append("ANGLE: ${angle.directory} ($EGL_DYLIB $egl, $GLES_DYLIB $gles")
+            append("${angle.directory} ($EGL_DYLIB $egl, $GLES_DYLIB $gles")
             if (minimum != null) append(", macOS $minimum+")
             append(")")
-            if (mismatch) append(" — built for another architecture, this JVM is $osArch")
+            if (!runsOn(angle, osArch)) {
+                append(" — built for another architecture, this JVM is $osArch")
+            }
         }
     }
 
+    /**
+     * The first candidate this JVM can actually open, falling back to the first
+     * one that merely exists.
+     *
+     * First-match-wins would be a trap: a stale `-D$ANGLE_DIRECTORY_PROPERTY`
+     * (README hands it to `JAVA_TOOL_OPTIONS`, which every JVM in that shell
+     * inherits) shadows a correct packaged ANGLE, and a thin dylib for the
+     * other architecture is *present* and unloadable — indistinguishable from a
+     * missing one once dlopen refuses it. An unreadable header never disquali-
+     * fies a candidate, though: only a header that positively says another
+     * architecture does.
+     */
     fun resolveAngle(
         explicitDirectory: File?,
         packagedDirectory: File?,
         workingDirectory: File?,
+        osArch: String = System.getProperty("os.arch", ""),
+        report: DesktopGlReport? = null,
     ): AngleLibraries? {
         val candidates = listOfNotNull(explicitDirectory, packagedDirectory, workingDirectory)
+        var unloadable: AngleLibraries? = null
         for (candidate in candidates) {
             val directory = candidate.canonicalFile
             val egl = File(directory, EGL_DYLIB)
             val gles = File(directory, GLES_DYLIB)
-            if (!egl.isFile || !gles.isFile) continue
+            if (!egl.isFile || !gles.isFile) {
+                report?.note("ANGLE candidate: $directory (no $EGL_DYLIB/$GLES_DYLIB)")
+                continue
+            }
 
-            return AngleLibraries(directory, egl, gles)
+            val libraries = AngleLibraries(directory, egl, gles)
+            report?.note("ANGLE candidate: ${describe(libraries, osArch)}")
+            if (runsOn(libraries, osArch)) return libraries
+            if (unloadable == null) unloadable = libraries
         }
 
-        return null
+        return unloadable
     }
+
+    private fun runsOn(angle: AngleLibraries, osArch: String): Boolean =
+        MachOLibrary.runsOn(angle.egl, osArch) != false &&
+            MachOLibrary.runsOn(angle.gles, osArch) != false
 
     fun backendFor(osName: String): DesktopGlBackend =
         if (osName.startsWith(MAC_OS_PREFIX)) DesktopGlBackend.AngleMetal else DesktopGlBackend.SystemEgl

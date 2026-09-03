@@ -129,9 +129,13 @@ internal class EglEsContext private constructor(
         ): EglEsContext? {
             val clientExtensions =
                 EGL10.eglQueryString(EGL10.EGL_NO_DISPLAY, EGL10.EGL_EXTENSIONS).orEmpty()
+            // Without EGL_EXT_client_extensions that probe latches
+            // EGL_BAD_DISPLAY, which a later failure would then misreport.
+            EGL10.eglGetError()
             report.note("EGL client extensions: ${clientExtensions.ifEmpty { "(none)" }}")
 
             val metal = backend == DesktopGlBackend.AngleMetal &&
+                clientExtensions.contains(ANGLE_EXTENSION) &&
                 clientExtensions.contains(ANGLE_METAL_EXTENSION)
             if (metal) {
                 val display = angleMetalDisplay(report)
@@ -281,8 +285,8 @@ internal class EglEsContext private constructor(
             EGL10.EGL_BAD_PARAMETER -> "EGL_BAD_PARAMETER"
             EGL10.EGL_BAD_SURFACE -> "EGL_BAD_SURFACE"
             EGL11.EGL_CONTEXT_LOST -> "EGL_CONTEXT_LOST"
-            else -> "EGL error 0x${error.toString(16)}"
-        }
+            else -> "EGL error"
+        } + " (0x${error.toString(16)})"
 
         private val CONFIG_ATTRIBUTES = intArrayOf(
             EGL10.EGL_SURFACE_TYPE, EGL10.EGL_PBUFFER_BIT,
@@ -298,6 +302,7 @@ internal class EglEsContext private constructor(
         private const val EGL_PLATFORM_ANGLE_ANGLE = 0x3202
         private const val EGL_PLATFORM_ANGLE_TYPE_ANGLE = 0x3203
         private const val EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE = 0x3489
+        private const val ANGLE_EXTENSION = "EGL_ANGLE_platform_angle"
         private const val ANGLE_METAL_EXTENSION = "EGL_ANGLE_platform_angle_metal"
         private const val ANGLE_DISPLAY_FUNCTION = "eglGetPlatformDisplayEXT"
         private const val ABANDONED_CONTEXT_MESSAGE =

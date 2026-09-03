@@ -119,7 +119,8 @@ internal fun DesktopToolRail(
         ?: DesktopRailPolicy.eraserOrNull(presets)
     // Derived, never passed in: the sliders must tune the preset the column
     // is highlighting, and two parameters could disagree about which that is.
-    val active = presets.firstOrNull { it.id == rail.selectedId }
+    // The ledge derives it from the same function, for the same reason.
+    val active = DesktopRailPolicy.activePreset(presets, rail)
 
     val paintSlotButtons = buildList {
         for (index in visible) {
@@ -282,6 +283,9 @@ private fun ToolSliders(
     onSizeChanged: (Float) -> Unit,
     onSecondaryChanged: (Float) -> Unit,
 ) {
+    // Identity with the preset's own bounds — `DesktopBrushUiTest` pins that
+    // for every shipped preset, so routing both surfaces through it is
+    // deduplication, not a change to where the slider's 0..1 lands.
     val range = DesktopBrushUi.sizeRange(preset)
     DesktopThinSlider(
         value = BrushSizeScale.fraction(preset.size, range.start, range.endInclusive),

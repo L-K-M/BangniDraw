@@ -112,6 +112,15 @@ internal object DesktopRailPolicy {
         return fits(ERASER_SLOTS + OVERFLOW_SLOTS).coerceIn(1, paintCount)
     }
 
+    /**
+     * The preset the rail highlights and every slider surface tunes. One
+     * function so the rail's foot and the ledge cannot end up tuning
+     * different brushes — they are separate composables reading the same
+     * state, which is exactly how that divergence starts.
+     */
+    fun activePreset(presets: List<BrushPreset>, rail: DesktopRailState): BrushPreset? =
+        presets.firstOrNull { it.id == rail.selectedId } ?: presets.firstOrNull()
+
     fun paints(presets: List<BrushPreset>): List<BrushPreset> =
         BrushPresets.paintRailOrder(presets)
 

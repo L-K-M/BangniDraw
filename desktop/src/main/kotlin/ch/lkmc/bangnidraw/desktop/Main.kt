@@ -368,7 +368,10 @@ private fun Shell(
     var colorSelection by remember {
         mutableStateOf(HsvSelection.fromArgb(DesktopPalette.SWATCHES.first()))
     }
-    val activeBrush = presets.firstOrNull { it.id == rail.selectedId } ?: presets.first()
+    // The same derivation the rail uses internally: the ledge's sliders and
+    // the rail's foot must tune the brush the rail highlights, and each
+    // deriving it separately is how they would drift apart.
+    val activeBrush = DesktopRailPolicy.activePreset(presets, rail)
     val colorArgb = colorSelection.argb
     var savedMessage by remember { mutableStateOf<String?>(null) }
     var preferencesReady by remember { mutableStateOf(false) }
@@ -432,7 +435,7 @@ private fun Shell(
                 }
                 .background(VIEWPORT_VOID),
         ) {
-            val canvasInput = if (preferencesReady) {
+            val canvasInput = if (preferencesReady && activeBrush != null) {
                 Modifier.pointerInput(activeBrush, colorArgb, mixer) {
                     awaitPointerEvents(handler, activeBrush, colorArgb, mixer)
                 }
@@ -492,18 +495,24 @@ private fun Shell(
                 rail = DesktopRailPolicy.eraserTap(rail, presets)
                 presets.firstOrNull { it.id == rail.selectedId }?.let(prefs::writeBrush)
             },
-            onSizeChanged = { tune(activeBrush.withSize(it)) },
-            onSecondaryChanged = { tune(ToolSliderPreset.withSecondary(activeBrush, it)) },
+            onSizeChanged = { value -> activeBrush?.let { tune(it.withSize(value)) } },
+            onSecondaryChanged = { value ->
+                activeBrush?.let { tune(ToolSliderPreset.withSecondary(it, value)) }
+            },
             modifier = Modifier.align(railAlignment(layout)),
         )
 
-        DesktopSliderLedge(
-            layout = layout,
-            preset = activeBrush,
-            onSizeChanged = { tune(activeBrush.withSize(it)) },
-            onSecondaryChanged = { tune(ToolSliderPreset.withSecondary(activeBrush, it)) },
-            modifier = Modifier.ledgePlacement(this, layout),
-        )
+        if (activeBrush != null) {
+            DesktopSliderLedge(
+                layout = layout,
+                preset = activeBrush,
+                onSizeChanged = { tune(activeBrush.withSize(it)) },
+                onSecondaryChanged = {
+                    tune(ToolSliderPreset.withSecondary(activeBrush, it))
+                },
+                modifier = Modifier.ledgePlacement(this, layout),
+            )
+        }
 
         if (showColorPanel) {
             val insets = layout.panelInsets(widthDp, heightDp)

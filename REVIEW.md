@@ -3590,3 +3590,38 @@ the desktop side, and would benefit from the same rounded background; and
 `Icons.Filled.Draw` (pencil) and `Icons.Filled.Create` (ink pen) are similar
 silhouettes at rail size on both platforms — a pre-existing Android mapping
 this PR only mirrors, worth a look when the rail's artwork is next revisited.
+
+Round 2 (hybrid, `2e0d4a0`..`1f89ac3`, 1 actionable): all applied, nothing
+declined. The round's own summary called the round-1 delta clean; what it
+found was in the seams that delta opened.
+
+Two were coverage this PR had broken or left thin. Moving the glyph mapping to
+`BrushGlyphs.kt` had retargeted the `DeleteSweep` / `Icons.Filled.Highlight`
+bans from the whole of `ToolRail.kt` to the glyph file alone — but the
+historical bug those bans exist for was a *tool* button wearing `DeleteSweep`,
+and tool buttons still live in the rail, so the net had a hole exactly where
+it was first dug. Both scopes are asserted now. And `withSecondary`'s
+watercolor branch was pinned at its upper clamp and its NaN guard but not its
+lower one; it is now.
+
+The substantive one was outside the diff: round 1 removed the rail's `active`
+parameter because two independently-supplied values could disagree about which
+preset the sliders tune — and left `DesktopSliderLedge` taking exactly such a
+value from `Shell`. They agreed in practice, but not by construction, and the
+fallbacks already differed (`firstOrNull` in the rail, `?: presets.first()` in
+`Shell`). `DesktopRailPolicy.activePreset` is the single derivation now, called
+by both, with its own test. Applying only half of round 1's fix was the defect;
+the reviewer found the half left standing.
+
+Also applied: a note in `withSecondary` saying where a NaN comes from (an
+unmeasured slider track divides by a zero width), a comment pinning that
+`DesktopBrushUi.sizeRange` is identity with the preset's own bounds — which
+`DesktopBrushUiTest` already asserts for every shipped preset, so the round-1
+slider unification was deduplication rather than a behaviour change — and a
+failure message that now names `BrushGlyphs.kt` instead of the rail it no
+longer scans.
+
+One contract assertion moved with the code it pins: `if (preferencesReady)`
+became `if (preferencesReady && activeBrush != null)`, so the test now matches
+on the gate's opening rather than its exact spelling. The claim is unchanged —
+input stays dead until the restored brush and colour resolve.

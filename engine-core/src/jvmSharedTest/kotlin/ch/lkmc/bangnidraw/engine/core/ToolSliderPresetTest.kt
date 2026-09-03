@@ -74,6 +74,7 @@ class ToolSliderPresetTest {
         assertEquals(0f, ToolSliderPreset.withSecondary(paint, -1f).opacity)
         assertEquals(0.6f, ToolSliderPreset.withSecondary(paint, Float.NaN).opacity)
         assertEquals(1f, ToolSliderPreset.withSecondary(watercolor, 4f).flow)
+        assertEquals(0f, ToolSliderPreset.withSecondary(watercolor, -1f).flow)
         assertEquals(0.35f, ToolSliderPreset.withSecondary(watercolor, Float.NaN).flow)
     }
 

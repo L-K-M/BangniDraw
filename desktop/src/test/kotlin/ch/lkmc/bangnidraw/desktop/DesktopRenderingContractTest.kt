@@ -37,7 +37,10 @@ class DesktopRenderingContractTest {
         assertTrue(engine.contains("readbackRevisions"))
         assertTrue(engine.contains("ReadbackDelivery.Complete"))
         assertTrue(engine.contains("exportExecutor.execute"))
-        assertTrue(main.contains("if (preferencesReady)"))
+        // The gate, not its exact spelling: input stays dead until the
+        // restored brush and colour are resolved, whatever else the
+        // condition grew to also require.
+        assertTrue(main.contains("val canvasInput = if (preferencesReady"))
         assertTrue(main.contains("preferencesReady = true"))
     }
 

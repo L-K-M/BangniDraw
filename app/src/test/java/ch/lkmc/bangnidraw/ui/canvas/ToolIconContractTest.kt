@@ -32,15 +32,21 @@ class ToolIconContractTest {
         // the historical droplet collision with the Water tool.
         val brushIcons = Regex("BrushToolGlyph\\.\\w+\\s*->\\s*(\\S+)")
             .findAll(glyphs).map { it.groupValues[1] }.toList()
-        assertFalse(brushIcons.isEmpty(), "expected BrushToolGlyph icon mappings in rail")
+        assertFalse(brushIcons.isEmpty(), "expected BrushToolGlyph icon mappings in BrushGlyphs.kt")
         val duplicateIcons = brushIcons.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
         assertTrue(duplicateIcons.isEmpty(), "BrushToolGlyph mappings share an icon $duplicateIcons")
         // Brush-vs-tool collisions were the original bug; no brush glyph may
         // reuse the Water tool's droplet, not just PIGMENT_WASH.
         assertFalse("Icons.Filled.WaterDrop" in brushIcons, "brush glyph reuses the Water tool's droplet")
         assertFalse("if (preset.eraseMode) stringResource(R.string.tool_eraser)" in rail)
+        // Both scopes: the mapping moved to the glyph file, but the original
+        // bug was a *tool* button wearing DeleteSweep, and those still live
+        // in the rail. Banning it in one file only would leave the hole open
+        // exactly where it was first dug.
         assertFalse("DeleteSweep" in glyphs)
+        assertFalse("DeleteSweep" in rail)
         assertFalse("Icons.Filled.Highlight" in glyphs)
+        assertFalse("Icons.Filled.Highlight" in rail)
     }
 
     @Test

@@ -41,6 +41,10 @@ object ToolSliderPreset {
      * [secondaryValue], so the two cannot disagree about which field the
      * slider owns. A watercolor preset's opacity is an invariant, so the
      * edit lands on flow instead (`docs/plan/04-tools.md` §5).
+     *
+     * NaN keeps the current value rather than writing itself in: a slider
+     * whose track has not been measured yet divides by a zero width, and one
+     * NaN in a preset poisons every stroke drawn with it afterwards.
      */
     fun withSecondary(preset: BrushPreset, value: Float): BrushPreset {
         if (preset.watercolor == null) return preset.withOpacity(value)

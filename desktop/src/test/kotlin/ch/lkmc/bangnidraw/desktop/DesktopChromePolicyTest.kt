@@ -13,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -147,6 +148,22 @@ class DesktopChromePolicyTest {
         val selected = DesktopRailPolicy.eraserTap(DesktopRailPolicy.initial(single), single)
 
         assertSame(selected, DesktopRailPolicy.eraserTap(selected, single))
+    }
+
+    @Test
+    fun `the active preset is one derivation, shared by the rail and the ledge`() {
+        val rail = DesktopRailPolicy.initial(presets)
+
+        assertEquals(BrushPresets.INK_PEN_ID, DesktopRailPolicy.activePreset(presets, rail)?.id)
+
+        val erasing = DesktopRailPolicy.eraserTap(rail, presets)
+        assertEquals(erasing.selectedId, DesktopRailPolicy.activePreset(presets, erasing)?.id)
+
+        // A selection the catalogue no longer ships falls back to a preset
+        // that exists, rather than leaving the sliders tuning nothing.
+        val stale = DesktopRailState(selectedId = "builtin.not_shipped", eraserId = rail.eraserId)
+        assertNotNull(DesktopRailPolicy.activePreset(presets, stale))
+        assertNull(DesktopRailPolicy.activePreset(emptyList(), rail))
     }
 
     @Test

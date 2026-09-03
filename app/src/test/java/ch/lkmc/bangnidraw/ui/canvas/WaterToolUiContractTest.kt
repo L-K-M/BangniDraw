@@ -103,9 +103,15 @@ class WaterToolUiContractTest {
 
     @Test
     fun `watercolor quick secondary updates flow`() {
-        val update = source(CANVAS_VIEW_MODEL_PATH)
-            .substringAfter("fun updateActiveToolSecondary(value: Float)")
-            .substringBefore("internal fun adjustBrushSize")
+        // `section`, not raw substringAfter/Before: those return the whole
+        // receiver when a delimiter is missing, so a renamed anchor would
+        // widen the window to the entire file and let the assertion below
+        // pass on a call that had moved somewhere else entirely.
+        val update = section(
+            source(CANVAS_VIEW_MODEL_PATH),
+            "fun updateActiveToolSecondary(value: Float)",
+            "internal fun adjustBrushSize",
+        )
 
         // The rule lives in engine-core so the desktop rail's secondary
         // slider cannot drift from this one; the ViewModel routes through it

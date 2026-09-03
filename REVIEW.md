@@ -3625,3 +3625,27 @@ One contract assertion moved with the code it pins: `if (preferencesReady)`
 became `if (preferencesReady && activeBrush != null)`, so the test now matches
 on the gate's opening rather than its exact spelling. The claim is unchanged —
 input stays dead until the restored brush and colour resolve.
+
+Round 3 (hybrid, `1f89ac3`..`b2b7774`, 2 actionable): both applied, nothing
+declined. Scored `useful feedback` per EXECUTION.md (b) — the contract-test
+finding closed a hole, so this is not a `nits only` exit.
+
+`WaterToolUiContractTest` still extracted its region with bare
+`substringAfter`/`substringBefore`, which return the *whole receiver* when a
+delimiter is missing. Round 2 fixed exactly this class of hazard in the two
+desktop contract tests and missed the one in `:app` — so a renamed
+`updateActiveToolSecondary` would have widened the window to the entire file
+and let `"ToolSliderPreset.withSecondary(preset, value)"` match a call that had
+moved somewhere else, which is precisely the regression the test exists to
+catch. It now uses the `section` helper the file already owned, which asserts
+both anchors and names the missing one.
+
+The Info was sharper than its severity: round 2's REVIEW.md entry claimed
+`activePreset` was "the single derivation now, called by both", while a third
+site — the eraser tap's persistence — still re-derived the lookup inline. The
+asymmetry was deliberate and undocumented, which is the worst of both: a later
+refactor trusting that claim would have swapped it for `activePreset` and
+started persisting the stale-selection fallback. There is now one
+`persistBrush` used by both persistence sites, carrying the reason it is *not*
+`activePreset` — persistence names the brush the user picked, never the
+fallback the sliders tune.

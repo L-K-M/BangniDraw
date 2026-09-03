@@ -409,10 +409,17 @@ private fun Shell(
     val tune: (BrushPreset) -> Unit = { tuned ->
         presets = presets.map { if (it.id == tuned.id) tuned else it }
     }
+    // Deliberately not DesktopRailPolicy.activePreset: that resolves what the
+    // sliders tune, falling back to some other preset when a stored id has
+    // gone. Persistence must name the brush the user actually picked, or a
+    // stale selection would rewrite itself into a brush they never chose.
+    val persistBrush: (String) -> Unit = { id ->
+        presets.firstOrNull { it.id == id }?.let(prefs::writeBrush)
+    }
     val selectPreset: (String) -> Unit = { id ->
         restoreGate.markChanged(DesktopPreferenceKind.Brush)
         rail = DesktopRailPolicy.select(rail, id, presets)
-        presets.firstOrNull { it.id == id }?.let(prefs::writeBrush)
+        persistBrush(id)
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -493,7 +500,7 @@ private fun Shell(
             onEraserTap = {
                 restoreGate.markChanged(DesktopPreferenceKind.Brush)
                 rail = DesktopRailPolicy.eraserTap(rail, presets)
-                presets.firstOrNull { it.id == rail.selectedId }?.let(prefs::writeBrush)
+                persistBrush(rail.selectedId)
             },
             onSizeChanged = { value -> activeBrush?.let { tune(it.withSize(value)) } },
             onSecondaryChanged = { value ->

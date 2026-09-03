@@ -13,7 +13,7 @@ import org.lwjgl.opengles.GLES
  * Not a fallback on macOS. GLFW loads EGL itself, with a bare
  * `dlopen("libEGL.dylib")` at first window creation, and dyld resolves a leaf
  * name from the process directory only while AMFI leaves `allowAtPaths` set —
- * which is how a bundled ANGLE became invisible in the first place. LWJGL
+ * process-global state this app should not stake a bundled library on. LWJGL
  * 3.4.3's supported override for that (`GLFWNativeEGL.setEGLPath`) is not
  * usable either: neither shipped GLFW build exports the symbol it writes to.
  */
@@ -105,6 +105,9 @@ internal class GlfwEsContext private constructor(
         ): GlfwEsContext? {
             check(!ownsGlfw) { "only one GLFW context may exist in this process" }
             installErrorCallback()
+            // Each attempt reports only what it saw; a stale message would be
+            // attributed to whichever stage happens to fail next.
+            lastError = null
 
             // Compose owns macOS menu and Dock integration; GLFW only owns GL.
             // Keep the bootstrap's ANGLE lookup directory through

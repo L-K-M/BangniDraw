@@ -67,7 +67,14 @@ internal object DesktopGlStartup {
 
         val environment = DesktopNativeBootstrap.prepare(report)
         val requested = System.getProperty(HOST_PROPERTY).orEmpty().lowercase()
-        if (requested.isNotEmpty()) report.note("requested GL host: $requested")
+        if (requested.isNotEmpty()) {
+            report.note("requested GL host: $requested")
+            if (requested != EGL_HOST && requested != GLFW_HOST) {
+                // The lever CI uses to prove each host: a typo must not read as
+                // an unforced run that happens to land on the same place.
+                report.note("unknown $HOST_PROPERTY; expected $EGL_HOST or $GLFW_HOST")
+            }
+        }
 
         if (requested != GLFW_HOST) {
             val direct = EglEsContext.create(width, height, environment.backend, report)

@@ -37,7 +37,8 @@ desktop_app_has_angle() {
   # The exact directory the app reads at runtime (jpackage resolves
   # compose.application.resources.dir to $APPDIR/resources). Accepting the
   # dylibs anywhere under Contents would pass a bundle whose runtime cannot
-  # find them.
+  # find them. Keep in sync with DesktopNativeBootstrap.resolveAngle; macOS CI
+  # asserts the packaged app resolves ANGLE from this path.
   local resources="$1/Contents/app/resources"
 
   [ -f "$resources/$DESKTOP_EGL_DYLIB" ] && [ -f "$resources/$DESKTOP_GLES_DYLIB" ]

@@ -146,6 +146,14 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   Metal display, and the unpackaged `gradlew run` path; Linux CI covers both
   context hosts on every commit. The app bundle remains
   unsigned until Phase 4.
+  The diagnostic launch modes (`--gl-report`, `--smoke-window`,
+  `--smoke-startup-failure`) end with an explicit `exitProcess`: startup
+  initializes AWT, whose threads are not daemons, so the JVM lingers after main
+  returns about one run in three — and CI reads these modes through a pipe,
+  where a lingering process wedges the step instead of ending it. Redirect
+  rather than pipe in CI for the same reason: `timeout` kills the `xvfb-run`
+  wrapper, not the JVM it forked. The interactive path is deliberately left to
+  exit on its own; it may still be flushing preferences.
   Packaged runtimes require `java.instrument`, `jdk.management`, and
   `jdk.unsupported`.
   Desktop display names come from Android's `app_name`; icons derive from

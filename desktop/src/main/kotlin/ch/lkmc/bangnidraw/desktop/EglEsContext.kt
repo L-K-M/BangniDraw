@@ -17,13 +17,12 @@ import org.lwjgl.system.MemoryUtil
  * The engine's offscreen ES 3.0 context, created straight from EGL.
  *
  * This is the primary context host on every desktop platform, and on macOS it
- * is the one that can find a bundled ANGLE at all: GLFW opens EGL with a bare
- * `dlopen("libEGL.dylib")`, and dyld resolves a leaf name from the process
- * working directory only for *unrestricted* processes — so the same bundled
- * libraries a jpackage launcher finds are invisible to a hardened JVM (a
- * developer's `gradlew run`, for one). Here EGL is loaded by absolute path
- * through `Configuration.EGL_LIBRARY_NAME`, which no dyld search order can
- * defeat, and ANGLE's own libEGL reaches libGLESv2 through `@loader_path`.
+ * is the only one: GLFW opens EGL with a bare `dlopen("libEGL.dylib")`, which
+ * reaches a bundled ANGLE only through process-global state — the working
+ * directory — that anything in the process can clobber. Here EGL is loaded by
+ * absolute path through `Configuration.EGL_LIBRARY_NAME`, which no dyld search
+ * order can defeat, and ANGLE's own libEGL reaches libGLESv2 through
+ * `@loader_path`.
  *
  * Nothing about this context needs a window, the process main thread or an
  * AppKit run loop: rendering goes to an offscreen FBO and reaches Compose as
@@ -61,7 +60,7 @@ internal class EglEsContext private constructor(
             active = true
         } catch (failure: Throwable) {
             GLES.setCapabilities(null)
-            EGL10.eglMakeCurrent(display, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT)
+            releaseCurrent("after a failed activation")
             throw failure
         }
     }
@@ -74,10 +73,27 @@ internal class EglEsContext private constructor(
         }
 
         GLES.setCapabilities(null)
-        EGL10.eglMakeCurrent(display, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT)
+        releaseCurrent("on deactivation")
         if (releasesThread) EGL12.eglReleaseThread()
         activationThread = null
         active = false
+    }
+
+    /**
+     * Unbinds the context, logging a refusal rather than discarding it: this
+     * object goes on to report itself inactive either way, and [destroy] then
+     * tears down a display whose context may still be current.
+     */
+    private fun releaseCurrent(occasion: String) {
+        val released = EGL10.eglMakeCurrent(
+            display,
+            EGL10.EGL_NO_SURFACE,
+            EGL10.EGL_NO_SURFACE,
+            EGL10.EGL_NO_CONTEXT,
+        )
+        if (!released) {
+            GlLog.e(TAG, "releasing the GL context $occasion: ${errorName(EGL10.eglGetError())}", null)
+        }
     }
 
     override fun abandonAfterOwnerTimeout() {
@@ -134,9 +150,12 @@ internal class EglEsContext private constructor(
             EGL10.eglGetError()
             report.note("EGL client extensions: ${clientExtensions.ifEmpty { "(none)" }}")
 
+            // Token membership, not substring: EGL_ANGLE_platform_angle is a
+            // prefix of every EGL_ANGLE_platform_angle_* name there is.
+            val extensions = clientExtensions.split(' ').filterNot { it.isBlank() }.toSet()
             val metal = backend == DesktopGlBackend.AngleMetal &&
-                clientExtensions.contains(ANGLE_EXTENSION) &&
-                clientExtensions.contains(ANGLE_METAL_EXTENSION)
+                ANGLE_EXTENSION in extensions &&
+                ANGLE_METAL_EXTENSION in extensions
             if (metal) {
                 val display = angleMetalDisplay(report)
                 if (display != null) {
@@ -298,7 +317,9 @@ internal class EglEsContext private constructor(
             EGL10.EGL_NONE,
         )
 
-        // ANGLE's own EGL extension headers; LWJGL has no binding for them.
+        // ANGLE's own EGL extension tokens, checked against eglext_angle.h.
+        // LWJGL 3.4.3 binds no ANGLE platform constants; re-check before adding
+        // more of these by hand.
         private const val EGL_PLATFORM_ANGLE_ANGLE = 0x3202
         private const val EGL_PLATFORM_ANGLE_TYPE_ANGLE = 0x3203
         private const val EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE = 0x3489

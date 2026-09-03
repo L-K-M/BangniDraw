@@ -136,11 +136,12 @@ class DesktopRuntimeLifecycleContractTest {
         val egl = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/EglEsContext.kt")
             .replace(Regex("\\s+"), " ")
 
-        // The rule that cost a release: dyld searches the working directory for
-        // a leaf name only while AMFI leaves allowAtPaths set.
-        assertTrue(glfw.contains("dyld resolves a leaf"))
-        assertTrue(glfw.contains("name from the process directory only while AMFI leaves"))
-        assertTrue(egl.contains("EGL is loaded by absolute path"))
+        // Anchored on the technical tokens, not on prose: a reflow of these
+        // comments must not fail the build, but losing the rule must.
+        assertTrue(glfw.contains("dlopen"))
+        assertTrue(glfw.contains("allowAtPaths"))
+        assertTrue(glfw.contains("AMFI"))
+        assertTrue(egl.contains("absolute path"))
     }
 
     private fun source(path: String): String = File(repoRoot(), path).readText(Charsets.UTF_8)

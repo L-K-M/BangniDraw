@@ -44,6 +44,18 @@ class DesktopGlReportTest {
     }
 
     @Test
+    fun `the report summary separates a broken driver from a missing one`() {
+        assertEquals("GLES 3.0 context via EGL", glReportSummary("EGL", created = true, usable = true))
+        // A context that exists but will not go current is not "no context":
+        // the two send triage in different directions.
+        assertEquals(
+            "GLES 3.0 context via EGL could not be made current",
+            glReportSummary("EGL", created = true, usable = false),
+        )
+        assertEquals("no GLES 3.0 context", glReportSummary(null, created = false, usable = false))
+    }
+
+    @Test
     fun `details stay indented under the failure so the window reads as one block`() {
         val report = DesktopGlReport()
         report.note("host: Linux")

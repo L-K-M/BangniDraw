@@ -167,10 +167,11 @@ first-class tested path in GLFW's EGL code. One deployment wrinkle: GLFW
 dlopens EGL under fixed sonames (`libEGL.dylib` on macOS), so the bundled
 ANGLE dylibs must be discoverable — libGDX solves this by chdir-ing to the
 dylib directory around `glfwInit`. *(Shipped differently: chdir is not
-reliable, because dyld searches the working directory for a leaf name only
-in an unrestricted process. LWJGL's `GLFWNativeEGL.setEGLPath` does make
-the soname configurable, and the context itself now comes from EGL without
-GLFW — see AGENTS.md's deviation "The desktop context is created from EGL".)*
+reliable, because it is process-global state anything can clobber — and
+LWJGL's `GLFWNativeEGL.setEGLPath` is no remedy either, being a no-op with
+the shipped GLFW builds, which lack the symbol it patches. The context now
+comes from EGL without GLFW — see AGENTS.md's deviation "The desktop GLES
+context is created from EGL directly; GLFW is only the fallback".)*
 
 **Existence proof (with two deltas):** libGDX has shipped this plumbing —
 LWJGL3 + GLFW(EGL) + ANGLE-Metal — on macOS in production since 2021, at

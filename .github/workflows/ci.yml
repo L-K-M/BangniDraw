@@ -135,8 +135,12 @@ jobs:
           LAUNCHER="$(find desktop/build/compose/binaries/main/app -path '*/bin/*' ! -path '*/runtime/*' -type f -executable -print -quit)"
           timeout 60s "$LAUNCHER" --verify-runtime | grep -F '帮你Draw runtime OK:'
 
-          LIBGL_ALWAYS_SOFTWARE=1 timeout 30s xvfb-run -a \
-            "$LAUNCHER" --smoke-window 2>&1 | tee "$RUNNER_TEMP/desktop-smoke.log"
+          # Redirect rather than pipe, as below: a JVM that outlives the
+          # xvfb-run wrapper `timeout` kills would hold a pipe open for the
+          # rest of the job.
+          LIBGL_ALWAYS_SOFTWARE=1 timeout -k 5s 60s xvfb-run -a \
+            "$LAUNCHER" --smoke-window > "$RUNNER_TEMP/desktop-smoke.log" 2>&1 || true
+          cat "$RUNNER_TEMP/desktop-smoke.log"
           grep -F '帮你Draw window OK:' "$RUNNER_TEMP/desktop-smoke.log"
 
           # Both context hosts, every commit: the direct EGL path is the one
@@ -244,6 +248,9 @@ jobs:
           grep -E 'GL context: .*ANGLE' "$RUNNER_TEMP/desktop-macos-gl.log"
 
       - name: Verify the unpackaged developer run
+        # Gradle forks its own JVM, which `perl alarm` on this step would not
+        # reach; the job timeout is 45 minutes of 10x-billed macOS.
+        timeout-minutes: 10
         # README's own instruction, and the one path this job never covered:
         # `gradlew run` forks the JDK's own java rather than jpackage's
         # launcher, with a different working directory and a different

@@ -41,21 +41,51 @@ internal object MachOLibrary {
      * or null when the header does not say. dyld refuses an older host outright,
      * which otherwise looks exactly like a missing library.
      */
-    fun minimumMacOs(file: File): String? = try {
-        readMinimumMacOs(file)
+    fun minimumMacOs(file: File, osArch: String = System.getProperty("os.arch", "")): String? = try {
+        readMinimumMacOs(file, osArch)
     } catch (failure: Throwable) {
         null
     }
 
-    private fun readMinimumMacOs(file: File): String? {
+    private fun readMinimumMacOs(file: File, osArch: String): String? {
         val header = ByteArray(LOAD_COMMAND_BYTES)
         val length = file.inputStream().use { it.readNBytes(header, 0, header.size) }
         if (length < THIN_HEADER_BYTES) return null
-        val magic = beInt(header, 0)
-        if (magic != THIN_MAGIC_LE && magic != THIN_MAGIC_LE_32) return null
+
+        return when (beInt(header, 0)) {
+            FAT_MAGIC, FAT_MAGIC_64 -> {
+                // Every slice carries its own floor; report the one this JVM
+                // would load, or the first if none matches.
+                val slices = fatSlices(header, length)
+                val slice = slices.firstOrNull { architecture(it.cpuType) == normalize(osArch) }
+                    ?: slices.firstOrNull()
+                    ?: return null
+
+                minimumMacOsAt(file, slice.offset)
+            }
+            else -> minimumMacOsAt(file, 0L)
+        }
+    }
+
+    /** Reads a thin Mach-O header at [start] and returns its minimum macOS. */
+    private fun minimumMacOsAt(file: File, start: Long): String? {
+        val header = ByteArray(LOAD_COMMAND_BYTES)
+        val length = file.inputStream().use { stream ->
+            stream.skipNBytes(start)
+            stream.readNBytes(header, 0, header.size)
+        }
+        if (length < THIN_HEADER_BYTES) return null
+
+        // A 32-bit header is 28 bytes, not 32: walking one from the wrong
+        // offset decodes a misaligned command rather than declining.
+        val headerBytes = when (beInt(header, 0)) {
+            THIN_MAGIC_LE -> MACH_HEADER_64_BYTES
+            THIN_MAGIC_LE_32 -> MACH_HEADER_BYTES
+            else -> return null
+        }
 
         val commands = leInt(header, 16)
-        var offset = MACH_HEADER_64_BYTES
+        var offset = headerBytes
         for (index in 0 until commands) {
             if (offset + 8 > length) return null
             val command = leInt(header, offset)
@@ -93,19 +123,30 @@ internal object MachOLibrary {
         }
     }
 
-    private fun fatArchitectures(header: ByteArray, length: Int): List<String> {
+    private fun fatArchitectures(header: ByteArray, length: Int): List<String> =
+        fatSlices(header, length).mapNotNull { architecture(it.cpuType) }.distinct()
+
+    /** One entry per architecture in a fat header, in file order. */
+    private fun fatSlices(header: ByteArray, length: Int): List<FatSlice> {
+        val fat64 = beInt(header, 0) == FAT_MAGIC_64
+        // fat_arch is 20 bytes; fat_arch_64 widens offset and size to 8 each.
+        val stride = if (fat64) FAT_ARCH_64_BYTES else FAT_ARCH_BYTES
         val count = beInt(header, 4)
         if (count <= 0) return emptyList()
 
-        val architectures = mutableListOf<String>()
+        val slices = mutableListOf<FatSlice>()
         for (index in 0 until count) {
-            val offset = FAT_HEADER_BYTES + index * FAT_ARCH_BYTES
-            if (offset + 4 > length) break
-            architecture(beInt(header, offset))?.let(architectures::add)
+            val offset = FAT_HEADER_BYTES + index * stride
+            if (offset + stride > length) break
+            val sliceOffset =
+                if (fat64) beLong(header, offset + 8) else beInt(header, offset + 8).toLong()
+            slices += FatSlice(beInt(header, offset), sliceOffset)
         }
 
-        return architectures.distinct()
+        return slices
     }
+
+    private class FatSlice(val cpuType: Int, val offset: Long)
 
     private fun architecture(cpuType: Int): String? = when (cpuType) {
         CPU_TYPE_ARM64 -> "aarch64"
@@ -125,6 +166,10 @@ internal object MachOLibrary {
             (bytes[offset + 2].toInt() and 0xff shl 8) or
             (bytes[offset + 3].toInt() and 0xff)
 
+    private fun beLong(bytes: ByteArray, offset: Int): Long =
+        (beInt(bytes, offset).toLong() and 0xffffffffL shl 32) or
+            (beInt(bytes, offset + 4).toLong() and 0xffffffffL)
+
     private fun leInt(bytes: ByteArray, offset: Int): Int =
         (bytes[offset + 3].toInt() and 0xff shl 24) or
             (bytes[offset + 2].toInt() and 0xff shl 16) or
@@ -142,8 +187,10 @@ internal object MachOLibrary {
     private const val THIN_HEADER_BYTES = 8
     private const val FAT_HEADER_BYTES = 8
     private const val FAT_ARCH_BYTES = 20
+    private const val FAT_ARCH_64_BYTES = 32
     private const val HEADER_BYTES = 256
     private const val LOAD_COMMAND_BYTES = 4096
+    private const val MACH_HEADER_BYTES = 28
     private const val MACH_HEADER_64_BYTES = 32
     private const val LC_VERSION_MIN_MACOSX = 0x24
     private const val LC_BUILD_VERSION = 0x32

@@ -3347,3 +3347,61 @@ much as in code.
 - **R-255 ✅ (applied) PR #189 macOS smoke.** GLFW's default Cocoa init
   changed the process directory after ANGLE was exposed, so first-window EGL
   lookup failed. Disabling `GLFW_COCOA_CHDIR_RESOURCES` preserves the guarded
+
+## PR #190 — the desktop context comes from EGL (2026-09-03)
+
+Round 1 (full review at `84ad78b`, 13 actionable): eight applied, four applied
+past the suggested remedy, three declined below. Two of the applied ones were
+real defects in code this PR introduced — see R-256 and R-257.
+
+- **R-256 ✅ (applied) round 1, Minor: `fat_arch_64` entries are 32 bytes,
+  parsed with a 20-byte stride.** Correct, and the class exists precisely to
+  answer "is this dylib the right architecture?". Every entry after the first
+  was read from inside the previous entry's 8-byte offset field, so a 64-bit
+  universal library reported one architecture instead of two and `runsOn`
+  could answer no for a slice that was right there. The same walk now yields
+  the slice offsets, which is what let the fat case answer `minimumMacOs` at
+  all (it returned null for every universal file — the second finding in that
+  file, also applied). `MachOLibraryTest` pins both: the fat64 test fails on
+  the old stride, the floor test on the old null.
+
+- **R-257 ✅ (applied) round 1, Minor: a 32-bit Mach-O header is 28 bytes, and
+  the walker started at 32.** Correct. It accepted `MH_MAGIC` and then read
+  every load command four bytes off, so it could decode a misaligned command
+  as a version rather than declining. Now the header size follows the magic.
+
+- **R-258 ⏸️ (declined) round 1, Minor: request `EGL_STENCIL_SIZE` (and
+  depth) in the pbuffer config.** The finding's own precondition settles it:
+  "if none are used, no change is needed". Nothing in `engine-gl`, `:desktop`
+  or `:app` references `glStencil*`, `GL_STENCIL_TEST`, `GL_DEPTH_TEST` or
+  `glDepthFunc` — grep is empty across all three. The pbuffer is also never
+  drawn to: it exists so `eglCreateContext` has a complete config, and every
+  pixel the engine produces goes to an FBO whose attachments carry their own
+  formats. Adding buffers here would only narrow the set of configs a driver
+  can offer us.
+
+- **R-259 ⏸️ (declined) round 1, Major: move
+  `Configuration.GLFW_LIBRARY_NAME.set(GLFW_ASYNC_LIBRARY)` after ANGLE
+  resolution succeeds.** The premise is that the setting is part of the ANGLE
+  story; it is not. `glfw_async` is about macOS *threading* — AWT owns the
+  process main thread, so GLFW must dispatch to the main queue — and it is the
+  correct library whether or not ANGLE was found. Applying the fix would make
+  the one path that still reaches GLFW on macOS worse: with ANGLE missing,
+  `-Dbangnidraw.gl.host=glfw` would load the default `libglfw`, which requires
+  the main thread it cannot have. The stated impact does not follow either:
+  selecting a library name loads nothing, and GLFW is not loaded on macOS
+  unless that property asks for it.
+
+- **R-260 ⏸️ (refuted) round 1, Major: "the removed CWD exposure assumes LWJGL
+  performs the ANGLE dlopen; old code says GLFW does" — preload with
+  `System.load`.** The old comment was accurate about the old design, which is
+  why that design is gone: on macOS GLFW is no longer a fallback at all, so
+  nobody issues the leaf-name `dlopen` the exposure existed for. What loads
+  ANGLE now is LWJGL, from `Configuration.EGL_LIBRARY_NAME` /
+  `OPENGLES_LIBRARY_NAME`, both absolute. Verified on hardware rather than by
+  argument: CI run 33745992451's `desktop-macos` job is green on this branch
+  with `EGL display: ANGLE/Metal` and an ANGLE renderer string, from both the
+  packaged app and `./gradlew :desktop:run`. The suggested `System.load`
+  preload is separately known not to work for GLFW's leaf-name lookup —
+  Electron's dylibs carry the install name `./libEGL.dylib`, which dyld will
+  not match to a bare `libEGL.dylib` request.

@@ -1,8 +1,6 @@
 package ch.lkmc.bangnidraw.desktop
 
 import java.io.File
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
 import kotlin.io.path.createFile
@@ -54,29 +52,55 @@ class DesktopNativeBootstrapTest {
     @Test
     fun `a wrong-architecture ANGLE is named rather than left to fail silently`() {
         val root = Files.createTempDirectory("bangnidraw-angle")
-        val directory = angleDirectory(root.resolve("angle").toFile())
+        val directory = angleDirectory(root.resolve("angle").toFile(), MachOFixtures.CPU_TYPE_X86_64)
         val angle = checkNotNull(
             DesktopNativeBootstrap.resolveAngle(
                 explicitDirectory = directory,
                 packagedDirectory = null,
                 workingDirectory = null,
+                osArch = "aarch64",
             ),
         )
 
-        // The staged files are empty here, so the header reads as unknown: the
-        // description must still name the directory it will load from.
+        // x86_64 dylibs on an aarch64 host: present, unloadable, and reported
+        // as such rather than left for dlopen to call missing.
         val described = DesktopNativeBootstrap.describe(angle, osArch = "aarch64")
 
         assertTrue(described.startsWith(directory.canonicalFile.toString()))
         assertTrue(described.contains(DesktopNativeBootstrap.EGL_DYLIB))
         assertTrue(described.contains(DesktopNativeBootstrap.GLES_DYLIB))
+        assertTrue(described.contains("x86_64"))
+        assertTrue(described.contains("built for another architecture"))
+    }
+
+    @Test
+    fun `the reported macOS floor is the newer of the two dylibs`() {
+        val root = Files.createTempDirectory("bangnidraw-angle")
+        val directory = root.resolve("angle").toFile().apply { toPath().createDirectories() }
+        MachOFixtures.write(
+            MachOFixtures.thinBytes(MachOFixtures.CPU_TYPE_ARM64, MachOFixtures.version(10, 13, 0)),
+            directory,
+            DesktopNativeBootstrap.EGL_DYLIB,
+        )
+        MachOFixtures.write(
+            MachOFixtures.thinBytes(MachOFixtures.CPU_TYPE_ARM64, MachOFixtures.version(12, 0, 0)),
+            directory,
+            DesktopNativeBootstrap.GLES_DYLIB,
+        )
+        val angle = checkNotNull(
+            DesktopNativeBootstrap.resolveAngle(directory, null, null, osArch = "aarch64"),
+        )
+
+        // dyld refuses on the higher floor, and 12.0 outranks 10.13 by number,
+        // not by text.
+        assertTrue(DesktopNativeBootstrap.describe(angle, "aarch64").contains("macOS 12.0+"))
     }
 
     @Test
     fun `a loadable ANGLE wins over a wrong-architecture one that comes first`() {
         val root = Files.createTempDirectory("bangnidraw-angle")
-        val intel = angleDirectory(root.resolve("stale-override").toFile(), CPU_TYPE_X86_64)
-        val packaged = angleDirectory(root.resolve("packaged").toFile(), CPU_TYPE_ARM64)
+        val intel = angleDirectory(root.resolve("stale-override").toFile(), MachOFixtures.CPU_TYPE_X86_64)
+        val packaged = angleDirectory(root.resolve("packaged").toFile(), MachOFixtures.CPU_TYPE_ARM64)
 
         val found = DesktopNativeBootstrap.resolveAngle(
             explicitDirectory = intel,
@@ -93,7 +117,7 @@ class DesktopNativeBootstrapTest {
     @Test
     fun `a wrong-architecture candidate is still used when nothing else exists`() {
         val root = Files.createTempDirectory("bangnidraw-angle")
-        val intel = angleDirectory(root.resolve("only").toFile(), CPU_TYPE_X86_64)
+        val intel = angleDirectory(root.resolve("only").toFile(), MachOFixtures.CPU_TYPE_X86_64)
 
         val found = DesktopNativeBootstrap.resolveAngle(
             explicitDirectory = intel,
@@ -131,9 +155,10 @@ class DesktopNativeBootstrapTest {
             val text = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/$name")
 
             // A process-wide chdir used to be how ANGLE was found; absolute
-            // paths replaced it, and reintroducing it would break a hardened
-            // process all over again.
-            assertFalse(text.contains("chdir"), "$name must not move the process directory")
+            // paths replaced it. Pinned on the lookup rather than the word, so
+            // a comment explaining why it is gone does not fail the build.
+            assertFalse(text.contains("\"chdir\""), "$name must not move the process directory")
+            assertFalse(text.contains("DynamicLinkLoader"), "$name must not resolve libc by hand")
         }
     }
 
@@ -180,28 +205,20 @@ class DesktopNativeBootstrapTest {
 
         return candidate
     }
-    private fun angleDirectory(directory: File, cpuType: Int? = null): File {
+
+    private fun angleDirectory(
+        directory: File,
+        cpuType: Int? = null,
+        minimumMacOs: Int? = null,
+    ): File {
         val path = directory.toPath().createDirectories()
         listOf(DesktopNativeBootstrap.EGL_DYLIB, DesktopNativeBootstrap.GLES_DYLIB).forEach { name ->
             val file = path.resolve(name).createFile().toFile()
-            if (cpuType != null) file.writeBytes(machOHeader(cpuType))
+            if (cpuType != null) {
+                file.writeBytes(MachOFixtures.thinBytes(cpuType, minimumMacOs))
+            }
         }
 
         return directory
-    }
-
-    /** Just enough of a 64-bit little-endian Mach-O header to carry a cputype. */
-    private fun machOHeader(cpuType: Int): ByteArray =
-        ByteBuffer.allocate(MACH_HEADER_64_BYTES).order(ByteOrder.LITTLE_ENDIAN).apply {
-            putInt(MH_MAGIC_64)
-            putInt(cpuType)
-            repeat(6) { putInt(0) }
-        }.array()
-
-    private companion object {
-        const val MH_MAGIC_64 = 0xfeedfacf.toInt()
-        const val CPU_TYPE_ARM64 = 0x0100000c
-        const val CPU_TYPE_X86_64 = 0x01000007
-        const val MACH_HEADER_64_BYTES = 32
     }
 }

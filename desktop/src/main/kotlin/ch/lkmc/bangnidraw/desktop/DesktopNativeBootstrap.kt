@@ -46,7 +46,15 @@ internal object DesktopNativeBootstrap {
         // decides whether the bundled ANGLE is found.
         Configuration.EGL_LIBRARY_NAME.set(angle.egl.absolutePath)
         Configuration.OPENGLES_LIBRARY_NAME.set(angle.gles.absolutePath)
-        report.note("ANGLE: ${describe(angle)}")
+        // Still configured when no candidate can load: the attempt produces
+        // dlopen's own error, which beats a guess. But say so up front rather
+        // than leaving it to a note the reader has to compare architectures in.
+        val osArch = System.getProperty("os.arch", "")
+        if (runsOn(angle, osArch)) {
+            report.note("ANGLE: ${describe(angle, osArch)}")
+        } else {
+            report.fail("ANGLE", "no candidate loads on $osArch; trying ${describe(angle, osArch)}")
+        }
 
         return DesktopNativeEnvironment(backend, angle)
     }
@@ -62,7 +70,12 @@ internal object DesktopNativeBootstrap {
     ): String {
         val egl = MachOLibrary.describe(angle.egl)
         val gles = MachOLibrary.describe(angle.gles)
-        val minimum = MachOLibrary.minimumMacOs(angle.egl)
+        // Either dylib can carry the newer floor, and dyld refuses on the
+        // higher of the two.
+        val minimum = listOfNotNull(
+            MachOLibrary.minimumMacOs(angle.egl, osArch),
+            MachOLibrary.minimumMacOs(angle.gles, osArch),
+        ).maxWithOrNull(::compareVersions)
 
         return buildString {
             append("${angle.directory} ($EGL_DYLIB $egl, $GLES_DYLIB $gles")
@@ -111,6 +124,18 @@ internal object DesktopNativeBootstrap {
         }
 
         return unloadable
+    }
+
+    /** Orders "12.0" above "9.4" — the components are numbers, not text. */
+    private fun compareVersions(left: String, right: String): Int {
+        val leftParts = left.split('.').map { it.toIntOrNull() ?: 0 }
+        val rightParts = right.split('.').map { it.toIntOrNull() ?: 0 }
+        for (index in 0 until maxOf(leftParts.size, rightParts.size)) {
+            val order = (leftParts.getOrElse(index) { 0 }).compareTo(rightParts.getOrElse(index) { 0 })
+            if (order != 0) return order
+        }
+
+        return 0
     }
 
     private fun runsOn(angle: AngleLibraries, osArch: String): Boolean =

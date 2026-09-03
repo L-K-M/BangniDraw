@@ -126,6 +126,13 @@ fun main(args: Array<String>) {
     } finally {
         (startup as? DesktopStartup.Ready)?.context?.destroy()
     }
+
+    // A smoke run has printed its verdict and torn the context down, but AWT's
+    // threads are not daemons and the JVM lingers here about one run in three.
+    // CI reads that output through a pipe, so a lingering process wedges the
+    // step rather than ending it. The interactive path is deliberately left to
+    // exit on its own: it may still be flushing preferences.
+    if (mode != DesktopLaunchMode.Interactive) exitProcess(0)
 }
 
 private fun verifyPackagedRuntime() {
@@ -139,7 +146,18 @@ private fun verifyPackagedRuntime() {
  * block of text to paste into a bug report.
  */
 private fun printGlReport() {
-    val startup = DesktopGlStartup.start(INITIAL_GL_WIDTH, INITIAL_GL_HEIGHT)
+    val report = DesktopGlReport()
+    // A missing native library throws out of startup rather than returning a
+    // report — and that is one of the environments this flag exists to explain,
+    // so it must not be the one where nothing is printed.
+    val startup = try {
+        DesktopGlStartup.start(INITIAL_GL_WIDTH, INITIAL_GL_HEIGHT)
+    } catch (failure: Throwable) {
+        report.fail("startup", describe(failure))
+        report.note(failure.stackTraceToString())
+        DesktopGlStartup.Result(null, report)
+    }
+
     val context = startup.context
     val host = startup.report.path
     // Creating a context is not the same as being able to make it current, and
@@ -153,18 +171,27 @@ private fun printGlReport() {
             usable = false
             startup.report.fail(host.orEmpty(), describe(it))
         }
-        context.destroy()
+        // Destroying can refuse too; losing the report to it would waste the run.
+        runCatching { context.destroy() }
+            .onFailure { startup.report.fail(host.orEmpty(), "destroy: ${describe(it)}") }
     }
 
     println("${DesktopBrand.displayName} GL report")
     println(startup.report.text())
-    println(if (usable) "GLES 3.0 context via $host" else "no GLES 3.0 context")
+    println(glReportSummary(host, created = context != null, usable = usable))
     System.out.flush()
 
     // Startup has already initialized AWT, whose threads are not daemons, so
     // returning from main would leave the process alive with nothing to do —
     // and a caller reading its output through a pipe waiting forever.
     exitProcess(if (usable) 0 else 1)
+}
+
+/** The one line a reader sees first, so it must not call a broken driver absent. */
+internal fun glReportSummary(host: String?, created: Boolean, usable: Boolean): String = when {
+    usable -> "GLES 3.0 context via $host"
+    created -> "GLES 3.0 context via $host could not be made current"
+    else -> "no GLES 3.0 context"
 }
 
 private fun createDesktopStartup(): DesktopStartup = try {
@@ -178,7 +205,7 @@ private fun createDesktopStartup(): DesktopStartup = try {
     }
 } catch (failure: Throwable) {
     DesktopStartup.Failed(
-        "Desktop startup failed: ${describe(failure)}\n\n${DesktopGlDiagnostics.unavailable}",
+        "Desktop startup failed: ${describe(failure)}\n\n${DesktopGlDiagnostics.unavailable()}",
     )
 }
 
@@ -859,7 +886,8 @@ internal object DesktopGlDiagnostics {
         Windows: this desktop target supports macOS and Linux only.
     """.trimIndent()
 
-    val unavailable = "$HEADLINE\n\n$platformGuidance"
+    /** The headline and guidance, with the pointer to the report flag. */
+    fun unavailable(): String = "$HEADLINE\n\n${reportHint()}\n\n$platformGuidance"
 
     /**
      * The failure window's text. It carries the evidence — which host refused,

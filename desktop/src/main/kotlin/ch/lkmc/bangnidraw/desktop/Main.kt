@@ -26,8 +26,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,10 +47,12 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.CanvasPresetId
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.core.CanvasVoidColorPolicy
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.HsvColor
 import ch.lkmc.bangnidraw.engine.core.HsvSelection
@@ -60,6 +63,7 @@ import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
+import ch.lkmc.bangnidraw.engine.core.ThemeColorPolicy
 import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxBinding
@@ -257,40 +261,52 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
     ) {
         window.minimumSize = Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
 
-        MaterialTheme(colorScheme = darkColorScheme()) {
-            val fatalMessage = fatal.value
-            if (fatalMessage != null) {
-                // The startup report is long on purpose; a fixed-height window
-                // must not swallow the half that names the failure.
-                Box(
-                    Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    // Selectable: this text is what a user pastes into a report.
-                    SelectionContainer {
-                        Text(fatalMessage, style = MaterialTheme.typography.bodyMedium)
+        MaterialTheme(colorScheme = DESKTOP_COLOR_SCHEME) {
+            // Surface actually paints [colorScheme.background]; without it
+            // the OS window chrome shows through and the Material widgets
+            // sit on whatever the host desktop happens to be (macOS's own
+            // white, GNOME's own grey), turning the SAFFRON palette
+            // incoherent. Same wrap the Android CanvasScreen relies on.
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    val fatalMessage = fatal.value
+                    if (fatalMessage != null) {
+                        // The startup report is long on purpose; a fixed-height window
+                        // must not swallow the half that names the failure.
+                        Box(
+                            Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            // Selectable: this text is what a user pastes into a report.
+                            SelectionContainer {
+                                Text(fatalMessage, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    } else if (engine != null) {
+                        Shell(
+                            engine = engine,
+                            frame = frameState.value,
+                            canvasSize = canvasSize,
+                            mixboxAttribution = mixboxAttribution,
+                            mixer = mixer,
+                            onAbout = { showAbout = true },
+                        )
+                    }
+
+                    if (showAbout) {
+                        AlertDialog(
+                            onDismissRequest = { showAbout = false },
+                            title = { Text("About " + DesktopBrand.displayName) },
+                            text = { Text(DesktopAbout.body(mixboxAttribution)) },
+                            confirmButton = {
+                                Button(onClick = { showAbout = false }) { Text("Close") }
+                            },
+                        )
                     }
                 }
-            } else if (engine != null) {
-                Shell(
-                    engine = engine,
-                    frame = frameState.value,
-                    canvasSize = canvasSize,
-                    mixboxAttribution = mixboxAttribution,
-                    mixer = mixer,
-                    onAbout = { showAbout = true },
-                )
-            }
-
-            if (showAbout) {
-                AlertDialog(
-                    onDismissRequest = { showAbout = false },
-                    title = { Text("About " + DesktopBrand.displayName) },
-                    text = { Text(DesktopAbout.body(mixboxAttribution)) },
-                    confirmButton = {
-                        Button(onClick = { showAbout = false }) { Text("Close") }
-                    },
-                )
             }
         }
     }
@@ -843,7 +859,42 @@ private fun DesktopEngine.Frame.toImageBitmap(): androidx.compose.ui.graphics.Im
     return image.toComposeImageBitmap()
 }
 
-private val VIEWPORT_VOID = Color(0xFF2A2A2E)
+/**
+ * The M4 shell wears the Android app's default palette (SAFFRON, light —
+ * see [ThemeColorPolicy]). The desktop shell is DESKTOP.md-minimal by
+ * design and does not port [ToolRail]/[TopStrip]/[ColorPanel], but it
+ * belongs to the same product: reading the ARGB tokens straight from
+ * engine-core avoids hand-mirroring hex constants and keeps the desktop
+ * moving in lockstep with the Android build's theme.
+ */
+private val DESKTOP_COLOR_SCHEME = run {
+    val colors = ThemeColorPolicy.colors(AppTheme.SAFFRON)
+    lightColorScheme(
+        primary = Color(colors.primaryArgb),
+        onPrimary = Color(colors.onPrimaryArgb),
+        primaryContainer = Color(colors.primaryContainerArgb),
+        onPrimaryContainer = Color(colors.onPrimaryContainerArgb),
+        secondary = Color(colors.secondaryArgb),
+        onSecondary = Color(colors.onSecondaryArgb),
+        secondaryContainer = Color(colors.secondaryContainerArgb),
+        onSecondaryContainer = Color(colors.onSecondaryContainerArgb),
+        background = Color(colors.backgroundArgb),
+        onBackground = Color(colors.onBackgroundArgb),
+        surface = Color(colors.surfaceArgb),
+        onSurface = Color(colors.onSurfaceArgb),
+        surfaceVariant = Color(colors.surfaceVariantArgb),
+        onSurfaceVariant = Color(colors.onSurfaceVariantArgb),
+        outline = Color(colors.outlineArgb),
+        outlineVariant = Color(colors.outlineVariantArgb),
+    )
+}
+
+/**
+ * The neutral warm-grey around the paper — same [CanvasVoidColorPolicy]
+ * source the Android app uses, so the desktop shell reads as part of the
+ * same product family rather than a debug harness on the host OS's grey.
+ */
+private val VIEWPORT_VOID = Color(CanvasVoidColorPolicy.argb(AppTheme.SAFFRON))
 private const val RGBA_BYTES = 4
 private const val MOUSE_POINTER_ID = 0
 private const val SYNTHETIC_PRESSURE = 1f

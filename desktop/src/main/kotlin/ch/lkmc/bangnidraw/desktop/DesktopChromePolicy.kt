@@ -101,7 +101,7 @@ internal object DesktopRailPolicy {
 
         val step = layout.toolSlotDp + toolGapDp(layout)
         fun fits(nonPaintSlots: Int): Int {
-            val fixed = nonPaintSlots * step + DIVIDER_HEIGHT_DP +
+            val fixed = nonPaintSlots * step + DesktopRailGeometry.DIVIDER_HEIGHT_DP +
                 layout.sliderLengthDp + railPaddingDp(layout)
             return (availableDp - fixed) / step
         }
@@ -128,16 +128,27 @@ internal object DesktopRailPolicy {
         presets.firstOrNull { it.id == BrushPresets.HARD_ERASER_ID && it.eraseMode }
             ?: presets.firstOrNull(BrushPreset::eraseMode)
 
-    // Mirrors DesktopToolRail's own spacing; a SHORT rail packs its slots.
+    // A SHORT rail packs its slots; the numbers themselves belong to
+    // DesktopRailGeometry, because a budget computed from a stale copy of
+    // them lays out paints the rail cannot fit.
     private fun toolGapDp(layout: LayoutSpec): Int =
-        if (layout.railMode == RailMode.SHORT) 0 else TOOL_GAP_DP
+        if (layout.railMode == RailMode.SHORT) 0 else DesktopRailGeometry.TOOL_GAP_DP
 
     private fun railPaddingDp(layout: LayoutSpec): Int =
-        if (layout.railMode == RailMode.SHORT) 0 else RAIL_PADDING_DP
+        if (layout.railMode == RailMode.SHORT) 0 else DesktopRailGeometry.RAIL_PADDING_DP
 
     private const val ERASER_SLOTS = 1
     private const val OVERFLOW_SLOTS = 1
-    private const val TOOL_GAP_DP = 4
-    private const val DIVIDER_HEIGHT_DP = 9
-    private const val RAIL_PADDING_DP = 24
+}
+
+/**
+ * The rail's spacing, in one place. [DesktopRailPolicy.paintBudget] solves
+ * for how many slots fit using exactly the numbers [DesktopToolRail] lays
+ * them out with, so the two cannot be separate constants: tuning one alone
+ * would either clip a slot or overflow a paint that fits, silently.
+ */
+internal object DesktopRailGeometry {
+    const val TOOL_GAP_DP = 4
+    const val DIVIDER_HEIGHT_DP = 9
+    const val RAIL_PADDING_DP = 24
 }

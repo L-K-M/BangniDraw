@@ -234,10 +234,11 @@ class DesktopChromePolicyTest {
     }
 
     private companion object {
-        // DesktopRailPolicy's own spacing, restated so a change to either
-        // side has to be a deliberate one.
-        const val TOOL_GAP_DP = 4
-        const val DIVIDER_HEIGHT_DP = 9
-        const val RAIL_PADDING_DP = 24
+        // The rail's own spacing: the test proves the budget's arithmetic
+        // fits the rail, not that the numbers have particular values, so it
+        // reads the same source both of them do.
+        const val TOOL_GAP_DP = DesktopRailGeometry.TOOL_GAP_DP
+        const val DIVIDER_HEIGHT_DP = DesktopRailGeometry.DIVIDER_HEIGHT_DP
+        const val RAIL_PADDING_DP = DesktopRailGeometry.RAIL_PADDING_DP
     }
 }

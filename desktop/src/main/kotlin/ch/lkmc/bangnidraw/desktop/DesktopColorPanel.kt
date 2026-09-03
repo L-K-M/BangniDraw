@@ -148,7 +148,7 @@ private fun ChannelSlider(
     val value = channel.read(selection.hsv)
     Column {
         Text(
-            "${channelLabel(channel)} ${value.toInt()}",
+            "${channelLabel(channel)} ${channelValue(channel, value)}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -162,12 +162,27 @@ private fun ChannelSlider(
             description = channelLabel(channel),
             onValueChange = { onSelection(selection.commit(channel.replace(selection.hsv, it))) },
             fillWidth = true,
+            // The channel's own stops, as `:app`'s panel passes them: hue to
+            // the degree, saturation and value to the percent. Without them
+            // the desktop panel drifts off the Android one by design, which
+            // is the whole reason HsvChannel carries `steps`.
+            steps = channel.steps,
         )
     }
 }
 
 /** Locale.ROOT: a locale with its own digits would shape the hex code. */
 private fun hex(argb: Int): String = "#%06X".format(Locale.ROOT, argb and RGB_MASK)
+
+/**
+ * The reading `:app` shows for the same selection: `%.0f` rounds where
+ * `toInt` would truncate — a stored saturation of 0.6299 reads 63 there and
+ * would read 62 here — and the degree and percent signs are its units.
+ */
+private fun channelValue(channel: HsvChannel, value: Float): String {
+    val rounded = "%.0f".format(Locale.ROOT, value)
+    return if (channel == HsvChannel.HUE) "$rounded°" else "$rounded%"
+}
 
 private fun channelLabel(channel: HsvChannel): String = when (channel) {
     HsvChannel.HUE -> "Hue"

@@ -46,6 +46,8 @@ internal fun DesktopThinSlider(
     modifier: Modifier = Modifier,
     length: Dp = DEFAULT_LENGTH,
     fillWidth: Boolean = false,
+    /** Discrete stops between the ends; 0 is continuous, as the rail's are. */
+    steps: Int = 0,
 ) {
     val semantics = Modifier.semantics { contentDescription = description }
     if (axis == DesktopSliderAxis.Horizontal) {
@@ -53,6 +55,7 @@ internal fun DesktopThinSlider(
             value = value,
             onValueChange = onValueChange,
             range = range,
+            steps = steps,
             modifier = modifier
                 .then(semantics)
                 .height(TOUCH_SLAB)
@@ -71,6 +74,7 @@ internal fun DesktopThinSlider(
             value = value,
             onValueChange = onValueChange,
             range = range,
+            steps = steps,
             // Measure at full length before the 48 dp parent rotates it.
             // The height is pinned rather than inherited: after the quarter
             // turn it becomes the drag target's thickness, and Material's
@@ -89,6 +93,7 @@ private fun TrackSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     range: ClosedFloatingPointRange<Float>,
+    steps: Int,
     modifier: Modifier,
 ) {
     val activeColor = MaterialTheme.colorScheme.primary
@@ -98,6 +103,7 @@ private fun TrackSlider(
         value = value,
         onValueChange = onValueChange,
         valueRange = range,
+        steps = steps,
         interactionSource = interactionSource,
         modifier = modifier,
         thumb = {

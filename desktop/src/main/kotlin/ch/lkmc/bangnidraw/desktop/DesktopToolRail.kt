@@ -461,8 +461,9 @@ private const val MORE_BRUSHES = "More brushes"
 private const val ERASER_TOGGLE_HINT = " — click again for the other eraser"
 private val TOOL_VISUAL = 40.dp
 private val TOOL_VISUAL_INSET = 8.dp
-private val TOOL_GAP = 4.dp
-private val RAIL_PADDING = 12.dp
+private val TOOL_GAP = DesktopRailGeometry.TOOL_GAP_DP.dp
+// Half of the budget's padding allowance, which counts both ends.
+private val RAIL_PADDING = (DesktopRailGeometry.RAIL_PADDING_DP / 2).dp
 private val RAIL_HORIZONTAL_PADDING = 4.dp
 private val DOCK_HEIGHT = LayoutSpec.DOCK_HEIGHT_DP.dp
 private val ACTIVE_BORDER = 2.dp

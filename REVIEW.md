@@ -3649,3 +3649,32 @@ started persisting the stale-selection fallback. There is now one
 `persistBrush` used by both persistence sites, carrying the reason it is *not*
 `activePreset` — persistence names the brush the user picked, never the
 fallback the sliders tune.
+
+Round 4 (hybrid, `b2b7774`..`758fe7d`, 0 actionable + 2 Minor): both applied,
+nothing declined. Scored `useful feedback` per EXECUTION.md (b) — one changed
+behaviour — despite the round's own header counting zero actionable.
+
+The truncation finding was correct and understated. `:app`'s panel formats
+these channels with `%.0f` (`color_hue_value`, `color_percent_value`), which
+rounds; the desktop panel used `toInt()`, which truncates — a stored
+saturation of 0.6299 reads 63 there and 62 here. Chasing it turned up the
+larger half the review did not name: `:app` passes `steps = channel.steps` to
+its slider, snapping hue to the degree and saturation/value to the percent,
+and `DesktopThinSlider` had no `steps` parameter at all, so the desktop
+channels were continuous. AGENTS.md is explicit that `HsvChannel` carries
+ranges *and* discrete steps precisely so "visual sliders and accessibility
+adjustments cannot drift"; half of that was being ignored. The slider now
+takes `steps` (0, continuous, for the rail's own size and opacity, which
+`:app`'s `ThinSlider` also leaves continuous), the panel passes
+`channel.steps`, and the readout uses `%.0f` with the same `°` and `%` units
+Android shows. Verified at runtime: the panel reads `Hue 183°`,
+`Saturation 63%`, `Value 70%` after a drag.
+
+The second finding named a duplication this PR created: `paintBudget` solved
+its fit with private copies of the rail's gap, divider and padding, linked to
+`DesktopToolRail`'s own constants by nothing but a comment saying "Mirrors".
+That is the same written-not-enforced pattern rounds 1 and 3 kept turning up,
+and the failure mode is quiet — a budget computed from stale spacing lays out
+paints the rail cannot fit, or overflows paints that would. `DesktopRailGeometry`
+owns the three numbers now; the rail, the budget and the budget's test all
+read them from it.

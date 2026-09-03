@@ -3472,3 +3472,21 @@ that rot silently under unrelated edits while the symbol references beside
 them (`requestRedraw`, `redraw()`) already identify the code. Removed the
 numeric halves; the symbols carry the refutation on their own. The delta
 audit's sample turned up nothing new.
+
+Round 3 (hybrid, `19e17b7`..`8a48ddf`, 1 actionable): one Minor applied,
+nothing declined. GLM flagged that the round-1 palette only mapped
+`primary`/`secondary`/`background`/`surface`/`outline` and error, leaving
+`surfaceContainer*` (and tertiary/inverse) at Compose's stock cool greys —
+which matters because Material3's `AlertDialog` renders on
+`surfaceContainerHigh` and the desktop shell does show one (About). The
+finding under-counted what `ThemeColorPolicy` actually carries
+(`surfaceContainerArgb` and `surfaceContainerHighArgb` are both present,
+alongside error), and the doc-only patch it suggested would leave the
+About dialog looking wrong on purpose. Applied the full mapping instead:
+`DESKTOP_COLOR_SCHEME` now mirrors `bangniColorScheme` from
+`app/src/main/java/ch/lkmc/bangnidraw/ui/theme/Color.kt` role-for-role,
+with the same derivations Android uses (tertiary reuses secondary,
+surface-container family derives from surfaceContainer/High/Variant,
+inverse derives from onSurface/surface). Same convention as the
+CPU/GLSL twin rule in AGENTS.md: when one moves, the other moves in the
+same commit.

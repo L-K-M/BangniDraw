@@ -28,7 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -867,14 +867,17 @@ private fun DesktopEngine.Frame.toImageBitmap(): androidx.compose.ui.graphics.Im
  * engine-core avoids hand-mirroring hex constants and keeps the desktop
  * moving in lockstep with the Android build's theme.
  */
-private val DESKTOP_COLOR_SCHEME = run {
+private val DESKTOP_COLOR_SCHEME: ColorScheme = run {
     val colors = ThemeColorPolicy.colors(AppTheme.SAFFRON)
-    // ThemeColors carries no tertiary or inverse roles yet; Compose will
-    // fall back to stock lightColorScheme defaults for those until the
-    // Android palette grows them. Error roles do exist in policy — pass
-    // them through so a desktop error surface would not silently diverge.
     val errors = ThemeColorPolicy.errorColors(AppTheme.SAFFRON.tone)
-    lightColorScheme(
+    // Mirrors app/src/main/java/ch/lkmc/bangnidraw/ui/theme/Color.kt's
+    // bangniColorScheme — every Material3 role mapped from ThemeColorPolicy
+    // with the same derivations (tertiary reuses secondary; surface-container
+    // family derives from surfaceContainer/High/Variant). AlertDialog and
+    // menus render on surfaceContainerHigh, so a partial mapping shows stock
+    // cool greys against the warm SAFFRON palette. When Android's scheme
+    // grows a role, mirror it here in the same commit.
+    ColorScheme(
         primary = Color(colors.primaryArgb),
         onPrimary = Color(colors.onPrimaryArgb),
         primaryContainer = Color(colors.primaryContainerArgb),
@@ -883,18 +886,46 @@ private val DESKTOP_COLOR_SCHEME = run {
         onSecondary = Color(colors.onSecondaryArgb),
         secondaryContainer = Color(colors.secondaryContainerArgb),
         onSecondaryContainer = Color(colors.onSecondaryContainerArgb),
+        tertiary = Color(colors.secondaryArgb),
+        onTertiary = Color(colors.onSecondaryArgb),
+        tertiaryContainer = Color(colors.secondaryContainerArgb),
+        onTertiaryContainer = Color(colors.onSecondaryContainerArgb),
+        error = Color(errors.errorArgb),
+        onError = Color(errors.onErrorArgb),
+        errorContainer = Color(errors.errorContainerArgb),
+        onErrorContainer = Color(errors.onErrorContainerArgb),
         background = Color(colors.backgroundArgb),
         onBackground = Color(colors.onBackgroundArgb),
         surface = Color(colors.surfaceArgb),
         onSurface = Color(colors.onSurfaceArgb),
         surfaceVariant = Color(colors.surfaceVariantArgb),
         onSurfaceVariant = Color(colors.onSurfaceVariantArgb),
+        surfaceDim = Color(colors.surfaceContainerHighArgb),
+        surfaceBright = Color(colors.surfaceArgb),
+        surfaceContainerLowest = Color(colors.surfaceArgb),
+        surfaceContainerLow = Color(colors.backgroundArgb),
+        surfaceContainer = Color(colors.surfaceContainerArgb),
+        surfaceContainerHigh = Color(colors.surfaceContainerHighArgb),
+        surfaceContainerHighest = Color(colors.surfaceVariantArgb),
         outline = Color(colors.outlineArgb),
         outlineVariant = Color(colors.outlineVariantArgb),
-        error = Color(errors.errorArgb),
-        onError = Color(errors.onErrorArgb),
-        errorContainer = Color(errors.errorContainerArgb),
-        onErrorContainer = Color(errors.onErrorContainerArgb),
+        inverseSurface = Color(colors.onSurfaceArgb),
+        inverseOnSurface = Color(colors.surfaceArgb),
+        inversePrimary = Color(colors.primaryContainerArgb),
+        surfaceTint = Color(colors.primaryArgb),
+        scrim = Color.Black,
+        primaryFixed = Color(colors.primaryContainerArgb),
+        primaryFixedDim = Color(colors.primaryContainerArgb),
+        onPrimaryFixed = Color(colors.onPrimaryContainerArgb),
+        onPrimaryFixedVariant = Color(colors.onPrimaryContainerArgb),
+        secondaryFixed = Color(colors.secondaryContainerArgb),
+        secondaryFixedDim = Color(colors.secondaryContainerArgb),
+        onSecondaryFixed = Color(colors.onSecondaryContainerArgb),
+        onSecondaryFixedVariant = Color(colors.onSecondaryContainerArgb),
+        tertiaryFixed = Color(colors.secondaryContainerArgb),
+        tertiaryFixedDim = Color(colors.secondaryContainerArgb),
+        onTertiaryFixed = Color(colors.onSecondaryContainerArgb),
+        onTertiaryFixedVariant = Color(colors.onSecondaryContainerArgb),
     )
 }
 

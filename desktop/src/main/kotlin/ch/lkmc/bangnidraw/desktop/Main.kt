@@ -869,6 +869,11 @@ private fun DesktopEngine.Frame.toImageBitmap(): androidx.compose.ui.graphics.Im
  */
 private val DESKTOP_COLOR_SCHEME = run {
     val colors = ThemeColorPolicy.colors(AppTheme.SAFFRON)
+    // ThemeColors carries no tertiary or inverse roles yet; Compose will
+    // fall back to stock lightColorScheme defaults for those until the
+    // Android palette grows them. Error roles do exist in policy — pass
+    // them through so a desktop error surface would not silently diverge.
+    val errors = ThemeColorPolicy.errorColors(AppTheme.SAFFRON.tone)
     lightColorScheme(
         primary = Color(colors.primaryArgb),
         onPrimary = Color(colors.onPrimaryArgb),
@@ -886,6 +891,10 @@ private val DESKTOP_COLOR_SCHEME = run {
         onSurfaceVariant = Color(colors.onSurfaceVariantArgb),
         outline = Color(colors.outlineArgb),
         outlineVariant = Color(colors.outlineVariantArgb),
+        error = Color(errors.errorArgb),
+        onError = Color(errors.onErrorArgb),
+        errorContainer = Color(errors.errorContainerArgb),
+        onErrorContainer = Color(errors.onErrorContainerArgb),
     )
 }
 

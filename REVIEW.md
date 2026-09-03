@@ -3428,3 +3428,39 @@ own name promised; now both.
 
 Steady state at round 3: rounds 2 and 3 each raised only test and robustness
 nits, no correctness findings, and nothing was declined in either.
+
+## PR #191 — desktop wet-stroke preview and shared theme (2026-09-03)
+
+Round 1 (full-mode bootstrap, `50e6ccd`, 0 actionable per GLM; one Major and
+one Minor in blockquotes): one applied, one refuted; nothing security-relevant.
+
+- **R-261 ⏸️ (refuted) round 1, Major: "wet stroke may be blended twice on
+  Android".** GLM's claim is that `drawFrame` now folds the wet stroke on all
+  platforms, so if a multi-buffer draw fires mid-stroke while the front layer
+  still holds accumulated stroke, both layers show it and the compositor
+  double-blends. Two independent reasons it does not happen. First, Android
+  does not run `drawFrame` mid-stroke at all: `EngineRenderPolicy.requestRedraw`
+  returns `DEFER` while `strokeActive` is true (line 63 of `EngineRenderPolicy
+  .kt`), and `redraw()` (`EngineSession.kt` line 1357) gates its dispatch on
+  that. Chained COMMIT via `attachmentGate.multiDrawCompleted` only fires when
+  `scenePending` was set — and `requestScene` is only called from `redraw()`
+  and `endStroke()`, both when `strokeActive == false`. At `endStroke` the GL
+  FIFO runs `renderer.endStroke` (clearing the `stroke` field) before
+  `commit()`'s multi-buffered draw fires, so `drawFrame` sees `stroke == null`.
+  Second, even if the two coincided, the front layer is a *full opaque*
+  composite in its drawn region (paper + committed layers + stroke through the
+  same `compositeIntoAccum` used everywhere else), so SurfaceControl composites
+  it over the multi-buffered layer with no source visibility — the case that
+  wet-strokes-only reaches the screen is exactly when the front layer is
+  cleared, which is the flicker window the change was written to close. The
+  suggested `isFrontBufferedLayerActive` conditional would gate against a
+  scenario the architecture already rules out.
+
+- **R-262 ✅ (applied) round 1, Minor: `DESKTOP_COLOR_SCHEME` leaves error/
+  tertiary/inverse roles at stock defaults.** Correct on error: `ThemeColorPolicy`
+  exposes `errorColors(tone)` returning `ErrorColors(error, onError, errorContainer,
+  onErrorContainer)`, and passing those through is the same "no hex mirroring"
+  discipline the palette read already uses. Threaded them. Not applicable to
+  tertiary/inverse: `ThemeColors` carries no such tokens (the Android palette
+  never grew them), so Compose's stock defaults are the only source — a note
+  in the scheme's KDoc says so.

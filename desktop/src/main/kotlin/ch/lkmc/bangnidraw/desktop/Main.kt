@@ -4,43 +4,35 @@ package ch.lkmc.bangnidraw.desktop
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
@@ -49,22 +41,24 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
-import ch.lkmc.bangnidraw.engine.core.BrushPresets
-import ch.lkmc.bangnidraw.engine.core.CanvasPresetId
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.CanvasVoidColorPolicy
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
-import ch.lkmc.bangnidraw.engine.core.HsvColor
+import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HsvSelection
+import ch.lkmc.bangnidraw.engine.core.LayoutSpec
+import ch.lkmc.bangnidraw.engine.core.PaintSlotAssignments
 import ch.lkmc.bangnidraw.engine.core.PointerTool
+import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RgbMixer
 import ch.lkmc.bangnidraw.engine.core.RmwStrokePolicy
-import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
+import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.ThemeColorPolicy
 import ch.lkmc.bangnidraw.engine.core.ToolKind
+import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxBinding
 import ch.lkmc.bangnidraw.input.CanvasInputHost
@@ -72,12 +66,16 @@ import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 import ch.lkmc.bangnidraw.input.FrameScheduler
 import ch.lkmc.bangnidraw.input.PointerSample
 import java.awt.Dimension
+import kotlin.math.roundToInt
 import kotlin.system.exitProcess
 
 /**
- * The desktop shell (DESKTOP.md Phase 2, M4). Minimal by design: canvas,
- * brush picker, color, undo/redo, save. String literals are English v1 —
- * the full string migration is a later, separate effort.
+ * The desktop shell (DESKTOP.md Phase 2, M4). It wears the Android
+ * canvas chrome — a top strip over a full-bleed canvas with the tool rail
+ * floating in the hand's corner (`docs/plan/08-ui-and-layout.md` §3) —
+ * built from the shared [LayoutSpec] rather than a desktop layout of its
+ * own. String literals are English v1: the full string migration is a
+ * later, separate effort.
  *
  * Compositing is DESKTOP.md's architecture 1: the engine renders its
  * offscreen FBO on its own GL thread, the pixels travel here as an
@@ -290,7 +288,6 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
                             engine = engine,
                             frame = frameState.value,
                             canvasSize = canvasSize,
-                            mixboxAttribution = mixboxAttribution,
                             mixer = mixer,
                             onAbout = { showAbout = true },
                         )
@@ -345,24 +342,38 @@ private fun Shell(
     engine: DesktopEngine,
     frame: DesktopEngine.Frame?,
     canvasSize: CanvasSize,
-    mixboxAttribution: MixboxAttribution,
     mixer: ch.lkmc.bangnidraw.engine.core.ColorMixer,
     onAbout: () -> Unit,
 ) {
-    val brushes = remember { DesktopBrushes.loadAll() }
+    val catalogue = remember { DesktopBrushes.loadAll() }
     val prefs = remember { DesktopPrefs() }
     val restoreGate = remember { DesktopPreferenceRestoreGate() }
     androidx.compose.runtime.DisposableEffect(prefs) {
         onDispose { prefs.close() }
     }
-    var selectedBrush by remember { mutableStateOf(brushes.first { it.id == BrushPresets.INK_PEN_ID }) }
-    var brushSize by remember { mutableStateOf(selectedBrush.size) }
+    // Slider edits stay with the preset they were made on, exactly as the
+    // Android rail keeps per-preset tuning; the catalogue is the base copy.
+    var presets by remember { mutableStateOf(catalogue) }
+    var rail by remember { mutableStateOf(DesktopRailPolicy.initial(catalogue)) }
+    // The same durable paint assignments the Android rail keeps: choosing a
+    // preset from the overflow swaps it into the active slot rather than
+    // duplicating it, so every paint stays reachable exactly once.
+    var paintSlots by remember {
+        mutableStateOf(
+            PaintSlotAssignments.restore(
+                DesktopRailPolicy.paints(catalogue).map(BrushPreset::id),
+            ),
+        )
+    }
     var colorSelection by remember {
         mutableStateOf(HsvSelection.fromArgb(DesktopPalette.SWATCHES.first()))
     }
+    val activeBrush = presets.firstOrNull { it.id == rail.selectedId } ?: presets.first()
     val colorArgb = colorSelection.argb
     var savedMessage by remember { mutableStateOf<String?>(null) }
     var preferencesReady by remember { mutableStateOf(false) }
+    var showColorPanel by remember { mutableStateOf(false) }
+    var showHelp by remember { mutableStateOf(false) }
 
     // Input stays disabled until the initial choices are resolved.
     LaunchedEffect(Unit) {
@@ -370,9 +381,11 @@ private fun Shell(
             val brushId = prefs.readBrushId()
             if (restoreGate.allows(DesktopPreferenceKind.Brush)) {
                 brushId?.let { id ->
-                    brushes.firstOrNull { it.id == id }?.let {
-                        selectedBrush = it
-                        brushSize = it.size
+                    rail = DesktopRailPolicy.select(rail, id, presets)
+                    // A restored paint must also occupy the active slot, or
+                    // the rail would show it selected somewhere off screen.
+                    if (rail.selectedId == id && rail.paintSelected()) {
+                        paintSlots = paintSlots.assign(id)
                     }
                 }
             }
@@ -390,15 +403,61 @@ private fun Shell(
 
     val bitmap = remember(frame) { frame?.toImageBitmap() }
     val handler = remember(engine) { DesktopShell.handler(engine) }
+    val tune: (BrushPreset) -> Unit = { tuned ->
+        presets = presets.map { if (it.id == tuned.id) tuned else it }
+    }
+    val selectPreset: (String) -> Unit = { id ->
+        restoreGate.markChanged(DesktopPreferenceKind.Brush)
+        rail = DesktopRailPolicy.select(rail, id, presets)
+        presets.firstOrNull { it.id == id }?.let(prefs::writeBrush)
+    }
 
-    Column(Modifier.fillMaxSize()) {
-        Toolbar(
-            brushSize = brushSize,
-            brushSizeRange = DesktopBrushUi.sizeRange(selectedBrush),
-            onBrushSize = {
-                restoreGate.markChanged(DesktopPreferenceKind.Brush)
-                brushSize = it
-            },
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val widthDp = maxWidth.value.roundToInt()
+        val heightDp = maxHeight.value.roundToInt()
+        val layout = remember(widthDp, heightDp) {
+            DesktopChromeLayout.forWindow(widthDp, heightDp)
+        }
+
+        // The canvas is full-bleed and the chrome floats above it, the same
+        // arrangement `:app`'s CanvasScreen uses: the paper stays centred in
+        // the whole window instead of in a column beside a sidebar.
+        // Pointer px are viewport px, one to one.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .onSizeChanged { size ->
+                    engine.setViewportSize(size.width, size.height)
+                    handler.setViewport(canvasSize, size.width, size.height)
+                }
+                .background(VIEWPORT_VOID),
+        ) {
+            val canvasInput = if (preferencesReady) {
+                Modifier.pointerInput(activeBrush, colorArgb, mixer) {
+                    awaitPointerEvents(handler, activeBrush, colorArgb, mixer)
+                }
+            } else {
+                Modifier
+            }
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = "canvas",
+                    modifier = Modifier.fillMaxSize().then(canvasInput),
+                )
+            }
+        }
+
+        DesktopTopStrip(
+            layout = layout,
+            canUndo = engine.canUndo(),
+            canRedo = engine.canRedo(),
+            brushColor = colorArgb,
+            colorPanelOpen = showColorPanel,
+            savedMessage = savedMessage,
+            onUndo = { engine.undo() },
+            onRedo = { engine.redo() },
+            onColor = { showColorPanel = !showColorPanel },
             onSave = {
                 engine.savePng { result ->
                     val message = when (result) {
@@ -408,196 +467,129 @@ private fun Shell(
                     java.awt.EventQueue.invokeLater { savedMessage = message }
                 }
             },
-            onUndo = { engine.undo() },
-            onRedo = { engine.redo() },
-            canUndo = engine.canUndo(),
-            canRedo = engine.canRedo(),
-            savedMessage = savedMessage,
+            onAbout = onAbout,
+            onHelp = { showHelp = true },
+            modifier = Modifier.align(Alignment.TopCenter),
         )
 
-        Row(Modifier.weight(1f)) {
-            // The canvas viewport: pointer px are viewport px, one to one.
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .onSizeChanged { size ->
-                        engine.setViewportSize(size.width, size.height)
-                        handler.setViewport(canvasSize, size.width, size.height)
-                    }
-                    .background(VIEWPORT_VOID),
-            ) {
-                val canvasInput = if (preferencesReady) {
-                    Modifier.pointerInput(selectedBrush, brushSize, colorArgb, mixer) {
-                        awaitPointerEvents(handler, selectedBrush, brushSize, colorArgb, mixer)
-                    }
-                } else {
-                    Modifier
-                }
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = "canvas",
-                        modifier = Modifier.fillMaxSize().then(canvasInput),
-                    )
-                }
-            }
+        DesktopToolRail(
+            layout = layout,
+            presets = presets,
+            paintSlots = paintSlots,
+            rail = rail,
+            active = activeBrush,
+            windowWidth = maxWidth,
+            windowHeight = maxHeight,
+            onPaintSlot = { index ->
+                paintSlots = paintSlots.activate(index)
+                selectPreset(paintSlots.activePresetId)
+            },
+            onAssignPaint = { preset ->
+                paintSlots = paintSlots.assign(preset.id)
+                selectPreset(preset.id)
+            },
+            onEraserTap = {
+                restoreGate.markChanged(DesktopPreferenceKind.Brush)
+                rail = DesktopRailPolicy.eraserTap(rail, presets)
+                presets.firstOrNull { it.id == rail.selectedId }?.let(prefs::writeBrush)
+            },
+            onSizeChanged = { tune(activeBrush.withSize(it)) },
+            onSecondaryChanged = { tune(ToolSliderPreset.withSecondary(activeBrush, it)) },
+            modifier = Modifier.align(railAlignment(layout)),
+        )
 
-            SidePanel(
-                brushes = brushes,
-                selectedBrush = selectedBrush,
-                onSelectBrush = {
-                    restoreGate.markChanged(DesktopPreferenceKind.Brush)
-                    selectedBrush = it
-                    brushSize = it.size
-                    prefs.writeBrush(it)
-                },
-                onColor = { argb ->
-                    restoreGate.markChanged(DesktopPreferenceKind.Color)
-                    colorSelection = colorSelection.commit(argb)
-                    prefs.writeColor(argb)
-                },
-                colorSelection = colorSelection,
-                onColorSelection = { selection ->
+        DesktopSliderLedge(
+            layout = layout,
+            preset = activeBrush,
+            onSizeChanged = { tune(activeBrush.withSize(it)) },
+            onSecondaryChanged = { tune(ToolSliderPreset.withSecondary(activeBrush, it)) },
+            modifier = Modifier.ledgePlacement(this, layout),
+        )
+
+        if (showColorPanel) {
+            val insets = layout.panelInsets(widthDp, heightDp)
+            DesktopColorPanel(
+                selection = colorSelection,
+                onSelection = { selection ->
                     restoreGate.markChanged(DesktopPreferenceKind.Color)
                     colorSelection = selection
                     prefs.writeColor(selection.argb)
                 },
-                mixboxAttribution = mixboxAttribution,
-                onAbout = onAbout,
+                onSwatch = { argb ->
+                    restoreGate.markChanged(DesktopPreferenceKind.Color)
+                    colorSelection = colorSelection.commit(argb)
+                    prefs.writeColor(argb)
+                },
+                onClose = { showColorPanel = false },
+                modifier = Modifier
+                    .align(
+                        if (layout.panelSide == Hand.RIGHT) {
+                            AbsoluteAlignment.CenterRight
+                        } else {
+                            AbsoluteAlignment.CenterLeft
+                        },
+                    )
+                    .absolutePadding(
+                        left = insets.leftDp.dp,
+                        top = insets.topDp.dp,
+                        right = insets.rightDp.dp,
+                        bottom = insets.bottomDp.dp,
+                    ),
             )
         }
     }
-}
 
-@Composable
-private fun Toolbar(
-    brushSize: Float,
-    brushSizeRange: ClosedFloatingPointRange<Float>,
-    onBrushSize: (Float) -> Unit,
-    onSave: () -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    canUndo: Boolean,
-    canRedo: Boolean,
-    savedMessage: String?,
-) {
-    Row(
-        Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(DesktopBrand.displayName, style = MaterialTheme.typography.titleMedium)
-        Button(onClick = onUndo, enabled = canUndo) { Text("Undo") }
-        Button(onClick = onRedo, enabled = canRedo) { Text("Redo") }
-        Button(onClick = onSave) { Text("Save PNG") }
-        Text("size ${brushSize.toInt()}", style = MaterialTheme.typography.bodySmall)
-        Slider(
-            value = brushSize,
-            onValueChange = onBrushSize,
-            valueRange = brushSizeRange,
-            modifier = Modifier.width(150.dp),
-        )
-        if (savedMessage != null) {
-            Text(
-                savedMessage,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun SidePanel(
-    brushes: List<BrushPreset>,
-    selectedBrush: BrushPreset,
-    onSelectBrush: (BrushPreset) -> Unit,
-    onColor: (Int) -> Unit,
-    colorSelection: HsvSelection,
-    onColorSelection: (HsvSelection) -> Unit,
-    mixboxAttribution: MixboxAttribution,
-    onAbout: () -> Unit,
-) {
-    Column(
-        Modifier.width(230.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text("Brush", style = MaterialTheme.typography.titleSmall)
-        Column(
-            Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            for (brush in brushes) {
-                val label = DesktopBrushUi.label(brush)
-                Button(
-                    onClick = { onSelectBrush(brush) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
+    if (showHelp) {
+        AlertDialog(
+            onDismissRequest = { showHelp = false },
+            title = { Text("Canvas") },
+            text = {
+                // The body is longer than a dialog on a 480 dp window; it
+                // also names the export directory, which is a path someone
+                // will want to copy rather than retype.
+                SelectionContainer {
                     Text(
-                        if (brush.id == selectedBrush.id) "▸ " + label else label,
-                        maxLines = 1,
+                        DesktopHelp.canvasBody(),
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
                     )
                 }
-            }
-        }
-
-        Text("Color", style = MaterialTheme.typography.titleSmall)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(DesktopPalette.SWATCHES) { swatch ->
-                Box(
-                    Modifier
-                        .size(26.dp)
-                        .background(Color(swatch))
-                        .border(1.dp, Color.White.copy(alpha = 0.4f))
-                        .pointerInput(swatch) {
-                            awaitPointerEventsSwatch(swatch, onColor)
-                        },
-                )
-            }
-        }
-
-        HsvSliders(colorSelection, onColorSelection)
-
-        Text(
-            "Strokes save to\n${DesktopPlatform.picturesDir()}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            },
+            confirmButton = {
+                Button(onClick = { showHelp = false }) { Text("Close") }
+            },
         )
-        if (mixboxAttribution == MixboxAttribution.Included) {
-            Text(
-                "Pigment mixing: Mixbox © Secret Weapons,\nCC BY-NC 4.0 — non-commercial.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Button(onClick = onAbout) { Text("About") }
     }
 }
 
-@Composable
-private fun HsvSliders(
-    selection: HsvSelection,
-    onSelection: (HsvSelection) -> Unit,
-) {
-    val hsv = selection.hsv
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Slider(
-            value = hsv.h,
-            onValueChange = { h -> onSelection(selection.commit(HsvColor(h, hsv.s, hsv.v))) },
-            valueRange = 0f..HUE_MAX_DEGREES,
+/** The rail hugs the hand's bottom corner, or the window's foot when docked. */
+private fun railAlignment(layout: LayoutSpec): Alignment = when {
+    layout.railMode == RailMode.DOCK -> Alignment.BottomCenter
+    layout.railSide == Hand.RIGHT -> Alignment.BottomEnd
+    else -> Alignment.BottomStart
+}
+
+/**
+ * The ledge fills the strip of window the rail leaves free: beside a
+ * full-height SHORT rail, above a DOCK. [DesktopSliderLedge] draws nothing
+ * in the modes whose sliders live in the rail, so this placement is inert
+ * there.
+ */
+private fun Modifier.ledgePlacement(scope: BoxScope, layout: LayoutSpec): Modifier = with(scope) {
+    val docked = layout.railMode == RailMode.DOCK
+    val railWidth = if (docked) 0.dp else layout.railWidthDp.dp
+    return this@ledgePlacement
+        .align(
+            when {
+                docked -> Alignment.BottomCenter
+                layout.railSide == Hand.RIGHT -> AbsoluteAlignment.BottomLeft
+                else -> AbsoluteAlignment.BottomRight
+            },
         )
-        Slider(
-            value = hsv.s,
-            onValueChange = { s -> onSelection(selection.commit(HsvColor(hsv.h, s, hsv.v))) },
-            valueRange = 0f..1f,
+        .absolutePadding(
+            left = if (!docked && layout.railSide == Hand.LEFT) railWidth else 0.dp,
+            right = if (!docked && layout.railSide == Hand.RIGHT) railWidth else 0.dp,
+            bottom = if (docked) DOCK_HEIGHT + LEDGE_GAP else LEDGE_GAP,
         )
-        Slider(
-            value = hsv.v,
-            onValueChange = { v -> onSelection(selection.commit(HsvColor(hsv.h, hsv.s, v))) },
-            valueRange = 0f..1f,
-        )
-    }
 }
 
 // ------------------------------------------------------------- input glue
@@ -611,12 +603,13 @@ private fun HsvSliders(
 private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPointerEvents(
     handler: CanvasTouchHandler,
     preset: BrushPreset,
-    size: Float,
     colorArgb: Int,
     mixer: ch.lkmc.bangnidraw.engine.core.ColorMixer,
 ) {
     val sample = PointerSample()
-    DesktopShell.tool = DesktopShell.Tool(preset.copy(size = size), colorArgb, mixer)
+    // The preset already carries the rail sliders' tuning; the gesture must
+    // not re-derive it from a second copy of the size.
+    DesktopShell.tool = DesktopShell.Tool(preset, colorArgb, mixer)
 
     try {
         awaitPointerEventScope {
@@ -939,7 +932,6 @@ private const val RGBA_BYTES = 4
 private const val MOUSE_POINTER_ID = 0
 private const val SYNTHETIC_PRESSURE = 1f
 private const val SCROLL_PIXELS_PER_TICK = 40f
-private const val HUE_MAX_DEGREES = 360f
 private const val CANVAS_EDGE = 2048
 private const val VERIFY_RUNTIME_FLAG = "--verify-runtime"
 private const val GL_REPORT_FLAG = "--gl-report"
@@ -947,8 +939,13 @@ private const val SMOKE_STARTUP_FAILURE_FLAG = "--smoke-startup-failure"
 private const val SMOKE_WINDOW_FLAG = "--smoke-window"
 private const val INITIAL_GL_WIDTH = 1
 private const val INITIAL_GL_HEIGHT = 1
-private const val WINDOW_MIN_W = 960
-private const val WINDOW_MIN_H = 600
+private val DOCK_HEIGHT = 56.dp
+private val LEDGE_GAP = 8.dp
+// The old floor existed for a fixed 230 dp sidebar beside a toolbar row.
+// The chrome is adaptive now — LayoutSpec shortens the rail, then docks it —
+// so the window may be as small as one a person could still draw in.
+private const val WINDOW_MIN_W = 640
+private const val WINDOW_MIN_H = 480
 
 internal object DesktopGlDiagnostics {
     private const val HEADLINE = "OpenGL ES 3.0 is unavailable."

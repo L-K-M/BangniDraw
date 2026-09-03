@@ -129,6 +129,7 @@ import ch.lkmc.bangnidraw.engine.core.TilePresence
 import ch.lkmc.bangnidraw.engine.core.presenceOf
 import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ToolSelection
+import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.ToolSwitcher
 import ch.lkmc.bangnidraw.engine.core.TouchDrawingMode
 import ch.lkmc.bangnidraw.engine.core.TracingReference
@@ -1701,13 +1702,7 @@ class CanvasViewModel @Inject constructor(
     fun updateActiveToolSecondary(value: Float) {
         when (val kind = toolSwitcher.selection.value.kind) {
             is ToolKind.Brush -> updateActiveBrush { preset ->
-                if (preset.watercolor == null) {
-                    preset.withOpacity(value)
-                } else {
-                    preset.copy(
-                        flow = if (value.isNaN()) preset.flow else value.coerceIn(0f, 1f),
-                    )
-                }
+                ToolSliderPreset.withSecondary(preset, value)
             }
             is ToolKind.Smudge -> updateSmudgeParams(kind.params.copy(strength = value))
             is ToolKind.Water -> updateWaterParams(kind.params.withWaterLoad(value))

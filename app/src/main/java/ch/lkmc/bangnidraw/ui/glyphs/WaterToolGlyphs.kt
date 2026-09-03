@@ -1,4 +1,4 @@
-package ch.lkmc.bangnidraw.ui.canvas
+package ch.lkmc.bangnidraw.ui.glyphs
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -6,7 +6,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
-/** The watercolor preset combines a brush silhouette with a separate drop. */
+/**
+ * The watercolor preset combines a brush silhouette with a separate drop.
+ *
+ * Shared with `:desktop` exactly as [ToolGlyphs] is; the same rule applies.
+ */
 internal object WaterToolGlyphs {
     private val ICON_SIZE = 24.dp
     private const val ICON_VIEWPORT = 24f

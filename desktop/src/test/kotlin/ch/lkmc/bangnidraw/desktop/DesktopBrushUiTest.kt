@@ -16,25 +16,29 @@ class DesktopBrushUiTest {
     }
 
     @Test
-    fun `the whole side panel scrolls at the minimum window height`() {
-        val main =
-            repoFile("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
+    fun `the rail's tool column scrolls rather than clipping presets`() {
+        val rail =
+            repoFile("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopToolRail.kt")
                 .readText(Charsets.UTF_8)
-        val start = "private fun SidePanel("
-        val end = "private fun HsvSliders("
-        require(start in main && end in main) { "SidePanel source markers not found" }
-        val panel =
-            main.substringAfter(start)
-                .substringBefore(end)
-                .replace(Regex("\\s+"), "")
+        val start = "internal fun DesktopToolRail("
+        val end = "internal fun DesktopSliderLedge("
+        require(start in rail && end in rail) { "DesktopToolRail source markers not found" }
+        val column = rail.substringAfter(start).substringBefore(end).replace(Regex("\\s+"), "")
 
+        // The Android rail overflows extra presets into a settings sheet this
+        // shell has no equivalent of, so at the 600 dp minimum height the
+        // column must give instead of pushing icons off the window.
         assertTrue(
-            panel.contains("fillMaxSize().verticalScroll(rememberScrollState())"),
-            "the entire side panel must scroll at the 600dp minimum height",
+            column.contains(".weight(1f,fill=false).verticalScroll(rememberScrollState())"),
+            "the rail's tool column must scroll at the 600dp minimum height",
         )
-        assertFalse(
-            panel.contains("height(240.dp).verticalScroll"),
-            "the brush list must not own a clipped nested scroll region",
+        // Exactly one scroll region: a second one on the rail's outer column
+        // would take the sliders with it, and they are the tuning a stroke in
+        // progress needs within reach.
+        assertEquals(
+            1,
+            Regex("verticalScroll").findAll(column).count(),
+            "only the rail's tool column may scroll",
         )
     }
 

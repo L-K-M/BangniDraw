@@ -37,6 +37,47 @@ class ToolSliderPresetTest {
     }
 
     @Test
+    fun `the secondary slider writes back to the field it reads`() {
+        val paint = BrushPresets.INK_PEN.copy(opacity = 1f, flow = 0.4f)
+        val watercolor = BrushPresets.INK_PEN.copy(
+            opacity = 1f,
+            flow = 0.35f,
+            mixing = true,
+            watercolor = WatercolorBehavior(),
+            bufferMode = BufferMode.Accumulate,
+        )
+
+        val tunedPaint = ToolSliderPreset.withSecondary(paint, 0.25f)
+        val tunedWatercolor = ToolSliderPreset.withSecondary(watercolor, 0.25f)
+
+        assertEquals(0.25f, tunedPaint.opacity)
+        assertEquals(paint.flow, tunedPaint.flow)
+        assertEquals(0.25f, ToolSliderPreset.secondaryValue(ToolKind.Brush(tunedPaint)))
+        // A watercolor preset's opacity is an invariant, so the edit lands on flow.
+        assertEquals(0.25f, tunedWatercolor.flow)
+        assertEquals(1f, tunedWatercolor.opacity)
+        assertEquals(0.25f, ToolSliderPreset.secondaryValue(ToolKind.Brush(tunedWatercolor)))
+    }
+
+    @Test
+    fun `the secondary slider clamps and ignores a NaN`() {
+        val paint = BrushPresets.INK_PEN.copy(opacity = 0.6f)
+        val watercolor = BrushPresets.INK_PEN.copy(
+            opacity = 1f,
+            flow = 0.35f,
+            mixing = true,
+            watercolor = WatercolorBehavior(),
+            bufferMode = BufferMode.Accumulate,
+        )
+
+        assertEquals(1f, ToolSliderPreset.withSecondary(paint, 4f).opacity)
+        assertEquals(0f, ToolSliderPreset.withSecondary(paint, -1f).opacity)
+        assertEquals(0.6f, ToolSliderPreset.withSecondary(paint, Float.NaN).opacity)
+        assertEquals(1f, ToolSliderPreset.withSecondary(watercolor, 4f).flow)
+        assertEquals(0.35f, ToolSliderPreset.withSecondary(watercolor, Float.NaN).flow)
+    }
+
+    @Test
     fun `smudge sliders carry the params the stroke will use`() {
         val params = SmudgeParams(size = 60f, strength = 0.3f)
 

@@ -77,6 +77,26 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   creation, destruction, and termination stay on the process main thread; the
   GL thread activates either context and owns the mandatory LWJGL
   `GLES.createCapabilities()`.
+  **Its chrome is the Android canvas chrome, not a desktop layout of its
+  own:** a 48 dp top strip over a full-bleed canvas, the tool rail floating in
+  the hand's corner, a floating colour panel — every dimension from the shared
+  `LayoutSpec` (`DesktopChromeLayout.forWindow`), the button colours from
+  `ToolRailColorPolicy`, the paint slots from `PaintSlotAssignments` /
+  `RailSlotPolicy`, the glyphs from the one copy under
+  `app/src/main/java/ch/lkmc/bangnidraw/ui/glyphs/`, which `:desktop` compiles
+  through a `kotlin.srcDir` (keep that directory free of `android.*`, which is
+  what makes the sharing possible). `compose.materialIconsExtended` is the
+  desktop twin of `:app`'s `material-icons-extended`. All four rail modes are
+  live, so the window minimum is 640×480 rather than the old sidebar's 960×600.
+  What the desktop chrome deliberately omits is only what this shell cannot
+  do: Back and Layers (one painting, one layer, no Studio) and the five
+  secondary tools (no engine path). Its own rail budget
+  (`DesktopRailPolicy.paintBudget`) exists because `LayoutSpec.paintSlotBudget`
+  reserves six non-paint slots for those tools and stops computing outside
+  FULL; the paints past the budget go to a menu on the rail, since the
+  settings sheet Android overflows them into does not exist here. A long-press
+  is not a mouse gesture, so the eraser slot's *second* click is what swaps
+  hard for soft eraser.
   Rendering is engine → offscreen FBO → glReadPixels → Compose image
   (DESKTOP.md architecture 1), mouse → PointerSample records, in-memory undo
   from the readback mirror, JVM DataStore prefs, and Save PNG to
@@ -328,7 +348,11 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   Bodies are one blank-line-separated paragraph per control, and must state
   the non-obvious interaction (long-press, second-tap) the surface hides.
   The canvas overflow's Help is the one surface with no section string of
-  its own; its dialog title is `help_canvas_title`.
+  its own; its dialog title is `help_canvas_title`. The desktop shell has no
+  string resources yet, so its overflow Help reads `DesktopHelp.canvasBody` —
+  same rule, same duty to state the non-obvious interaction (the eraser's
+  second click, the right button erasing) and to carry the export directory
+  the icon rail no longer prints.
 - **Greyscale ARGB cannot encode hue.** `ColorPanel` keeps an `HsvSelection`;
   panel-originated ARGB echoes must not reconstruct HSV, while external colors
   must. Do not key the selection state directly to the current ARGB.

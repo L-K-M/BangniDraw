@@ -178,6 +178,10 @@ dependencies {
 
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
+    // The rail and top strip wear the same Material glyphs the Android
+    // chrome does; the multiplatform artifact is the desktop twin of
+    // :app's androidx.compose.material:material-icons-extended.
+    implementation(compose.materialIconsExtended)
     implementation(compose.foundation)
     implementation(compose.ui)
 
@@ -208,6 +212,11 @@ dependencies {
 // stays Android-only.
 sourceSets.main {
     resources.srcDir(project.file("../app/src/main/assets"))
+
+    // The repo-owned tool silhouettes are Compose-only (no android.*), so the
+    // one copy under :app compiles into the desktop shell too rather than
+    // being transcribed: the two rails must never drift apart on artwork.
+    kotlin.srcDir(project.file("../app/src/main/java/ch/lkmc/bangnidraw/ui/glyphs"))
 }
 
 tasks.processResources {

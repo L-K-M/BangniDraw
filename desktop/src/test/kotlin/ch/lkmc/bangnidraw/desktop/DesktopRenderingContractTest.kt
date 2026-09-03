@@ -9,14 +9,20 @@ import kotlin.test.assertTrue
 class DesktopRenderingContractTest {
 
     @Test
-    fun `the full side panel scrolls at minimum window height`() {
+    fun `the chrome is the shared adaptive layout, not a desktop-only one`() {
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
-        check("private fun SidePanel(" in main && "private fun HsvSliders(" in main) { "SidePanel markers not found" }
-        val panel = main.substringAfter("private fun SidePanel(")
-            .substringBefore("private fun HsvSliders(")
+        check("private fun Shell(" in main && "private fun railAlignment(" in main) { "Shell markers not found" }
+        val shell = main.substringAfter("private fun Shell(").substringBefore("private fun railAlignment(")
 
-        assertTrue(panel.contains("fillMaxSize().verticalScroll(rememberScrollState())"))
-        assertFalse(panel.contains("Modifier.height(240.dp).verticalScroll"))
+        // Every rail/strip/panel dimension comes from LayoutSpec, so the two
+        // products cannot drift apart on geometry.
+        assertTrue(shell.contains("DesktopChromeLayout.forWindow(widthDp, heightDp)"))
+        assertTrue(shell.contains("DesktopTopStrip("))
+        assertTrue(shell.contains("DesktopToolRail("))
+        assertTrue(shell.contains("layout.panelInsets(widthDp, heightDp)"))
+        // The old shell put the canvas in a row beside a fixed sidebar; the
+        // Android chrome floats over a full-bleed canvas instead.
+        assertFalse(shell.contains("SidePanel("))
     }
 
     @Test
@@ -53,16 +59,18 @@ class DesktopRenderingContractTest {
     }
 
     @Test
-    fun `empty canvas fills the row before its first frame`() {
+    fun `empty canvas fills the window before its first frame`() {
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
-        check("// The canvas viewport" in main && "SidePanel(" in main) { "canvas markers not found" }
+        check("// The canvas is full-bleed" in main && "DesktopTopStrip(" in main) { "canvas markers not found" }
         val canvas = main
-            .substringAfter("// The canvas viewport")
-            .substringBefore("SidePanel(")
+            .substringAfter("// The canvas is full-bleed")
+            .substringBefore("DesktopTopStrip(")
 
+        // The viewport reports its size to the engine from onSizeChanged, so
+        // it must be measured even while `bitmap` is still null.
         assertTrue(
-            canvas.replace(Regex("\\s+"), " ").contains(".weight(1f) .fillMaxHeight()"),
-            "the empty canvas must have height before its bitmap exists",
+            canvas.replace(Regex("\\s+"), " ").contains("Modifier .fillMaxSize() .onSizeChanged"),
+            "the empty canvas must have size before its bitmap exists",
         )
     }
 

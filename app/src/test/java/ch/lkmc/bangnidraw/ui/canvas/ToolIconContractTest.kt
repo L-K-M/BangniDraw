@@ -1,5 +1,7 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import ch.lkmc.bangnidraw.ui.glyphs.ToolGlyphs
+import ch.lkmc.bangnidraw.ui.glyphs.WaterToolGlyphs
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals

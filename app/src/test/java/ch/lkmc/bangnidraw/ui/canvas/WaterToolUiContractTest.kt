@@ -1,7 +1,12 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import ch.lkmc.bangnidraw.engine.core.BrushPresets
+import ch.lkmc.bangnidraw.engine.core.BufferMode
+import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
+import ch.lkmc.bangnidraw.engine.core.WatercolorBehavior
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -98,15 +103,27 @@ class WaterToolUiContractTest {
 
     @Test
     fun `watercolor quick secondary updates flow`() {
-        val source = source(CANVAS_VIEW_MODEL_PATH)
-        val update = source
+        val update = source(CANVAS_VIEW_MODEL_PATH)
             .substringAfter("fun updateActiveToolSecondary(value: Float)")
             .substringBefore("internal fun adjustBrushSize")
 
-        assertTrue("if (preset.watercolor == null)" in update)
-        assertTrue("preset.withOpacity(value)" in update)
-        assertTrue("preset.copy(" in update)
-        assertTrue("flow = if (value.isNaN()) preset.flow" in update)
+        // The rule lives in engine-core so the desktop rail's secondary
+        // slider cannot drift from this one; the ViewModel routes through it
+        // rather than keeping a second copy of the watercolor branch.
+        assertTrue("ToolSliderPreset.withSecondary(preset, value)" in update)
+
+        val watercolor = BrushPresets.INK_PEN.copy(
+            opacity = 1f,
+            flow = 0.35f,
+            mixing = true,
+            watercolor = WatercolorBehavior(),
+            bufferMode = BufferMode.Accumulate,
+        )
+        val tuned = ToolSliderPreset.withSecondary(watercolor, 0.25f)
+
+        assertEquals(0.25f, tuned.flow)
+        assertEquals(watercolor.opacity, tuned.opacity)
+        assertEquals(0.6f, ToolSliderPreset.withSecondary(watercolor.copy(watercolor = null), 0.6f).opacity)
     }
 
     private fun source(path: String): String = File(repositoryRoot(), path).readText()

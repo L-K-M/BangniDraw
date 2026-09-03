@@ -3508,3 +3508,230 @@ reviewer's suggested doc-only remediation. Rewrote the opening.
   pins for CPU/GLSL pairs (and now for the two schemes) covers the drift
   risk until a Compose-visible shared module earns its keep on other work;
   filed as a proposal candidate for that day.
+
+## PR #192 — the desktop shell wears the Android canvas chrome (2026-09-03)
+
+Round 1 (full, `2e0d4a0`, 6 actionable + 14 minor + 3 info): most applied,
+three declined or refuted below. CI was green before and after.
+
+Applied: the colour swatches became `clickable` (they were a raw pointer loop
+with no focus, no Enter/Space, and a press handler that fired on *any* mouse
+button); the tooltip anchor became a parameter so the bottom dock anchors
+`Above` instead of `Left`, where a tooltip would cover its neighbours and clip
+at the window edge; the rotated slider pins its own 48 dp slab rather than
+inheriting whatever Material measures; hex formatting takes `Locale.ROOT`; the
+strip's saved-path message became a polite live region; the strip's colour
+swatch draws a rounded background instead of a square rect under a rounded
+border; `paintBudget` counts the assignments the rail lays out rather than the
+catalogue; the rail derives its active preset from `rail.selectedId` instead of
+taking a second, independently-passed one; the ledge and the rail's foot share
+one slider pair; `DesktopRailPolicy.initial` orders the paints once; the two
+source-contract tests extract their regions with ordered `indexOf` rather than
+`substringAfter`/`substringBefore`, which silently return the rest of the file
+when the end marker does not follow the start one; and the stale "600 dp
+minimum" text went with the 640×480 minimum this PR introduced.
+
+Two findings were right about a duplication this PR had left in place, and the
+fix went to the root rather than the desktop copy: the `BrushToolGlyph →
+ImageVector` mapping now lives in the shared `ui/glyphs/` directory that both
+modules compile, so `:app`'s rail and `:desktop`'s cannot drift on artwork
+(`ToolIconContractTest` follows it there); and `LayoutSpec` exposes
+`DOCK_HEIGHT_DP`, which the two rails and the slider ledge now read instead of
+keeping three copies of `56.dp`.
+
+- **R-265 ⏸️ (deferred) round 1, Major: the 37.8 MB deprecated
+  `compose.materialIconsExtended` ships while the decision is recorded as
+  open.** The size and the deprecation are both real and both this PR's doing.
+  The reviewer's own remediation prompt names the obstacle: Material Symbols
+  are Apache-2.0, and AGENTS.md requires third-party assets to be public
+  domain / CC0 — so vendoring the eleven extended-only glyphs needs a policy
+  exception, not a refactor. It also has to cover *both* rails to be worth
+  doing, since `:app` keeps the artifact for its other screens and a
+  desktop-only vendoring would reintroduce exactly the artwork drift the
+  shared `ui/glyphs/` directory just removed. Filed as
+  `docs/proposals/0005-desktop-icon-artifact.md` with the four options and a
+  recommendation (keep it until DESKTOP.md Phase 4, when distribution size
+  first has an audience), which is this repo's mechanism for an open
+  pre-decision — better than the `TODO(product)` the review suggested, because
+  a proposal carries the reasoning and a status.
+- **R-266 ⏸️ (declined) round 1, Minor: scope `DesktopColorPanel`'s
+  `liveRegion` to the hex readout so a slider drag does not re-announce the
+  whole panel.** The concern is real in isolation, but the panel-level
+  `liveRegion` + `paneTitle` pair is copied from `:app`'s `PanelHost`, which
+  hosts the Android `ColorPanel` — sliders and all — under the same
+  arrangement. Changing only the desktop copy would make the two panels
+  announce differently, which is the drift this PR exists to remove. If the
+  chatter is a real defect it is an Android defect first, and the fix belongs
+  in both surfaces on a PR that can verify the Android half on a device; this
+  one cannot.
+- **R-267 ⏸️ (refuted) round 1, Major: the Mixbox attribution was removed with
+  the side panel.** It was not. `DesktopAbout.body(MixboxAttribution.Included)`
+  returns "Mixbox © Secret Weapons, CC BY-NC 4.0 — non-commercial.", the About
+  dialog renders it, and `DesktopApplication` still computes and passes the
+  flag; only the sidebar's *duplicate* went away. AGENTS.md names the three
+  places the attribution must live — the About string, the README and
+  `third-party/mixbox/` — and all three are intact. Verified at runtime, not
+  just by reading: the About dialog was screenshotted showing the notice
+  during this PR's headless verification run. `DesktopAboutTest` pins both
+  halves (included carries "Mixbox" and "CC BY-NC 4.0", stripped carries
+  neither).
+- **R-268 ⏸️ (declined) round 1, Minor: `distinctBy` before `associateBy` so a
+  duplicate preset id cannot collapse a rail slot.** Duplicate ids cannot
+  reach the rail: `PaintSlotAssignments.restore` already *requires* distinct
+  ids and throws, and it runs first, on the same list. A silent `distinctBy`
+  downstream would hide a violation the constructor is there to surface. The
+  reviewer's own prompt offers this reading ("If uniqueness is already
+  enforced, an explicit require would be even better than the silent
+  distinctBy") — it is, and it already exists.
+
+Follow-up suggestions, out of scope here: `:app`'s `TopStrip` draws its colour
+swatch with the same square `drawRect` under a rounded border that was fixed on
+the desktop side, and would benefit from the same rounded background; and
+`Icons.Filled.Draw` (pencil) and `Icons.Filled.Create` (ink pen) are similar
+silhouettes at rail size on both platforms — a pre-existing Android mapping
+this PR only mirrors, worth a look when the rail's artwork is next revisited.
+
+Round 2 (hybrid, `2e0d4a0`..`1f89ac3`, 1 actionable): all applied, nothing
+declined. The round's own summary called the round-1 delta clean; what it
+found was in the seams that delta opened.
+
+Two were coverage this PR had broken or left thin. Moving the glyph mapping to
+`BrushGlyphs.kt` had retargeted the `DeleteSweep` / `Icons.Filled.Highlight`
+bans from the whole of `ToolRail.kt` to the glyph file alone — but the
+historical bug those bans exist for was a *tool* button wearing `DeleteSweep`,
+and tool buttons still live in the rail, so the net had a hole exactly where
+it was first dug. Both scopes are asserted now. And `withSecondary`'s
+watercolor branch was pinned at its upper clamp and its NaN guard but not its
+lower one; it is now.
+
+The substantive one was outside the diff: round 1 removed the rail's `active`
+parameter because two independently-supplied values could disagree about which
+preset the sliders tune — and left `DesktopSliderLedge` taking exactly such a
+value from `Shell`. They agreed in practice, but not by construction, and the
+fallbacks already differed (`firstOrNull` in the rail, `?: presets.first()` in
+`Shell`). `DesktopRailPolicy.activePreset` is the single derivation now, called
+by both, with its own test. Applying only half of round 1's fix was the defect;
+the reviewer found the half left standing.
+
+Also applied: a note in `withSecondary` saying where a NaN comes from (an
+unmeasured slider track divides by a zero width), a comment pinning that
+`DesktopBrushUi.sizeRange` is identity with the preset's own bounds — which
+`DesktopBrushUiTest` already asserts for every shipped preset, so the round-1
+slider unification was deduplication rather than a behaviour change — and a
+failure message that now names `BrushGlyphs.kt` instead of the rail it no
+longer scans.
+
+One contract assertion moved with the code it pins: `if (preferencesReady)`
+became `if (preferencesReady && activeBrush != null)`, so the test now matches
+on the gate's opening rather than its exact spelling. The claim is unchanged —
+input stays dead until the restored brush and colour resolve.
+
+Round 3 (hybrid, `1f89ac3`..`b2b7774`, 2 actionable): both applied, nothing
+declined. Scored `useful feedback` per EXECUTION.md (b) — the contract-test
+finding closed a hole, so this is not a `nits only` exit.
+
+`WaterToolUiContractTest` still extracted its region with bare
+`substringAfter`/`substringBefore`, which return the *whole receiver* when a
+delimiter is missing. Round 2 fixed exactly this class of hazard in the two
+desktop contract tests and missed the one in `:app` — so a renamed
+`updateActiveToolSecondary` would have widened the window to the entire file
+and let `"ToolSliderPreset.withSecondary(preset, value)"` match a call that had
+moved somewhere else, which is precisely the regression the test exists to
+catch. It now uses the `section` helper the file already owned, which asserts
+both anchors and names the missing one.
+
+The Info was sharper than its severity: round 2's REVIEW.md entry claimed
+`activePreset` was "the single derivation now, called by both", while a third
+site — the eraser tap's persistence — still re-derived the lookup inline. The
+asymmetry was deliberate and undocumented, which is the worst of both: a later
+refactor trusting that claim would have swapped it for `activePreset` and
+started persisting the stale-selection fallback. There is now one
+`persistBrush` used by both persistence sites, carrying the reason it is *not*
+`activePreset` — persistence names the brush the user picked, never the
+fallback the sliders tune.
+
+Round 4 (hybrid, `b2b7774`..`758fe7d`, 0 actionable + 2 Minor): both applied,
+nothing declined. Scored `useful feedback` per EXECUTION.md (b) — one changed
+behaviour — despite the round's own header counting zero actionable.
+
+The truncation finding was correct and understated. `:app`'s panel formats
+these channels with `%.0f` (`color_hue_value`, `color_percent_value`), which
+rounds; the desktop panel used `toInt()`, which truncates — a stored
+saturation of 0.6299 reads 63 there and 62 here. Chasing it turned up the
+larger half the review did not name: `:app` passes `steps = channel.steps` to
+its slider, snapping hue to the degree and saturation/value to the percent,
+and `DesktopThinSlider` had no `steps` parameter at all, so the desktop
+channels were continuous. AGENTS.md is explicit that `HsvChannel` carries
+ranges *and* discrete steps precisely so "visual sliders and accessibility
+adjustments cannot drift"; half of that was being ignored. The slider now
+takes `steps` (0, continuous, for the rail's own size and opacity, which
+`:app`'s `ThinSlider` also leaves continuous), the panel passes
+`channel.steps`, and the readout uses `%.0f` with the same `°` and `%` units
+Android shows. Verified at runtime: the panel reads `Hue 183°`,
+`Saturation 63%`, `Value 70%` after a drag.
+
+The second finding named a duplication this PR created: `paintBudget` solved
+its fit with private copies of the rail's gap, divider and padding, linked to
+`DesktopToolRail`'s own constants by nothing but a comment saying "Mirrors".
+That is the same written-not-enforced pattern rounds 1 and 3 kept turning up,
+and the failure mode is quiet — a budget computed from stale spacing lays out
+paints the rail cannot fit, or overflows paints that would. `DesktopRailGeometry`
+owns the three numbers now; the rail, the budget and the budget's test all
+read them from it.
+
+Round 5 (hybrid, `758fe7d`..`9cd205b`, 0 actionable + 1 Minor): applied,
+nothing declined. Scored **`nits only`** per EXECUTION.md (d) — the one finding
+changed no behaviour, closed no hole and corrected no false claim; the two 8 dp
+constants held identical values, so the fix is dedup, not repair. Under the
+one-round thresholds this ends the loop.
+
+The finding: `LayoutSpec` kept `private const val LEDGE_GAP_DP = 8f` while
+`Main.kt` declared `private val LEDGE_GAP = 8.dp`, the same gap named twice —
+the ledge floating above the docked rail — linked by nothing but coincidence
+of value. Round 4 had just fixed this pattern for the rail spacing and round 4's
+own `DOCK_HEIGHT_DP` promotion for the dock height; this was the third instance
+and the reviewer was right that the delta which fixed the class had left a
+member of it standing. `LEDGE_GAP_DP` is public now and the shell reads it.
+
+Noticed while checking the claim, not raised and not fixed here: in SHORT mode
+`LayoutSpec.persistentChrome` models the ledge flush to the window bottom while
+the shell insets it by `LEDGE_GAP`, so a panel reserves marginally more than
+the widget occupies. Over-reservation is the safe direction and the rendered
+result looks right, but the two descriptions of SHORT's ledge are not identical.
+Worth reconciling when the ledge is next touched.
+
+### Scorecard — PR #192
+
+| Round | Scope | Score | Outcome |
+| --- | --- | --- | --- |
+| 1 | full, `2e0d4a0` | `useful feedback` | 6 major + 14 minor + 3 info; most applied, 1 refuted, 2 declined, 1 deferred to a proposal |
+| 2 | hybrid → `1f89ac3` | `useful feedback` | all applied; one half-applied round-1 fix completed |
+| 3 | hybrid → `b2b7774` | `useful feedback` | both applied; a contract test could false-pass |
+| 4 | hybrid → `758fe7d` | `useful feedback` | both applied; HSV snapping and formatting drifted from `:app` |
+| 5 | hybrid → `9cd205b` | `nits only` | one dedup; **loop ends** |
+
+Real: the colour swatches were unreachable by keyboard and fired on any mouse
+button; the dock's tooltips would have clipped off-window; the HSV channels
+neither snapped nor rounded as Android's do; a contract test could pass on a
+call that had moved; and four separate copies of shared geometry (glyph
+mapping, dock height, rail spacing, ledge gap) were held together by comments
+rather than by code.
+
+Refuted: the Mixbox CC BY-NC attribution was never removed (R-267) — it lives
+in the About dialog, screenshotted showing it during this PR's own
+verification run.
+
+Declined: the panel-level live region (R-266, mirrors `:app`'s `PanelHost`;
+changing one copy is the drift this PR removes) and a `distinctBy` guard
+(R-268, `PaintSlotAssignments.restore` already requires distinct ids and
+throws first).
+
+Deferred: the 37.8 MB deprecated icon artifact (R-265) →
+`docs/proposals/0005-desktop-icon-artifact.md`, because vendoring the eleven
+extended-only glyphs needs an asset-policy exception the repo does not
+currently grant. Raised with the user directly as well.
+
+Follow-ups owed to a later PR: `:app`'s `TopStrip` colour swatch has the same
+square-fill-under-rounded-border artifact fixed here; `Icons.Filled.Draw` and
+`Icons.Filled.Create` are similar silhouettes at rail size on both platforms;
+and the SHORT ledge discrepancy noted above.

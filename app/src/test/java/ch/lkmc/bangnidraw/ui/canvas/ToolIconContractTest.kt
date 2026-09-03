@@ -1,5 +1,7 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
+import ch.lkmc.bangnidraw.ui.glyphs.ToolGlyphs
+import ch.lkmc.bangnidraw.ui.glyphs.WaterToolGlyphs
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -12,29 +14,38 @@ class ToolIconContractTest {
     @Test
     fun `ambiguous tools use purpose-built silhouettes`() {
         val rail = source(TOOL_RAIL_PATH)
+        // The mapping is one shared file now, compiled by :app and :desktop
+        // alike, so neither rail can drift from the other on artwork.
+        val glyphs = source(BRUSH_GLYPHS_PATH)
 
-        assertTrue("icon = iconFor(BrushToolGlyphPolicy.forPreset(preset))" in rail)
-        assertTrue("BrushToolGlyph.ERASER -> ToolGlyphs.Eraser" in rail)
-        assertTrue("BrushToolGlyph.MARKER -> ToolGlyphs.Marker" in rail)
-        assertTrue("BrushToolGlyph.SPRAY_CAN -> ToolGlyphs.SprayCan" in rail)
-        assertTrue("BrushToolGlyph.WATERCOLOR -> WaterToolGlyphs.Watercolor" in rail)
-        assertTrue("BrushToolGlyph.PIGMENT_WASH -> ToolGlyphs.PigmentWash" in rail)
+        assertTrue("icon = brushGlyphIcon(BrushToolGlyphPolicy.forPreset(preset))" in rail)
+        assertTrue("BrushToolGlyph.ERASER -> ToolGlyphs.Eraser" in glyphs)
+        assertTrue("BrushToolGlyph.MARKER -> ToolGlyphs.Marker" in glyphs)
+        assertTrue("BrushToolGlyph.SPRAY_CAN -> ToolGlyphs.SprayCan" in glyphs)
+        assertTrue("BrushToolGlyph.WATERCOLOR -> WaterToolGlyphs.Watercolor" in glyphs)
+        assertTrue("BrushToolGlyph.PIGMENT_WASH -> ToolGlyphs.PigmentWash" in glyphs)
         assertTrue("description = { brushPresetName(preset) }" in rail)
         // The wash must not share the Water tool's droplet: two identical
         // glyphs in one rail defeat the glance-recognition the rail is for.
-        assertFalse("BrushToolGlyph.PIGMENT_WASH -> Icons.Filled.WaterDrop" in rail)
+        assertFalse("BrushToolGlyph.PIGMENT_WASH -> Icons.Filled.WaterDrop" in glyphs)
         // Guard against any duplicate icon across brush mappings, not just
         // the historical droplet collision with the Water tool.
         val brushIcons = Regex("BrushToolGlyph\\.\\w+\\s*->\\s*(\\S+)")
-            .findAll(rail).map { it.groupValues[1] }.toList()
-        assertFalse(brushIcons.isEmpty(), "expected BrushToolGlyph icon mappings in rail")
+            .findAll(glyphs).map { it.groupValues[1] }.toList()
+        assertFalse(brushIcons.isEmpty(), "expected BrushToolGlyph icon mappings in BrushGlyphs.kt")
         val duplicateIcons = brushIcons.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
         assertTrue(duplicateIcons.isEmpty(), "BrushToolGlyph mappings share an icon $duplicateIcons")
         // Brush-vs-tool collisions were the original bug; no brush glyph may
         // reuse the Water tool's droplet, not just PIGMENT_WASH.
         assertFalse("Icons.Filled.WaterDrop" in brushIcons, "brush glyph reuses the Water tool's droplet")
         assertFalse("if (preset.eraseMode) stringResource(R.string.tool_eraser)" in rail)
+        // Both scopes: the mapping moved to the glyph file, but the original
+        // bug was a *tool* button wearing DeleteSweep, and those still live
+        // in the rail. Banning it in one file only would leave the hole open
+        // exactly where it was first dug.
+        assertFalse("DeleteSweep" in glyphs)
         assertFalse("DeleteSweep" in rail)
+        assertFalse("Icons.Filled.Highlight" in glyphs)
         assertFalse("Icons.Filled.Highlight" in rail)
     }
 
@@ -82,5 +93,7 @@ class ToolIconContractTest {
         const val APP_DIRECTORY = "app/src/main"
         const val TOOL_RAIL_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/ToolRail.kt"
+        const val BRUSH_GLYPHS_PATH =
+            "app/src/main/java/ch/lkmc/bangnidraw/ui/glyphs/BrushGlyphs.kt"
     }
 }

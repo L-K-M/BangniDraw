@@ -16,25 +16,32 @@ class DesktopBrushUiTest {
     }
 
     @Test
-    fun `the whole side panel scrolls at the minimum window height`() {
-        val main =
-            repoFile("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
+    fun `the rail's tool column scrolls rather than clipping presets`() {
+        val rail =
+            repoFile("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopToolRail.kt")
                 .readText(Charsets.UTF_8)
-        val start = "private fun SidePanel("
-        val end = "private fun HsvSliders("
-        require(start in main && end in main) { "SidePanel source markers not found" }
-        val panel =
-            main.substringAfter(start)
-                .substringBefore(end)
-                .replace(Regex("\\s+"), "")
+        // indexOf, not substringAfter/Before: the latter silently returns the
+        // rest of the file when the end marker does not follow the start one,
+        // so a reordered file would assert against the wrong region.
+        val start = rail.indexOf("internal fun DesktopToolRail(")
+        val end = rail.indexOf("internal fun DesktopSliderLedge(", startIndex = start + 1)
+        require(start >= 0 && end > start) { "DesktopToolRail source markers not found or misordered" }
+        val column = rail.substring(start, end).replace(Regex("\\s+"), "")
 
+        // The Android rail overflows extra presets into a settings sheet this
+        // shell has no equivalent of, so a window too short for the budget
+        // must let the column give instead of pushing icons off the window.
         assertTrue(
-            panel.contains("fillMaxSize().verticalScroll(rememberScrollState())"),
-            "the entire side panel must scroll at the 600dp minimum height",
+            column.contains(".weight(1f,fill=false).verticalScroll(rememberScrollState())"),
+            "the rail's tool column must scroll when presets overflow the rail",
         )
-        assertFalse(
-            panel.contains("height(240.dp).verticalScroll"),
-            "the brush list must not own a clipped nested scroll region",
+        // Exactly one scroll region: a second one on the rail's outer column
+        // would take the sliders with it, and they are the tuning a stroke in
+        // progress needs within reach.
+        assertEquals(
+            1,
+            Regex("verticalScroll").findAll(column).count(),
+            "only the rail's tool column may scroll",
         )
     }
 

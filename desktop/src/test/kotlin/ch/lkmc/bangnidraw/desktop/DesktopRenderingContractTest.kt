@@ -9,14 +9,19 @@ import kotlin.test.assertTrue
 class DesktopRenderingContractTest {
 
     @Test
-    fun `the full side panel scrolls at minimum window height`() {
+    fun `the chrome is the shared adaptive layout, not a desktop-only one`() {
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
-        check("private fun SidePanel(" in main && "private fun HsvSliders(" in main) { "SidePanel markers not found" }
-        val panel = main.substringAfter("private fun SidePanel(")
-            .substringBefore("private fun HsvSliders(")
+        val shell = between(main, "private fun Shell(", "private fun railAlignment(")
 
-        assertTrue(panel.contains("fillMaxSize().verticalScroll(rememberScrollState())"))
-        assertFalse(panel.contains("Modifier.height(240.dp).verticalScroll"))
+        // Every rail/strip/panel dimension comes from LayoutSpec, so the two
+        // products cannot drift apart on geometry.
+        assertTrue(shell.contains("DesktopChromeLayout.forWindow(widthDp, heightDp)"))
+        assertTrue(shell.contains("DesktopTopStrip("))
+        assertTrue(shell.contains("DesktopToolRail("))
+        assertTrue(shell.contains("layout.panelInsets(widthDp, heightDp)"))
+        // The old shell put the canvas in a row beside a fixed sidebar; the
+        // Android chrome floats over a full-bleed canvas instead.
+        assertFalse(shell.contains("SidePanel("))
     }
 
     @Test
@@ -32,7 +37,10 @@ class DesktopRenderingContractTest {
         assertTrue(engine.contains("readbackRevisions"))
         assertTrue(engine.contains("ReadbackDelivery.Complete"))
         assertTrue(engine.contains("exportExecutor.execute"))
-        assertTrue(main.contains("if (preferencesReady)"))
+        // The gate, not its exact spelling: input stays dead until the
+        // restored brush and colour are resolved, whatever else the
+        // condition grew to also require.
+        assertTrue(main.contains("val canvasInput = if (preferencesReady"))
         assertTrue(main.contains("preferencesReady = true"))
     }
 
@@ -53,16 +61,15 @@ class DesktopRenderingContractTest {
     }
 
     @Test
-    fun `empty canvas fills the row before its first frame`() {
+    fun `empty canvas fills the window before its first frame`() {
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
-        check("// The canvas viewport" in main && "SidePanel(" in main) { "canvas markers not found" }
-        val canvas = main
-            .substringAfter("// The canvas viewport")
-            .substringBefore("SidePanel(")
+        val canvas = between(main, "// The canvas is full-bleed", "DesktopTopStrip(")
 
+        // The viewport reports its size to the engine from onSizeChanged, so
+        // it must be measured even while `bitmap` is still null.
         assertTrue(
-            canvas.replace(Regex("\\s+"), " ").contains(".weight(1f) .fillMaxHeight()"),
-            "the empty canvas must have height before its bitmap exists",
+            canvas.replace(Regex("\\s+"), " ").contains("Modifier .fillMaxSize() .onSizeChanged"),
+            "the empty canvas must have size before its bitmap exists",
         )
     }
 
@@ -83,6 +90,19 @@ class DesktopRenderingContractTest {
 
         assertEquals(1, Regex("MixboxBinding\\.create\\(\\)").findAll(main).count())
         assertTrue(main.contains("mixer = mixer"))
+    }
+
+    /**
+     * The region between two markers, requiring the second to follow the
+     * first. `substringAfter`/`substringBefore` silently return the rest of
+     * the file when the end marker does not follow the start one, which
+     * would quietly assert against the wrong code after a reorder.
+     */
+    private fun between(source: String, start: String, end: String): String {
+        val from = source.indexOf(start)
+        val to = source.indexOf(end, startIndex = from + 1)
+        check(from >= 0 && to > from) { "markers not found or misordered: $start .. $end" }
+        return source.substring(from, to)
     }
 
     private fun source(path: String): String = repoFile(path).readText(Charsets.UTF_8)

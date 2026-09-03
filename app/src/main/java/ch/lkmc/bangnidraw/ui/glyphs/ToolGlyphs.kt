@@ -1,4 +1,4 @@
-package ch.lkmc.bangnidraw.ui.canvas
+package ch.lkmc.bangnidraw.ui.glyphs
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -6,7 +6,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
-/** Repo-owned silhouettes for tools that Material Icons does not name clearly. */
+/**
+ * Repo-owned silhouettes for tools that Material Icons does not name clearly.
+ *
+ * This directory is the single copy: `:desktop` adds it as a Kotlin source
+ * directory (see `desktop/build.gradle.kts`), the same one-copy arrangement
+ * the brush-preset assets already use. Keep it free of `android.*` — a
+ * Compose-only file is what makes the sharing possible.
+ */
 internal object ToolGlyphs {
 
     private val ICON_SIZE = 24.dp

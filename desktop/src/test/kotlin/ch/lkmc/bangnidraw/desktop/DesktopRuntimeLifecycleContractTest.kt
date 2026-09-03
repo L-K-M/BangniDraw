@@ -147,12 +147,14 @@ class DesktopRuntimeLifecycleContractTest {
     private fun source(path: String): String = File(repoRoot(), path).readText(Charsets.UTF_8)
 
     /**
-     * A source file with its comment scaffolding flattened, so an anchor can be
-     * a phrase: collapsing whitespace alone leaves the " * " a wrapped KDoc line
-     * carries, which no quotable sentence contains.
+     * A source file with its comment scaffolding — KDoc and line comments
+     * alike — flattened, so an anchor can be a phrase: collapsing whitespace
+     * alone leaves the marker a wrapped comment line carries, which no
+     * quotable sentence contains.
      */
     private fun prose(path: String): String = source(path)
         .replace(Regex("\\n\\s*\\*\\s?"), " ")
+        .replace(Regex("\\n\\s*//\\s?"), " ")
         .replace(Regex("\\s+"), " ")
 
     private fun repoRoot(): File {

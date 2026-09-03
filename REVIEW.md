@@ -3417,3 +3417,14 @@ continuation markers first — collapsing whitespace alone leaves the `*` a
 wrapped comment line carries, which is why the phrase could not match. The
 round's one info item (does `report.fail` throw?) needed no change: it records
 and returns, which is what the comment beside it claims.
+
+Round 3 (hybrid, `e2432e6`..`c54ebed`, 1 actionable): two applied, nothing
+declined, nothing blocking. `-Dbangnidraw.gl.host=egl ` — a trailing space is
+one YAML edit away — was read as an unknown host, and on Linux an unknown host
+behaves exactly like no request at all, so a CI job meant to prove the EGL path
+could have gone green on the fallback. Trimmed, and pinned. The `prose()`
+normalizer added in round 2 flattened KDoc markers but not `//` ones, which its
+own name promised; now both.
+
+Steady state at round 3: rounds 2 and 3 each raised only test and robustness
+nits, no correctness findings, and nothing was declined in either.

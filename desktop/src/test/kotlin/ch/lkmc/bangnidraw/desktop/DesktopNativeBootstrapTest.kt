@@ -145,6 +145,15 @@ class DesktopNativeBootstrapTest {
     }
 
     @Test
+    fun `a padded GL host property still names a host`() {
+        val startup = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopGlStartup.kt")
+
+        // "-Dbangnidraw.gl.host=egl " is the same request as "egl"; untrimmed it
+        // reads as unknown, which on Linux behaves like no request at all.
+        assertTrue(startup.contains(".orEmpty().trim().lowercase()"))
+    }
+
+    @Test
     fun `no GL host changes the process working directory`() {
         listOf(
             "DesktopNativeBootstrap.kt",

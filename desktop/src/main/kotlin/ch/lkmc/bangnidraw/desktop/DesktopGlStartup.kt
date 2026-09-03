@@ -66,7 +66,11 @@ internal object DesktopGlStartup {
         report.note(hostLine())
 
         val environment = DesktopNativeBootstrap.prepare(report)
-        val requested = System.getProperty(HOST_PROPERTY).orEmpty().lowercase()
+        // Trimmed: a trailing space from a CI matrix or launch script would
+        // otherwise read as an unknown host, and on Linux an unknown host runs
+        // exactly like an unforced one — the ambiguity the note below exists
+        // to prevent.
+        val requested = System.getProperty(HOST_PROPERTY).orEmpty().trim().lowercase()
         if (requested.isNotEmpty()) {
             report.note("requested GL host: $requested")
             if (requested != EGL_HOST && requested != GLFW_HOST) {

@@ -180,7 +180,10 @@ dependencies {
     implementation(compose.material3)
     // The rail and top strip wear the same Material glyphs the Android
     // chrome does; the multiplatform artifact is the desktop twin of
-    // :app's androidx.compose.material:material-icons-extended.
+    // :app's androidx.compose.material:material-icons-extended. Deprecated
+    // after 1.7.3, which is what it resolves to, and 37.8 MB of it ships in
+    // the distribution — AGENTS.md weighs that against vendoring the eleven
+    // extended-only glyphs, which the asset policy does not currently allow.
     implementation(compose.materialIconsExtended)
     implementation(compose.foundation)
     implementation(compose.ui)

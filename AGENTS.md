@@ -86,7 +86,16 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   `app/src/main/java/ch/lkmc/bangnidraw/ui/glyphs/`, which `:desktop` compiles
   through a `kotlin.srcDir` (keep that directory free of `android.*`, which is
   what makes the sharing possible). `compose.materialIconsExtended` is the
-  desktop twin of `:app`'s `material-icons-extended`. All four rail modes are
+  desktop twin of `:app`'s `material-icons-extended`, and it is not free:
+  JetBrains deprecated it after **1.7.3**, so that is what it resolves to
+  against CMP 1.12.0, and its 37.8 MB jar is copied verbatim into the
+  distribution (`:desktop` configures no minification). Eleven rail glyphs are
+  extended-only — `material-icons-core`, which `compose.material3` already
+  brings, has just `Create`, `Close` and `MoreVert` of the set. Vendoring
+  those eleven is Google's own advice for its icons now, but it needs a
+  product decision first: the third-party-asset rule below demands public
+  domain / CC0, and Material Symbols are Apache-2.0. Weigh both before
+  reaching for either. All four rail modes are
   live, so the window minimum is 640×480 rather than the old sidebar's 960×600.
   What the desktop chrome deliberately omits is only what this shell cannot
   do: Back and Layers (one painting, one layer, no Studio) and the five

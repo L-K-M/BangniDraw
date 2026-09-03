@@ -206,16 +206,12 @@ class DesktopNativeBootstrapTest {
         return candidate
     }
 
-    private fun angleDirectory(
-        directory: File,
-        cpuType: Int? = null,
-        minimumMacOs: Int? = null,
-    ): File {
+    private fun angleDirectory(directory: File, cpuType: Int? = null): File {
         val path = directory.toPath().createDirectories()
         listOf(DesktopNativeBootstrap.EGL_DYLIB, DesktopNativeBootstrap.GLES_DYLIB).forEach { name ->
             val file = path.resolve(name).createFile().toFile()
             if (cpuType != null) {
-                file.writeBytes(MachOFixtures.thinBytes(cpuType, minimumMacOs))
+                file.writeBytes(MachOFixtures.thinBytes(cpuType))
             }
         }
 

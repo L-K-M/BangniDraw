@@ -3405,3 +3405,15 @@ real defects in code this PR introduced — see R-256 and R-257.
   preload is separately known not to work for GLFW's leaf-name lookup —
   Electron's dylibs carry the install name `./libEGL.dylib`, which dyld will
   not match to a bare `libEGL.dylib` request.
+
+Round 2 (hybrid, `84ad78b`..`e2432e6`, 1 actionable): three applied, nothing
+declined. Two were dead weight this PR left in the tests — an `angleDirectory`
+parameter no caller passes, and a `DesktopPackagingContractTest` that pinned
+the GLFW fallback while its own name promised both hosts, so losing the EGL
+attempt would have gone green. The third was a weak anchor: the lifecycle
+contract matched the two words "absolute path", which any error string could
+satisfy. Anchoring on the sentence needed the normalizer to flatten KDoc
+continuation markers first — collapsing whitespace alone leaves the `*` a
+wrapped comment line carries, which is why the phrase could not match. The
+round's one info item (does `report.fail` throw?) needed no change: it records
+and returns, which is what the comment beside it claims.

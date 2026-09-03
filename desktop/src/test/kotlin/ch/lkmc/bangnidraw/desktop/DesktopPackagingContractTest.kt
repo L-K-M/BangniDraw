@@ -164,6 +164,9 @@ class DesktopPackagingContractTest {
         assertFalse(engine.contains("GlfwEsContext.create"))
         assertFalse(engine.contains("EglEsContext.create"))
         assertTrue(startup.contains("DesktopNativeBootstrap.prepare(report)"))
+        // The primary host as well as the fallback: losing the EGL attempt
+        // would restore the macOS failure and leave GLFW quietly answering.
+        assertTrue(startup.contains("EglEsContext.create"))
         assertTrue(startup.contains("GlfwEsContext.create"))
         assertTrue(main.contains("DesktopGlStartup.start"))
         assertTrue(main.contains("DesktopAboutHandler.install"))

@@ -1421,6 +1421,11 @@ private class DesktopInputHost(
         fillPending = false
         val painted = paintedColor
         paintedColor = null
+        // Captured here rather than inside the completion below: this runs on
+        // the input thread, that runs on the GL thread, and `DesktopShell.tool`
+        // is written by the Compose pointer loop. Reading it from there would
+        // be an unsynchronized cross-thread read for no gain.
+        val onPainted = DesktopShell.tool?.onPainted
         val driver = driver ?: return
         this.driver = null
 
@@ -1440,9 +1445,8 @@ private class DesktopInputHost(
         }
         // Recorded only once the merge applied, as `:app`'s recent colours
         // are: a stroke the engine refused never touched the canvas. The
-        // callback arrives on the GL thread.
+        // callback arrives on the GL thread, so it only marshals.
         engine.endStroke(driver.opacityCeiling) {
-            val onPainted = DesktopShell.tool?.onPainted
             if (painted != null && onPainted != null) {
                 java.awt.EventQueue.invokeLater { onPainted(painted) }
             }

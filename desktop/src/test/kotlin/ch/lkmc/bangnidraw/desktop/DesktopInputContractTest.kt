@@ -4,6 +4,7 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 /**
  * Pins the input-path rules the desktop shell shares with `:app`'s
@@ -12,6 +13,33 @@ import kotlin.test.assertTrue
  * measured in the wrong unit.
  */
 class DesktopInputContractTest {
+
+    @Test
+    fun `pen-up reads the tool on its own thread, not in the GL completion`() {
+        val end = between(
+            source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt"),
+            "override fun onStrokeEnd(",
+            "override fun onStrokeCancel(",
+        )
+
+        // `DesktopShell.tool` is a plain field written by the Compose pointer
+        // loop. `onStrokeEnd` runs there too, but `endStroke`'s completion
+        // runs on the GL thread — so the recent-colour callback is captured
+        // before the post, not read from inside it. Order, because both spell
+        // the same call and only one of them is a race.
+        val capture = end.indexOf("DesktopShell.tool?.onPainted")
+        val commit = end.indexOf("engine.endStroke(")
+        if (capture < 0) fail("pen-up no longer captures the recent-colour callback")
+        if (commit < 0) fail("pen-up no longer commits the stroke")
+        assertTrue(capture < commit, "the tool is read inside the GL completion")
+        // Only the completion block: `finishPick` follows it in the file and
+        // reads the tool legitimately, on this same input thread.
+        val completion = end.substring(commit).substringBefore("\n    }")
+        assertFalse(
+            completion.contains("DesktopShell.tool"),
+            "the GL completion reads DesktopShell.tool across threads",
+        )
+    }
 
     @Test
     fun `ring exhaustion at pen-up commits what was stamped`() {

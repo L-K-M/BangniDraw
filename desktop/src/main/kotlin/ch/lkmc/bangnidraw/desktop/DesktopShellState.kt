@@ -261,6 +261,9 @@ internal class DesktopShellState(
     }
 
     fun selectSecondary(tool: DesktopSecondaryTool) {
+        // Choosing any other tool abandons an armed panel pick. The
+        // eyedropper is exempt because arming one selects it.
+        if (tool != DesktopSecondaryTool.EYEDROPPER) cancelPendingPick()
         rail = DesktopRailPolicy.selectSecondary(rail, tool)
     }
 
@@ -351,12 +354,14 @@ internal class DesktopShellState(
 
     fun selectPreset(id: String) {
         restoreGate.markChanged(DesktopPreferenceKind.Brush)
+        cancelPendingPick()
         rail = DesktopRailPolicy.select(rail, id, presets)
         persistBrush(id)
     }
 
     fun eraserTap() {
         restoreGate.markChanged(DesktopPreferenceKind.Brush)
+        cancelPendingPick()
         rail = DesktopRailPolicy.eraserTap(rail, presets)
         persistBrush(rail.selectedId)
     }
@@ -526,6 +531,26 @@ internal class DesktopShellState(
 
         pendingPick = null
         returnEyedropper()
+    }
+
+    /**
+     * Abandons an armed pick because the user chose a tool instead of using
+     * it. Without this the arming survives: they click "Pick from canvas",
+     * change their mind, go back to a brush — and the *next* eyedropper read,
+     * minutes later and deliberate, silently lands in a dish well instead of
+     * the paint colour.
+     *
+     * The borrow is dropped rather than returned. Returning it would move the
+     * tool, and the user just chose one; dropping it also keeps a later Alt
+     * release from taking that choice away. Guarded on an armed pick, so the
+     * ordinary Alt-held borrow is untouched.
+     */
+    private fun cancelPendingPick() {
+        if (pendingPick == null) return
+
+        pendingPick = null
+        borrowing = false
+        borrowedFrom = null
     }
 
     fun restorePalettes(recent: String?, stored: String?) {

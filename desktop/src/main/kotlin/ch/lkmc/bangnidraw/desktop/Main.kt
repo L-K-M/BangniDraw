@@ -15,7 +15,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -40,10 +39,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
-import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
-import ch.lkmc.bangnidraw.engine.core.CanvasVoidColorPolicy
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HsvSelection
@@ -57,7 +54,6 @@ import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
-import ch.lkmc.bangnidraw.engine.core.ThemeColorPolicy
 import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
@@ -239,6 +235,10 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
         onDispose { handler.close() }
     }
 
+    // The state holder is built first so the engine's publish callbacks can
+    // close over it: a floating panel is a sibling Window and cannot read
+    // state that lives inside the canvas window's composable.
+    val shell = remember { mutableStateOf<DesktopShellState?>(null) }
     val engine = remember(startup) {
         val ready = startup as? DesktopStartup.Ready ?: return@remember null
         DesktopEngine(
@@ -251,8 +251,20 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
             onFatal = { message ->
                 java.awt.EventQueue.invokeLater { fatal.value = message }
             },
+            onStack = { stack -> shell.value?.publishStack(stack) },
+            onPaper = { argb -> shell.value?.publishPaper(argb) },
         )
     }
+    val catalogue = remember { DesktopBrushes.loadAll() }
+    val prefs = remember { DesktopPrefs() }
+    androidx.compose.runtime.DisposableEffect(prefs) {
+        onDispose { prefs.close() }
+    }
+    androidx.compose.runtime.DisposableEffect(engine) {
+        shell.value = engine?.let { DesktopShellState(it, catalogue, mixer, prefs) }
+        onDispose { shell.value = null }
+    }
+    val state = shell.value
 
     Window(
         onCloseRequest = ::exitApplication,
@@ -261,7 +273,7 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
     ) {
         window.minimumSize = Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
 
-        MaterialTheme(colorScheme = DESKTOP_COLOR_SCHEME, typography = BangniTypography) {
+        MaterialTheme(colorScheme = DesktopTheme.colorScheme, typography = BangniTypography) {
             // Surface actually paints [colorScheme.background]; without it
             // the OS window chrome shows through and the Material widgets
             // sit on whatever the host desktop happens to be (macOS's own
@@ -285,12 +297,11 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
                                 Text(fatalMessage, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
-                    } else if (engine != null) {
+                    } else if (state != null) {
                         Shell(
-                            engine = engine,
+                            state = state,
                             frame = frameState.value,
                             canvasSize = canvasSize,
-                            mixer = mixer,
                             onAbout = { showAbout = true },
                         )
                     }
@@ -309,6 +320,8 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
             }
         }
     }
+
+    if (state != null) DesktopPanelWindows(state)
 
     androidx.compose.runtime.DisposableEffect(engine) {
         engine?.start()
@@ -341,76 +354,47 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Shell(
-    engine: DesktopEngine,
+    state: DesktopShellState,
     frame: DesktopEngine.Frame?,
     canvasSize: CanvasSize,
-    mixer: ch.lkmc.bangnidraw.engine.core.ColorMixer,
     onAbout: () -> Unit,
 ) {
-    val catalogue = remember { DesktopBrushes.loadAll() }
-    val prefs = remember { DesktopPrefs() }
-    val restoreGate = remember { DesktopPreferenceRestoreGate() }
-    androidx.compose.runtime.DisposableEffect(prefs) {
-        onDispose { prefs.close() }
-    }
-    // Slider edits stay with the preset they were made on, exactly as the
-    // Android rail keeps per-preset tuning; the catalogue is the base copy.
-    var presets by remember { mutableStateOf(catalogue) }
-    var rail by remember { mutableStateOf(DesktopRailPolicy.initial(catalogue)) }
-    // The same durable paint assignments the Android rail keeps: choosing a
-    // preset from the overflow swaps it into the active slot rather than
-    // duplicating it, so every paint stays reachable exactly once.
-    var paintSlots by remember {
-        mutableStateOf(
-            PaintSlotAssignments.restore(
-                DesktopRailPolicy.paints(catalogue).map(BrushPreset::id),
-            ),
-        )
-    }
-    var colorSelection by remember {
-        mutableStateOf(HsvSelection.fromArgb(DesktopPalette.SWATCHES.first()))
-    }
-    // The same derivation the rail uses internally: the ledge's sliders and
-    // the rail's foot must tune the brush the rail highlights, and each
-    // deriving it separately is how they would drift apart.
-    val activeBrush = DesktopRailPolicy.activePreset(presets, rail)
-    val colorArgb = colorSelection.argb
-    var savedMessage by remember { mutableStateOf<String?>(null) }
-    var preferencesReady by remember { mutableStateOf(false) }
-    var showColorPanel by remember { mutableStateOf(false) }
+    val engine = state.engine
+    val activeBrush = state.activeBrush
+    val colorArgb = state.colorSelection.argb
+
     // The strip is not a log: clear the save path after a beat, as a snackbar
     // would. Keyed on the message so a second save restarts the countdown.
-    LaunchedEffect(savedMessage) {
-        if (savedMessage != null) {
+    LaunchedEffect(state.savedMessage) {
+        if (state.savedMessage != null) {
             kotlinx.coroutines.delay(SAVED_MESSAGE_MS)
-            savedMessage = null
+            state.savedMessage = null
         }
     }
-    var showHelp by remember { mutableStateOf(false) }
 
     // Input stays disabled until the initial choices are resolved.
-    LaunchedEffect(Unit) {
+    LaunchedEffect(state) {
         try {
-            val brushId = prefs.readBrushId()
-            if (restoreGate.allows(DesktopPreferenceKind.Brush)) {
+            val brushId = state.prefs.readBrushId()
+            if (state.restoreGate.allows(DesktopPreferenceKind.Brush)) {
                 brushId?.let { id ->
-                    rail = DesktopRailPolicy.select(rail, id, presets)
+                    state.rail = DesktopRailPolicy.select(state.rail, id, state.presets)
                     // A restored paint must also occupy the active slot, or
                     // the rail would show it selected somewhere off screen.
-                    if (rail.selectedId == id && rail.paintSelected()) {
-                        paintSlots = paintSlots.assign(id)
+                    if (state.rail.selectedId == id && state.rail.paintSelected()) {
+                        state.paintSlots = state.paintSlots.assign(id)
                     }
                 }
             }
 
-            val color = prefs.readColorArgb()
-            if (restoreGate.allows(DesktopPreferenceKind.Color)) {
-                color?.let { colorSelection = colorSelection.sync(it) }
+            val color = state.prefs.readColorArgb()
+            if (state.restoreGate.allows(DesktopPreferenceKind.Color)) {
+                color?.let { state.colorSelection = state.colorSelection.sync(it) }
             }
         } catch (failure: java.io.IOException) {
             System.err.println("desktop preferences could not be read: ${failure.message}")
         } finally {
-            preferencesReady = true
+            state.preferencesReady = true
         }
     }
 
@@ -420,21 +404,6 @@ private fun Shell(
     // 8 px on a 2x display where it should be 16.
     val density = LocalDensity.current.density
     val handler = remember(engine, density) { DesktopShell.handler(engine, density) }
-    val tune: (BrushPreset) -> Unit = { tuned ->
-        presets = presets.map { if (it.id == tuned.id) tuned else it }
-    }
-    // Deliberately not DesktopRailPolicy.activePreset: that resolves what the
-    // sliders tune, falling back to some other preset when a stored id has
-    // gone. Persistence must name the brush the user actually picked, or a
-    // stale selection would rewrite itself into a brush they never chose.
-    val persistBrush: (String) -> Unit = { id ->
-        presets.firstOrNull { it.id == id }?.let(prefs::writeBrush)
-    }
-    val selectPreset: (String) -> Unit = { id ->
-        restoreGate.markChanged(DesktopPreferenceKind.Brush)
-        rail = DesktopRailPolicy.select(rail, id, presets)
-        persistBrush(id)
-    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val widthDp = maxWidth.value.roundToInt()
@@ -454,11 +423,11 @@ private fun Shell(
                     engine.setViewportSize(size.width, size.height)
                     handler.setViewport(canvasSize, size.width, size.height)
                 }
-                .background(VIEWPORT_VOID),
+                .background(DesktopTheme.viewportVoid),
         ) {
-            val canvasInput = if (preferencesReady && activeBrush != null) {
-                Modifier.pointerInput(activeBrush, colorArgb, mixer) {
-                    awaitPointerEvents(handler, activeBrush, colorArgb, mixer)
+            val canvasInput = if (state.preferencesReady && activeBrush != null) {
+                Modifier.pointerInput(activeBrush, colorArgb, state.mixer) {
+                    awaitPointerEvents(handler, activeBrush, colorArgb, state.mixer)
                 }
             } else {
                 Modifier
@@ -476,50 +445,48 @@ private fun Shell(
             layout = layout,
             canUndo = engine.canUndo(),
             canRedo = engine.canRedo(),
+            layerCount = state.stack.activeIndex + 1,
+            layerPanelOpen = state.showLayerPanel,
             brushColor = colorArgb,
-            colorPanelOpen = showColorPanel,
-            savedMessage = savedMessage,
+            colorPanelOpen = state.showColorPanel,
+            savedMessage = state.savedMessage,
             onUndo = { engine.undo() },
             onRedo = { engine.redo() },
-            onColor = { showColorPanel = !showColorPanel },
+            onLayers = { state.showLayerPanel = !state.showLayerPanel },
+            onColor = { state.showColorPanel = !state.showColorPanel },
             onSave = {
                 engine.savePng { result ->
                     val message = when (result) {
                         is DesktopSaveResult.Saved -> result.path
                         is DesktopSaveResult.Failed -> "Save failed: ${result.message}"
                     }
-                    java.awt.EventQueue.invokeLater { savedMessage = message }
+                    java.awt.EventQueue.invokeLater { state.savedMessage = message }
                 }
             },
             onAbout = onAbout,
-            onHelp = { showHelp = true },
+            onHelp = { state.showHelp = true },
             modifier = Modifier.align(Alignment.TopCenter),
         )
 
         DesktopToolRail(
             layout = layout,
-            presets = presets,
-            paintSlots = paintSlots,
-            rail = rail,
+            presets = state.presets,
+            paintSlots = state.paintSlots,
+            rail = state.rail,
             windowWidth = maxWidth,
             windowHeight = maxHeight,
             onPaintSlot = { index ->
-                paintSlots = paintSlots.activate(index)
-                selectPreset(paintSlots.activePresetId)
+                state.paintSlots = state.paintSlots.activate(index)
+                state.selectPreset(state.paintSlots.activePresetId)
             },
             onAssignPaint = { preset ->
-                paintSlots = paintSlots.assign(preset.id)
-                selectPreset(preset.id)
+                state.paintSlots = state.paintSlots.assign(preset.id)
+                state.selectPreset(preset.id)
             },
-            onEraserTap = {
-                restoreGate.markChanged(DesktopPreferenceKind.Brush)
-                rail = DesktopRailPolicy.eraserTap(rail, presets)
-                persistBrush(rail.selectedId)
-            },
-            onSizeChanged = { value -> activeBrush?.let { tune(it.withSize(value)) } },
-            onSecondaryChanged = { value ->
-                activeBrush?.let { tune(ToolSliderPreset.withSecondary(it, value)) }
-            },
+            onEraserTap = { state.eraserTap() },
+            onSettings = { state.showBrushPanel = !state.showBrushPanel },
+            onSizeChanged = state::tuneActiveSize,
+            onSecondaryChanged = state::tuneActiveSecondary,
             modifier = Modifier.align(railAlignment(layout)),
         )
 
@@ -527,29 +494,21 @@ private fun Shell(
             DesktopSliderLedge(
                 layout = layout,
                 preset = activeBrush,
-                onSizeChanged = { tune(activeBrush.withSize(it)) },
+                onSizeChanged = { state.tune(activeBrush.withSize(it)) },
                 onSecondaryChanged = {
-                    tune(ToolSliderPreset.withSecondary(activeBrush, it))
+                    state.tune(ToolSliderPreset.withSecondary(activeBrush, it))
                 },
                 modifier = Modifier.ledgePlacement(this, layout),
             )
         }
 
-        if (showColorPanel) {
+        if (state.showColorPanel) {
             val insets = layout.panelInsets(widthDp, heightDp)
             DesktopColorPanel(
-                selection = colorSelection,
-                onSelection = { selection ->
-                    restoreGate.markChanged(DesktopPreferenceKind.Color)
-                    colorSelection = selection
-                    prefs.writeColor(selection.argb)
-                },
-                onSwatch = { argb ->
-                    restoreGate.markChanged(DesktopPreferenceKind.Color)
-                    colorSelection = colorSelection.commit(argb)
-                    prefs.writeColor(argb)
-                },
-                onClose = { showColorPanel = false },
+                selection = state.colorSelection,
+                onSelection = state::pickColor,
+                onSwatch = state::pickSwatch,
+                onClose = { state.showColorPanel = false },
                 modifier = Modifier
                     .align(
                         if (layout.panelSide == Hand.RIGHT) {
@@ -568,9 +527,9 @@ private fun Shell(
         }
     }
 
-    if (showHelp) {
+    if (state.showHelp) {
         AlertDialog(
-            onDismissRequest = { showHelp = false },
+            onDismissRequest = { state.showHelp = false },
             title = { Text("Canvas") },
             text = {
                 // The body is longer than a dialog on a 480 dp window; it
@@ -584,7 +543,7 @@ private fun Shell(
                 }
             },
             confirmButton = {
-                Button(onClick = { showHelp = false }) { Text("Close") }
+                Button(onClick = { state.showHelp = false }) { Text("Close") }
             },
         )
     }
@@ -891,82 +850,6 @@ private fun DesktopEngine.Frame.toImageBitmap(): androidx.compose.ui.graphics.Im
     return image.toComposeImageBitmap()
 }
 
-/**
- * The M4 shell wears the Android app's default palette (SAFFRON, light —
- * see [ThemeColorPolicy]). The desktop shell is DESKTOP.md-minimal by
- * design and does not port [ToolRail]/[TopStrip]/[ColorPanel], but it
- * belongs to the same product: reading the ARGB tokens straight from
- * engine-core avoids hand-mirroring hex constants and keeps the desktop
- * moving in lockstep with the Android build's theme.
- */
-private val DESKTOP_COLOR_SCHEME: ColorScheme = run {
-    val colors = ThemeColorPolicy.colors(AppTheme.SAFFRON)
-    val errors = ThemeColorPolicy.errorColors(AppTheme.SAFFRON.tone)
-    // Mirrors app/src/main/java/ch/lkmc/bangnidraw/ui/theme/Color.kt's
-    // bangniColorScheme — every Material3 role mapped from ThemeColorPolicy
-    // with the same derivations (tertiary reuses secondary; surface-container
-    // family derives from surfaceContainer/High/Variant). AlertDialog and
-    // menus render on surfaceContainerHigh, so a partial mapping shows stock
-    // cool greys against the warm SAFFRON palette. When Android's scheme
-    // grows a role, mirror it here in the same commit.
-    ColorScheme(
-        primary = Color(colors.primaryArgb),
-        onPrimary = Color(colors.onPrimaryArgb),
-        primaryContainer = Color(colors.primaryContainerArgb),
-        onPrimaryContainer = Color(colors.onPrimaryContainerArgb),
-        secondary = Color(colors.secondaryArgb),
-        onSecondary = Color(colors.onSecondaryArgb),
-        secondaryContainer = Color(colors.secondaryContainerArgb),
-        onSecondaryContainer = Color(colors.onSecondaryContainerArgb),
-        tertiary = Color(colors.secondaryArgb),
-        onTertiary = Color(colors.onSecondaryArgb),
-        tertiaryContainer = Color(colors.secondaryContainerArgb),
-        onTertiaryContainer = Color(colors.onSecondaryContainerArgb),
-        error = Color(errors.errorArgb),
-        onError = Color(errors.onErrorArgb),
-        errorContainer = Color(errors.errorContainerArgb),
-        onErrorContainer = Color(errors.onErrorContainerArgb),
-        background = Color(colors.backgroundArgb),
-        onBackground = Color(colors.onBackgroundArgb),
-        surface = Color(colors.surfaceArgb),
-        onSurface = Color(colors.onSurfaceArgb),
-        surfaceVariant = Color(colors.surfaceVariantArgb),
-        onSurfaceVariant = Color(colors.onSurfaceVariantArgb),
-        surfaceDim = Color(colors.surfaceContainerHighArgb),
-        surfaceBright = Color(colors.surfaceArgb),
-        surfaceContainerLowest = Color(colors.surfaceArgb),
-        surfaceContainerLow = Color(colors.backgroundArgb),
-        surfaceContainer = Color(colors.surfaceContainerArgb),
-        surfaceContainerHigh = Color(colors.surfaceContainerHighArgb),
-        surfaceContainerHighest = Color(colors.surfaceVariantArgb),
-        outline = Color(colors.outlineArgb),
-        outlineVariant = Color(colors.outlineVariantArgb),
-        inverseSurface = Color(colors.onSurfaceArgb),
-        inverseOnSurface = Color(colors.surfaceArgb),
-        inversePrimary = Color(colors.primaryContainerArgb),
-        surfaceTint = Color(colors.primaryArgb),
-        scrim = Color.Black,
-        primaryFixed = Color(colors.primaryContainerArgb),
-        primaryFixedDim = Color(colors.primaryContainerArgb),
-        onPrimaryFixed = Color(colors.onPrimaryContainerArgb),
-        onPrimaryFixedVariant = Color(colors.onPrimaryContainerArgb),
-        secondaryFixed = Color(colors.secondaryContainerArgb),
-        secondaryFixedDim = Color(colors.secondaryContainerArgb),
-        onSecondaryFixed = Color(colors.onSecondaryContainerArgb),
-        onSecondaryFixedVariant = Color(colors.onSecondaryContainerArgb),
-        tertiaryFixed = Color(colors.secondaryContainerArgb),
-        tertiaryFixedDim = Color(colors.secondaryContainerArgb),
-        onTertiaryFixed = Color(colors.onSecondaryContainerArgb),
-        onTertiaryFixedVariant = Color(colors.onSecondaryContainerArgb),
-    )
-}
-
-/**
- * The neutral warm-grey around the paper — same [CanvasVoidColorPolicy]
- * source the Android app uses, so the desktop shell reads as part of the
- * same product family rather than a debug harness on the host OS's grey.
- */
-private val VIEWPORT_VOID = Color(CanvasVoidColorPolicy.argb(AppTheme.SAFFRON))
 private const val RGBA_BYTES = 4
 private const val MOUSE_POINTER_ID = 0
 private const val SYNTHETIC_PRESSURE = 1f

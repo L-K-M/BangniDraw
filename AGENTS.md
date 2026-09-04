@@ -98,18 +98,50 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   reaching for either. All four rail modes are
   live, so the window minimum is 640×480 rather than the old sidebar's 960×600.
   What the desktop chrome deliberately omits is only what this shell cannot
-  do: Back and Layers (one painting, one layer, no Studio) and the five
-  secondary tools (no engine path). Its own rail budget
+  do: Back (no Studio) and the five secondary tools (no engine path). Its own
+  rail budget
   (`DesktopRailPolicy.paintBudget`) exists because `LayoutSpec.paintSlotBudget`
   reserves six non-paint slots for those tools and stops computing outside
   FULL; the paints past the budget go to a menu on the rail, since the
-  settings sheet Android overflows them into does not exist here. A long-press
-  is not a mouse gesture, so the eraser slot's *second* click is what swaps
-  hard for soft eraser.
+  settings sheet Android overflows them into is a window here, not a place to
+  hide presets.
+  **Clicking a rail slot that is already selected opens that slot's settings**,
+  as Android's does. That is one rule for every slot, which is why the eraser
+  slot no longer spends its second click on the *other* eraser: hard/soft is a
+  choice in the brush panel instead. (A long-press, Android's route to it, is
+  not a mouse gesture — but a second click that means two different things
+  depending on the slot is worse than a panel row.)
+  **The layer and brush panels are OS windows of their own**
+  (`DesktopPanelWindows`), `alwaysOnTop`, not sheets inside the document
+  window — the user asked to be able to move them independently of it. That is
+  why `DesktopShellState` hoists every piece of state they read: a sibling
+  `Window` cannot see state declared inside the canvas window's composable.
+  Each wraps its content in `DesktopTheme.colorScheme`, or it renders in the
+  host desktop's Material rather than this product's.
+  **The document model is a mutable `LayerStack` on the GL thread.** Panel
+  actions arrive as `engine.editStack { stack, ids -> … }`, evaluated against
+  the live model so a stale panel index is refused rather than applied to the
+  wrong layer, and `Refusal` values come back for the panel's hint. Undo does
+  **not** replay `HistoryEntry` through `LayerHistory`: everything is in
+  memory and `LayerStack` is immutable, so a `DesktopUndoStep` holds *both*
+  stacks plus the tiles whose contents differ, keyed identically on the two
+  sides. Undo is "publish `stackBefore` and upload its pixels"; redo is its
+  exact inverse. `DesktopUndoOps.ops` derives the `PixelOp`s from the two
+  stacks — a layer that leaves is `Delete`, one that stays or rejoins is
+  `Restore` — so no panel action has to name its own pixel work. A stroke
+  commit is the same shape, and it must widen the active layer's tile set
+  (`DesktopStrokeTiles.withCommitted`): `prepareCopy` compares tile sets with
+  `!=`, so a stroke that forgets makes the *next* structural edit refuse
+  instead of failing where the mistake was.
   Rendering is engine → offscreen FBO → glReadPixels → Compose image
   (DESKTOP.md architecture 1), mouse → PointerSample records, in-memory undo
   from the readback mirror, JVM DataStore prefs, and Save PNG to
-  `~/Pictures/BangniDraw`. Mirror byte arrays are immutable after publication:
+  `~/Pictures/BangniDraw`. **The export is the whole visible stack through
+  `Composite`** — the same CPU reference the shaders are pinned against, so a
+  file and the screen agree on blend modes and per-layer opacity — and
+  transparent paper exports transparent pixels, unpremultiplied on the way
+  out. The paper colour is undoable and rides on the ordinary
+  `DesktopUndoStep` rather than needing an entry of its own. Mirror byte arrays are immutable after publication:
   export shallow-copies its map on the GL thread, then composes and writes on
   the export worker. Do not add an export-time fence wait — stroke commits
   already drain readback, and holding the GL owner can exhaust `DabRing`.

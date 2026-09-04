@@ -31,14 +31,20 @@ internal object DesktopHelp {
                 "instead, the way a stylus flipped to its eraser end does. " +
                 "Scroll to zoom around the pointer.",
             "The rail picks a brush: one icon per preset, the eraser below the " +
-                "rule. Clicking the eraser while it is already selected swaps " +
-                "between the hard and the soft eraser.",
+                "rule. Clicking a slot that is already selected opens the " +
+                "brush panel, which is also where the hard and soft erasers " +
+                "are chosen.",
             "The two sliders at the foot of the rail set brush size and " +
                 "opacity — flow, on a watercolor preset. They follow the " +
                 "selected brush, and each preset keeps its own tuning.",
             "Undo and Redo sit in the strip; the swatch beside them opens the " +
-                "colour panel.",
-            "Save PNG writes the painting to $picturesDirectory.",
+                "colour panel, and the layers button beside that opens the " +
+                "layer panel. Both panels are windows of their own — move " +
+                "them anywhere, and close them when you are done.",
+            "The layer panel adds, duplicates, deletes, merges and flattens " +
+                "layers, and sets each one's opacity, blend mode, alpha lock " +
+                "and lock. Its bottom row picks the paper colour.",
+            "Save PNG writes the whole visible stack to $picturesDirectory.",
         ).joinToString("\n\n")
 }
 

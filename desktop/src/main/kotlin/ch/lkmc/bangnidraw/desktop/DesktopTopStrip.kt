@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -45,6 +47,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,19 +63,23 @@ import java.util.Locale
  * pair with the rail sit next to it, and Back/Undo stay under the other
  * hand.
  *
- * Android's Back and Layers buttons are absent: this shell opens straight
- * into one painting with one layer, so neither would do anything.
+ * Android's Back button is absent: this shell has no Studio to go back to.
+ * Layers is here, with the same count badge — it opens the layer panel, which
+ * on desktop is a window of its own rather than a sheet over the canvas.
  */
 @Composable
 internal fun DesktopTopStrip(
     layout: LayoutSpec,
     canUndo: Boolean,
     canRedo: Boolean,
+    layerCount: Int,
+    layerPanelOpen: Boolean,
     brushColor: Int,
     colorPanelOpen: Boolean,
     savedMessage: String?,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onLayers: () -> Unit,
     onColor: () -> Unit,
     onSave: () -> Unit,
     onAbout: () -> Unit,
@@ -87,6 +94,7 @@ internal fun DesktopTopStrip(
     }
     val tools: @Composable () -> Unit = {
         Row(horizontalArrangement = Arrangement.End) {
+            LayersButton(layerCount, layerPanelOpen, onLayers)
             ColorButton(brushColor, colorPanelOpen, onColor)
             OverflowMenu(onSave, onAbout, onHelp)
         }
@@ -151,6 +159,63 @@ private fun HistoryButton(
                 contentDescription = label,
                 tint = if (enabled) iconColor else iconColor.copy(alpha = DISABLED_ALPHA),
             )
+        }
+    }
+}
+
+/**
+ * The layer panel's door, with `:app`'s count badge: the active layer's
+ * 1-based position, inset from the icon's corner and ringed in the strip's
+ * own colour so a two-digit count reads as a badge instead of growing over
+ * the glyph.
+ */
+@Composable
+private fun LayersButton(activeLayer: Int, open: Boolean, onClick: () -> Unit) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
+        tooltip = { PlainTooltip { Text(LAYERS_LABEL) } },
+        state = rememberTooltipState(),
+    ) {
+        Box(contentAlignment = Alignment.BottomEnd) {
+            IconButton(
+                onClick = onClick,
+                modifier = Modifier.size(ICON_BUTTON).semantics {
+                    role = Role.Button
+                    selected = open
+                    contentDescription = LAYERS_LABEL
+                },
+            ) {
+                Icon(
+                    Icons.Filled.Layers,
+                    contentDescription = null,
+                    tint = if (open) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                )
+            }
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = RoundedCornerShape(BADGE_RADIUS),
+                modifier = Modifier
+                    .padding(BADGE_INSET)
+                    .border(
+                        width = BADGE_RING,
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        shape = RoundedCornerShape(BADGE_RADIUS),
+                    ),
+            ) {
+                Text(
+                    text = activeLayer.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    // The button already names the panel; the badge would
+                    // otherwise be read out as a bare number after it.
+                    modifier = Modifier
+                        .padding(horizontal = BADGE_TEXT_PADDING)
+                        .clearAndSetSemantics {},
+                )
+            }
         }
     }
 }
@@ -226,3 +291,8 @@ private val COLOR_RADIUS = 6.dp
 private const val DISABLED_ALPHA = 0.38f
 private const val RGB_MASK = 0xFFFFFF
 private const val UNAVAILABLE_STATE = "Unavailable"
+private const val LAYERS_LABEL = "Layers"
+private val BADGE_RADIUS = 6.dp
+private val BADGE_INSET = 6.dp
+private val BADGE_RING = 1.dp
+private val BADGE_TEXT_PADDING = 3.dp

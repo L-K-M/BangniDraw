@@ -2,6 +2,11 @@ package ch.lkmc.bangnidraw.desktop
 
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.DeviceMemory
+import ch.lkmc.bangnidraw.engine.core.IdSource
+import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
+import ch.lkmc.bangnidraw.engine.core.Refusal
+import ch.lkmc.bangnidraw.engine.core.StackEdit
+import ch.lkmc.bangnidraw.engine.core.StackResult
 import ch.lkmc.bangnidraw.engine.core.DabRing
 import ch.lkmc.bangnidraw.engine.core.DabBatch
 import ch.lkmc.bangnidraw.engine.core.Layer
@@ -83,26 +88,22 @@ internal class DesktopEngine(
     private val context: DesktopEsContext,
     private val onFrame: (Frame) -> Unit,
     private val onFatal: (String) -> Unit,
+    /**
+     * Publishes the document model whenever the GL thread changes it. The
+     * layer panel is a separate window reading Compose state, so the model
+     * cannot simply be read back from here: it has to be pushed.
+     */
+    private val onStack: (LayerStack) -> Unit = {},
+    /** Publishes the paper colour, which undo can move like any other edit. */
+    private val onPaper: (Int) -> Unit = {},
 ) {
     /** One rendered frame's pixels, RGBA8, row-major from the top. */
     class Frame(val width: Int, val height: Int, val pixels: ByteArray)
 
-    /** One undoable stroke: per-tile before/after images from the mirror. */
-    private class UndoEntry(
-        val layerId: LayerId,
-        val keys: List<TileKey>,
-        val before: Map<TileKey, ByteArray?>,
-    ) {
-        lateinit var after: Map<TileKey, ByteArray?>
-
-        val bytes: Long
-            get() = before.pixelBytes() + after.pixelBytes()
-
-        private fun Map<TileKey, ByteArray?>.pixelBytes(): Long =
-            values.sumOf { pixels -> pixels?.size?.toLong() ?: 0L }
-    }
-
     private val budget = MemoryBudget.compute(memory, canvas)
+
+    /** How many layers this canvas fits in the GPU pool (`10-performance.md` §4). */
+    val layerCap: Int get() = budget.maxLayers
     private val dabRing = DabRing()
     private val revisionCounter = java.util.concurrent.atomic.AtomicInteger(0)
     private val started = AtomicBoolean(false)
@@ -125,17 +126,32 @@ internal class DesktopEngine(
     private var frameHeight = 0
     private var framePixels: ByteArray? = null
     private var nextWetRefreshNs = 0L
+    private var thumbnailSink: ((LayerId, LayerThumbnail?) -> Unit)? = null
+    private var paperColor = DEFAULT_PAPER_ARGB
 
-    val stack = LayerStack(
-        listOf(Layer(LayerProps(LayerId("layer-1"), "Layer 1"))),
-        activeIndex = 0,
-        nextName = 2,
-    )
+    /**
+     * The document model. Written only on the GL thread; `@Volatile` because
+     * the input host reads the active layer while a gesture starts.
+     */
+    @Volatile
+    var stack: LayerStack = INITIAL_STACK
+        private set
+
     private val undoHistory = DesktopHistory(
         maxSteps = budget.historyMaxSteps,
         maxBytes = budget.historyMaxBytes,
-        sizeOf = UndoEntry::bytes,
+        sizeOf = DesktopUndoStep::bytes,
     )
+
+    /** Fresh layer ids; `layer-<n>` keeps them legible in diagnostics. */
+    private var nextLayerNumber = 2
+    private val ids = IdSource {
+        var candidate: LayerId
+        do {
+            candidate = LayerId("layer-" + nextLayerNumber++)
+        } while (stack.layers.any { it.id == candidate })
+        candidate
+    }
 
 
     // ------------------------------------------------------------- control
@@ -208,8 +224,30 @@ internal class DesktopEngine(
         requestRepaintOnGl()
     }
 
+    /**
+     * The paper colour, journaled. Android carries it on the document and
+     * gives it its own `HistoryEntry`; here the step already describes the
+     * whole document, so the colour rides along on the same journal rather
+     * than needing a second one.
+     */
     fun setPaperColor(argb: Int) = post {
-        renderer?.setPaperColor(argb)
+        val renderer = renderer ?: return@post
+        if (argb == paperColor) return@post
+
+        val before = paperColor
+        paperColor = argb
+        renderer.setPaperColor(argb)
+        undoHistory.record(
+            DesktopUndoStep(
+                stackBefore = stack,
+                stackAfter = stack,
+                pixelsBefore = emptyMap(),
+                pixelsAfter = emptyMap(),
+                paperBefore = before,
+                paperAfter = argb,
+            ),
+        )
+        onPaper(argb)
         requestRepaintOnGl()
     }
 
@@ -270,50 +308,67 @@ internal class DesktopEngine(
     fun endStroke(opacityCeiling: Float, onCommitted: () -> Unit) = post {
         val renderer = renderer ?: return@post
         val revision = nextRevision()
-        var entry: UndoEntry? = null
+        var layerId: LayerId? = null
+        var keys: List<TileKey> = emptyList()
+        var before: Map<TileKey, ByteArray?> = emptyMap()
         val merged = renderer.endStroke(
             revision = revision,
             opacityCeiling = opacityCeiling,
-        ) { spec, keys ->
+        ) { spec, touched ->
             // Pre-merge state: everything but this stroke's own tiles.
             val layerMirror = mirror[spec.layerId]
-            val before = HashMap<TileKey, ByteArray?>(keys.size)
-            for (key in keys) before[key] = layerMirror?.get(key)?.copyOf()
-            entry = UndoEntry(spec.layerId, keys.toList(), before)
+            val captured = HashMap<TileKey, ByteArray?>(touched.size)
+            for (key in touched) captured[key] = layerMirror?.get(key)?.copyOf()
+            layerId = spec.layerId
+            keys = touched.toList()
+            before = captured
         }
         if (merged > 0) {
-            val committed = checkNotNull(entry) { "renderer merged without touched keys" }
+            val committedLayer = checkNotNull(layerId) { "renderer merged without touched keys" }
             requireReadback(renderer)
             check(
                 DesktopReadbackPolicy.delivery(
-                    keys = committed.keys,
+                    keys = keys,
                     expectedRevision = revision,
-                    revisionOf = { key -> readbackRevisions[committed.layerId]?.get(key) },
+                    revisionOf = { key -> readbackRevisions[committedLayer]?.get(key) },
                 ) == ReadbackDelivery.Complete,
             ) { "GPU readback did not deliver every merged tile" }
 
-            val layerMirror = mirror.getValue(committed.layerId)
-            val after = HashMap<TileKey, ByteArray?>(committed.keys.size)
-            for (key in committed.keys) after[key] = layerMirror[key]?.copyOf()
-            committed.after = after
-            journal(committed)
+            val layerMirror = mirror.getValue(committedLayer)
+            val after = HashMap<TileKey, ByteArray?>(keys.size)
+            for (key in keys) after[key] = layerMirror[key]?.copyOf()
+
+            val stackBefore = stack
+            val stackAfter = DesktopStrokeTiles.withCommitted(stackBefore, committedLayer, keys)
+            if (stackAfter !== stackBefore) {
+                stack = stackAfter
+                renderer.setStack(stackAfter)
+                publishStack()
+            }
+            undoHistory.record(
+                DesktopUndoStep(
+                    stackBefore = stackBefore,
+                    stackAfter = stackAfter,
+                    pixelsBefore = mapOf(committedLayer to before),
+                    pixelsAfter = mapOf(committedLayer to after),
+                ),
+            )
             onCommitted()
         }
         requestRepaintOnGl()
     }
 
-    private fun journal(entry: UndoEntry) = undoHistory.record(entry)
-
     fun canUndo(): Boolean = undoHistory.canUndo
     fun canRedo(): Boolean = undoHistory.canRedo
 
     /**
-     * Saves the painting as a PNG under `~/Pictures/BangniDraw`, composed
+     * Saves the painting as a PNG — to [target], or under
+     * `~/Pictures/BangniDraw` when the document has no file yet — composed
      * from the readback mirror (the mirror is exact: every commit drains
      * its readback to completion first). [onComplete] is not UI-thread-bound;
      * callers must marshal UI state themselves.
      */
-    fun savePng(onComplete: (DesktopSaveResult) -> Unit) = post {
+    fun savePng(target: java.io.File? = null, onComplete: (DesktopSaveResult) -> Unit) = post {
         val snapshot: DesktopExportSnapshot
         val file: java.io.File
         try {
@@ -323,14 +378,14 @@ internal class DesktopEngine(
             // that last committed mirror without another blocking fence wait,
             // which could hold the GL owner long enough to exhaust DabRing.
 
-            val layerMirror = mirror[stack.layers[stack.activeIndex].id].orEmpty()
             snapshot = DesktopPng.snapshot(
                 width = canvas.width,
                 height = canvas.height,
-                paperArgb = DEFAULT_PAPER_ARGB,
-                tiles = layerMirror,
+                paperArgb = paperColor,
+                stack = stack,
+                mirror = mirror,
             )
-            file = java.io.File(
+            file = target ?: java.io.File(
                 DesktopPlatform.picturesDir(),
                 DesktopBrand.exportFileStem(DesktopBrand.displayName) + "-" +
                     System.currentTimeMillis() + ".png",
@@ -357,16 +412,18 @@ internal class DesktopEngine(
 
     private fun applyHistory(direction: HistoryDirection) {
         val renderer = renderer ?: return
-        val entry = undoHistory.move(direction) ?: return
-        val images = if (direction == HistoryDirection.Undo) entry.before else entry.after
+        val step = undoHistory.move(direction) ?: return
+        val target = step.stackFor(direction)
+        val pixels = step.pixelsFor(direction)
 
         // `applyPixelOps`, not `restoreCancelledRmw`: the latter is the
         // CANCEL door. History has to go through the op path so
         // `WatercolorEditPolicy` sees an UndoRedo and dries the wet grid —
         // otherwise wetness from an undone watercolor stroke survives the
         // undo and bleeds into whatever is painted next.
-        val applied = renderer.applyPixelOps(
-            ops = listOf(PixelOp.Restore(entry.layerId, images)),
+        val ops = DesktopUndoOps.ops(stack, target, pixels)
+        val applied = ops.isEmpty() || renderer.applyPixelOps(
+            ops = ops,
             revision = nextRevision(),
             invalidation = SandwichPolicy.Op.UndoRedo,
         )
@@ -375,11 +432,157 @@ internal class DesktopEngine(
             return
         }
 
-        val layerMirror = mirror.getOrPut(entry.layerId) { HashMap() }
-        DesktopTileMirror.apply(layerMirror, images)
-        if (layerMirror.isEmpty()) mirror.remove(entry.layerId)
+        stack = target
+        renderer.setStack(target, SandwichPolicy.Op.UndoRedo)
+        step.paperFor(direction)?.let { argb ->
+            paperColor = argb
+            renderer.setPaperColor(argb)
+            onPaper(argb)
+        }
+        for ((layerId, tiles) in pixels) {
+            val layerMirror = mirror.getOrPut(layerId) { HashMap() }
+            DesktopTileMirror.apply(layerMirror, tiles)
+            if (layerMirror.isEmpty()) mirror.remove(layerId)
+        }
+        pruneMirror(target)
+        publishStack()
+        requestThumbnailRefresh()
         requestRepaintOnGl()
     }
+
+    // ---------------------------------------------------------- document
+
+    /**
+     * Selection is a view concern (`05-layers.md` §3), never an edit: it
+     * changes which layer the next stroke lands on and stales the sandwich,
+     * but it is not journaled and cannot be undone.
+     */
+    fun selectLayer(index: Int) = post {
+        val renderer = renderer ?: return@post
+        val next = stack.select(index)
+        if (next == stack) return@post
+
+        stack = next
+        renderer.setStack(next)
+        publishStack()
+        requestRepaintOnGl()
+    }
+
+    /**
+     * Runs one pure [LayerStack] operation and commits whatever it produced.
+     *
+     * [edit] is evaluated on the GL thread against the live model, so a panel
+     * that computed an index a frame ago cannot apply it to a stack that moved
+     * underneath. [onResult] reports the [Refusal] the model gave — the panel
+     * turns those into hints — or `null` on success.
+     */
+    fun editStack(onResult: (Refusal?) -> Unit = {}, edit: (LayerStack, IdSource) -> StackResult) = post {
+        val renderer = renderer
+        if (renderer == null) {
+            onResult(Refusal.NOOP)
+            return@post
+        }
+        when (val result = edit(stack, ids)) {
+            is StackResult.Refused -> onResult(result.reason)
+            is StackResult.Ok -> onResult(if (commitStackEdit(renderer, result.edit)) null else Refusal.NOOP)
+        }
+    }
+
+    /**
+     * Applies a [StackEdit]'s pixels, publishes its model, and journals the
+     * step. The pixel payload is snapshotted from the mirror on both sides of
+     * the edit, so undo and redo are exact inverses of each other rather than
+     * replays of an operation the model would refuse a second time.
+     */
+    private fun commitStackEdit(renderer: CanvasRenderer, edit: StackEdit): Boolean {
+        val before = stack
+        val after = edit.stack
+        val touched = DesktopStackEdits.touchedLayers(before, after, edit.pixels)
+        val pixelsBefore = snapshotPixels(before, after, touched)
+        val invalidation = DesktopStackEdits.invalidation(edit.entry, before)
+
+        val op = edit.pixels
+        if (op != null && !renderer.applyPixelOps(listOf(op), nextRevision(), invalidation)) {
+            return false
+        }
+
+        stack = after
+        renderer.setStack(after, invalidation)
+        if (op != null) requireReadback(renderer)
+        pruneMirror(after)
+        undoHistory.record(
+            DesktopUndoStep(
+                stackBefore = before,
+                stackAfter = after,
+                pixelsBefore = pixelsBefore,
+                pixelsAfter = snapshotPixels(before, after, touched),
+            ),
+        )
+        publishStack()
+        requestThumbnailRefresh()
+        requestRepaintOnGl()
+        return true
+    }
+
+    /**
+     * The mirror's current contents for every key either side of the edit
+     * lists — `null` where there is no tile, which is exactly what
+     * [PixelOp.Restore] means by a missing payload.
+     */
+    private fun snapshotPixels(
+        before: LayerStack,
+        after: LayerStack,
+        touched: Set<LayerId>,
+    ): Map<LayerId, Map<TileKey, ByteArray?>> {
+        if (touched.isEmpty()) return emptyMap()
+        val out = HashMap<LayerId, Map<TileKey, ByteArray?>>(touched.size)
+        for (layerId in touched) {
+            val keys = DesktopStackEdits.keysFor(before, after, layerId)
+            if (keys.isEmpty()) continue
+            val layerMirror = mirror[layerId]
+            val tiles = HashMap<TileKey, ByteArray?>(keys.size)
+            for (key in keys) tiles[key] = layerMirror?.get(key)
+            out[layerId] = tiles
+        }
+        return out
+    }
+
+    /** Drops mirror rows for layers the model no longer carries. */
+    private fun pruneMirror(current: LayerStack) {
+        val live = current.layers.mapTo(HashSet()) { it.id }
+        val gone = mirror.keys.filterNot { it in live }
+        for (id in gone) {
+            mirror.remove(id)
+            readbackRevisions.remove(id)
+        }
+    }
+
+    private fun publishStack() {
+        val published = stack
+        onStack(published)
+    }
+
+    // -------------------------------------------------------- thumbnails
+
+    /**
+     * Renders one isolated thumbnail per layer. The panel is a window of its
+     * own, so it asks for these when it opens and after every edit; the
+     * renderer's PBO pass answers on the GL thread and [onThumbnail] marshals
+     * to the UI.
+     */
+    fun requestLayerThumbnails(onThumbnail: (LayerId, LayerThumbnail?) -> Unit) = post {
+        val renderer = renderer ?: return@post
+        thumbnailSink = onThumbnail
+        renderer.requestLayerThumbnails(stack.layers.map { it.id }, onThumbnail)
+    }
+
+    /** Re-renders whatever the panel is showing, if it is showing anything. */
+    private fun requestThumbnailRefresh() {
+        val sink = thumbnailSink ?: return
+        renderer?.requestLayerThumbnails(stack.layers.map { it.id }, sink)
+    }
+
+    fun stopLayerThumbnails() = post { thumbnailSink = null }
 
     private fun requireReadback(renderer: CanvasRenderer) {
         check(DesktopReadbackPolicy.drain(renderer::finishReadback) == ReadbackDrain.Complete) {
@@ -419,7 +622,8 @@ internal class DesktopEngine(
             DesktopGlDiagnostics.rendererRequirements
         }
         next.setStack(stack)
-        next.setPaperColor(DEFAULT_PAPER_ARGB)
+        publishStack()
+        next.setPaperColor(paperColor)
         next.setView(ViewTransform())
         renderer = next
 
@@ -440,6 +644,7 @@ internal class DesktopEngine(
                 task()
                 worked = true
             }
+            if (thumbnailSink != null) renderer?.pollLayerThumbnails()
             if (pumpWetOverlay()) worked = true
             if (repaint.getAndSet(false)) {
                 renderFrame()
@@ -566,6 +771,18 @@ internal class DesktopEngine(
         private const val WET_REFRESH_INTERVAL_NS = 100_000_000L
         private const val RGBA_CHANNELS = 4
         private const val DEFAULT_PAPER_ARGB = 0xFFFFFFFF.toInt()
+
+        /**
+         * One empty layer, as a new painting opens (`05-layers.md` §1). Its
+         * name follows the generated grammar rather than being literal
+         * English, so [DesktopLayerNames] resolves it exactly as it resolves
+         * every later "Layer N".
+         */
+        private val INITIAL_STACK = LayerStack(
+            listOf(Layer(LayerProps(LayerId("layer-1"), LayerStack.defaultName(1)))),
+            activeIndex = 0,
+            nextName = 2,
+        )
 
         private val IDENTITY_TRANSFORM = FloatArray(16).also {
             java.util.Arrays.fill(it, 0f)

@@ -11,7 +11,7 @@ class DesktopRenderingContractTest {
     @Test
     fun `the chrome is the shared adaptive layout, not a desktop-only one`() {
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
-        val shell = between(main, "private fun Shell(", "private fun railAlignment(")
+        val shell = between(main, "private fun Shell(", "/** The rail hugs the hand")
 
         // Every rail/strip/panel dimension comes from LayoutSpec, so the two
         // products cannot drift apart on geometry.
@@ -32,7 +32,7 @@ class DesktopRenderingContractTest {
         assertTrue(engine.contains("GLES30.glCheckFramebufferStatus"))
         assertTrue(engine.contains("check(r.drawFrame("))
         assertTrue(main.contains("engine.savePng { result ->"))
-        assertTrue(main.contains("EventQueue.invokeLater { savedMessage = message }"))
+        assertTrue(main.contains("EventQueue.invokeLater { state.savedMessage = message }"))
         assertTrue(engine.contains("restoreCancelledRmw(spec.layerId, images)"))
         assertTrue(engine.contains("readbackRevisions"))
         assertTrue(engine.contains("ReadbackDelivery.Complete"))
@@ -40,8 +40,8 @@ class DesktopRenderingContractTest {
         // The gate, not its exact spelling: input stays dead until the
         // restored brush and colour are resolved, whatever else the
         // condition grew to also require.
-        assertTrue(main.contains("val canvasInput = if (preferencesReady"))
-        assertTrue(main.contains("preferencesReady = true"))
+        assertTrue(main.contains("val canvasInput = if (state.preferencesReady"))
+        assertTrue(main.contains("state.preferencesReady = true"))
     }
 
     @Test
@@ -89,7 +89,8 @@ class DesktopRenderingContractTest {
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
 
         assertEquals(1, Regex("MixboxBinding\\.create\\(\\)").findAll(main).count())
-        assertTrue(main.contains("mixer = mixer"))
+        // One mixer reaches the shell state, which every surface reads it from.
+        assertTrue(main.contains("DesktopShellState(it, catalogue, mixer, prefs)"))
     }
 
     /**

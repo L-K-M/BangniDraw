@@ -123,6 +123,19 @@ internal object DesktopPalette {
         0xFF5C4BC8.toInt(), 0xFFB65AC4.toInt(), 0xFFFFFFFF.toInt(), 0xFF000000.toInt(),
     )
 
+    /**
+     * The paper choices `:app`'s layer panel offers, in its order and with
+     * its colours (`ui/theme/Color.kt`'s `PaperSwatch*`). Transparent is one
+     * of them: the renderer draws its checker, and an export keeps the alpha.
+     */
+    val PAPERS = listOf(
+        "White" to 0xFFFFFFFF.toInt(),
+        "Warm" to 0xFFF8F1E3.toInt(),
+        "Gray" to 0xFF9E9E9E.toInt(),
+        "Black" to 0xFF000000.toInt(),
+        "Transparent" to 0x00000000,
+    )
+
     /** The stroke color as normalized RGB floats — what the engine's `u_color` takes. */
     fun toStrokeRgb(argb: Int): FloatArray = floatArrayOf(
         ((argb ushr 16) and 0xFF) / 255f,

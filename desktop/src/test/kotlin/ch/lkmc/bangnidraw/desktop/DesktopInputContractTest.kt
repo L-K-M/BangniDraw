@@ -54,11 +54,13 @@ class DesktopInputContractTest {
     @Test
     fun `undo and redo go through the history door, not the cancel door`() {
         val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
-        val history = between(engine, "private fun applyHistory(", "private fun requireReadback(")
+        val document = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopDocument.kt")
+        val history = between(engine, "private fun applyHistory(", "// ---------------------------------------------------------- document")
 
         // restoreCancelledRmw never reaches WatercolorEditPolicy, so wetness
         // from an undone watercolor stroke would survive the undo.
-        assertTrue(history.contains("PixelOp.Restore("))
+        assertTrue(history.contains("DesktopUndoOps.ops("))
+        assertTrue(document.contains("PixelOp.Restore(layerId, tiles)"))
         assertTrue(history.contains("SandwichPolicy.Op.UndoRedo"))
         // The word appears in the comment explaining why it is not used;
         // what must be absent is the call.

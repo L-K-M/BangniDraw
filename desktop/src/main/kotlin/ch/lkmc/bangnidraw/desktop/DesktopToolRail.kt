@@ -79,9 +79,9 @@ import kotlin.math.roundToInt
  *
  * The structural difference is what this shell cannot run: Android's five
  * secondary tools (smudge, water, blur, fill, eyedropper) have no desktop
- * engine path, and the settings sheet its overflowing presets hide in does
- * not exist here — so the paints that do not fit go into a menu on the rail
- * itself rather than off it.
+ * engine path, and Android overflows its extra presets into the settings
+ * sheet — so the paints that do not fit go into a menu on the rail itself
+ * rather than off it.
  */
 @Composable
 internal fun DesktopToolRail(
@@ -94,6 +94,8 @@ internal fun DesktopToolRail(
     onPaintSlot: (Int) -> Unit,
     onAssignPaint: (BrushPreset) -> Unit,
     onEraserTap: () -> Unit,
+    /** The slot that is already selected opens its settings, as Android's does. */
+    onSettings: () -> Unit,
     onSizeChanged: (Float) -> Unit,
     onSecondaryChanged: (Float) -> Unit,
     modifier: Modifier = Modifier,
@@ -130,7 +132,11 @@ internal fun DesktopToolRail(
                     icon = brushGlyphIcon(BrushToolGlyphPolicy.forPreset(paint)),
                     description = DesktopBrushUi.label(paint),
                     active = rail.selectedId == paint.id,
-                    onClick = { onPaintSlot(index) },
+                    // `:app` opens the settings sheet from the slot that is
+                    // already active; the same second click does it here.
+                    onClick = {
+                        if (rail.selectedId == paint.id) onSettings() else onPaintSlot(index)
+                    },
                 ),
             )
         }
@@ -165,11 +171,15 @@ internal fun DesktopToolRail(
         paintSlotButtons
     } else {
         val alternates = EraserTogglePolicy.next(eraser.id, presets) != null
+        val selected = rail.selectedId == eraser.id
         paintSlotButtons + DesktopToolSlot(
             icon = brushGlyphIcon(BrushToolGlyphPolicy.forPreset(eraser)),
-            description = DesktopBrushUi.label(eraser) + if (alternates) ERASER_TOGGLE_HINT else "",
-            active = rail.selectedId == eraser.id,
-            onClick = onEraserTap,
+            description = DesktopBrushUi.label(eraser) + if (alternates) ERASER_SETTINGS_HINT else "",
+            active = selected,
+            // One rule for every slot: the first click selects, the second
+            // opens settings. The hard/soft choice lives in that panel, so a
+            // second click never has to mean two different things.
+            onClick = { if (selected) onSettings() else onEraserTap() },
         )
     }
     val slot = layout.toolSlotDp.dp
@@ -458,7 +468,7 @@ internal val DESKTOP_THEME = AppTheme.SAFFRON
 
 private const val SELECTED_STATE = "Selected"
 private const val MORE_BRUSHES = "More brushes"
-private const val ERASER_TOGGLE_HINT = " — click again for the other eraser"
+private const val ERASER_SETTINGS_HINT = " — click again for eraser settings"
 private val TOOL_VISUAL = 40.dp
 private val TOOL_VISUAL_INSET = 8.dp
 private val TOOL_GAP = DesktopRailGeometry.TOOL_GAP_DP.dp

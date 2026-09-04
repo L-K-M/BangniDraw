@@ -1,13 +1,26 @@
 package ch.lkmc.bangnidraw.desktop
 
+import ch.lkmc.bangnidraw.engine.core.Composite
+import ch.lkmc.bangnidraw.engine.core.Layer
+import ch.lkmc.bangnidraw.engine.core.LayerId
+import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.TileKey
+import ch.lkmc.bangnidraw.engine.core.TileReader
 
+/**
+ * The pixels one export composes, frozen away from the GL thread.
+ *
+ * [layers] are the **visible** layers, bottom to top — the caller's filter,
+ * because [Composite.tile] deliberately composites whatever list it is given
+ * (merge down relies on that).
+ */
 internal class DesktopExportSnapshot(
     val width: Int,
     val height: Int,
     val paperArgb: Int,
-    val tiles: Map<TileKey, ByteArray>,
+    val layers: List<Layer>,
+    val tiles: Map<LayerId, Map<TileKey, ByteArray>>,
 )
 
 internal sealed interface DesktopSaveResult {
@@ -27,13 +40,22 @@ internal object DesktopPng {
         width: Int,
         height: Int,
         paperArgb: Int,
-        tiles: Map<TileKey, ByteArray>,
-    ): DesktopExportSnapshot = DesktopExportSnapshot(
-        width = width,
-        height = height,
-        paperArgb = paperArgb,
-        tiles = HashMap(tiles),
-    )
+        stack: LayerStack,
+        mirror: Map<LayerId, Map<TileKey, ByteArray>>,
+    ): DesktopExportSnapshot {
+        // Hidden layers never reach the file (`06` §9.1 exports what the user
+        // sees), and a layer at zero opacity is skipped by Composite itself.
+        val visible = stack.layers.filter { it.props.visible }
+        return DesktopExportSnapshot(
+            width = width,
+            height = height,
+            paperArgb = paperArgb,
+            layers = visible,
+            tiles = visible.associate { layer ->
+                layer.id to HashMap(mirror[layer.id].orEmpty())
+            },
+        )
+    }
 
     /** Composes and writes entirely on the export worker, returning failures. */
     fun export(
@@ -50,32 +72,39 @@ internal object DesktopPng {
         return DesktopSaveResult.Failed(detail)
     }
 
+    /**
+     * The whole visible stack over the paper, through [Composite] — the same
+     * CPU reference the shaders are pinned against, so an export and the
+     * on-screen composite agree on blend modes and per-layer opacity.
+     */
     fun compose(snapshot: DesktopExportSnapshot): java.awt.image.BufferedImage {
         require(snapshot.width > 0 && snapshot.height > 0) { "export dimensions must be positive" }
-        require((snapshot.paperArgb ushr ALPHA_SHIFT) == CHANNEL_MASK) {
-            "paper color must be opaque"
-        }
 
         val grid = TileGrid(snapshot.width, snapshot.height)
-        val output = IntArray(snapshot.width * snapshot.height) { snapshot.paperArgb }
-        for ((key, bytes) in snapshot.tiles) {
-            if (bytes.size != TILE_BYTES) continue
-            val rect = grid.tileRect(key)
-            if (rect.isEmpty) continue
+        // Transparent paper exports a transparent PNG, exactly as the Android
+        // flatten does — a user who chose it wants the alpha, not white.
+        val ground = Composite.premultiply(snapshot.paperArgb)
+        val output = IntArray(snapshot.width * snapshot.height) { straight(ground) }
+        // One tile of one layer at a time: the reader is called once per
+        // layer per tile, and nothing but the output buffer outlives a tile.
+        val reader = TileReader { layer, key -> tileArgb(snapshot.tiles[layer]?.get(key)) }
+        for (ty in 0 until grid.tilesY) {
+            for (tx in 0 until grid.tilesX) {
+                val key = TileKey(tx, ty)
+                val rect = grid.tileRect(key)
+                if (rect.isEmpty) continue
 
-            for (row in 0 until rect.height) {
-                for (column in 0 until rect.width) {
-                    val offset = (row * TILE_EDGE + column) * RGBA_CHANNELS
-                    val red = bytes[offset].toInt() and CHANNEL_MASK
-                    val green = bytes[offset + 1].toInt() and CHANNEL_MASK
-                    val blue = bytes[offset + 2].toInt() and CHANNEL_MASK
-                    val alpha = bytes[offset + 3].toInt() and CHANNEL_MASK
-                    val premultiplied =
-                        (alpha shl ALPHA_SHIFT) or (red shl RED_SHIFT) or
-                            (green shl GREEN_SHIFT) or blue
-                    val x = rect.left + column
-                    val y = rect.top + row
-                    output[y * snapshot.width + x] = sourceOver(premultiplied, snapshot.paperArgb)
+                val pixels = Composite.tile(snapshot.layers, key, snapshot.paperArgb, reader)
+                for (row in 0 until rect.height) {
+                    var src = row * TILE_EDGE
+                    var dst = (rect.top + row) * snapshot.width + rect.left
+                    for (column in 0 until rect.width) {
+                        // Composite works premultiplied; TYPE_INT_ARGB is
+                        // straight, and PNG stores straight alpha (06 §9.1).
+                        output[dst] = straight(pixels[src])
+                        src += 1
+                        dst += 1
+                    }
                 }
             }
         }
@@ -85,6 +114,43 @@ internal object DesktopPng {
         ).also { image ->
             image.setRGB(0, 0, snapshot.width, snapshot.height, output, 0, snapshot.width)
         }
+    }
+
+    /** Premultiplied ARGB back to the straight ARGB an image file stores. */
+    private fun straight(premultiplied: Int): Int {
+        val alpha = (premultiplied ushr ALPHA_SHIFT) and CHANNEL_MASK
+        if (alpha == CHANNEL_MASK) return premultiplied
+        if (alpha == 0) return 0
+
+        val red = unpremultiply((premultiplied ushr RED_SHIFT) and CHANNEL_MASK, alpha)
+        val green = unpremultiply((premultiplied ushr GREEN_SHIFT) and CHANNEL_MASK, alpha)
+        val blue = unpremultiply(premultiplied and CHANNEL_MASK, alpha)
+        return (alpha shl ALPHA_SHIFT) or (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
+    }
+
+    /** Round-half-up, clamped — the same recovery [LayerThumbnail] uses. */
+    private fun unpremultiply(channel: Int, alpha: Int): Int =
+        ((channel * CHANNEL_MASK + alpha / 2) / alpha).coerceAtMost(CHANNEL_MASK)
+
+    /**
+     * One mirror tile as the premultiplied ARGB ints [Composite] reads.
+     * A tile of the wrong size is dropped rather than raised on: the mirror is
+     * filled by GPU readback, and a truncated one must not fail a save.
+     */
+    private fun tileArgb(bytes: ByteArray?): IntArray? {
+        if (bytes == null || bytes.size != TILE_BYTES) return null
+
+        val out = IntArray(TILE_EDGE * TILE_EDGE)
+        var offset = 0
+        for (i in out.indices) {
+            val red = bytes[offset].toInt() and CHANNEL_MASK
+            val green = bytes[offset + 1].toInt() and CHANNEL_MASK
+            val blue = bytes[offset + 2].toInt() and CHANNEL_MASK
+            val alpha = bytes[offset + 3].toInt() and CHANNEL_MASK
+            out[i] = (alpha shl ALPHA_SHIFT) or (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
+            offset += RGBA_CHANNELS
+        }
+        return out
     }
 
     fun write(image: java.awt.image.BufferedImage, file: java.io.File): DesktopSaveResult {
@@ -143,30 +209,10 @@ internal object DesktopPng {
         }
     }
 
-    fun sourceOver(premultipliedTile: Int, opaquePaper: Int): Int {
-        val alpha = (premultipliedTile ushr ALPHA_SHIFT) and CHANNEL_MASK
-        if (alpha == CHANNEL_MASK) return premultipliedTile
-        if (alpha == 0) return opaquePaper
-
-        val inverseAlpha = CHANNEL_MASK - alpha
-        val red = channel(premultipliedTile, RED_SHIFT) +
-            channel(opaquePaper, RED_SHIFT) * inverseAlpha / CHANNEL_MASK
-        val green = channel(premultipliedTile, GREEN_SHIFT) +
-            channel(opaquePaper, GREEN_SHIFT) * inverseAlpha / CHANNEL_MASK
-        val blue = channel(premultipliedTile, 0) +
-            channel(opaquePaper, 0) * inverseAlpha / CHANNEL_MASK
-
-        // Paper is opaque, therefore its source-over result is opaque too.
-        return OPAQUE_ALPHA or (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
-    }
-
-    private fun channel(argb: Int, shift: Int): Int = (argb ushr shift) and CHANNEL_MASK
-
     private const val CHANNEL_MASK = 0xFF
     private const val ALPHA_SHIFT = 24
     private const val RED_SHIFT = 16
     private const val GREEN_SHIFT = 8
-    private const val OPAQUE_ALPHA = 0xFF000000.toInt()
     private const val PNG_FORMAT = "png"
     private const val EXPORT_INTERRUPTED_MESSAGE = "export interrupted"
     private const val PARTIAL_PREFIX = ".bangnidraw-export-"

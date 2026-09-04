@@ -2,7 +2,6 @@ package ch.lkmc.bangnidraw.desktop
 
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
-import ch.lkmc.bangnidraw.engine.core.EraserTogglePolicy
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.RailMode
@@ -66,23 +65,23 @@ internal object DesktopRailPolicy {
     }
 
     /**
-     * The eraser slot's tap. Android's rail reaches the second eraser through
-     * a long-press; a long-press is not a mouse gesture, so tapping the slot
-     * that is *already* active cycles to the next eraser instead — the same
-     * "second tap does the other thing" rule the paint slots use on Android.
+     * The eraser slot's click: select whichever eraser the slot holds.
+     *
+     * Android reaches the *other* eraser through a long-press. A long-press
+     * is not a mouse gesture, and the second click is already spoken for —
+     * every rail slot opens its settings when clicked while active — so the
+     * hard/soft choice lives in the brush settings panel instead. One rule
+     * for every slot beats two rules that collide on the eraser.
      */
     fun eraserTap(state: DesktopRailState, presets: List<BrushPreset>): DesktopRailState {
         // The slot can only ever offer an eraser this catalogue actually
-        // ships; a build with none has nothing for the tap to select.
+        // ships; a build with none has nothing for the click to select.
         val slot = presets.firstOrNull { it.id == state.eraserId && it.eraseMode }
             ?: eraserOrNull(presets)
             ?: return state
-        if (state.selectedId != slot.id) {
-            return DesktopRailState(selectedId = slot.id, eraserId = slot.id)
-        }
+        if (state.selectedId == slot.id) return state
 
-        val next = EraserTogglePolicy.next(slot.id, presets) ?: return state
-        return DesktopRailState(selectedId = next, eraserId = next)
+        return DesktopRailState(selectedId = slot.id, eraserId = slot.id)
     }
 
     /**

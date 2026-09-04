@@ -125,29 +125,27 @@ class DesktopChromePolicyTest {
     }
 
     @Test
-    fun `the eraser slot selects first and only then cycles erasers`() {
+    fun `the eraser slot selects, and a second click leaves it alone`() {
         val paint = DesktopRailPolicy.initial(presets)
 
         val selected = DesktopRailPolicy.eraserTap(paint, presets)
         assertEquals(BrushPresets.HARD_ERASER_ID, selected.selectedId)
         assertEquals(BrushPresets.HARD_ERASER_ID, selected.eraserId)
+        assertTrue(presets.first { it.id == selected.eraserId }.eraseMode)
 
-        val toggled = DesktopRailPolicy.eraserTap(selected, presets)
-        assertEquals(BrushPresets.SOFT_ERASER_ID, toggled.selectedId)
-        assertEquals(BrushPresets.SOFT_ERASER_ID, toggled.eraserId)
-
-        // Cycling returns; the slot never lands on a preset that is not an eraser.
-        val cycled = DesktopRailPolicy.eraserTap(toggled, presets)
-        assertEquals(BrushPresets.HARD_ERASER_ID, cycled.selectedId)
-        assertTrue(presets.first { it.id == cycled.eraserId }.eraseMode)
+        // The second click is the settings door for every slot, so the policy
+        // must not also spend it on the other eraser.
+        assertSame(selected, DesktopRailPolicy.eraserTap(selected, presets))
     }
 
     @Test
-    fun `a single-eraser catalogue has nothing to toggle to`() {
-        val single = presets.filterNot { it.id == BrushPresets.SOFT_ERASER_ID }
-        val selected = DesktopRailPolicy.eraserTap(DesktopRailPolicy.initial(single), single)
+    fun `the other eraser is reached by selecting it, as the settings panel does`() {
+        val selected = DesktopRailPolicy.eraserTap(DesktopRailPolicy.initial(presets), presets)
 
-        assertSame(selected, DesktopRailPolicy.eraserTap(selected, single))
+        val soft = DesktopRailPolicy.select(selected, BrushPresets.SOFT_ERASER_ID, presets)
+
+        assertEquals(BrushPresets.SOFT_ERASER_ID, soft.selectedId)
+        assertEquals(BrushPresets.SOFT_ERASER_ID, soft.eraserId)
     }
 
     @Test

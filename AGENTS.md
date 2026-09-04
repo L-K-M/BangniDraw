@@ -123,9 +123,16 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   choice in the brush panel instead. (A long-press, Android's route to it, is
   not a mouse gesture — but a second click that means two different things
   depending on the slot is worse than a panel row.)
-  **The hover cursor and the composition guides are `:app`'s own**, moved to
-  `ui/shared/` and compiled into both modules — their size accuracy and their
-  geometry are exactly what must not drift. The desktop must send
+  **The hover cursor, the composition guides and the colour picker are
+  `:app`'s own**, moved to `ui/shared/` and compiled into both modules — their
+  size accuracy and their geometry are exactly what must not drift. The picker
+  is `HsvRingSquare`: its ring width and its square edge are `HsvPicker`'s own
+  constants and the pointer math that reads them is the same object, so a tap
+  near their boundary cannot mean one thing on a phone and another on a
+  laptop. Haptics stay with the caller — the shared composable fires
+  `onHueMilestone` and only Android has a device to tick — which is also why
+  its `pointerInput` keys on the picker size alone and reads the callback
+  through `rememberUpdatedState`. The desktop must send
   `onHoverEnter`, not only `onHoverMove`: an enter is what fills
   `StylusState.tool`, and `HoverCursorPolicy` reads a `FINGER` tool as "no
   cursor". Navigation reaches the shell through **one** publisher
@@ -139,15 +146,59 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   the half a test can drive. A focusable root asks for focus once: with a menu
   bar present the AWT focus owner can be the menu, and Compose then never sees
   the key.
-  **The layer and settings panels are OS windows of their own**
-  (`DesktopPanelWindows`), `alwaysOnTop`, not sheets inside the document
+  **The layer, tool, Settings and tracing-image panels are OS windows of their
+  own** (`DesktopPanelWindows`), `alwaysOnTop`, not sheets inside the document
   window — the user asked to be able to move them independently of it. That is
   why `DesktopShellState` hoists every piece of state they read: a sibling
   `Window` cannot see state declared inside the canvas window's composable.
-  Each wraps its content in `DesktopTheme.colorScheme`, or it renders in the
-  host desktop's Material rather than this product's. There is **one** settings
+  They are composed *inside* the document window's content for the same
+  reason: the tracing-image import is a modal `java.awt.FileDialog`, which
+  needs the `FrameWindowScope`'s frame. Each wraps its content in
+  `DesktopTheme.colorScheme`, or it renders in the host desktop's Material
+  rather than this product's. There is **one** tool-settings
   window, not six: it is opened by clicking the active rail slot, so it always
   shows that slot's tool.
+  **`DesktopSettings` is `:app`'s Settings sheet minus the rows for hardware
+  this shell has none of** — haptics, stylus-only, the pen button, the
+  eraser-end preset and the pressure curve (see the stylus note below), and
+  the gallery mirror, since a painting here is a file. What remains is the
+  same choice stored in the same shape: theme, drawing hand, right-angle snap,
+  the colour mixer, the shared `CanvasShortcutCatalog` table, and About. Its
+  theme chips wrap (`FlowRow`) because eight do not fit the window's width,
+  and a theme nobody can see is a theme nobody can pick.
+  **The colour panel is `:app`'s, section for section** — ring picker,
+  channel readings, current/previous chips, hex and RGB fields, the palette
+  switcher and its swatches, and the mixing dish. Where Android hides an
+  action behind a long-press, the desktop uses the mouse's own idiom: a
+  secondary click opens the swatch's or the dish well's menu
+  (`ContextMenuArea`), and "add to palette" is a button rather than a
+  long-press on the current chip. Its palettes persist as one JSON preference
+  through `DesktopPaletteCodec` — `Palette` is already `@Serializable` for
+  `:app`'s per-palette files, so this is that encoding in a list, and a
+  built-in id inside it is dropped because the catalogue owns those.
+  Recent colours are recorded where `:app` records them, at a *committed*
+  stroke, and only for a gesture that actually painted the brush colour: the
+  desktop's right button erases with the rail's own brush rather than pushing
+  an eraser preset, so `StrokeSource.ERASER_END` has to be excluded explicitly
+  where Android's `!preset.eraseMode` already covers it.
+  **The tracing image is the desktop's too**, with one row Android has no need
+  for. Android moves, scales and rotates it with two fingers while one keeps
+  painting; a mouse has one pointer, so `DesktopShellState.editingReference` is
+  an explicit mode — drag moves, the wheel scales about the pointer, Shift and
+  the wheel rotates — and every step goes through
+  `ReferenceTransform.gesture`, the same call the two-finger path makes. The
+  image is normalized at import by `TracingReferencePolicy` against
+  `MemoryBudget.transientImageBytes`, kept as PNG bytes beside its tiles so a
+  save can write it into the `.bangni`, and it costs a layer of the pool while
+  it is there (`layerCap` shrinks). It is never journaled: `:app` keeps it out
+  of painting undo too.
+  **The layer panel reorders by drag**, as `:app`'s does and by the same
+  mechanism: a `displayOrder` of ids that the drag reshuffles locally, keyed
+  on `stack.layers` so any model change (including a refusal) snaps it back,
+  and one `moveTo(from, to)` at drag end. The rows are a fixed `ROW_HEIGHT`
+  because the drag counts rows by their height. The handle publishes no
+  semantics of its own — a pointer drag is not something a screen reader can
+  perform, and the row menu's four moves are the path that works without one.
   **The document model is a mutable `LayerStack` on the GL thread.** Panel
   actions arrive as `engine.editStack { stack, ids -> … }`, evaluated against
   the live model so a stale panel index is refused rather than applied to the
@@ -193,6 +244,15 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   it twice must not give two projects the same layer directory names. It
   exports through the system's create-document picker and imports through
   open-document — neither needs a permission, which ADR 0004 requires.
+  **The tracing image travels inside the file** — a `reference.png` entry plus
+  a `BangniReferenceRecord` in the manifest — because a `.bangni` is the
+  painting itself moving between the user's own machines, not a share. Both
+  or neither: a record with no pixels beside it would arrive as a reference
+  the other end can never draw, so an asset that is gone from disk exports as
+  no reference, and an import with nowhere to stage the pixels drops the
+  record and warns. The asset name comes out of the file, so it is validated
+  by `TracingReference`'s own `isSafeAssetName` before anything joins it onto
+  a path.
   A PNG holds one layer, so opening one gives a painting with one layer and
   saving one flattens: that is the format's own limit. Opening reads the
   pixels through `PixelOp.Restore` — the same upload path undo uses, so the
@@ -469,11 +529,21 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   Bodies are one blank-line-separated paragraph per control, and must state
   the non-obvious interaction (long-press, second-tap) the surface hides.
   The canvas overflow's Help is the one surface with no section string of
-  its own; its dialog title is `help_canvas_title`. The desktop shell has no
-  string resources yet, so its overflow Help reads `DesktopHelp.canvasBody` —
-  same rule, same duty to state the non-obvious interaction (the eraser's
-  second click, the right button erasing) and to carry the export directory
-  the icon rail no longer prints.
+  its own; its dialog title is `help_canvas_title`. The desktop shell reads
+  **the same `strings.xml`**, staged into its jar by `processResources` and
+  read at runtime by `DesktopStrings` — one source of user-visible wording for
+  both products, and `MissingTranslation` already gates the second locale, so
+  a desktop-only string cannot land untranslated. `DesktopStrings` decodes
+  Android's own escaping (`\uXXXX`, `\n`, the surrounding-quote rule AAPT
+  uses to keep leading and trailing spaces) and picks a plural form the way
+  `values-b+zh+Hans` needs. Desktop-only wording therefore lives in
+  `strings.xml` under a `desktop_` prefix in **both** locale files, in the
+  same change. Its overflow Help is `desktop_help_body`, under the same rule
+  as every other help body: state the non-obvious interaction (the eraser's
+  second click, the right button erasing) and carry the export directory the
+  icon rail no longer prints. `DesktopStringsTest` scans the shell's sources
+  for every `DesktopStrings.get`/`plural` name and fails on one the catalogue
+  does not have.
 - **Greyscale ARGB cannot encode hue.** `ColorPanel` keeps an `HsvSelection`;
   panel-originated ARGB echoes must not reconstruct HSV, while external colors
   must. Do not key the selection state directly to the current ARGB.
@@ -531,6 +601,29 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 
 Recorded per PLAN.md's rule: when the plan contradicts itself, PLAN.md wins
 and the contradiction is noted here.
+
+- **Compose Desktop cannot report stylus pressure, and the reason is in the
+  shipped bytecode.** `SYNTHETIC_PRESSURE = 1f` is therefore not a shortcut to
+  be fixed later by wiring something up — nothing exists to wire. Read out of
+  `ui-desktop-1.12.0.jar`: the AWT mouse path
+  (`ComposeSceneMediator_desktopKt.onMouseEvent`) calls
+  `ComposeScene.sendPointerEvent` with `PointerType.Mouse` hardcoded and the
+  `pressure` argument **defaulted**, and that default is `1.0f`
+  (`fconst_1` on the bit-512 branch of `sendPointerEvent$default`). It cannot
+  do otherwise: every desktop pointer event is built from a
+  `java.awt.event.MouseEvent`, which carries x, y, the button and the
+  modifiers and no pressure at all — the JDK has never exposed a tablet API,
+  so Wintab, `NSEvent.pressure` and XInput2 valuators are all out of reach
+  without JNI. The only real options are a native tablet library (JPen is
+  LGPL and ships its own `.so`/`.dll`/`.dylib`; jtablet2 is unmaintained and
+  Windows/macOS only), which means committing or downloading native binaries
+  and therefore an ADR, or waiting for CMP to expose it. **Do not "fix" this
+  by synthesizing pressure from pointer speed**: the brushes already carry
+  speed dynamics of their own (`desktop_speed_size`, `desktop_speed_opacity`),
+  which is the honest way to get variation from a mouse, and a fake pressure
+  channel would make the two products disagree about what the word means.
+  Re-check this whenever Compose Multiplatform is bumped; the finding is one
+  `javap` away.
 
 - **The desktop GLES context is created from EGL directly; GLFW is only the
   fallback.** DESKTOP.md's "The JVM binding" section specifies GLFW with

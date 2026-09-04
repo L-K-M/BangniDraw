@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -37,6 +39,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,8 +48,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
@@ -73,6 +80,8 @@ internal class DesktopLayerActions(
     val mergeDown: (Int) -> Unit,
     val flatten: () -> Unit,
     val move: (Int, LayerReorderAction) -> Unit,
+    /** An arbitrary reorder, which only a drag produces; both are model indices. */
+    val moveTo: (Int, Int) -> Unit,
     val rename: (Int, String) -> Unit,
     val setOpacity: (Int, Float) -> Unit,
     val setVisible: (Int, Boolean) -> Unit,
@@ -108,10 +117,23 @@ internal fun DesktopLayerPanel(
     var renaming by remember { mutableStateOf<Int?>(null) }
     var hint by remember { mutableStateOf<String?>(null) }
 
+    // The order the rows are *drawn* in while a drag is in flight. It follows
+    // the model whenever the model changes, so a refused move snaps back
+    // rather than leaving the panel showing an order the document never took.
+    var displayOrder by remember(stack.layers) {
+        mutableStateOf(stack.layers.asReversed().map(Layer::id))
+    }
+    var draggedId by remember { mutableStateOf<LayerId?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    val rowHeightPx = with(LocalDensity.current) { ROW_HEIGHT.toPx() }
+
     // The refusal carries a revision, so two identical refusals in a row still
     // re-show the hint rather than looking like a dead button.
     LaunchedEffect(refusal) {
         val reason = refusal ?: return@LaunchedEffect
+        // A refused move leaves the rows where the drag put them; the model
+        // is the truth, so the panel goes back to it before saying why.
+        displayOrder = stack.layers.asReversed().map(Layer::id)
         hint = DesktopLayerNames.refusal(reason.reason, canvas, layerCap)
         kotlinx.coroutines.delay(HINT_MS)
         hint = null
@@ -137,20 +159,60 @@ internal fun DesktopLayerPanel(
             )
         }
 
-        // asReversed() is a view, not a copy: the panel's top row is the top
-        // layer, index size - 1 in the model.
-        val rows = stack.layers.asReversed()
+        // The panel's top row is the top layer, index size - 1 in the model;
+        // `displayOrder` is that reversal, plus whatever a live drag moved.
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            items(rows, key = { it.id.value }) { layer ->
-                val stackIndex = stack.indexOf(layer.id)
+            items(displayOrder, key = LayerId::value) { id ->
+                val stackIndex = stack.indexOf(id)
+                val layer = stack.layers.getOrNull(stackIndex) ?: return@items
                 LayerRow(
                     layer = layer,
                     stackIndex = stackIndex,
                     size = stack.size,
                     active = stackIndex == stack.activeIndex,
-                    thumbnail = thumbnails[layer.id],
+                    thumbnail = thumbnails[id],
                     actions = actions,
                     onRename = { renaming = stackIndex },
+                    dragOffset = if (draggedId == id) dragOffset else 0f,
+                    onDragStart = {
+                        draggedId = id
+                        dragOffset = 0f
+                        actions.select(stackIndex)
+                    },
+                    onDrag = { delta ->
+                        if (draggedId != id) return@LayerRow
+
+                        dragOffset += delta
+                        val current = displayOrder.indexOf(id)
+                        val direction = when {
+                            dragOffset > rowHeightPx / 2f -> 1
+                            dragOffset < -rowHeightPx / 2f -> -1
+                            else -> 0
+                        }
+                        val target = current + direction
+                        if (direction == 0 || target !in displayOrder.indices) return@LayerRow
+
+                        displayOrder = displayOrder.toMutableList().apply {
+                            add(target, removeAt(current))
+                        }
+                        dragOffset -= direction * rowHeightPx
+                    },
+                    onDragEnd = {
+                        // The model's own current position, not the one the
+                        // drag started from: a stroke or another panel may
+                        // have moved the stack underneath the gesture.
+                        val fromDisplay = stack.layers.asReversed().indexOfFirst { it.id == id }
+                        val toDisplay = displayOrder.indexOf(id)
+                        draggedId = null
+                        dragOffset = 0f
+                        LayerPanelOrder.move(fromDisplay, toDisplay, stack.size)
+                            ?.let { actions.moveTo(it.from, it.to) }
+                    },
+                    onDragCancel = {
+                        draggedId = null
+                        dragOffset = 0f
+                        displayOrder = stack.layers.asReversed().map(Layer::id)
+                    },
                 )
                 Divider()
             }
@@ -216,6 +278,11 @@ private fun LayerRow(
     thumbnail: LayerThumbnail?,
     actions: DesktopLayerActions,
     onRename: () -> Unit,
+    dragOffset: Float,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     val name = DesktopLayerNames.resolve(layer.props.name)
@@ -228,6 +295,8 @@ private fun LayerRow(
         },
         modifier = Modifier
             .fillMaxWidth()
+            .height(ROW_HEIGHT)
+            .graphicsLayer { translationY = dragOffset }
             .semantics {
                 selected = active
                 contentDescription = name
@@ -237,6 +306,34 @@ private fun LayerRow(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = ROW_PADDING, vertical = 6.dp),
         ) {
+            // The drag affordance, as `:app`'s row carries it. It publishes no
+            // semantics of its own: a pointer drag is not something a screen
+            // reader can perform, and the menu's four moves are the path that
+            // is reachable without one — so a focusable handle here would
+            // announce an action it can never carry out.
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(HANDLE)
+                    .clearAndSetSemantics {}
+                    .pointerInput(layer.id) {
+                        detectDragGestures(
+                            onDragStart = { onDragStart() },
+                            onDragEnd = onDragEnd,
+                            onDragCancel = onDragCancel,
+                            onDrag = { change, amount ->
+                                change.consume()
+                                onDrag(amount.y)
+                            },
+                        )
+                    },
+            ) {
+                Icon(
+                    Icons.Filled.DragHandle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Thumbnail(thumbnail)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
@@ -422,7 +519,7 @@ private fun PaperRow(paperColor: Int, onPaperColor: (Int) -> Unit) {
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             for ((label, argb) in DesktopPalette.PAPERS) {
                 DropdownMenuItem(
-                    text = { Text(label) },
+                    text = { Text(DesktopStrings.get(label)) },
                     leadingIcon = { PaperSwatch(Color(argb)) },
                     onClick = {
                         menu = false
@@ -513,6 +610,9 @@ private fun LayerThumbnail.toImageBitmap(): ImageBitmap {
 }
 
 private val HEADER_HEIGHT = 56.dp
+/** Fixed, because the drag arithmetic counts rows by their height. */
+private val ROW_HEIGHT = 76.dp
+private val HANDLE = 32.dp
 private val PAPER_ROW_HEIGHT = 48.dp
 private val ROW_PADDING = 12.dp
 private val THUMBNAIL = 44.dp

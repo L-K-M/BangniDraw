@@ -4,12 +4,14 @@ import ch.lkmc.bangnidraw.data.shared.BangniCodec
 import ch.lkmc.bangnidraw.data.shared.BangniDocument
 import ch.lkmc.bangnidraw.data.shared.BangniManifest
 import ch.lkmc.bangnidraw.data.shared.BangniReadResult
+import ch.lkmc.bangnidraw.data.shared.BangniReferenceRecord
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerProps
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.TileKey
+import ch.lkmc.bangnidraw.engine.core.TracingReference
 import java.io.File
 
 /** A painting as a new document opens with it: the model plus its pixels. */
@@ -21,6 +23,9 @@ internal class DesktopInitialContent(
     val title: String = "",
     /** Preserved across saves so a document keeps one creation date. */
     val createdAt: Long = 0L,
+    /** The tracing image the file carried, with the pixels it was stored as. */
+    val reference: TracingReference? = null,
+    val referencePng: ByteArray? = null,
 )
 
 internal sealed interface DesktopOpenResult {
@@ -77,6 +82,8 @@ internal object DesktopDocumentIo {
         mirror: Map<LayerId, Map<TileKey, ByteArray>>,
         createdAt: Long,
         updatedAt: Long,
+        reference: TracingReference? = null,
+        referencePng: ByteArray? = null,
     ): BangniDocument = BangniDocument(
         manifest = BangniManifest(
             title = title,
@@ -86,6 +93,11 @@ internal object DesktopDocumentIo {
             layers = stack.layers.map { it.props.toRecord() },
             activeLayerId = stack.active.id.value,
             nextLayerName = stack.nextName,
+            // Both or neither: a record with no pixels beside it would open
+            // as a reference the reader cannot draw.
+            tracingReference = reference
+                ?.takeIf { referencePng != null }
+                ?.let(BangniReferenceRecord::of),
             createdAt = createdAt,
             updatedAt = updatedAt,
         ),
@@ -94,6 +106,7 @@ internal object DesktopDocumentIo {
         tiles = stack.layers.associate { layer ->
             layer.id to (mirror[layer.id]?.filterKeys { it in layer.tiles } ?: emptyMap())
         }.filterValues { it.isNotEmpty() },
+        referencePng = referencePng?.takeIf { reference != null },
     )
 
     private fun readBangni(file: File): DesktopOpenResult = try {
@@ -135,6 +148,16 @@ internal object DesktopDocumentIo {
             return DesktopOpenResult.Failed(failure.message ?: "the file's layers are inconsistent")
         }
 
+        // A reference whose record or pixels do not survive the trip is a
+        // skipped aid, never a failed open: the painting is the document.
+        val referencePng = result.document.referencePng
+        val reference = manifest.tracingReference
+            ?.toReferenceOrNull()
+            ?.takeIf { referencePng != null }
+        if (manifest.tracingReference != null && reference == null) {
+            warnings += "skipped an unreadable tracing image"
+        }
+
         return DesktopOpenResult.Opened(
             DesktopInitialContent(
                 canvas = CanvasSize(manifest.width, manifest.height),
@@ -143,6 +166,8 @@ internal object DesktopDocumentIo {
                 paperArgb = manifest.paperColor,
                 title = manifest.title,
                 createdAt = manifest.createdAt,
+                reference = reference,
+                referencePng = referencePng?.takeIf { reference != null },
             ),
             warnings,
         )

@@ -36,13 +36,20 @@ internal object BangniProjectIo {
 
     /**
      * Writes [document]'s painting to [out], reading its tiles through
-     * [layerDirFor]. A tile that fails to decode is skipped: an export of a
-     * partly damaged painting is better than no export.
+     * [layerDirFor] and its tracing image through [referenceAsset]. A tile
+     * that fails to decode is skipped: an export of a partly damaged painting
+     * is better than no export.
+     *
+     * The tracing image travels with the painting. It is private data — never
+     * in a share or an export *picture* — but a `.bangni` is the painting
+     * itself moving between the user's own machines, and a placement with no
+     * pixels behind it would arrive as a reference the other end cannot draw.
      */
     fun export(
         document: Document,
         out: OutputStream,
         layerDirFor: (LayerId) -> java.io.File,
+        referenceAsset: (TracingReference) -> ByteArray? = { null },
     ) {
         val tiles = document.stack.layers.associate { layer ->
             val store = TileStore(layerDirFor(layer.id))
@@ -50,6 +57,10 @@ internal object BangniProjectIo {
                 (store.read(key) as? TileStore.Read.Pixels)?.let { key to it.pixels }
             }.toMap()
         }.filterValues { it.isNotEmpty() }
+
+        // Both or neither: the reader needs the pixels to draw the record.
+        val referencePng = document.tracingReference?.let(referenceAsset)
+        val reference = document.tracingReference?.takeIf { referencePng != null }
 
         BangniCodec.write(
             out,
@@ -63,11 +74,12 @@ internal object BangniProjectIo {
                     layers = document.stack.layers.map { it.props.toRecord() },
                     activeLayerId = document.stack.active.id.value,
                     nextLayerName = document.stack.nextName,
-                    tracingReference = document.tracingReference?.toRecord(),
+                    tracingReference = reference?.let(BangniReferenceRecord::of),
                     createdAt = document.createdAt,
                     updatedAt = document.updatedAt,
                 ),
                 tiles = tiles,
+                referencePng = referencePng,
             ),
         )
     }
@@ -88,6 +100,13 @@ internal object BangniProjectIo {
         newLayerId: () -> LayerId,
         layerDirFor: (LayerId) -> java.io.File,
         now: Long = System.currentTimeMillis(),
+        /**
+         * Stages the tracing image's pixels under the new project, throwing
+         * [java.io.IOException] as `ProjectStore.writeReferenceAsset` does. A
+         * caller with nowhere to put them leaves this out and the reference
+         * is dropped rather than left pointing at nothing.
+         */
+        writeReferenceAsset: ((String, ByteArray) -> Unit)? = null,
     ): ImportResult {
         val read = when (val result = BangniCodec.read(input)) {
             is BangniReadResult.Failed -> return ImportResult.Failed(result.message)
@@ -144,9 +163,12 @@ internal object BangniProjectIo {
                 dpi = manifest.dpi,
                 paperColor = manifest.paperColor,
                 stack = stack,
-                // The reference's pixels are an app-private asset this import
-                // does not stage, so the placement would point at nothing.
-                tracingReference = null,
+                tracingReference = importedReference(
+                    manifest.tracingReference,
+                    read.document.referencePng,
+                    writeReferenceAsset,
+                    warnings,
+                ),
                 createdAt = if (manifest.createdAt > 0L) manifest.createdAt else now,
                 updatedAt = now,
             ),
@@ -154,17 +176,36 @@ internal object BangniProjectIo {
         )
     }
 
-    private fun TracingReference.toRecord(): BangniReferenceRecord = BangniReferenceRecord(
-        assetName = assetName,
-        imageWidth = imageWidth,
-        imageHeight = imageHeight,
-        xx = transform.xx,
-        xy = transform.xy,
-        yx = transform.yx,
-        yy = transform.yy,
-        tx = transform.tx,
-        ty = transform.ty,
-        opacity = opacity,
-        visible = visibility == ch.lkmc.bangnidraw.engine.core.ReferenceVisibility.VISIBLE,
-    )
+    /**
+     * The tracing image, staged under the new project — or null with a
+     * warning. Every way this can fail leaves the painting importable: an
+     * unusable record, missing pixels, no place to put them, or a write that
+     * failed. The asset name comes from the file, so it is a name
+     * [TracingReference] itself validates before anything joins it to a path.
+     */
+    private fun importedReference(
+        record: BangniReferenceRecord?,
+        png: ByteArray?,
+        writeReferenceAsset: ((String, ByteArray) -> Unit)?,
+        warnings: MutableList<String>,
+    ): TracingReference? {
+        if (record == null) return null
+
+        val reference = record.toReferenceOrNull()
+        if (reference == null || png == null || writeReferenceAsset == null) {
+            warnings += "skipped the tracing image"
+            return null
+        }
+
+        return try {
+            writeReferenceAsset(reference.assetName, png)
+            reference
+        } catch (failure: java.io.IOException) {
+            warnings += "skipped the tracing image: " + failure.message
+            null
+        } catch (failure: IllegalArgumentException) {
+            warnings += "skipped the tracing image: " + failure.message
+            null
+        }
+    }
 }

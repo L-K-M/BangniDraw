@@ -13,8 +13,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
-import ch.lkmc.bangnidraw.engine.core.MixerChoice
-import ch.lkmc.bangnidraw.engine.core.RgbMixer
 import ch.lkmc.bangnidraw.ui.shared.BangniTypography
 
 /**
@@ -33,9 +31,47 @@ internal fun DesktopPanelWindows(
     state: DesktopShellState,
     canvas: ch.lkmc.bangnidraw.engine.core.CanvasSize,
     documentName: String,
+    onReplaceReference: () -> Unit,
 ) {
     if (state.showLayerPanel) LayerPanelWindow(state, canvas, documentName)
     if (state.showBrushPanel) ToolPanelWindow(state, documentName)
+    if (state.showSettings) SettingsWindow(state)
+    ReferencePanelWindow(state, documentName, onReplaceReference)
+}
+
+/**
+ * Only while there *is* a reference: removing one closes its window, which is
+ * how Android's panel behaves when Remove dismisses it.
+ */
+@Composable
+private fun ReferencePanelWindow(
+    state: DesktopShellState,
+    documentName: String,
+    onReplace: () -> Unit,
+) {
+    val reference = state.reference
+    if (!state.showReferencePanel || reference == null) return
+
+    PanelWindow(
+        title = DesktopStrings.get("reference_image") + " — " + documentName,
+        size = DpSize(REFERENCE_WIDTH, REFERENCE_HEIGHT),
+        theme = state.theme,
+        onClose = { state.showReferencePanel = false },
+    ) {
+        DesktopReferencePanel(reference, state, onReplace)
+    }
+}
+
+@Composable
+private fun SettingsWindow(state: DesktopShellState) {
+    PanelWindow(
+        title = DesktopStrings.get("settings_title"),
+        size = DpSize(SETTINGS_WIDTH, SETTINGS_HEIGHT),
+        theme = state.theme,
+        onClose = { state.showSettings = false },
+    ) {
+        DesktopSettings(state)
+    }
 }
 
 @Composable
@@ -59,6 +95,7 @@ private fun LayerPanelWindow(
     PanelWindow(
         title = DesktopStrings.get("layers_title") + " — " + documentName,
         size = DpSize(LAYER_PANEL_WIDTH, LAYER_PANEL_HEIGHT),
+        theme = state.theme,
         onClose = { state.showLayerPanel = false },
     ) {
         DesktopLayerPanel(
@@ -87,6 +124,7 @@ private fun ToolPanelWindow(state: DesktopShellState, documentName: String) {
     PanelWindow(
         title = toolPanelTitle(state, documentName),
         size = DpSize(BRUSH_PANEL_WIDTH, BRUSH_PANEL_HEIGHT),
+        theme = state.theme,
         onClose = { state.showBrushPanel = false },
     ) {
         if (secondary != null) {
@@ -96,9 +134,9 @@ private fun ToolPanelWindow(state: DesktopShellState, documentName: String) {
                 preset = preset,
                 catalogue = state.catalogue,
                 presets = state.presets,
-                // The shell resolves one mixer at startup; a build without
-                // Mixbox falls back to RGB, and pigment controls hide with it.
-                mixerChoice = if (state.mixer === RgbMixer) MixerChoice.RGB else MixerChoice.PIGMENT,
+                // The user's Settings choice, already narrowed to what this
+                // build can do: a no-Mixbox build resolves Pigment to RGB.
+                mixerChoice = state.mixerChoice,
                 onChanged = state::tune,
                 onSelectPreset = state::selectPreset,
             )
@@ -121,6 +159,7 @@ private fun toolPanelTitle(state: DesktopShellState, documentName: String): Stri
 private fun PanelWindow(
     title: String,
     size: DpSize,
+    theme: ch.lkmc.bangnidraw.engine.core.AppTheme,
     onClose: () -> Unit,
     content: @Composable () -> Unit,
 ) {
@@ -132,7 +171,7 @@ private fun PanelWindow(
         icon = painterResource("bangnidraw.png"),
         alwaysOnTop = true,
     ) {
-        MaterialTheme(colorScheme = DesktopTheme.colorScheme, typography = BangniTypography) {
+        MaterialTheme(colorScheme = DesktopTheme.colorScheme(theme), typography = BangniTypography) {
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = MaterialTheme.colorScheme.surfaceContainer,
@@ -150,3 +189,7 @@ private val LAYER_PANEL_WIDTH = 340.dp
 private val LAYER_PANEL_HEIGHT = 520.dp
 private val BRUSH_PANEL_WIDTH = 360.dp
 private val BRUSH_PANEL_HEIGHT = 640.dp
+private val REFERENCE_WIDTH = 380.dp
+private val REFERENCE_HEIGHT = 520.dp
+private val SETTINGS_WIDTH = 420.dp
+private val SETTINGS_HEIGHT = 640.dp

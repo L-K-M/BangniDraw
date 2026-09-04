@@ -504,7 +504,20 @@ class StudioViewModel @Inject constructor(
             }
             val written = try {
                 context.contentResolver.openOutputStream(uri)?.buffered()?.use { out ->
-                    BangniProjectIo.export(doc, out) { layer -> store.layerDir(doc.id, layer) }
+                    BangniProjectIo.export(
+                        document = doc,
+                        out = out,
+                        layerDirFor = { layer -> store.layerDir(doc.id, layer) },
+                        // The tracing image travels inside the file; a missing
+                        // or unreadable asset exports as no reference at all.
+                        referenceAsset = { reference ->
+                            runCatching {
+                                store.referenceFile(doc.id, reference.assetName)
+                                    .takeIf { it.isFile }
+                                    ?.readBytes()
+                            }.getOrNull()
+                        },
+                    )
                 } != null
             } catch (e: IOException) {
                 android.util.Log.w(LOG_TAG, "bangni export failed", e)
@@ -539,6 +552,9 @@ class StudioViewModel @Inject constructor(
                         id = id,
                         newLayerId = { LayerId(UUID.randomUUID().toString()) },
                         layerDirFor = { layer -> store.layerDir(id, layer) },
+                        writeReferenceAsset = { name, bytes ->
+                            store.writeReferenceAsset(id, name, bytes)
+                        },
                     )
                 }
             } catch (e: IOException) {

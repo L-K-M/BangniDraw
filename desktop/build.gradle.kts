@@ -221,8 +221,10 @@ sourceSets.main {
     // being transcribed: the two rails must never drift apart on artwork.
     kotlin.srcDir(project.file("../app/src/main/java/ch/lkmc/bangnidraw/ui/glyphs"))
 
-    // Portable Compose that is not artwork — the type scale today. Same rule:
-    // no android.*, one copy, so the two products cannot drift on it.
+    // Portable Compose that is not artwork: the type scale, the hover cursor,
+    // the composition guides and the colour picker. Same rule as the glyphs —
+    // no android.*, one copy — because these are the pieces whose *geometry*
+    // must not drift between the two products.
     kotlin.srcDir(project.file("../app/src/main/java/ch/lkmc/bangnidraw/ui/shared"))
 
     // The `.bangni` document format and the tile codec it stores. This one is

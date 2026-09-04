@@ -4,6 +4,8 @@ import ch.lkmc.bangnidraw.engine.core.Document
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerRecord
 import ch.lkmc.bangnidraw.engine.core.TileKey
+import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
+import ch.lkmc.bangnidraw.engine.core.ReferenceVisibility
 import ch.lkmc.bangnidraw.engine.core.TracingReference
 import kotlinx.serialization.Serializable
 
@@ -62,7 +64,42 @@ data class BangniReferenceRecord(
     val ty: Float = 0f,
     val opacity: Float = TracingReference.DEFAULT_OPACITY,
     val visible: Boolean = true,
-)
+) {
+    /**
+     * The model this record encodes, or null when the file's values cannot
+     * make one — an unsafe asset name, a non-positive size, an opacity out of
+     * range. Null is a skipped reference, never a failed open: the painting
+     * is the document, and its tracing image is an aid.
+     */
+    fun toReferenceOrNull(): TracingReference? = try {
+        TracingReference(
+            assetName = assetName,
+            imageWidth = imageWidth,
+            imageHeight = imageHeight,
+            transform = ReferenceTransform(xx = xx, xy = xy, yx = yx, yy = yy, tx = tx, ty = ty),
+            opacity = opacity,
+            visibility = if (visible) ReferenceVisibility.VISIBLE else ReferenceVisibility.HIDDEN,
+        )
+    } catch (_: IllegalArgumentException) {
+        null
+    }
+
+    companion object {
+        fun of(reference: TracingReference): BangniReferenceRecord = BangniReferenceRecord(
+            assetName = reference.assetName,
+            imageWidth = reference.imageWidth,
+            imageHeight = reference.imageHeight,
+            xx = reference.transform.xx,
+            xy = reference.transform.xy,
+            yx = reference.transform.yx,
+            yy = reference.transform.yy,
+            tx = reference.transform.tx,
+            ty = reference.transform.ty,
+            opacity = reference.opacity,
+            visible = reference.visibility == ReferenceVisibility.VISIBLE,
+        )
+    }
+}
 
 /**
  * One painting as it travels between machines: the manifest, the tiles, and

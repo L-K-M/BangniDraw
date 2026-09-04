@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.ui.canvas
 
 import androidx.compose.ui.unit.dp
+import ch.lkmc.bangnidraw.ui.shared.pickerSizeFor
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -19,7 +20,7 @@ class ColorPanelAllocationContractTest {
 
     @Test
     fun `picker brushes are remembered, not built per draw`() {
-        val picker = sourceSection(HSV_PICKER_START, COLOR_CHIPS_START)
+        val picker = sourceSection(PICKER_PATH, HSV_PICKER_START, PICKER_END)
             .replace(WHITESPACE, " ")
 
         listOf(
@@ -70,7 +71,7 @@ class ColorPanelAllocationContractTest {
 
     @Test
     fun `dish gradient is remembered across recompositions`() {
-        val dish = sourceSection(DISH_START, SWATCH_STRIP_START)
+        val dish = sourceSection(COLOR_PANEL_PATH, DISH_START, SWATCH_STRIP_START)
             .replace(WHITESPACE, " ")
 
         assertTrue(
@@ -79,8 +80,8 @@ class ColorPanelAllocationContractTest {
         )
     }
 
-    private fun sourceSection(start: String, end: String): String {
-        val source = File(repositoryRoot(), COLOR_PANEL_PATH).readText()
+    private fun sourceSection(path: String, start: String, end: String): String {
+        val source = File(repositoryRoot(), path).readText()
         val startIndex = source.indexOf(start)
         if (startIndex < 0) fail("missing source marker: $start")
 
@@ -113,14 +114,18 @@ class ColorPanelAllocationContractTest {
     private companion object {
         const val COLOR_PANEL_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/ColorPanel.kt"
-        const val HSV_PICKER_START = "private fun HsvRingSquare("
-        const val COLOR_CHIPS_START = "private fun ColorChips("
+
+        /** The picker is shared with the desktop shell; the claim follows it. */
+        const val PICKER_PATH =
+            "app/src/main/java/ch/lkmc/bangnidraw/ui/shared/HsvRingSquare.kt"
+        const val HSV_PICKER_START = "internal fun HsvRingSquare("
+        const val PICKER_END = "internal fun ColorCircle("
         const val DISH_START = "private fun MixingDishControls("
         const val SWATCH_STRIP_START = "private fun SwatchStrip("
         val RESIZE_SAFE_POINTER_INPUT =
-            Regex("""pointerInput\(\s*hapticsMode\s*,\s*pickerSize\s*,?\s*\)""")
+            Regex("""pointerInput\(\s*pickerSize\s*,?\s*\)""")
         val UNKEYED_POINTER_INPUT =
-            Regex("""pointerInput\(\s*hapticsMode\s*,?\s*\)""")
+            Regex("""pointerInput\(\s*\)""")
         val WHITESPACE = Regex("\\s+")
     }
 }

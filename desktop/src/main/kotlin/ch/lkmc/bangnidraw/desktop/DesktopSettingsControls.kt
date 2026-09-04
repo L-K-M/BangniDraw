@@ -112,8 +112,18 @@ internal fun SettingChoice(label: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-internal fun SettingChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
+internal fun SettingChip(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    FilterChip(
+        selected = selected,
+        enabled = enabled,
+        onClick = onClick,
+        label = { Text(label) },
+    )
 }
 
 /**

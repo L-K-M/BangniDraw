@@ -4,7 +4,12 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BlurParams
+import ch.lkmc.bangnidraw.engine.core.ColorMixerResolver
+import ch.lkmc.bangnidraw.engine.core.Hand
+import ch.lkmc.bangnidraw.engine.core.MixerChoice
+import ch.lkmc.bangnidraw.engine.core.PigmentAvailability
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.BrushPresets
 import ch.lkmc.bangnidraw.engine.core.BrushSizeScale
@@ -22,7 +27,20 @@ import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerPanelOrder
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
+import ch.lkmc.bangnidraw.engine.core.DishState
+import ch.lkmc.bangnidraw.engine.core.DishWell
 import ch.lkmc.bangnidraw.engine.core.PaintSlotAssignments
+import ch.lkmc.bangnidraw.engine.core.Palette
+import ch.lkmc.bangnidraw.engine.core.PaletteCatalog
+import ch.lkmc.bangnidraw.engine.core.PalettePolicy
+import ch.lkmc.bangnidraw.engine.core.StoredColors
+import ch.lkmc.bangnidraw.engine.core.ReferenceImportDecision
+import ch.lkmc.bangnidraw.engine.core.ReferenceLayerReserve
+import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
+import ch.lkmc.bangnidraw.engine.core.ReferenceVisibility
+import ch.lkmc.bangnidraw.engine.core.TileKey
+import ch.lkmc.bangnidraw.engine.core.TracingReference
+import ch.lkmc.bangnidraw.engine.core.TracingReferencePolicy
 import ch.lkmc.bangnidraw.engine.core.Refusal
 import ch.lkmc.bangnidraw.engine.core.SizeAdjustment
 import ch.lkmc.bangnidraw.engine.core.SmudgeParams
@@ -80,6 +98,82 @@ internal class DesktopShellState(
     var showLayerPanel by mutableStateOf(false)
     var showBrushPanel by mutableStateOf(false)
     var showHelp by mutableStateOf(false)
+    var showSettings by mutableStateOf(false)
+
+    // ----------------------------------------------------------- settings
+
+    /**
+     * The persisted choices. They are session state until the first read
+     * resolves, and [restoreGate] keeps that read from overwriting a choice
+     * the user made while it was in flight — the same rule the brush and the
+     * colour already follow.
+     */
+    var theme by mutableStateOf(AppTheme.SAFFRON)
+        private set
+    var hand by mutableStateOf(Hand.RIGHT)
+        private set
+    var mixerChoice by mutableStateOf(
+        if (mixer.isPigment) MixerChoice.PIGMENT else MixerChoice.RGB,
+    )
+        private set
+    var snapRightAngles by mutableStateOf(true)
+        private set
+
+    /** A build with no Mixbox has no pigment mixer to switch to. */
+    val pigmentAvailable: Boolean = mixer.isPigment
+
+    val mixboxAttribution: MixboxAttribution =
+        if (mixer.isPigment) MixboxAttribution.Included else MixboxAttribution.Excluded
+
+    /** What a stroke actually mixes with, once the choice is applied. */
+    val activeMixer: ColorMixer
+        get() = ColorMixerResolver.resolve(mixerChoice, mixer)
+
+    fun chooseTheme(value: AppTheme) {
+        restoreGate.markChanged(DesktopPreferenceKind.Settings)
+        theme = value
+        prefs.writeText(DesktopPreferenceKeys.THEME, value.name)
+    }
+
+    fun chooseHand(value: Hand) {
+        restoreGate.markChanged(DesktopPreferenceKind.Settings)
+        hand = value
+        prefs.writeText(DesktopPreferenceKeys.HAND, value.name)
+    }
+
+    fun chooseMixer(value: MixerChoice) {
+        restoreGate.markChanged(DesktopPreferenceKind.Settings)
+        mixerChoice = value
+        prefs.writeText(DesktopPreferenceKeys.MIXER, value.name)
+    }
+
+    fun chooseSnapRightAngles(value: Boolean) {
+        restoreGate.markChanged(DesktopPreferenceKind.Settings)
+        snapRightAngles = value
+        prefs.writeNumber(DesktopPreferenceKeys.SNAP_RIGHT_ANGLES, if (value) 1 else 0)
+    }
+
+    /**
+     * Applies what the store held. Enum names are the stored values, so a
+     * name this build does not know keeps the default rather than throwing —
+     * the same tolerance `AppTheme`'s own note asks for.
+     */
+    fun restoreSettings(
+        themeName: String?,
+        handName: String?,
+        mixerName: String?,
+        snap: Int?,
+    ) {
+        if (!restoreGate.allows(DesktopPreferenceKind.Settings)) return
+
+        AppTheme.entries.firstOrNull { it.name == themeName }?.let { theme = it }
+        Hand.entries.firstOrNull { it.name == handName }?.let { hand = it }
+        mixerChoice = MixerChoice.fromStored(
+            mixerName,
+            if (pigmentAvailable) PigmentAvailability.AVAILABLE else PigmentAvailability.ABSENT,
+        )
+        snap?.let { snapRightAngles = it != 0 }
+    }
 
     /**
      * Focus mode hides the chrome so the canvas is unobstructed (Tab).
@@ -271,11 +365,362 @@ internal class DesktopShellState(
 
     fun pickColor(selection: HsvSelection) {
         restoreGate.markChanged(DesktopPreferenceKind.Color)
+        if (selection.argb != colorSelection.argb) previousColor = colorSelection.argb
         colorSelection = selection
         prefs.writeColor(selection.argb)
     }
 
     fun pickSwatch(argb: Int) = pickColor(colorSelection.commit(argb))
+
+    // ----------------------------------------------------------- palettes
+
+    /** The colour before the current one, for the panel's revert swatch. */
+    var previousColor by mutableStateOf(DesktopPalette.SWATCHES.first())
+        private set
+
+    var recentColors by mutableStateOf(emptyList<Int>())
+        private set
+
+    /**
+     * The palettes the user made. `:app` keeps one JSON file per palette
+     * under `palettes/`; here they ride in one preference, because the
+     * desktop store is already a DataStore and a second file format would be
+     * a second thing to sweep, validate and keep atomic.
+     */
+    var userPalettes by mutableStateOf(listOf(DEFAULT_USER_PALETTE))
+        private set
+
+    var activePaletteId by mutableStateOf(PaletteCatalog.PAINTERS_ID)
+        private set
+
+    /** Two wells and the point between them the dish is showing. */
+    var dish by mutableStateOf(DishState(DEFAULT_WELL_A, DEFAULT_WELL_B))
+        private set
+
+    /**
+     * Where the *next* eyedropper read lands. Null is the ordinary case: the
+     * read becomes the paint colour. A well or a swatch here means the panel
+     * armed the eyedropper to fill that slot instead, which is `:app`'s
+     * long-press on the same chip.
+     */
+    var pendingPick by mutableStateOf<DesktopPickTarget?>(null)
+        private set
+
+    val palettes: List<Palette>
+        get() = listOf(
+            PaletteCatalog.Painters,
+            PaletteCatalog.Basic,
+            PaletteCatalog.recent(recentColors),
+        ) + userPalettes
+
+    val activePalette: Palette
+        get() = palettes.firstOrNull { it.id == activePaletteId } ?: PaletteCatalog.Painters
+
+    fun selectPalette(id: String) {
+        if (palettes.none { it.id == id }) return
+
+        activePaletteId = id
+    }
+
+    /** Swaps the paint colour with the one before it, as `:app`'s chip does. */
+    fun swapColors() {
+        val target = previousColor
+        if (target == colorSelection.argb) return
+
+        pickSwatch(target)
+    }
+
+    /**
+     * Remembers a colour that was actually painted with. `:app` notes this at
+     * stroke commit, which is the same rule: a colour glanced at in the picker
+     * is not one the palette should offer back.
+     */
+    fun notePainted(argb: Int) {
+        val next = PalettePolicy.noteRecent(recentColors, argb)
+        if (next == recentColors) return
+
+        recentColors = next
+        prefs.writeText(DesktopPreferenceKeys.RECENT_COLORS, StoredColors.encode(next))
+    }
+
+    /** A new palette starting from what the active one holds, as `:app` does. */
+    fun createPalette(name: String) {
+        val created = Palette(
+            id = newPaletteId(),
+            name = PalettePolicy.createdName(name),
+            swatches = activePalette.swatches,
+        )
+        userPalettes = userPalettes + created
+        activePaletteId = created.id
+        persistPalettes()
+    }
+
+    /**
+     * Adds to the active palette, forking a built-in one first: the catalogue
+     * palettes are immutable, and `:app` answers "add" on one by copying it
+     * into a palette of the user's own rather than refusing.
+     */
+    fun addToPalette(argb: Int) {
+        val active = activePalette
+        val editable = if (active.builtIn) {
+            Palette(
+                id = newPaletteId(),
+                name = PaletteCatalog.MY_PALETTE_NAME,
+                swatches = active.swatches,
+            ).also {
+                userPalettes = userPalettes + it
+                activePaletteId = it.id
+            }
+        } else {
+            active
+        }
+        replacePalette(PalettePolicy.append(editable, argb or OPAQUE_ALPHA))
+    }
+
+    fun replaceSwatch(index: Int, argb: Int) = editUserPalette {
+        PalettePolicy.replace(it, index, argb or OPAQUE_ALPHA)
+    }
+
+    fun deleteSwatch(index: Int) = editUserPalette { PalettePolicy.remove(it, index) }
+
+    fun moveSwatch(from: Int, to: Int) = editUserPalette { PalettePolicy.move(it, from, to) }
+
+    fun setDishWell(well: DishWell, argb: Int) {
+        dish = when (well) {
+            DishWell.A -> dish.copy(a = argb)
+            DishWell.B -> dish.copy(b = argb)
+        }
+    }
+
+    fun setDishBlend(t: Float) {
+        dish = dish.copy(t = if (t.isNaN()) dish.t else t.coerceIn(0f, 1f))
+    }
+
+    /**
+     * Arms the eyedropper to fill [target] and borrows the tool for it, so a
+     * chip's "pick from canvas" is one gesture rather than two. The borrow is
+     * the same one Alt makes, and [finishPick] returns the tool either way —
+     * including when the gesture picked nothing.
+     */
+    fun beginPickInto(target: DesktopPickTarget) {
+        pendingPick = target
+        borrowEyedropper()
+    }
+
+    /** Routes one eyedropper read: to the armed slot, or to the paint colour. */
+    fun applyPick(argb: Int) {
+        when (val target = pendingPick) {
+            null -> pickSwatch(argb)
+            is DesktopPickTarget.Well -> setDishWell(target.well, argb)
+            is DesktopPickTarget.Swatch -> {
+                // The palette may have moved under an armed pick; re-checking
+                // the id keeps a stale index off some other palette.
+                if (target.paletteId == activePaletteId) replaceSwatch(target.index, argb)
+            }
+        }
+    }
+
+    /** Ends an armed pick at pen-up, whether or not it read anything. */
+    fun finishPick() {
+        if (pendingPick == null) return
+
+        pendingPick = null
+        returnEyedropper()
+    }
+
+    fun restorePalettes(recent: String?, stored: String?) {
+        if (!restoreGate.allows(DesktopPreferenceKind.Color)) return
+
+        recentColors = StoredColors.decode(recent)
+        DesktopPaletteCodec.decode(stored)?.let { userPalettes = it }
+        if (palettes.none { it.id == activePaletteId }) {
+            activePaletteId = PaletteCatalog.PAINTERS_ID
+        }
+    }
+
+    private inline fun editUserPalette(edit: (Palette) -> Palette) {
+        val active = activePalette
+        if (active.builtIn) return
+
+        replacePalette(edit(active))
+    }
+
+    private fun replacePalette(palette: Palette) {
+        userPalettes = PalettePolicy.upsert(userPalettes, palette)
+        persistPalettes()
+    }
+
+    private fun persistPalettes() {
+        prefs.writeText(DesktopPreferenceKeys.PALETTES, DesktopPaletteCodec.encode(userPalettes))
+    }
+
+    private fun newPaletteId(): String = "$USER_PALETTE_PREFIX${java.util.UUID.randomUUID()}"
+
+    // --------------------------------------------------- tracing reference
+
+    /**
+     * The tracing image over the paper, or null when there is none.
+     *
+     * Private project data, exactly as `:app` treats it: it is not a layer, it
+     * never reaches an export or a flatten, and it costs one layer of the
+     * pool's budget while it is here — which is why [layerCap] shrinks.
+     */
+    var reference by mutableStateOf<TracingReference?>(null)
+        private set
+
+    /**
+     * The image's own bytes, kept so a save can write them into the container.
+     * Not snapshot state: nothing draws from it, and a byte array in a Compose
+     * `State` invites a reader to treat a shared buffer as immutable.
+     */
+    var referencePng: ByteArray? = null
+        private set
+
+    var showReferencePanel by mutableStateOf(false)
+
+    /** What the last reference action refused to do, for the panel to show. */
+    var referenceNotice by mutableStateOf<String?>(null)
+
+    /**
+     * While true the mouse moves the tracing image instead of painting.
+     * Android reaches the same state with two fingers on the canvas; a mouse
+     * has one pointer, so the mode is explicit here.
+     */
+    var editingReference by mutableStateOf(false)
+
+    /** The transient decode allowance a reference import must fit. */
+    val referenceImageBytes: Long get() = engine.transientImageBytes
+
+    /**
+     * Places an imported image, or refuses it for the reason
+     * [TracingReferencePolicy] gives. The refusal is the policy's, not a
+     * guess: a reference holds one layer of the pool, so a full stack has to
+     * give one up first.
+     */
+    fun placeReference(image: DesktopReferenceImage): Boolean {
+        val decision = TracingReferencePolicy.importDecision(
+            layerCount = stack.size,
+            maxLayers = engine.layerCap,
+            transientImageBytes = referenceImageBytes,
+            layerReserve = if (reference == null) {
+                ReferenceLayerReserve.REQUIRED
+            } else {
+                ReferenceLayerReserve.HELD
+            },
+        )
+        if (decision != ReferenceImportDecision.ACCEPT) {
+            reportReference(
+                DesktopStrings.get(
+                    when (decision) {
+                        ReferenceImportDecision.REFUSE_LAYER_BUDGET -> "err_reference_layer_budget"
+                        else -> "err_reference_memory"
+                    },
+                ),
+            )
+            return false
+        }
+
+        referenceNotice = null
+        referencePng = image.png
+        applyReference(image.reference)
+        engine.uploadReferenceTiles(image.reference.assetName, image.tiles.toList())
+        return true
+    }
+
+    /** A reference read back out of a `.bangni`; its tiles are already decoded. */
+    fun restoreReference(reference: TracingReference, png: ByteArray, tiles: Map<TileKey, ByteArray>) {
+        referencePng = png
+        applyReference(reference)
+        engine.uploadReferenceTiles(reference.assetName, tiles.toList())
+    }
+
+    fun setReferenceOpacity(opacity: Float) {
+        val current = reference ?: return
+        applyReference(current.copy(opacity = opacity.coerceIn(0f, 1f)))
+    }
+
+    fun toggleReferenceVisible() {
+        val current = reference ?: return
+        applyReference(
+            current.copy(
+                visibility = if (current.visibility == ReferenceVisibility.VISIBLE) {
+                    ReferenceVisibility.HIDDEN
+                } else {
+                    ReferenceVisibility.VISIBLE
+                },
+            ),
+        )
+    }
+
+    /** Back to fitted and centred, the placement an import starts from. */
+    fun resetReference() {
+        val current = reference ?: return
+        applyReference(
+            current.copy(
+                transform = ReferenceTransform.fit(
+                    imageWidth = current.imageWidth,
+                    imageHeight = current.imageHeight,
+                    canvasWidth = engine.canvas.width,
+                    canvasHeight = engine.canvas.height,
+                ),
+            ),
+        )
+    }
+
+    fun removeReference() {
+        referencePng = null
+        referenceNotice = null
+        editingReference = false
+        applyReference(null)
+    }
+
+    /**
+     * One move/scale/rotate step, in canvas coordinates.
+     *
+     * The arithmetic is [ReferenceTransform.gesture] — the same call Android's
+     * two-finger path makes — so the two products place an image identically
+     * however the gesture reached them.
+     */
+    fun transformReference(
+        pivotX: Float,
+        pivotY: Float,
+        panX: Float,
+        panY: Float,
+        zoom: Float,
+        rotationDelta: Float,
+    ) {
+        val current = reference ?: return
+        if (!pivotX.isFinite() || !pivotY.isFinite() || !panX.isFinite() || !panY.isFinite()) return
+        if (!zoom.isFinite() || zoom <= 0f || !rotationDelta.isFinite()) return
+
+        applyReference(
+            current.copy(
+                transform = current.transform.gesture(
+                    pivotX = pivotX,
+                    pivotY = pivotY,
+                    panX = panX,
+                    panY = panY,
+                    zoom = zoom,
+                    rotationDelta = rotationDelta,
+                ),
+            ),
+        )
+    }
+
+    /**
+     * Says why a reference action refused. The panel is the natural place —
+     * but a refused *import* is exactly the case where there is no reference
+     * and therefore no panel, so the strip carries it then.
+     */
+    fun reportReference(message: String) {
+        referenceNotice = message
+        if (!showReferencePanel || reference == null) savedMessage = message
+    }
+
+    private fun applyReference(next: TracingReference?) {
+        reference = next
+        engine.setTracingReference(next)
+    }
 
     // -------------------------------------------------------------- layers
 
@@ -300,6 +745,7 @@ internal class DesktopShellState(
                 stack.move(move.from, move.to)
             }
         },
+        moveTo = { from, to -> edit { stack, _ -> stack.move(from, to) } },
         rename = { index, name -> edit { stack, _ -> stack.rename(index, name) } },
         setOpacity = { index, value -> edit { stack, _ -> stack.setOpacity(index, value) } },
         setVisible = { index, value -> edit { stack, _ -> stack.setVisible(index, value) } },
@@ -309,8 +755,13 @@ internal class DesktopShellState(
         setPaperColor = { argb -> engine.setPaperColor(argb) },
     )
 
-    /** How many layers this canvas's memory budget allows. */
-    val layerCap: Int get() = engine.layerCap
+    /**
+     * How many layers this canvas's memory budget allows — one fewer while
+     * a tracing reference holds a layer's worth of the pool, and never
+     * below what the stack already has.
+     */
+    val layerCap: Int
+        get() = TracingReferencePolicy.layerCap(stack.size, engine.layerCap, reference)
 
     private inline fun edit(crossinline operation: (LayerStack, IdSource) -> StackResult) {
         engine.editStack(
@@ -346,5 +797,18 @@ internal class DesktopShellState(
 
     private companion object {
         const val DEFAULT_PAPER_ARGB = 0xFFFFFFFF.toInt()
+        const val USER_PALETTE_PREFIX = "user."
+        const val OPAQUE_ALPHA = 0xFF000000.toInt()
+
+        /** One empty palette to add to, so "add" never needs a dialog first. */
+        val DEFAULT_USER_PALETTE = Palette(
+            id = "user.default",
+            name = PaletteCatalog.MY_PALETTE_NAME,
+            swatches = emptyList(),
+        )
+
+        /** The dish opens on the two colours every mixing demo starts from. */
+        const val DEFAULT_WELL_A = 0xFFFFFFFF.toInt()
+        const val DEFAULT_WELL_B = 0xFF141414.toInt()
     }
 }

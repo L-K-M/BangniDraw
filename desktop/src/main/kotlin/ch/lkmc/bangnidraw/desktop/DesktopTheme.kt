@@ -16,14 +16,14 @@ import ch.lkmc.bangnidraw.engine.core.ThemeColorPolicy
 internal object DesktopTheme {
 
     /**
-     * The Android app's default palette (SAFFRON, light — see
-     * [ThemeColorPolicy]). Reading the ARGB tokens straight from engine-core
-     * avoids hand-mirroring hex constants and keeps the desktop moving in
-     * lockstep with the Android build's theme.
+     * One of the app's own palettes, built from [ThemeColorPolicy]. Reading
+     * the ARGB tokens straight from engine-core avoids hand-mirroring hex
+     * constants and keeps the desktop in lockstep with the Android build's
+     * themes — all eight of them, chosen in Settings.
      */
-    val colorScheme: ColorScheme = run {
-        val colors = ThemeColorPolicy.colors(AppTheme.SAFFRON)
-        val errors = ThemeColorPolicy.errorColors(AppTheme.SAFFRON.tone)
+    fun colorScheme(theme: AppTheme = AppTheme.SAFFRON): ColorScheme = run {
+        val colors = ThemeColorPolicy.colors(theme)
+        val errors = ThemeColorPolicy.errorColors(theme.tone)
         // Mirrors app/src/main/java/ch/lkmc/bangnidraw/ui/theme/Color.kt's
         // bangniColorScheme — every Material3 role mapped from ThemeColorPolicy
         // with the same derivations (tertiary reuses secondary; surface-container
@@ -88,5 +88,6 @@ internal object DesktopTheme {
      * source the Android app uses, so the desktop shell reads as part of the
      * same product family rather than a debug harness on the host OS's grey.
      */
-    val viewportVoid = Color(CanvasVoidColorPolicy.argb(AppTheme.SAFFRON))
+    fun viewportVoid(theme: AppTheme = AppTheme.SAFFRON): Color =
+        Color(CanvasVoidColorPolicy.argb(theme))
 }

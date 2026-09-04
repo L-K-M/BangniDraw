@@ -11,7 +11,7 @@ class ColorPanelSelectionContractTest {
     @Test
     fun `panel retains its HSV commits and accepts external colors`() {
         val source = File(repositoryRoot(), COLOR_PANEL_PATH).readText()
-        val panel = source.substringBefore(HSV_PICKER_START)
+        val panel = source.substringBefore(PANEL_BODY_END)
             .replace(WHITESPACE, " ")
 
         listOf(
@@ -46,7 +46,8 @@ class ColorPanelSelectionContractTest {
         const val APP_DIRECTORY = "app/src/main"
         const val COLOR_PANEL_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/ColorPanel.kt"
-        const val HSV_PICKER_START = "@Composable\nprivate fun HsvRingSquare("
+        // The panel's own state handling, above the first control it draws.
+        const val PANEL_BODY_END = "@Composable\nprivate fun HsvControls("
         val WHITESPACE = Regex("\\s+")
     }
 }

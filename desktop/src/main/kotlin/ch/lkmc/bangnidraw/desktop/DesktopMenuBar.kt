@@ -89,6 +89,15 @@ internal fun FrameWindowScope.DesktopMenuBar(
                 checked = state.showColorPanel,
                 onCheckedChange = { state.showColorPanel = it },
             )
+            Separator()
+            // The host's own Preferences accelerator; the canvas overflow
+            // opens the same window, as Android's overflow opens its sheet.
+            CheckboxItem(
+                DesktopStrings.get("settings_title"),
+                checked = state.showSettings,
+                shortcut = shortcut(Key.Comma),
+                onCheckedChange = { state.showSettings = it },
+            )
         }
         Menu(DesktopStrings.get("desktop_menu_help"), mnemonic = 'H') {
             Item(DesktopStrings.get("desktop_canvas_help"), onClick = onHelp)

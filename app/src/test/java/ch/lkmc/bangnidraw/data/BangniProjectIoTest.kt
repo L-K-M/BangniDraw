@@ -7,6 +7,9 @@ import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerProps
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
+import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
+import ch.lkmc.bangnidraw.engine.core.ReferenceVisibility
+import ch.lkmc.bangnidraw.engine.core.TracingReference
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -14,7 +17,9 @@ import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -38,7 +43,7 @@ class BangniProjectIoTest {
         val document = document(source, mapOf(TileKey(0, 0) to lower), mapOf(TileKey(1, 1) to upper))
 
         val bytes = ByteArrayOutputStream().also { out ->
-            BangniProjectIo.export(document, out) { File(source, it.value) }
+            BangniProjectIo.export(document, out, { File(source, it.value) })
         }.toByteArray()
 
         val target = temp.newFolder("target")
@@ -72,7 +77,7 @@ class BangniProjectIoTest {
         val source = temp.newFolder("source2")
         val document = document(source, mapOf(TileKey(0, 0) to tile(3)), emptyMap())
         val bytes = ByteArrayOutputStream().also { out ->
-            BangniProjectIo.export(document, out) { File(source, it.value) }
+            BangniProjectIo.export(document, out, { File(source, it.value) })
         }.toByteArray()
 
         val first = importInto(temp.newFolder("first"), bytes, "a")
@@ -91,7 +96,7 @@ class BangniProjectIoTest {
         val source = temp.newFolder("source3")
         val document = document(source, emptyMap(), emptyMap())
         val bytes = ByteArrayOutputStream().also { out ->
-            BangniProjectIo.export(document, out) { File(source, it.value) }
+            BangniProjectIo.export(document, out, { File(source, it.value) })
         }.toByteArray()
 
         val imported = importInto(temp.newFolder("third"), bytes, "c")
@@ -109,6 +114,103 @@ class BangniProjectIoTest {
         )
 
         assertTrue(result is BangniProjectIo.ImportResult.Failed)
+    }
+
+    @Test
+    fun `the tracing image travels with the painting`() {
+        val source = temp.newFolder("reference-source")
+        val png = byteArrayOf(1, 2, 3, 4, 5)
+        val document = document(source, emptyMap(), emptyMap()).copy(
+            tracingReference = TracingReference(
+                assetName = "reference.png",
+                imageWidth = 320,
+                imageHeight = 200,
+                transform = ReferenceTransform.fit(320, 200, CANVAS, CANVAS),
+                opacity = 0.25f,
+                visibility = ReferenceVisibility.HIDDEN,
+            ),
+        )
+
+        val bytes = ByteArrayOutputStream().also { out ->
+            BangniProjectIo.export(document, out, { File(source, it.value) }, { png })
+        }.toByteArray()
+
+        val referenceTarget = temp.newFolder("reference-target")
+        val staged = HashMap<String, ByteArray>()
+        var minted = 0
+        val imported = BangniProjectIo.import(
+            input = ByteArrayInputStream(bytes),
+            id = "with-reference",
+            newLayerId = { LayerId("fresh-${minted++}") },
+            layerDirFor = { File(referenceTarget, it.value) },
+            writeReferenceAsset = { name, data -> staged[name] = data },
+        ) as BangniProjectIo.ImportResult.Imported
+
+        val reference = requireNotNull(imported.document.tracingReference)
+        assertEquals("reference.png", reference.assetName)
+        assertEquals(320, reference.imageWidth)
+        assertEquals(0.25f, reference.opacity)
+        assertEquals(ReferenceVisibility.HIDDEN, reference.visibility)
+        assertArrayEquals(png, staged["reference.png"])
+    }
+
+    @Test
+    fun `a placement with no pixels behind it is not exported`() {
+        val source = temp.newFolder("no-asset-source")
+        val document = document(source, emptyMap(), emptyMap()).copy(
+            tracingReference = TracingReference(
+                assetName = "reference.png",
+                imageWidth = 8,
+                imageHeight = 8,
+                transform = ReferenceTransform.IDENTITY,
+            ),
+        )
+
+        // The asset is gone from disk; the record must not go out alone, or
+        // the other end opens a reference it can never draw.
+        val bytes = ByteArrayOutputStream().also { out ->
+            BangniProjectIo.export(document, out, { File(source, it.value) }, { null })
+        }.toByteArray()
+
+        val noAssetTarget = temp.newFolder("no-asset-target")
+        var minted = 0
+        val imported = BangniProjectIo.import(
+            input = ByteArrayInputStream(bytes),
+            id = "no-reference",
+            newLayerId = { LayerId("fresh-${minted++}") },
+            layerDirFor = { File(noAssetTarget, it.value) },
+            writeReferenceAsset = { _, _ -> fail("nothing should have been staged") },
+        ) as BangniProjectIo.ImportResult.Imported
+
+        assertNull(imported.document.tracingReference)
+    }
+
+    @Test
+    fun `an import with nowhere to stage the image drops it and warns`() {
+        val source = temp.newFolder("unstaged-source")
+        val document = document(source, emptyMap(), emptyMap()).copy(
+            tracingReference = TracingReference(
+                assetName = "reference.png",
+                imageWidth = 8,
+                imageHeight = 8,
+                transform = ReferenceTransform.IDENTITY,
+            ),
+        )
+        val bytes = ByteArrayOutputStream().also { out ->
+            BangniProjectIo.export(document, out, { File(source, it.value) }, { byteArrayOf(9) })
+        }.toByteArray()
+
+        val unstagedTarget = temp.newFolder("unstaged-target")
+        var minted = 0
+        val imported = BangniProjectIo.import(
+            input = ByteArrayInputStream(bytes),
+            id = "unstaged",
+            newLayerId = { LayerId("fresh-${minted++}") },
+            layerDirFor = { File(unstagedTarget, it.value) },
+        ) as BangniProjectIo.ImportResult.Imported
+
+        assertNull(imported.document.tracingReference)
+        assertTrue(imported.warnings.any { "tracing image" in it })
     }
 
     private fun importInto(dir: File, bytes: ByteArray, salt: String): BangniProjectIo.ImportResult.Imported {

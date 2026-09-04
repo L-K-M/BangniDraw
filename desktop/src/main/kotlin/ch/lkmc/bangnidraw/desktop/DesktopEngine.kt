@@ -27,6 +27,7 @@ import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TileKey
+import ch.lkmc.bangnidraw.engine.core.TracingReference
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
@@ -127,6 +128,9 @@ internal class DesktopEngine(
 
     /** How many layers this canvas fits in the GPU pool (`10-performance.md` §4). */
     val layerCap: Int get() = budget.maxLayers
+
+    /** The decoded RGBA8 a private image import may occupy (`10 §4`). */
+    val transientImageBytes: Long get() = budget.transientImageBytes
     private val dabRing = DabRing()
     private val revisionCounter = java.util.concurrent.atomic.AtomicInteger(0)
     private val released = AtomicBoolean(false)
@@ -274,6 +278,28 @@ internal class DesktopEngine(
         )
         onPaper(argb)
         onEdited()
+        requestRepaintOnGl()
+    }
+
+    // ---------------------------------------------------- tracing reference
+
+    /**
+     * Publishes the tracing image's placement. Not journaled: `:app` keeps the
+     * reference out of painting undo too — it is a private aid over the
+     * paper, and an undo that walked back a nudge of it would be walking back
+     * something the painting does not contain.
+     */
+    fun setTracingReference(reference: TracingReference?) = post {
+        renderer?.setTracingReference(reference)
+        requestRepaintOnGl()
+    }
+
+    /** One decoded batch of the reference's pixels; stale asset work is dropped. */
+    fun uploadReferenceTiles(assetName: String, tiles: List<Pair<TileKey, ByteArray>>) = post {
+        val renderer = renderer ?: return@post
+        if (!renderer.isReady) return@post
+
+        renderer.uploadReferenceTiles(assetName, tiles)
         requestRepaintOnGl()
     }
 
@@ -562,6 +588,9 @@ internal class DesktopEngine(
         target: java.io.File,
         title: String,
         createdAt: Long,
+        /** Read on the caller's thread: the reference lives on the shell state. */
+        reference: TracingReference?,
+        referencePng: ByteArray?,
         onComplete: (DesktopSaveResult) -> Unit,
     ) = post {
         val document: ch.lkmc.bangnidraw.data.shared.BangniDocument
@@ -576,6 +605,8 @@ internal class DesktopEngine(
                 mirror = mirror,
                 createdAt = createdAt,
                 updatedAt = System.currentTimeMillis(),
+                reference = reference,
+                referencePng = referencePng,
             )
         } catch (failure: Exception) {
             onComplete(DesktopPng.failureResult(failure))

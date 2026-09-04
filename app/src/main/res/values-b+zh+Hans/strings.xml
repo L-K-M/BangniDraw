@@ -458,5 +458,8 @@
     <string name="desktop_eyedropper_radius_one">1 px</string>
     <string name="desktop_eyedropper_radius_block">%1$d\u00d7%1$d px</string>
     <string name="desktop_fill_expand_value">%1$d px</string>
+    <string name="desktop_reference_help">把一张图片钉在画作之上，用来描摹或对照。它不会进入保存的图片、导出或 PNG——只保存在 .bangni 文档里，并且在使用期间会占用一个图层的内存。</string>
+    <string name="desktop_reference_edit">用鼠标移动</string>
+    <string name="desktop_reference_edit_help">拖动描图图片可移动它，滚动滚轮以指针为中心缩放，按住 Shift 滚动可旋转。关闭后即可继续绘画。</string>
     <string name="desktop_help_body">用鼠标左键绘画。按住右键则改为擦除，就像把触控笔翻到橡皮那一端。滚动滚轮以指针为中心缩放。\n\n工具栏用来选工具：分隔线上方是笔刷，下方是橡皮，再往下是涂抹、水、模糊、填充和吸管。点击已经选中的格子会打开它的设置，硬橡皮和软橡皮也在那里选择。\n\n工具栏底部的两个滑块设置大小和该工具的第二个值\u2014\u2014不透明度、流量、强度或水量。填充和吸管两者都没有，所以滑块会隐藏。\n\n撤销和重做在顶栏；旁边的色块打开颜色面板，再旁边的图层按钮打开图层面板。这两个面板都是独立窗口\u2014\u2014可以随意移动，用完关掉即可。\n\n指针带有与笔刷同样大小的圆环。键盘：B 笔刷、E 橡皮、S 涂抹、W 水、G 填充、I 吸管（或按住 Alt）、[ 和 ] 调整大小、0 重置视图、Tab 专注模式、L 图层、C 颜色。\n\n保存会写入 .bangni 文件\u2014\u2014整幅画连同每个图层。Android 版可以导入导出同样的文件。导出 PNG\u2026 则写出一张扁平图片；打开 PNG 得到的是只有一个图层的画，因为 PNG 只能存这些。\n\n还没有文件的画会保存到 %1$s。</string>
 </resources>

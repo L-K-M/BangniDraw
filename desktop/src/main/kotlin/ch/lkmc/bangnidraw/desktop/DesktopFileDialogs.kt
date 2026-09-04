@@ -25,6 +25,15 @@ internal object DesktopFileDialogs {
         extensions = DesktopDocumentIo.OPENABLE_EXTENSIONS,
     )
 
+    /** A picture to trace over; the formats ImageIO reads on every host. */
+    fun openImage(parent: Frame?): File? = show(
+        parent = parent,
+        title = "Open",
+        mode = FileDialog.LOAD,
+        suggestedName = null,
+        extensions = DesktopReferenceIo.EXTENSIONS,
+    )
+
     /**
      * A save target with an extension this app can actually write.
      *
@@ -59,7 +68,7 @@ internal object DesktopFileDialogs {
         // A filter is advisory on some platforms and ignored on others, so
         // the reader still validates whatever comes back.
         dialog.setFilenameFilter { _, name ->
-            extensions.any { name.endsWith(".${'$'}it", ignoreCase = true) }
+            extensions.any { name.endsWith(".$it", ignoreCase = true) }
         }
         dialog.isVisible = true
 

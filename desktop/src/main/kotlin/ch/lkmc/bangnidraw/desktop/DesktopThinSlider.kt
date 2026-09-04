@@ -48,12 +48,15 @@ internal fun DesktopThinSlider(
     fillWidth: Boolean = false,
     /** Discrete stops between the ends; 0 is continuous, as the rail's are. */
     steps: Int = 0,
+    /** Fired when a drag or a keyboard adjustment settles, as Material's is. */
+    onValueChangeFinished: (() -> Unit)? = null,
 ) {
     val semantics = Modifier.semantics { contentDescription = description }
     if (axis == DesktopSliderAxis.Horizontal) {
         TrackSlider(
             value = value,
             onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
             range = range,
             steps = steps,
             modifier = modifier
@@ -73,6 +76,7 @@ internal fun DesktopThinSlider(
         TrackSlider(
             value = value,
             onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
             range = range,
             steps = steps,
             // Measure at full length before the 48 dp parent rotates it.
@@ -92,6 +96,7 @@ internal fun DesktopThinSlider(
 private fun TrackSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
+    onValueChangeFinished: (() -> Unit)?,
     range: ClosedFloatingPointRange<Float>,
     steps: Int,
     modifier: Modifier,
@@ -102,6 +107,7 @@ private fun TrackSlider(
     Slider(
         value = value,
         onValueChange = onValueChange,
+        onValueChangeFinished = onValueChangeFinished,
         valueRange = range,
         steps = steps,
         interactionSource = interactionSource,

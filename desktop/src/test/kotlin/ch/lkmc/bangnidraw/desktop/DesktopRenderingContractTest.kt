@@ -15,7 +15,9 @@ class DesktopRenderingContractTest {
 
         // Every rail/strip/panel dimension comes from LayoutSpec, so the two
         // products cannot drift apart on geometry.
-        assertTrue(shell.contains("DesktopChromeLayout.forWindow(widthDp, heightDp)"))
+        // The hand is a settings choice now, so the call carries it; the claim
+        // is that the layout comes from LayoutSpec, not its argument count.
+        assertTrue(shell.contains("DesktopChromeLayout.forWindow(widthDp, heightDp,"))
         assertTrue(shell.contains("DesktopTopStrip("))
         assertTrue(shell.contains("DesktopToolRail("))
         assertTrue(shell.contains("layout.panelInsets(widthDp, heightDp)"))
@@ -39,8 +41,9 @@ class DesktopRenderingContractTest {
         assertTrue(engine.contains("exportExecutor.execute"))
         // The gate, not its exact spelling: input stays dead until the
         // restored brush and colour are resolved, whatever else the
-        // condition grew to also require.
-        assertTrue(main.contains("val canvasInput = if (state.preferencesReady"))
+        // condition grew to also require — it is a `when` now, because
+        // placing the tracing image borrows the same pointer.
+        assertTrue(main.contains("state.preferencesReady && activeTool != null ->"))
         assertTrue(main.contains("state.preferencesReady = true"))
     }
 

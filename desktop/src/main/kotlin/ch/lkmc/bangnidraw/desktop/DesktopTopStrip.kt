@@ -85,6 +85,8 @@ internal fun DesktopTopStrip(
     onSave: () -> Unit,
     onAbout: () -> Unit,
     onHelp: () -> Unit,
+    onSettings: () -> Unit,
+    onTracingReference: () -> Unit,
     onToggleGuides: () -> Unit,
     onFocus: () -> Unit,
     modifier: Modifier = Modifier,
@@ -99,7 +101,16 @@ internal fun DesktopTopStrip(
         Row(horizontalArrangement = Arrangement.End) {
             LayersButton(layerCount, layerPanelOpen, onLayers)
             ColorButton(brushColor, colorPanelOpen, onColor)
-            OverflowMenu(guidesVisible, onSave, onToggleGuides, onFocus, onAbout, onHelp)
+            OverflowMenu(
+                guidesVisible,
+                onSave,
+                onToggleGuides,
+                onFocus,
+                onSettings,
+                onTracingReference,
+                onAbout,
+                onHelp,
+            )
         }
     }
 
@@ -273,6 +284,8 @@ private fun OverflowMenu(
     onSave: () -> Unit,
     onToggleGuides: () -> Unit,
     onFocus: () -> Unit,
+    onSettings: () -> Unit,
+    onTracingReference: () -> Unit,
     onAbout: () -> Unit,
     onHelp: () -> Unit,
 ) {
@@ -290,6 +303,13 @@ private fun OverflowMenu(
                 onToggleGuides,
             ) { open = false }
             OverflowItem(DesktopStrings.get("canvas_focus"), onFocus) { open = false }
+            // Where `:app` puts it, and with its rule: no image yet means
+            // pick one, an image already placed means open its panel.
+            OverflowItem(
+                DesktopStrings.get("reference_image"),
+                onTracingReference,
+            ) { open = false }
+            OverflowItem(DesktopStrings.get("canvas_settings"), onSettings) { open = false }
             OverflowItem(
                 DesktopStrings.get("desktop_about", DesktopBrand.displayName),
                 onAbout,

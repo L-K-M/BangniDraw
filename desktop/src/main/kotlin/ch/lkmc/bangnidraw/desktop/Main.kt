@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.focus.focusRequester
@@ -84,6 +85,7 @@ import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 import ch.lkmc.bangnidraw.input.FrameScheduler
 import ch.lkmc.bangnidraw.input.PointerSample
 import java.awt.Dimension
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
 
@@ -353,6 +355,30 @@ private fun androidx.compose.ui.window.ApplicationScope.DocumentWindow(
     ) {
         window.minimumSize = Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
 
+        // The reference import needs the window: `java.awt.FileDialog` is
+        // modal to a Frame, and the shell composables never see one.
+        val importReference: () -> Unit = {
+            DesktopFileDialogs.openImage(window)?.let { file ->
+                when (
+                    val result = DesktopReferenceIo.import(
+                        file = file,
+                        canvas = document.canvas,
+                        maxPixelBytes = state.referenceImageBytes,
+                    )
+                ) {
+                    is DesktopReferenceResult.Failed -> {
+                        // The decoder's own words go to stderr; the panel says
+                        // what happened in the user's language.
+                        System.err.println("tracing image import failed: " + result.message)
+                        state.reportReference(DesktopStrings.get("err_reference_import"))
+                    }
+
+                    is DesktopReferenceResult.Imported ->
+                        if (state.placeReference(result.image)) state.showReferencePanel = true
+                }
+            }
+        }
+
         val save: (java.io.File?) -> Unit = { target ->
             val file = target ?: document.file
             if (file == null) {
@@ -378,7 +404,7 @@ private fun androidx.compose.ui.window.ApplicationScope.DocumentWindow(
             onHelp = { state.showHelp = true },
         )
 
-        MaterialTheme(colorScheme = DesktopTheme.colorScheme, typography = BangniTypography) {
+        MaterialTheme(colorScheme = DesktopTheme.colorScheme(state.theme), typography = BangniTypography) {
             // Surface actually paints [colorScheme.background]; without it
             // the OS window chrome shows through and the Material widgets
             // sit on whatever the host desktop happens to be (macOS's own
@@ -395,6 +421,15 @@ private fun androidx.compose.ui.window.ApplicationScope.DocumentWindow(
                         canvasSize = document.canvas,
                         onSave = { save(null) },
                         onAbout = onAbout,
+                        // `:app`'s rule: no image yet means pick one, an image
+                        // already placed means open its panel.
+                        onTracingReference = {
+                            if (state.reference == null) {
+                                importReference()
+                            } else {
+                                state.showReferencePanel = !state.showReferencePanel
+                            }
+                        },
                     )
 
                     if (document.confirmingClose) {
@@ -431,9 +466,18 @@ private fun androidx.compose.ui.window.ApplicationScope.DocumentWindow(
                 }
             }
         }
-    }
 
-    DesktopPanelWindows(state, document.canvas, document.file?.name ?: untitled())
+        // Inside the document window's content, not beside it: these are
+        // sibling OS windows either way, and the import action they replace a
+        // reference through needs the `FrameWindowScope`'s frame for its
+        // modal file dialog.
+        DesktopPanelWindows(
+            state = state,
+            canvas = document.canvas,
+            documentName = document.file?.name ?: untitled(),
+            onReplaceReference = importReference,
+        )
+    }
 }
 
 /** The window a failed GL startup gets instead of a canvas. */
@@ -444,7 +488,7 @@ private fun androidx.compose.ui.window.ApplicationScope.FailureWindow(message: S
         title = DesktopBrand.displayName,
         icon = painterResource("bangnidraw.png"),
     ) {
-        MaterialTheme(colorScheme = DesktopTheme.colorScheme, typography = BangniTypography) {
+        MaterialTheme(colorScheme = DesktopTheme.colorScheme(), typography = BangniTypography) {
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = MaterialTheme.colorScheme.background,
@@ -476,7 +520,7 @@ private fun androidx.compose.ui.window.ApplicationScope.AboutWindow(
         icon = painterResource("bangnidraw.png"),
         alwaysOnTop = true,
     ) {
-        MaterialTheme(colorScheme = DesktopTheme.colorScheme, typography = BangniTypography) {
+        MaterialTheme(colorScheme = DesktopTheme.colorScheme(), typography = BangniTypography) {
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = MaterialTheme.colorScheme.surfaceContainer,
@@ -573,6 +617,8 @@ private fun writeTo(document: DesktopDocument, file: java.io.File, adopt: Boolea
             target = file,
             title = file.nameWithoutExtension,
             createdAt = document.createdAt,
+            reference = document.state.reference,
+            referencePng = document.state.referencePng,
             onComplete = onComplete,
         )
     } else {
@@ -588,6 +634,7 @@ private fun Shell(
     canvasSize: CanvasSize,
     onSave: () -> Unit,
     onAbout: () -> Unit,
+    onTracingReference: () -> Unit,
 ) {
     val engine = state.engine
     val activeTool = state.activeTool
@@ -621,6 +668,17 @@ private fun Shell(
             if (state.restoreGate.allows(DesktopPreferenceKind.Color)) {
                 color?.let { state.colorSelection = state.colorSelection.sync(it) }
             }
+
+            state.restoreSettings(
+                themeName = state.prefs.readText(DesktopPreferenceKeys.THEME),
+                handName = state.prefs.readText(DesktopPreferenceKeys.HAND),
+                mixerName = state.prefs.readText(DesktopPreferenceKeys.MIXER),
+                snap = state.prefs.readNumber(DesktopPreferenceKeys.SNAP_RIGHT_ANGLES),
+            )
+            state.restorePalettes(
+                recent = state.prefs.readText(DesktopPreferenceKeys.RECENT_COLORS),
+                stored = state.prefs.readText(DesktopPreferenceKeys.PALETTES),
+            )
         } catch (failure: java.io.IOException) {
             System.err.println("desktop preferences could not be read: ${failure.message}")
         } finally {
@@ -655,6 +713,12 @@ private fun Shell(
         onDispose { state.resetView = null }
     }
     val eraserPreset = remember(state.presets) { DesktopRailPolicy.eraserOrNull(state.presets) }
+    // A settings choice that only takes effect on the next gesture would look
+    // broken; the handler reads this field per gesture, so pushing it here is
+    // enough.
+    LaunchedEffect(handler, state.snapRightAngles) {
+        handler.snapRightAngles = state.snapRightAngles
+    }
 
     // The window-level preview handler alone is not enough: with a menu bar
     // present the AWT focus owner can be the menu, and Compose then never
@@ -675,8 +739,8 @@ private fun Shell(
     ) {
         val widthDp = maxWidth.value.roundToInt()
         val heightDp = maxHeight.value.roundToInt()
-        val layout = remember(widthDp, heightDp) {
-            DesktopChromeLayout.forWindow(widthDp, heightDp)
+        val layout = remember(widthDp, heightDp, state.hand) {
+            DesktopChromeLayout.forWindow(widthDp, heightDp, state.hand)
         }
 
         // The canvas is full-bleed and the chrome floats above it, the same
@@ -690,21 +754,32 @@ private fun Shell(
                     engine.setViewportSize(size.width, size.height)
                     handler.setViewport(canvasSize, size.width, size.height)
                 }
-                .background(DesktopTheme.viewportVoid),
+                .background(DesktopTheme.viewportVoid(state.theme)),
         ) {
-            val canvasInput = if (state.preferencesReady && activeTool != null) {
-                Modifier.pointerInput(activeTool, colorArgb, state.mixer) {
-                    awaitPointerEvents(
-                        handler = handler,
-                        kind = activeTool,
-                        colorArgb = colorArgb,
-                        mixer = state.mixer,
-                        onColorPicked = state::pickSwatch,
-                        onHover = { state.hoverRevision += 1 },
-                    )
-                }
-            } else {
-                Modifier
+            val canvasInput = when {
+                // Placing the tracing image takes the whole pointer: Android
+                // gives it two fingers while one keeps painting, and a mouse
+                // has only the one to give.
+                state.editingReference && state.reference != null ->
+                    Modifier.pointerInput(state) {
+                        awaitReferenceEvents(handler, state)
+                    }
+
+                state.preferencesReady && activeTool != null ->
+                    Modifier.pointerInput(activeTool, colorArgb, state.activeMixer) {
+                        awaitPointerEvents(
+                            handler = handler,
+                            kind = activeTool,
+                            colorArgb = colorArgb,
+                            mixer = state.activeMixer,
+                            onColorPicked = state::applyPick,
+                            onPickFinished = state::finishPick,
+                            onPainted = state::notePainted,
+                            onHover = { state.hoverRevision += 1 },
+                        )
+                    }
+
+                else -> Modifier
             }
             if (bitmap != null) {
                 Image(
@@ -777,6 +852,8 @@ private fun Shell(
                 onSave = onSave,
                 onAbout = onAbout,
                 onHelp = { state.showHelp = true },
+                onSettings = { state.showSettings = true },
+                onTracingReference = onTracingReference,
                 onToggleGuides = { state.guides = state.guides.toggled() },
                 onFocus = { state.run(CanvasShortcut.TOGGLE_FOCUS) },
                 modifier = Modifier.align(Alignment.TopCenter),
@@ -820,9 +897,7 @@ private fun Shell(
         if (state.showColorPanel) {
             val insets = layout.panelInsets(widthDp, heightDp)
             DesktopColorPanel(
-                selection = state.colorSelection,
-                onSelection = state::pickColor,
-                onSwatch = state::pickSwatch,
+                state = state,
                 onClose = { state.showColorPanel = false },
                 modifier = Modifier
                     .align(
@@ -934,13 +1009,16 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
     colorArgb: Int,
     mixer: ch.lkmc.bangnidraw.engine.core.ColorMixer,
     onColorPicked: (Int) -> Unit,
+    onPickFinished: () -> Unit,
+    onPainted: (Int) -> Unit,
     /** Invalidates the hover cursor: its position is not snapshot state. */
     onHover: () -> Unit,
 ) {
     val sample = PointerSample()
     // The kind already carries the rail sliders' tuning; the gesture must not
     // re-derive it from a second copy of the size.
-    DesktopShell.tool = DesktopShell.Tool(kind, colorArgb, mixer, onColorPicked)
+    DesktopShell.tool =
+        DesktopShell.Tool(kind, colorArgb, mixer, onColorPicked, onPickFinished, onPainted)
     // A hover *enter* is what fills `StylusState.tool`, and the cursor is
     // chosen from it — a stream of moves alone leaves it FINGER, which
     // `HoverCursorPolicy` reads as "no cursor". Tracked here rather than
@@ -1031,6 +1109,81 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
         DesktopShell.mouseMode = DesktopMouseMode.Draw
     }
 }
+/**
+ * Mouse → tracing-image placement, while [DesktopShellState.editingReference]
+ * is on. Drag moves it, the wheel scales it about the pointer, and Shift with
+ * the wheel rotates it about the same point.
+ *
+ * Everything is expressed in canvas coordinates and handed to
+ * [DesktopShellState.transformReference], which is `ReferenceTransform.gesture`
+ * — the same call Android's two-finger path makes, so the two products place
+ * an image identically however the gesture reached them.
+ */
+private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitReferenceEvents(
+    handler: CanvasTouchHandler,
+    state: DesktopShellState,
+) {
+    var lastX = 0f
+    var lastY = 0f
+    var dragging = false
+
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull() ?: continue
+            val screen = handler.screenTransform ?: continue
+            val position = change.position
+            val pivotX = screen.invertX(position.x, position.y)
+            val pivotY = screen.invertY(position.x, position.y)
+
+            when (event.type) {
+                PointerEventType.Press -> {
+                    dragging = true
+                    lastX = pivotX
+                    lastY = pivotY
+                    change.consume()
+                }
+
+                PointerEventType.Move -> {
+                    if (!dragging || !change.pressed) continue
+
+                    state.transformReference(
+                        pivotX = lastX,
+                        pivotY = lastY,
+                        panX = pivotX - lastX,
+                        panY = pivotY - lastY,
+                        zoom = 1f,
+                        rotationDelta = 0f,
+                    )
+                    lastX = pivotX
+                    lastY = pivotY
+                    change.consume()
+                }
+
+                PointerEventType.Release, PointerEventType.Exit -> dragging = false
+
+                PointerEventType.Scroll -> {
+                    // Wheel-up is a negative delta; scaling up on wheel-up is
+                    // the direction the canvas zoom already uses.
+                    val notches = -change.scrollDelta.y
+                    if (notches != 0f) {
+                        val shift = event.keyboardModifiers.isShiftPressed
+                        state.transformReference(
+                            pivotX = pivotX,
+                            pivotY = pivotY,
+                            panX = 0f,
+                            panY = 0f,
+                            zoom = if (shift) 1f else SCALE_PER_NOTCH.pow(notches),
+                            rotationDelta = if (shift) notches * ROTATION_PER_NOTCH else 0f,
+                        )
+                    }
+                    change.consume()
+                }
+            }
+        }
+    }
+}
+
 private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPointerEventsSwatch(
     swatch: Int,
     onColor: (Int) -> Unit,
@@ -1053,6 +1206,10 @@ private object DesktopShell {
         val mixer: ch.lkmc.bangnidraw.engine.core.ColorMixer,
         /** Where an eyedropper read lands; called on the UI thread. */
         val onColorPicked: (Int) -> Unit,
+        /** Ends an armed pick at pen-up, whether or not it read anything. */
+        val onPickFinished: () -> Unit,
+        /** The colour a committed brush stroke actually painted with. */
+        val onPainted: (Int) -> Unit,
     )
 
     var tool: Tool? = null
@@ -1097,6 +1254,15 @@ private class DesktopInputHost(
     private var pickGate = EyedropperSampleGate()
     private var fillPending = false
 
+    /**
+     * The colour this stroke paints with, or null when the gesture does not
+     * put the paint colour on the canvas — an eraser, an RMW tool, a fill.
+     * `:app` decides the same thing at begin and calls it `StrokeColorUsage`;
+     * the eraser end is excluded here rather than there because this shell
+     * erases with the rail's own brush instead of pushing an eraser preset.
+     */
+    private var paintedColor: Int? = null
+
     override fun onViewChanged(view: ViewTransform) {
         engine.setView(view)
         onView(view)
@@ -1116,6 +1282,7 @@ private class DesktopInputHost(
         driver = null
         pick = null
         fillPending = false
+        paintedColor = null
 
         val resolvedSource = DesktopStrokePolicy.source(source, DesktopShell.mouseMode)
         this.source = resolvedSource
@@ -1189,6 +1356,12 @@ private class DesktopInputHost(
             },
         )
 
+        paintedColor = tool.colorArgb.takeIf {
+            kind is ToolKind.Brush &&
+                !preset.eraseMode &&
+                resolvedSource != StrokeSource.ERASER_END
+        }
+
         val rgb = DesktopPalette.toStrokeRgb(tool.colorArgb)
         engine.beginStroke(spec, preset.bufferMode, rgb[0], rgb[1], rgb[2])
     }
@@ -1244,8 +1417,10 @@ private class DesktopInputHost(
     }
 
     override fun onStrokeEnd(pointerId: Int) {
-        pick = null
+        finishPick()
         fillPending = false
+        val painted = paintedColor
+        paintedColor = null
         val driver = driver ?: return
         this.driver = null
 
@@ -1263,11 +1438,27 @@ private class DesktopInputHost(
             val emitted = driver.end(batch)
             if (emitted == 0) engine.releaseDabBatch(batch) else engine.stampDabs(batch)
         }
-        engine.endStroke(driver.opacityCeiling) {}
+        // Recorded only once the merge applied, as `:app`'s recent colours
+        // are: a stroke the engine refused never touched the canvas. The
+        // callback arrives on the GL thread.
+        engine.endStroke(driver.opacityCeiling) {
+            val onPainted = DesktopShell.tool?.onPainted
+            if (painted != null && onPainted != null) {
+                java.awt.EventQueue.invokeLater { onPainted(painted) }
+            }
+        }
+    }
+
+    /** Returns the tool an armed panel pick borrowed, at pen-up or cancel. */
+    private fun finishPick() {
+        val picking = pick != null
+        pick = null
+        if (picking) DesktopShell.tool?.onPickFinished?.invoke()
     }
 
     override fun onStrokeCancel() {
-        pick = null
+        finishPick()
+        paintedColor = null
         if (fillPending) {
             fillPending = false
         } else {
@@ -1310,6 +1501,10 @@ private fun DesktopEngine.Frame.toImageBitmap(): androidx.compose.ui.graphics.Im
 private const val RGBA_BYTES = 4
 private const val MOUSE_POINTER_ID = 0
 private const val SYNTHETIC_PRESSURE = 1f
+/** One wheel notch on the tracing image: the canvas zoom's own 15% step. */
+private const val SCALE_PER_NOTCH = 1.15f
+/** And with Shift, five degrees a notch — fine enough to line a photo up. */
+private const val ROTATION_PER_NOTCH = 0.0872665f
 private const val NANOS_PER_MS = 1_000_000L
 private const val CANVAS_EDGE = 2048
 private const val VERIFY_RUNTIME_FLAG = "--verify-runtime"

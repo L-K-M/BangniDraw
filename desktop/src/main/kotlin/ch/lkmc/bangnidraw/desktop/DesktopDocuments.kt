@@ -136,6 +136,18 @@ internal class DesktopDocuments(
         )
         open += document
         engine.start()
+        // After start(), so the upload lands on a renderer that exists. A
+        // reference whose stored pixels no longer decode is dropped rather
+        // than left as a record with nothing to draw.
+        initial?.reference?.let { reference ->
+            val png = initial.referencePng
+            val tiles = png?.let { DesktopReferenceIo.tiles(it, reference) }
+            if (tiles != null) {
+                document.state.restoreReference(reference, png, tiles)
+            } else {
+                document.state.savedMessage = DesktopStrings.get("err_reference_unreadable")
+            }
+        }
         return document
     }
 

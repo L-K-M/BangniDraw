@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.desktop
 import ch.lkmc.bangnidraw.data.shared.BangniCodec
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
+import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.TracingReference
 import ch.lkmc.bangnidraw.engine.core.TracingReferencePolicy
@@ -75,22 +76,58 @@ internal object DesktopReferenceIo {
      * the PNG came out of the container rather than off the file system.
      * Null when the stored bytes no longer decode to the recorded size, which
      * the caller reports as a skipped reference rather than a failed open.
+     *
+     * **The size is settled from the header before any raster is decoded.**
+     * These bytes came out of a document someone handed the user, and
+     * `ImageIO.read` allocates from the dimensions the PNG *declares*: a
+     * header claiming 60000x60000 is a 14 GB `int[]` before anything gets to
+     * compare it against the record. The container's own byte bound does not
+     * help — a few hundred KB of PNG can declare that. So the header is read
+     * first, and refused unless it both matches the record and lies inside
+     * the range [TileGrid] will demand of it anyway.
+     *
+     * The import path deliberately does *not* do this: that file is the
+     * user's own pick, a camera panorama is legitimately larger than a
+     * canvas, and [TracingReferencePolicy] shrinks it — with the
+     * `OutOfMemoryError` catch as the backstop.
      */
     fun tiles(png: ByteArray, reference: TracingReference): Map<TileKey, ByteArray>? = try {
-        val decoded = javax.imageio.ImageIO.read(png.inputStream())
-        if (
-            decoded == null ||
-            decoded.width != reference.imageWidth ||
-            decoded.height != reference.imageHeight
-        ) {
-            null
-        } else {
-            DesktopImageIo.tiles(decoded.toDesktopImage())
+        val header = headerSize(png)
+        when {
+            header == null -> null
+            header.first != reference.imageWidth || header.second != reference.imageHeight -> null
+            header.first !in TileGrid.MIN_EDGE..TileGrid.MAX_EDGE -> null
+            header.second !in TileGrid.MIN_EDGE..TileGrid.MAX_EDGE -> null
+            else -> javax.imageio.ImageIO.read(png.inputStream())
+                ?.takeIf { it.width == reference.imageWidth && it.height == reference.imageHeight }
+                ?.let { DesktopImageIo.tiles(it.toDesktopImage()) }
         }
     } catch (_: java.io.IOException) {
         null
     } catch (_: RuntimeException) {
         null
+    }
+
+    /**
+     * The dimensions a reader reports without decoding the raster, or null
+     * when the bytes are not an image this build reads. `getWidth`/`getHeight`
+     * parse the header only — that is the whole point of asking here rather
+     * than reading the image and measuring it.
+     */
+    private fun headerSize(png: ByteArray): Pair<Int, Int>? {
+        val stream = javax.imageio.ImageIO.createImageInputStream(png.inputStream()) ?: return null
+        return stream.use { input ->
+            val readers = javax.imageio.ImageIO.getImageReaders(input)
+            if (!readers.hasNext()) return@use null
+
+            val reader = readers.next()
+            try {
+                reader.input = input
+                reader.getWidth(0) to reader.getHeight(0)
+            } finally {
+                reader.dispose()
+            }
+        }
     }
 
     private fun place(

@@ -31,7 +31,7 @@ import ch.lkmc.bangnidraw.ui.shared.BangniTypography
 @Composable
 internal fun DesktopPanelWindows(state: DesktopShellState) {
     if (state.showLayerPanel) LayerPanelWindow(state)
-    if (state.showBrushPanel) BrushPanelWindow(state)
+    if (state.showBrushPanel) ToolPanelWindow(state)
 }
 
 @Composable
@@ -64,25 +64,47 @@ private fun LayerPanelWindow(state: DesktopShellState) {
     }
 }
 
+/**
+ * The settings of whatever the rail has selected. One window rather than six:
+ * the panel is opened by clicking the active slot, so it always shows that
+ * slot's tool, and a second window per tool would be six things to close.
+ */
 @Composable
-private fun BrushPanelWindow(state: DesktopShellState) {
-    val preset = state.activeBrush ?: return
+private fun ToolPanelWindow(state: DesktopShellState) {
+    val secondary = state.rail.secondary
+    val preset = state.activeBrush
+    if (secondary == null && preset == null) return
+
     PanelWindow(
-        title = "Brush — " + DesktopBrand.displayName,
+        title = toolPanelTitle(state),
         size = DpSize(BRUSH_PANEL_WIDTH, BRUSH_PANEL_HEIGHT),
         onClose = { state.showBrushPanel = false },
     ) {
-        DesktopBrushSettings(
-            preset = preset,
-            catalogue = state.catalogue,
-            presets = state.presets,
-            // The shell resolves one mixer at startup; a build without Mixbox
-            // falls back to RGB, and the pigment controls hide with it.
-            mixerChoice = if (state.mixer === RgbMixer) MixerChoice.RGB else MixerChoice.PIGMENT,
-            onChanged = state::tune,
-            onSelectPreset = state::selectPreset,
-        )
+        if (secondary != null) {
+            DesktopToolSettings(state)
+        } else if (preset != null) {
+            DesktopBrushSettings(
+                preset = preset,
+                catalogue = state.catalogue,
+                presets = state.presets,
+                // The shell resolves one mixer at startup; a build without
+                // Mixbox falls back to RGB, and pigment controls hide with it.
+                mixerChoice = if (state.mixer === RgbMixer) MixerChoice.RGB else MixerChoice.PIGMENT,
+                onChanged = state::tune,
+                onSelectPreset = state::selectPreset,
+            )
+        }
     }
+}
+
+private fun toolPanelTitle(state: DesktopShellState): String {
+    val secondary = state.rail.secondary
+    val name = if (secondary != null) {
+        secondaryLabel(secondary)
+    } else {
+        state.activeBrush?.let(DesktopBrushUi::label).orEmpty()
+    }
+    return "$name — " + DesktopBrand.displayName
 }
 
 @Composable

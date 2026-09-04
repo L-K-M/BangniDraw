@@ -4,8 +4,14 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import ch.lkmc.bangnidraw.engine.core.BlurParams
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
 import ch.lkmc.bangnidraw.engine.core.ColorMixer
+import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.FillParams
+import ch.lkmc.bangnidraw.engine.core.SmudgeParams
+import ch.lkmc.bangnidraw.engine.core.ToolKind
+import ch.lkmc.bangnidraw.engine.core.WaterParams
 import ch.lkmc.bangnidraw.engine.core.HsvSelection
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerPanelOrder
@@ -46,6 +52,14 @@ internal class DesktopShellState(
     )
     var colorSelection by mutableStateOf(HsvSelection.fromArgb(DesktopPalette.SWATCHES.first()))
 
+    // Each secondary tool keeps its own tuning across a switch away and back,
+    // exactly as a brush preset keeps its slider edits.
+    var smudgeParams by mutableStateOf(SmudgeParams())
+    var waterParams by mutableStateOf(WaterParams())
+    var blurParams by mutableStateOf(BlurParams())
+    var fillParams by mutableStateOf(FillParams())
+    var eyedropperParams by mutableStateOf(EyedropperParams())
+
     var stack by mutableStateOf(engine.stack)
     var paperColor by mutableStateOf(DEFAULT_PAPER_ARGB)
     var thumbnails by mutableStateOf<Map<LayerId, LayerThumbnail>>(emptyMap())
@@ -69,18 +83,50 @@ internal class DesktopShellState(
      */
     val activeBrush: BrushPreset? get() = DesktopRailPolicy.activePreset(presets, rail)
 
+    /**
+     * The tool the next gesture uses. Null only when the catalogue ships no
+     * preset at all, which the shell treats as "input is not ready".
+     */
+    val activeTool: ToolKind?
+        get() = when (rail.secondary) {
+            null -> activeBrush?.let(ToolKind::Brush)
+            DesktopSecondaryTool.SMUDGE -> ToolKind.Smudge(smudgeParams)
+            DesktopSecondaryTool.WATER -> ToolKind.Water(waterParams)
+            DesktopSecondaryTool.BLUR -> ToolKind.Blur(blurParams)
+            DesktopSecondaryTool.FILL -> ToolKind.Fill(fillParams)
+            DesktopSecondaryTool.EYEDROPPER -> ToolKind.Eyedropper(eyedropperParams)
+        }
+
     // ------------------------------------------------------------- brushes
 
     fun tune(tuned: BrushPreset) {
         presets = presets.map { if (it.id == tuned.id) tuned else it }
     }
 
+    /** The rail's size slider, routed to the active tool's own size field. */
     fun tuneActiveSize(value: Float) {
-        activeBrush?.let { tune(it.withSize(value)) }
+        activeTool?.let { store(DesktopToolTuning.withSize(it, value)) }
     }
 
+    /** The rail's second slider: opacity, flow, strength or water load. */
     fun tuneActiveSecondary(value: Float) {
-        activeBrush?.let { tune(ToolSliderPreset.withSecondary(it, value)) }
+        activeTool?.let { store(DesktopToolTuning.withSecondary(it, value)) }
+    }
+
+    /** Writes a tuned tool back where [activeTool] reads it from. */
+    private fun store(next: ToolKind) {
+        when (next) {
+            is ToolKind.Brush -> tune(next.preset)
+            is ToolKind.Smudge -> smudgeParams = next.params
+            is ToolKind.Water -> waterParams = next.params
+            is ToolKind.Blur -> blurParams = next.params
+            is ToolKind.Fill -> fillParams = next.params
+            is ToolKind.Eyedropper -> eyedropperParams = next.params
+        }
+    }
+
+    fun selectSecondary(tool: DesktopSecondaryTool) {
+        rail = DesktopRailPolicy.selectSecondary(rail, tool)
     }
 
     /**

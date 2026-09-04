@@ -26,20 +26,41 @@ internal object DesktopChromeLayout {
 }
 
 /**
- * Which preset each rail slot selects, and what a tap does to that choice.
+ * The five tools that are not a brush preset (`04-tools.md` §1). Kept as an
+ * enum rather than a [ToolKind]: the rail only needs to know *which* slot is
+ * lit, while the parameters each one is tuned with live in the shell state,
+ * so switching away and back does not reset them.
+ */
+internal enum class DesktopSecondaryTool {
+    SMUDGE,
+    WATER,
+    BLUR,
+    FILL,
+    EYEDROPPER,
+}
+
+/**
+ * Which tool each rail slot selects, and what a click does to that choice.
  *
- * The Android rail carries five secondary tools (smudge, water, blur, fill,
- * eyedropper) this shell has no engine path for, so its own budget
- * ([DesktopRailPolicy.paintBudget]) counts the slots this rail actually
- * shows: the paints that fit, the overflow menu, and one eraser.
+ * [selectedId] is the brush preset the rail remembers even while a secondary
+ * tool is active, so clicking back to the paints returns to the brush the
+ * user last painted with rather than to the catalogue's first.
+ *
+ * The rail's own budget ([DesktopRailPolicy.paintBudget]) counts the slots
+ * this rail actually shows: the paints that fit, the overflow menu, one
+ * eraser, and the secondary tools the current rail mode carries.
  */
 internal data class DesktopRailState(
-    /** The preset the next stroke uses; a paint id or [eraserId]. */
+    /** The preset a paint or eraser slot selects; a paint id or [eraserId]. */
     val selectedId: String,
     /** Which of the shipped erasers the single eraser slot currently offers. */
     val eraserId: String,
+    /** The lit secondary slot, or null while a brush preset is active. */
+    val secondary: DesktopSecondaryTool? = null,
 ) {
-    fun paintSelected(): Boolean = selectedId != eraserId
+    fun paintSelected(): Boolean = secondary == null && selectedId != eraserId
+
+    fun brushSelected(): Boolean = secondary == null
 }
 
 internal object DesktopRailPolicy {
@@ -56,13 +77,21 @@ internal object DesktopRailPolicy {
         )
     }
 
-    /** A restored preference selects that preset; an unknown id changes nothing. */
+    /**
+     * A restored preference or a rail click selects that preset; an unknown id
+     * changes nothing. Selecting a brush always leaves the secondary tools,
+     * because the rail shows exactly one lit slot.
+     */
     fun select(state: DesktopRailState, presetId: String, presets: List<BrushPreset>): DesktopRailState {
         val preset = presets.firstOrNull { it.id == presetId } ?: return state
-        if (!preset.eraseMode) return state.copy(selectedId = preset.id)
+        if (!preset.eraseMode) return state.copy(selectedId = preset.id, secondary = null)
 
-        return state.copy(selectedId = preset.id, eraserId = preset.id)
+        return state.copy(selectedId = preset.id, eraserId = preset.id, secondary = null)
     }
+
+    /** Lights one secondary slot; the remembered brush preset stays put. */
+    fun selectSecondary(state: DesktopRailState, tool: DesktopSecondaryTool): DesktopRailState =
+        if (state.secondary == tool) state else state.copy(secondary = tool)
 
     /**
      * The eraser slot's click: select whichever eraser the slot holds.
@@ -79,36 +108,62 @@ internal object DesktopRailPolicy {
         val slot = presets.firstOrNull { it.id == state.eraserId && it.eraseMode }
             ?: eraserOrNull(presets)
             ?: return state
-        if (state.selectedId == slot.id) return state
+        if (state.selectedId == slot.id && state.secondary == null) return state
 
         return DesktopRailState(selectedId = slot.id, eraserId = slot.id)
     }
 
     /**
+     * How many secondary slots the rail shows for [layout]. FULL has room for
+     * all five; every shorter mode shows three and hides blur and the
+     * eyedropper behind a menu, exactly as `:app`'s `groupedSecondarySlots`
+     * does — so the same tools are one click away on both products.
+     */
+    fun secondarySlotCount(layout: LayoutSpec): Int =
+        if (layout.railMode == RailMode.FULL) SECONDARY_TOOLS else GROUPED_SECONDARY_SLOTS
+
+    /** Which secondary tools [layout] gives a slot of their own. */
+    fun visibleSecondary(layout: LayoutSpec): List<DesktopSecondaryTool> =
+        if (layout.railMode == RailMode.FULL) {
+            DesktopSecondaryTool.entries
+        } else {
+            listOf(
+                DesktopSecondaryTool.SMUDGE,
+                DesktopSecondaryTool.WATER,
+                DesktopSecondaryTool.FILL,
+            )
+        }
+
+    /** The rest, which that mode puts behind the secondary overflow menu. */
+    fun hiddenSecondary(layout: LayoutSpec): List<DesktopSecondaryTool> =
+        DesktopSecondaryTool.entries - visibleSecondary(layout).toSet()
+
+    /**
      * How many paint slots the rail shows before the rest move into its
      * overflow menu — `LayoutSpec.paintSlotBudget`'s arithmetic against the
-     * slots *this* rail has. The Android budget cannot be reused: it
-     * reserves six non-paint slots for tools the desktop shell does not
-     * carry, and it stops computing at all outside FULL mode.
+     * slots *this* rail has. The Android budget cannot be reused: it stops
+     * computing at all outside FULL mode, and its fixed reservation does not
+     * match this rail's (one eraser, one paint overflow, and however many
+     * secondary slots [layout] carries plus their own menu).
      *
-     * The overflow button only costs a slot when something overflows, so the
-     * fit is tried without it first.
+     * The paint overflow button only costs a slot when something overflows,
+     * so the fit is tried without it first.
      */
     fun paintBudget(layout: LayoutSpec, availableDp: Int, paintCount: Int): Int {
         require(paintCount >= 0) { "paintCount must not be negative" }
         if (paintCount == 0) return 0
 
         val step = layout.toolSlotDp + toolGapDp(layout)
+        val fixedSlots = ERASER_SLOTS + secondarySlotCount(layout) +
+            if (hiddenSecondary(layout).isEmpty()) 0 else SECONDARY_OVERFLOW_SLOTS
         fun fits(nonPaintSlots: Int): Int {
-            val fixed = nonPaintSlots * step + DesktopRailGeometry.DIVIDER_HEIGHT_DP +
+            val fixed = nonPaintSlots * step + DesktopRailGeometry.DIVIDER_HEIGHT_DP * DIVIDERS +
                 layout.sliderLengthDp + railPaddingDp(layout)
             return (availableDp - fixed) / step
         }
 
-        // Only the eraser is fixed while everything fits; once it does not,
-        // the overflow button takes a slot of its own.
-        if (fits(ERASER_SLOTS) >= paintCount) return paintCount
-        return fits(ERASER_SLOTS + OVERFLOW_SLOTS).coerceIn(1, paintCount)
+        if (fits(fixedSlots) >= paintCount) return paintCount
+        return fits(fixedSlots + OVERFLOW_SLOTS).coerceIn(1, paintCount)
     }
 
     /**
@@ -138,6 +193,12 @@ internal object DesktopRailPolicy {
 
     private const val ERASER_SLOTS = 1
     private const val OVERFLOW_SLOTS = 1
+    private const val SECONDARY_OVERFLOW_SLOTS = 1
+    private const val SECONDARY_TOOLS = 5
+    private const val GROUPED_SECONDARY_SLOTS = 3
+
+    /** Paints | eraser | secondary tools: two rules, as `:app`'s rail draws. */
+    private const val DIVIDERS = 2
 }
 
 /**

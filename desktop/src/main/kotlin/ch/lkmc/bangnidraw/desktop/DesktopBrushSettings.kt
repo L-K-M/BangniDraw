@@ -68,7 +68,7 @@ internal fun DesktopBrushSettings(
         if (preset.eraseMode) {
             // The rail's slot holds one eraser at a time; this is where the
             // other one is chosen, since a second click now opens this panel.
-            Group("Eraser")
+            SettingsGroup("Eraser")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (eraser in presets.filter(BrushPreset::eraseMode)) {
                     FilterChip(
@@ -80,52 +80,52 @@ internal fun DesktopBrushSettings(
             }
         }
 
-        Group("Stroke")
-        Slider(
+        SettingsGroup("Stroke")
+        SettingSlider(
             "Size",
             preset.size,
             preset.sizeMin..preset.sizeMax,
             px(preset.size),
         ) { onChanged(preset.withSize(it)) }
         if (preset.watercolor == null) {
-            Slider("Opacity", preset.opacity, 0f..1f, percent(preset.opacity)) {
+            SettingSlider("Opacity", preset.opacity, 0f..1f, percent(preset.opacity)) {
                 onChanged(preset.copy(opacity = it))
             }
         }
-        Slider("Flow", preset.flow, 0f..1f, percent(preset.flow)) {
+        SettingSlider("Flow", preset.flow, 0f..1f, percent(preset.flow)) {
             onChanged(preset.copy(flow = it))
         }
 
-        Group("Tip")
-        Slider("Hardness", preset.hardness, 0f..1f, percent(preset.hardness)) {
+        SettingsGroup("Tip")
+        SettingSlider("Hardness", preset.hardness, 0f..1f, percent(preset.hardness)) {
             onChanged(preset.copy(hardness = it))
         }
-        Slider("Spacing", preset.spacing, SPACING_MIN..SPACING_MAX, percent(preset.spacing)) {
+        SettingSlider("Spacing", preset.spacing, SPACING_MIN..SPACING_MAX, percent(preset.spacing)) {
             onChanged(preset.copy(spacing = it))
         }
-        Choice("Shape") {
-            Chip("Round", preset.tip is TipShape.Round) {
+        SettingChoice("Shape") {
+            SettingChip("Round", preset.tip is TipShape.Round) {
                 onChanged(preset.copy(tip = TipShape.Round))
             }
-            Chip("Flat", preset.tip is TipShape.Flat) {
+            SettingChip("Flat", preset.tip is TipShape.Flat) {
                 onChanged(preset.copy(tip = TipShape.Flat(DEFAULT_ASPECT)))
             }
         }
         val flat = preset.tip as? TipShape.Flat
         if (flat != null) {
-            Slider("Aspect", flat.aspect, TipShape.Flat.MIN_ASPECT..1f, percent(flat.aspect)) {
+            SettingSlider("Aspect", flat.aspect, TipShape.Flat.MIN_ASPECT..1f, percent(flat.aspect)) {
                 onChanged(preset.copy(tip = TipShape.Flat(it)))
             }
         }
-        Choice("Orientation") {
+        SettingChoice("Orientation") {
             for (orientation in TipOrientation.entries) {
-                Chip(orientationLabel(orientation), preset.orientation == orientation) {
+                SettingChip(orientationLabel(orientation), preset.orientation == orientation) {
                     onChanged(preset.copy(orientation = orientation))
                 }
             }
         }
 
-        Group("Dynamics")
+        SettingsGroup("Dynamics")
         CurveRow("Pressure → size", preset.pressureSize) {
             onChanged(preset.copy(pressureSize = it))
         }
@@ -137,10 +137,10 @@ internal fun DesktopBrushSettings(
         CurveRow("Pressure → flow", preset.pressureFlow) {
             onChanged(preset.copy(pressureFlow = it))
         }
-        Slider("Tilt → size", preset.tilt.sizeAtFlat, TILT_RANGE, multiple(preset.tilt.sizeAtFlat)) {
+        SettingSlider("Tilt → size", preset.tilt.sizeAtFlat, TILT_RANGE, multiple(preset.tilt.sizeAtFlat)) {
             onChanged(preset.copy(tilt = preset.tilt.copy(sizeAtFlat = it)))
         }
-        Slider(
+        SettingSlider(
             "Tilt → opacity",
             preset.tilt.opacityAtFlat,
             0f..TILT_MAX,
@@ -148,10 +148,10 @@ internal fun DesktopBrushSettings(
         ) {
             onChanged(preset.copy(tilt = preset.tilt.copy(opacityAtFlat = it)))
         }
-        Toggle("Tilt elongates the dab", preset.tilt.elongate) {
+        SettingToggle("Tilt elongates the dab", preset.tilt.elongate) {
             onChanged(preset.copy(tilt = preset.tilt.copy(elongate = it)))
         }
-        Slider(
+        SettingSlider(
             "Speed → size",
             preset.velocity.sizeAtFast,
             TILT_RANGE,
@@ -159,7 +159,7 @@ internal fun DesktopBrushSettings(
         ) {
             onChanged(preset.copy(velocity = preset.velocity.copy(sizeAtFast = it)))
         }
-        Slider(
+        SettingSlider(
             "Speed → opacity",
             preset.velocity.opacityAtFast,
             0f..TILT_MAX,
@@ -167,7 +167,7 @@ internal fun DesktopBrushSettings(
         ) {
             onChanged(preset.copy(velocity = preset.velocity.copy(opacityAtFast = it)))
         }
-        Slider(
+        SettingSlider(
             "Fast is",
             preset.velocity.fastPxPerMs,
             FAST_MIN..FAST_MAX,
@@ -175,10 +175,10 @@ internal fun DesktopBrushSettings(
         ) {
             onChanged(preset.copy(velocity = preset.velocity.copy(fastPxPerMs = it)))
         }
-        Slider("Jitter → size", preset.jitter.size, 0f..1f, percent(preset.jitter.size)) {
+        SettingSlider("Jitter → size", preset.jitter.size, 0f..1f, percent(preset.jitter.size)) {
             onChanged(preset.copy(jitter = preset.jitter.copy(size = it)))
         }
-        Slider(
+        SettingSlider(
             "Jitter → position",
             preset.jitter.position,
             0f..1f,
@@ -186,29 +186,29 @@ internal fun DesktopBrushSettings(
         ) {
             onChanged(preset.copy(jitter = preset.jitter.copy(position = it)))
         }
-        Slider("Stabilizer", preset.stabilizer, 0f..1f, percent(preset.stabilizer)) {
+        SettingSlider("Stabilizer", preset.stabilizer, 0f..1f, percent(preset.stabilizer)) {
             onChanged(preset.copy(stabilizer = it))
         }
 
-        Group("Paint")
-        Toggle("Paper grain", preset.grainMode != GrainMode.None) { on ->
+        SettingsGroup("Paint")
+        SettingToggle("Paper grain", preset.grainMode != GrainMode.None) { on ->
             onChanged(preset.copy(grain = if (on) PROCEDURAL_GRAIN else null))
         }
         // Pigment mixing needs a pigment mixer to mean anything: without
         // Mixbox the stroke is RGB either way, so the control would lie.
         if (!preset.eraseMode && mixerChoice == MixerChoice.PIGMENT) {
-            Toggle("Pigment mixing", preset.mixing) { onChanged(preset.copy(mixing = it)) }
+            SettingToggle("Pigment mixing", preset.mixing) { onChanged(preset.copy(mixing = it)) }
             if (preset.mixing) {
-                Slider("Dilution", preset.dilution, 0f..1f, percent(preset.dilution)) {
+                SettingSlider("Dilution", preset.dilution, 0f..1f, percent(preset.dilution)) {
                     onChanged(preset.copy(dilution = it))
                 }
             }
         }
-        Choice("Build-up") {
-            Chip("Flat", preset.bufferMode == BufferMode.Max) {
+        SettingChoice("Build-up") {
+            SettingChip("Flat", preset.bufferMode == BufferMode.Max) {
                 onChanged(preset.copy(bufferMode = BufferMode.Max))
             }
-            Chip("Accumulate", preset.bufferMode == BufferMode.Accumulate) {
+            SettingChip("Accumulate", preset.bufferMode == BufferMode.Accumulate) {
                 onChanged(preset.copy(bufferMode = BufferMode.Accumulate))
             }
         }
@@ -223,125 +223,13 @@ internal fun DesktopBrushSettings(
     }
 }
 
-@Composable
-private fun Group(title: String) {
-    HorizontalDivider(Modifier.padding(top = 8.dp))
-    Text(
-        title,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 4.dp),
-    )
-}
-
-@Composable
-private fun Slider(
-    label: String,
-    value: Float,
-    range: ClosedFloatingPointRange<Float>,
-    valueText: String,
-    onChange: (Float) -> Unit,
-) {
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.weight(1f))
-            Text(
-                valueText,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        DesktopThinSlider(
-            value = value.coerceIn(range.start, range.endInclusive),
-            range = range,
-            axis = DesktopSliderAxis.Horizontal,
-            description = label,
-            onValueChange = onChange,
-            fillWidth = true,
-        )
-    }
-}
-
-/**
- * A [Curve] as its four knots. Android drags them on a plotted curve; four
- * labelled sliders are the same four numbers, and a mouse can hit them.
- */
-@Composable
-private fun CurveRow(label: String, curve: Curve, onChange: (Curve) -> Unit) {
-    Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        val knots = listOf(curve.p0, curve.p1, curve.p2, curve.p3)
-        for ((index, knot) in knots.withIndex()) {
-            Box(Modifier.weight(1f)) {
-                DesktopThinSlider(
-                    value = knot,
-                    range = 0f..1f,
-                    axis = DesktopSliderAxis.Horizontal,
-                    description = "$label knot ${index + 1}",
-                    onValueChange = { value ->
-                        onChange(
-                            when (index) {
-                                0 -> curve.copy(p0 = value)
-                                1 -> curve.copy(p1 = value)
-                                2 -> curve.copy(p2 = value)
-                                else -> curve.copy(p3 = value)
-                            },
-                        )
-                    },
-                    fillWidth = true,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun Choice(label: String, content: @Composable () -> Unit) {
-    Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
-}
-
-@Composable
-private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
-}
-
-/**
- * A switch row that owns the toggle action while the [Switch] delegates it —
- * the accessible shape AGENTS.md pins for every switch row in this product.
- */
-@Composable
-private fun Toggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics(mergeDescendants = true) {
-                role = Role.Switch
-                toggleableState = ToggleableState(checked)
-            },
-    ) {
-        Text(label, style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
-    }
-}
-
 private fun orientationLabel(orientation: TipOrientation): String = when (orientation) {
     TipOrientation.Fixed -> "Fixed"
     TipOrientation.Stylus -> "Stylus"
     TipOrientation.StrokeDirection -> "Direction"
 }
 
-private fun percent(value: Float): String = "%.0f%%".format(Locale.ROOT, value * PERCENT)
-
-private fun px(value: Float): String = "%.0f px".format(Locale.ROOT, value)
-
-private fun multiple(value: Float): String = "%.2f×".format(Locale.ROOT, value)
-
 private val PANEL_PADDING = 16.dp
-private const val PERCENT = 100f
 private const val DEFAULT_ASPECT = 0.3f
 private const val SPACING_MIN = 0.02f
 private const val SPACING_MAX = 1f

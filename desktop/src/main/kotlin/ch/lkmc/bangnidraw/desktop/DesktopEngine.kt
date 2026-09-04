@@ -1,7 +1,15 @@
 package ch.lkmc.bangnidraw.desktop
 
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.core.Coverage
 import ch.lkmc.bangnidraw.engine.core.DeviceMemory
+import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.FillParams
+import ch.lkmc.bangnidraw.engine.core.FloodFill
+import ch.lkmc.bangnidraw.engine.core.PixelCommitKind
+import ch.lkmc.bangnidraw.engine.core.StrokeLayerDecision
+import ch.lkmc.bangnidraw.engine.core.StrokeLayerPolicy
+import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.IdSource
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.Refusal
@@ -113,6 +121,12 @@ internal class DesktopEngine(
     private val exportExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
         Thread(task, EXPORT_THREAD_NAME).apply { isDaemon = true }
     }
+
+    // Its own worker, not the export one: a fill must not wait behind a PNG
+    // encode, and an encode must not wait behind a full-canvas scan.
+    private val fillExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
+        Thread(task, FILL_THREAD_NAME).apply { isDaemon = true }
+    }
     private val repaint = AtomicBoolean(false)
 
     /** The in-memory tile mirror the renderer's readback keeps current. */
@@ -128,6 +142,7 @@ internal class DesktopEngine(
     private var nextWetRefreshNs = 0L
     private var thumbnailSink: ((LayerId, LayerThumbnail?) -> Unit)? = null
     private var paperColor = DEFAULT_PAPER_ARGB
+    private var fillGeneration = 0
 
     /**
      * The document model. Written only on the GL thread; `@Volatile` because
@@ -161,6 +176,8 @@ internal class DesktopEngine(
     }
 
     fun stopAndJoin() {
+        fillGeneration++
+        fillExecutor.shutdownNow()
         shutdownExports()
         if (!started.get()) return
 
@@ -307,15 +324,35 @@ internal class DesktopEngine(
      */
     fun endStroke(opacityCeiling: Float, onCommitted: () -> Unit) = post {
         val renderer = renderer ?: return@post
+        val committed = commitMerged(renderer) { revision, onMerged ->
+            renderer.endStroke(revision, opacityCeiling, onMerged)
+        }
+        if (committed) onCommitted()
+        requestRepaintOnGl()
+    }
+
+    /**
+     * Runs one pixel commit — a stroke merge or a fill — and journals what it
+     * moved. [merge] gets the revision to commit under and the pre-merge
+     * callback the renderer reports its touched keys through, and returns how
+     * many tiles it merged; zero means nothing happened and nothing is
+     * journaled.
+     *
+     * Shared, because a fill is a merge like any other: it uploads coverage
+     * into the same stroke buffer and ends the same stroke. Two copies of this
+     * bookkeeping would be two places to forget the readback drain, and the
+     * mirror would silently lag the GPU for the *next* undo, not this one.
+     */
+    private inline fun commitMerged(
+        renderer: CanvasRenderer,
+        merge: (Int, (StrokeSpec, List<TileKey>) -> Unit) -> Int,
+    ): Boolean {
         val revision = nextRevision()
         var layerId: LayerId? = null
         var keys: List<TileKey> = emptyList()
         var before: Map<TileKey, ByteArray?> = emptyMap()
-        val merged = renderer.endStroke(
-            revision = revision,
-            opacityCeiling = opacityCeiling,
-        ) { spec, touched ->
-            // Pre-merge state: everything but this stroke's own tiles.
+        val merged = merge(revision) { spec, touched ->
+            // Pre-merge state: everything but this commit's own tiles.
             val layerMirror = mirror[spec.layerId]
             val captured = HashMap<TileKey, ByteArray?>(touched.size)
             for (key in touched) captured[key] = layerMirror?.get(key)?.copyOf()
@@ -323,40 +360,137 @@ internal class DesktopEngine(
             keys = touched.toList()
             before = captured
         }
-        if (merged > 0) {
-            val committedLayer = checkNotNull(layerId) { "renderer merged without touched keys" }
-            requireReadback(renderer)
-            check(
-                DesktopReadbackPolicy.delivery(
-                    keys = keys,
-                    expectedRevision = revision,
-                    revisionOf = { key -> readbackRevisions[committedLayer]?.get(key) },
-                ) == ReadbackDelivery.Complete,
-            ) { "GPU readback did not deliver every merged tile" }
+        if (merged <= 0) return false
 
-            val layerMirror = mirror.getValue(committedLayer)
-            val after = HashMap<TileKey, ByteArray?>(keys.size)
-            for (key in keys) after[key] = layerMirror[key]?.copyOf()
+        val committedLayer = checkNotNull(layerId) { "renderer merged without touched keys" }
+        requireReadback(renderer)
+        check(
+            DesktopReadbackPolicy.delivery(
+                keys = keys,
+                expectedRevision = revision,
+                revisionOf = { key -> readbackRevisions[committedLayer]?.get(key) },
+            ) == ReadbackDelivery.Complete,
+        ) { "GPU readback did not deliver every merged tile" }
 
-            val stackBefore = stack
-            val stackAfter = DesktopStrokeTiles.withCommitted(stackBefore, committedLayer, keys)
-            if (stackAfter !== stackBefore) {
-                stack = stackAfter
-                renderer.setStack(stackAfter)
-                publishStack()
-            }
-            undoHistory.record(
-                DesktopUndoStep(
-                    stackBefore = stackBefore,
-                    stackAfter = stackAfter,
-                    pixelsBefore = mapOf(committedLayer to before),
-                    pixelsAfter = mapOf(committedLayer to after),
-                ),
-            )
-            onCommitted()
+        val layerMirror = mirror.getValue(committedLayer)
+        val after = HashMap<TileKey, ByteArray?>(keys.size)
+        for (key in keys) after[key] = layerMirror[key]?.copyOf()
+
+        val stackBefore = stack
+        val stackAfter = DesktopStrokeTiles.withCommitted(stackBefore, committedLayer, keys)
+        if (stackAfter !== stackBefore) {
+            stack = stackAfter
+            renderer.setStack(stackAfter)
+            publishStack()
         }
+        undoHistory.record(
+            DesktopUndoStep(
+                stackBefore = stackBefore,
+                stackAfter = stackAfter,
+                pixelsBefore = mapOf(committedLayer to before),
+                pixelsAfter = mapOf(committedLayer to after),
+            ),
+        )
+        requestThumbnailRefresh()
+        return true
+    }
+
+    // ------------------------------------------------------- fill and pick
+
+    /**
+     * One eyedropper read. Every read is a synchronous `glReadPixels` — a full
+     * pipeline sync — so the caller throttles with [EyedropperSampleGate]
+     * rather than reading per sample. [onColor] runs on the GL thread.
+     */
+    fun sampleColor(x: Float, y: Float, params: EyedropperParams, onColor: (Int?) -> Unit) = post {
+        onColor(renderer?.sampleColor(x, y, params))
+    }
+
+    /**
+     * Floods from the canvas point ([x], [y]) and commits the coverage.
+     *
+     * Three hops: the reference snapshot is GPU work, the scan is CPU work on
+     * its own worker (a 4096² scan is seconds, and the GL thread must keep
+     * presenting), and the upload is GPU work again. [onDone] runs on the GL
+     * thread when the whole sequence has settled, told whether anything landed.
+     */
+    fun startFill(x: Float, y: Float, params: FillParams, color: Int, onDone: (Boolean) -> Unit) = post {
+        val renderer = renderer
+        if (renderer == null) {
+            onDone(false)
+            return@post
+        }
+        // Lock refuses pixels; a hidden layer still accepts them (`05` §1).
+        if (StrokeLayerPolicy.decide(
+                visible = stack.active.props.visible,
+                locked = stack.active.props.locked,
+            ) == StrokeLayerDecision.REFUSE_LOCKED
+        ) {
+            onDone(false)
+            return@post
+        }
+        val reference = renderer.fillReference(params.reference)
+        if (reference == null) {
+            onDone(false)
+            return@post
+        }
+
+        val generation = ++fillGeneration
+        val scan = FloodFill(canvas.width, canvas.height, reference, params)
+        val seedX = kotlin.math.floor(x).toInt()
+        val seedY = kotlin.math.floor(y).toInt()
+        try {
+            fillExecutor.execute {
+                val coverage = scan.run(
+                    seedX = seedX,
+                    seedY = seedY,
+                    progress = {},
+                    isCancelled = { generation != fillGeneration },
+                )
+                post { finishFill(generation, coverage, params, color, onDone) }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            onDone(false)
+        }
+    }
+
+    private fun finishFill(
+        generation: Int,
+        coverage: Coverage?,
+        params: FillParams,
+        color: Int,
+        onDone: (Boolean) -> Unit,
+    ) {
+        val renderer = renderer
+        if (generation != fillGeneration || renderer == null) {
+            onDone(false)
+            return
+        }
+        if (coverage == null || coverage.bounds.isEmpty) {
+            onDone(false)
+            return
+        }
+
+        // The active layer is re-read here, not captured before the scan: the
+        // layer panel is a window of its own and the selection can have moved
+        // while a full-canvas scan ran.
+        val active = stack.active
+        val spec = StrokeSpec(
+            layerId = active.id,
+            mode = StrokeMode.PAINT,
+            opacity = params.opacity,
+            alphaLock = active.props.alphaLock,
+            commitKind = PixelCommitKind.Fill,
+        )
+        val applied = commitMerged(renderer) { revision, onMerged ->
+            if (renderer.applyFill(spec, coverage, color, revision, onMerged)) 1 else 0
+        }
+        onDone(applied)
         requestRepaintOnGl()
     }
+
+    /** Abandons a scan whose result nobody wants any more. */
+    fun cancelFill() = post { fillGeneration++ }
 
     fun canUndo(): Boolean = undoHistory.canUndo
     fun canRedo(): Boolean = undoHistory.canRedo
@@ -763,6 +897,7 @@ internal class DesktopEngine(
 
     companion object {
         private const val EXPORT_THREAD_NAME = "BangniDraw-Export"
+        private const val FILL_THREAD_NAME = "BangniDraw-Fill"
         private const val EXPORT_SHUTDOWN_TIMEOUT_MS = 5_000L
         private const val GL_SHUTDOWN_TIMEOUT_MS = 5_000L
         private const val INITIAL_FRAME_WIDTH = 1280

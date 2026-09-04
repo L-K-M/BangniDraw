@@ -98,26 +98,40 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   reaching for either. All four rail modes are
   live, so the window minimum is 640×480 rather than the old sidebar's 960×600.
   What the desktop chrome deliberately omits is only what this shell cannot
-  do: Back (no Studio) and the five secondary tools (no engine path). Its own
-  rail budget
+  do: Back (no Studio). **All five secondary tools are live** — smudge, water
+  and blur through `RmwStrokePolicy.spec`, fill through
+  `fillReference` → `FloodFill` → `applyFill`, the eyedropper through
+  `sampleColor` behind `EyedropperSampleGate` — laid out as `:app` lays them
+  out: five slots in FULL, and smudge/water/fill with blur and the eyedropper
+  behind a menu in every shorter mode. The right mouse button is the stylus
+  eraser end, so it erases *whatever brush the rail holds* and refuses
+  outright while a secondary tool is selected; smudging with the button you
+  flipped the pen over for would be a surprise. `ToolSliderPreset` is the read
+  half of the rail's two sliders and `DesktopToolTuning` is the write half —
+  change them together, and note that Water's load is a domain field the
+  synthesized preset cannot carry, so the *kind* decides the secondary value,
+  never the preset alone. Its own rail budget
   (`DesktopRailPolicy.paintBudget`) exists because `LayoutSpec.paintSlotBudget`
-  reserves six non-paint slots for those tools and stops computing outside
+  reserves its non-paint slots for a different set and stops computing outside
   FULL; the paints past the budget go to a menu on the rail, since the
   settings sheet Android overflows them into is a window here, not a place to
-  hide presets.
+  hide presets. The budget floors at one paint, and the rail's own scroll
+  absorbs the overrun that floor can cause in a very short window.
   **Clicking a rail slot that is already selected opens that slot's settings**,
   as Android's does. That is one rule for every slot, which is why the eraser
   slot no longer spends its second click on the *other* eraser: hard/soft is a
   choice in the brush panel instead. (A long-press, Android's route to it, is
   not a mouse gesture — but a second click that means two different things
   depending on the slot is worse than a panel row.)
-  **The layer and brush panels are OS windows of their own**
+  **The layer and settings panels are OS windows of their own**
   (`DesktopPanelWindows`), `alwaysOnTop`, not sheets inside the document
   window — the user asked to be able to move them independently of it. That is
   why `DesktopShellState` hoists every piece of state they read: a sibling
   `Window` cannot see state declared inside the canvas window's composable.
   Each wraps its content in `DesktopTheme.colorScheme`, or it renders in the
-  host desktop's Material rather than this product's.
+  host desktop's Material rather than this product's. There is **one** settings
+  window, not six: it is opened by clicking the active rail slot, so it always
+  shows that slot's tool.
   **The document model is a mutable `LayerStack` on the GL thread.** Panel
   actions arrive as `engine.editStack { stack, ids -> … }`, evaluated against
   the live model so a stale panel index is refused rather than applied to the

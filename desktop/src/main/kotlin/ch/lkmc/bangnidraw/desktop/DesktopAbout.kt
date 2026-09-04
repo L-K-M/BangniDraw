@@ -34,9 +34,13 @@ internal object DesktopHelp {
                 "rule. Clicking a slot that is already selected opens the " +
                 "brush panel, which is also where the hard and soft erasers " +
                 "are chosen.",
-            "The two sliders at the foot of the rail set brush size and " +
-                "opacity — flow, on a watercolor preset. They follow the " +
-                "selected brush, and each preset keeps its own tuning.",
+            "Below the rule are the other tools: smudge, water, blur, fill " +
+                "and the eyedropper. Each keeps its own settings, and a " +
+                "narrow window moves blur and the eyedropper into a menu.",
+            "The two sliders at the foot of the rail set size and the tool's " +
+                "second value — opacity, flow, strength or water load. They " +
+                "follow the selected tool, and each keeps its own tuning. " +
+                "Fill and the eyedropper have neither, so the sliders go away.",
             "Undo and Redo sit in the strip; the swatch beside them opens the " +
                 "colour panel, and the layers button beside that opens the " +
                 "layer panel. Both panels are windows of their own — move " +

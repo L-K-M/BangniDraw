@@ -19,7 +19,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BlurOn
+import androidx.compose.material.icons.filled.Colorize
+import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -89,11 +94,14 @@ internal fun DesktopToolRail(
     presets: List<BrushPreset>,
     paintSlots: PaintSlotAssignments,
     rail: DesktopRailState,
+    /** What the sliders tune: the selected brush, or the selected tool. */
+    tool: ToolKind?,
     windowWidth: Dp,
     windowHeight: Dp,
     onPaintSlot: (Int) -> Unit,
     onAssignPaint: (BrushPreset) -> Unit,
     onEraserTap: () -> Unit,
+    onSecondaryTool: (DesktopSecondaryTool) -> Unit,
     /** The slot that is already selected opens its settings, as Android's does. */
     onSettings: () -> Unit,
     onSizeChanged: (Float) -> Unit,
@@ -119,10 +127,10 @@ internal fun DesktopToolRail(
     // catalogue does not ship.
     val eraser = presets.firstOrNull { it.id == rail.eraserId && it.eraseMode }
         ?: DesktopRailPolicy.eraserOrNull(presets)
-    // Derived, never passed in: the sliders must tune the preset the column
-    // is highlighting, and two parameters could disagree about which that is.
-    // The ledge derives it from the same function, for the same reason.
-    val active = DesktopRailPolicy.activePreset(presets, rail)
+    // What the foot sliders tune, from the shared policy: a brush preset, an
+    // RMW tool's synthesized preset, or nothing at all for fill and the
+    // eyedropper, which have no size.
+    val active = tool?.let(ToolSliderPreset::forKind)
 
     val paintSlotButtons = buildList {
         for (index in visible) {
@@ -131,11 +139,15 @@ internal fun DesktopToolRail(
                 DesktopToolSlot(
                     icon = brushGlyphIcon(BrushToolGlyphPolicy.forPreset(paint)),
                     description = DesktopBrushUi.label(paint),
-                    active = rail.selectedId == paint.id,
+                    active = rail.brushSelected() && rail.selectedId == paint.id,
                     // `:app` opens the settings sheet from the slot that is
                     // already active; the same second click does it here.
                     onClick = {
-                        if (rail.selectedId == paint.id) onSettings() else onPaintSlot(index)
+                        if (rail.brushSelected() && rail.selectedId == paint.id) {
+                            onSettings()
+                        } else {
+                            onPaintSlot(index)
+                        }
                     },
                 ),
             )
@@ -145,13 +157,13 @@ internal fun DesktopToolRail(
                 DesktopToolSlot(
                     icon = Icons.Filled.MoreHoriz,
                     description = MORE_BRUSHES,
-                    active = hidden.any { it.id == rail.selectedId },
+                    active = rail.brushSelected() && hidden.any { it.id == rail.selectedId },
                     onClick = {},
                     menuItems = hidden.map { paint ->
                         DesktopToolMenuItem(
                             icon = brushGlyphIcon(BrushToolGlyphPolicy.forPreset(paint)),
                             description = DesktopBrushUi.label(paint),
-                            active = rail.selectedId == paint.id,
+                            active = rail.brushSelected() && rail.selectedId == paint.id,
                             onClick = { onAssignPaint(paint) },
                         )
                     },
@@ -159,35 +171,44 @@ internal fun DesktopToolRail(
             )
         }
     }
-    // Mirrors ToolRail.dividersAfter: the paints and their overflow are one
-    // group, the eraser its own. A catalogue missing either must not put a
-    // rule through the middle of what is left.
-    val dividerAfter = if (paintSlotButtons.isNotEmpty() && eraser != null) {
-        paintSlotButtons.lastIndex
-    } else {
-        -1
-    }
-    val tools = if (eraser == null) {
-        paintSlotButtons
+
+    val eraserButtons = if (eraser == null) {
+        emptyList()
     } else {
         val alternates = EraserTogglePolicy.next(eraser.id, presets) != null
-        val selected = rail.selectedId == eraser.id
-        paintSlotButtons + DesktopToolSlot(
-            icon = brushGlyphIcon(BrushToolGlyphPolicy.forPreset(eraser)),
-            description = DesktopBrushUi.label(eraser) + if (alternates) ERASER_SETTINGS_HINT else "",
-            active = selected,
-            // One rule for every slot: the first click selects, the second
-            // opens settings. The hard/soft choice lives in that panel, so a
-            // second click never has to mean two different things.
-            onClick = { if (selected) onSettings() else onEraserTap() },
+        val selected = rail.brushSelected() && rail.selectedId == eraser.id
+        listOf(
+            DesktopToolSlot(
+                icon = brushGlyphIcon(BrushToolGlyphPolicy.forPreset(eraser)),
+                description = DesktopBrushUi.label(eraser) +
+                    if (alternates) ERASER_SETTINGS_HINT else "",
+                active = selected,
+                // One rule for every slot: the first click selects, the second
+                // opens settings. The hard/soft choice lives in that panel, so
+                // a second click never has to mean two different things.
+                onClick = { if (selected) onSettings() else onEraserTap() },
+            ),
         )
+    }
+    val secondaryButtons = secondarySlots(layout, rail, onSecondaryTool, onSettings)
+    val tools = paintSlotButtons + eraserButtons + secondaryButtons
+    // Mirrors ToolRail.dividersAfter: paints and their overflow are one group,
+    // the eraser another, the secondary tools a third. A catalogue missing one
+    // of them must not put a rule through the middle of what is left.
+    val dividersAfter = buildSet {
+        if (paintSlotButtons.isNotEmpty() && (eraserButtons + secondaryButtons).isNotEmpty()) {
+            add(paintSlotButtons.lastIndex)
+        }
+        if (eraserButtons.isNotEmpty() && secondaryButtons.isNotEmpty()) {
+            add(paintSlotButtons.size + eraserButtons.lastIndex)
+        }
     }
     val slot = layout.toolSlotDp.dp
 
     if (docked) {
         // A dock runs along the bottom: a tooltip to a button's left would
         // cover its neighbours, and clip off-screen at the window's edge.
-        Dock(tools, dividerAfter, slot, modifier)
+        Dock(tools, dividersAfter, slot, modifier)
         return
     }
 
@@ -223,7 +244,7 @@ internal fun DesktopToolRail(
                     if (index == tools.lastIndex) continue
 
                     if (gap > 0.dp) Spacer(Modifier.height(gap))
-                    if (index == dividerAfter) {
+                    if (index in dividersAfter) {
                         HorizontalDivider(
                             color = MaterialTheme.colorScheme.outline,
                             modifier = Modifier.padding(vertical = DIVIDER_MARGIN),
@@ -232,10 +253,10 @@ internal fun DesktopToolRail(
                 }
             }
 
-            if (layout.sliderLengthDp > 0 && active != null) {
+            if (layout.sliderLengthDp > 0 && tool != null && active != null) {
                 Row {
                     ToolSliders(
-                        preset = active,
+                        kind = tool,
                         axis = DesktopSliderAxis.Vertical,
                         length = layout.sliderLengthDp.dp,
                         onSizeChanged = onSizeChanged,
@@ -251,12 +272,15 @@ internal fun DesktopToolRail(
 @Composable
 internal fun DesktopSliderLedge(
     layout: LayoutSpec,
-    preset: BrushPreset,
+    kind: ToolKind,
     onSizeChanged: (Float) -> Unit,
     onSecondaryChanged: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (layout.sliderLengthDp > 0) return
+    // Fill and the eyedropper have no size and no secondary: `forKind` says
+    // so, and the ledge draws nothing rather than two dead tracks.
+    if (ToolSliderPreset.forKind(kind) == null) return
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = LEDGE_ALPHA),
@@ -269,7 +293,7 @@ internal fun DesktopSliderLedge(
             modifier = Modifier.padding(horizontal = LEDGE_PADDING),
         ) {
             ToolSliders(
-                preset = preset,
+                kind = kind,
                 axis = DesktopSliderAxis.Horizontal,
                 length = LEDGE_SLIDER_LENGTH,
                 onSizeChanged = onSizeChanged,
@@ -287,12 +311,18 @@ internal fun DesktopSliderLedge(
  */
 @Composable
 private fun ToolSliders(
-    preset: BrushPreset,
+    kind: ToolKind,
     axis: DesktopSliderAxis,
     length: Dp,
     onSizeChanged: (Float) -> Unit,
     onSecondaryChanged: (Float) -> Unit,
 ) {
+    // The shared policy decides both halves. An RMW tool's synthesized preset
+    // carries its size range, but its *secondary* is a domain field the
+    // preset cannot always hold — Water's load is not an opacity — so the two
+    // values are read from the kind, never from the preset alone.
+    val preset = ToolSliderPreset.forKind(kind) ?: return
+    val secondary = ToolSliderPreset.secondaryValue(kind) ?: return
     // Identity with the preset's own bounds — `DesktopBrushUiTest` pins that
     // for every shipped preset, so routing both surfaces through it is
     // deduplication, not a change to where the slider's 0..1 lands.
@@ -308,10 +338,10 @@ private fun ToolSliders(
         length = length,
     )
     DesktopThinSlider(
-        value = secondaryValue(preset),
+        value = secondary,
         range = 0f..1f,
         axis = axis,
-        description = secondaryDescription(preset),
+        description = secondaryDescription(kind),
         onValueChange = onSecondaryChanged,
         length = length,
     )
@@ -320,7 +350,7 @@ private fun ToolSliders(
 @Composable
 private fun Dock(
     tools: List<DesktopToolSlot>,
-    dividerAfter: Int,
+    dividersAfter: Set<Int>,
     slot: Dp,
     modifier: Modifier,
 ) {
@@ -345,7 +375,7 @@ private fun Dock(
         ) {
             for ((index, item) in tools.withIndex()) {
                 ToolButton(item, slot, tooltipAnchor = TooltipAnchorPosition.Above)
-                if (index == dividerAfter) {
+                if (index in dividersAfter) {
                     VerticalDivider(
                         color = MaterialTheme.colorScheme.outline,
                         modifier = Modifier
@@ -432,8 +462,68 @@ private fun ToolButton(
  * but the type is nullable, and opacity is the right reading of the
  * OPACITY secondary this rail's presets all use.
  */
-private fun secondaryValue(preset: BrushPreset): Float =
-    ToolSliderPreset.secondaryValue(ToolKind.Brush(preset)) ?: preset.opacity
+/**
+ * The five secondary tools, laid out as `:app`'s rail lays them out: all
+ * five get a slot in FULL, and every shorter mode shows smudge, water and
+ * fill with blur and the eyedropper behind a menu.
+ */
+private fun secondarySlots(
+    layout: LayoutSpec,
+    rail: DesktopRailState,
+    onSelect: (DesktopSecondaryTool) -> Unit,
+    onSettings: () -> Unit,
+): List<DesktopToolSlot> {
+    fun slot(tool: DesktopSecondaryTool) = DesktopToolSlot(
+        icon = secondaryIcon(tool),
+        description = secondaryLabel(tool),
+        active = rail.secondary == tool,
+        // Same rule as every other slot: click to select, click again for
+        // that tool's settings.
+        onClick = { if (rail.secondary == tool) onSettings() else onSelect(tool) },
+    )
+
+    val visible = DesktopRailPolicy.visibleSecondary(layout).map(::slot)
+    val hidden = DesktopRailPolicy.hiddenSecondary(layout)
+    if (hidden.isEmpty()) return visible
+
+    return visible + DesktopToolSlot(
+        icon = Icons.Filled.MoreHoriz,
+        description = MORE_TOOLS,
+        active = hidden.any { it == rail.secondary },
+        onClick = {},
+        menuItems = hidden.map { tool ->
+            DesktopToolMenuItem(
+                icon = secondaryIcon(tool),
+                description = secondaryLabel(tool),
+                active = rail.secondary == tool,
+                onClick = { if (rail.secondary == tool) onSettings() else onSelect(tool) },
+            )
+        },
+    )
+}
+
+/**
+ * Material's own glyphs, the same five `:app`'s rail uses. These are not
+ * among the repo-owned silhouettes: `Gesture`, `WaterDrop`, `BlurOn`,
+ * `FormatColorFill` and `Colorize` all depict the tool rather than an
+ * unrelated action, which is why the drawing tools needed their own and
+ * these did not.
+ */
+private fun secondaryIcon(tool: DesktopSecondaryTool): ImageVector = when (tool) {
+    DesktopSecondaryTool.SMUDGE -> Icons.Filled.Gesture
+    DesktopSecondaryTool.WATER -> Icons.Filled.WaterDrop
+    DesktopSecondaryTool.BLUR -> Icons.Filled.BlurOn
+    DesktopSecondaryTool.FILL -> Icons.Filled.FormatColorFill
+    DesktopSecondaryTool.EYEDROPPER -> Icons.Filled.Colorize
+}
+
+internal fun secondaryLabel(tool: DesktopSecondaryTool): String = when (tool) {
+    DesktopSecondaryTool.SMUDGE -> "Smudge"
+    DesktopSecondaryTool.WATER -> "Water"
+    DesktopSecondaryTool.BLUR -> "Blur"
+    DesktopSecondaryTool.FILL -> "Fill"
+    DesktopSecondaryTool.EYEDROPPER -> "Eyedropper"
+}
 
 private fun sizeDescription(preset: BrushPreset): String {
     val range = DesktopBrushUi.sizeRange(preset)
@@ -441,8 +531,8 @@ private fun sizeDescription(preset: BrushPreset): String {
         "(${range.start.toInt()}–${range.endInclusive.toInt()})"
 }
 
-private fun secondaryDescription(preset: BrushPreset): String =
-    when (ToolSliderPreset.secondaryFor(ToolKind.Brush(preset))) {
+private fun secondaryDescription(kind: ToolKind): String =
+    when (ToolSliderPreset.secondaryFor(kind)) {
         ToolSliderSecondary.FLOW -> "Flow"
         ToolSliderSecondary.WATER -> "Water"
         ToolSliderSecondary.OPACITY -> "Opacity"
@@ -468,6 +558,7 @@ internal val DESKTOP_THEME = AppTheme.SAFFRON
 
 private const val SELECTED_STATE = "Selected"
 private const val MORE_BRUSHES = "More brushes"
+private const val MORE_TOOLS = "More tools"
 private const val ERASER_SETTINGS_HINT = " — click again for eraser settings"
 private val TOOL_VISUAL = 40.dp
 private val TOOL_VISUAL_INSET = 8.dp

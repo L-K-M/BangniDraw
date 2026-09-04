@@ -46,16 +46,20 @@ import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HsvSelection
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.PaintSlotAssignments
+import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.EyedropperSampleGate
 import ch.lkmc.bangnidraw.engine.core.PointerTool
+import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
 import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RgbMixer
 import ch.lkmc.bangnidraw.engine.core.RmwStrokePolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
+import ch.lkmc.bangnidraw.engine.core.StrokeLayerDecision
+import ch.lkmc.bangnidraw.engine.core.StrokeLayerPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.ToolKind
-import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxBinding
 import ch.lkmc.bangnidraw.ui.shared.BangniTypography
@@ -360,7 +364,7 @@ private fun Shell(
     onAbout: () -> Unit,
 ) {
     val engine = state.engine
-    val activeBrush = state.activeBrush
+    val activeTool = state.activeTool
     val colorArgb = state.colorSelection.argb
 
     // The strip is not a log: clear the save path after a beat, as a snackbar
@@ -425,9 +429,9 @@ private fun Shell(
                 }
                 .background(DesktopTheme.viewportVoid),
         ) {
-            val canvasInput = if (state.preferencesReady && activeBrush != null) {
-                Modifier.pointerInput(activeBrush, colorArgb, state.mixer) {
-                    awaitPointerEvents(handler, activeBrush, colorArgb, state.mixer)
+            val canvasInput = if (state.preferencesReady && activeTool != null) {
+                Modifier.pointerInput(activeTool, colorArgb, state.mixer) {
+                    awaitPointerEvents(handler, activeTool, colorArgb, state.mixer, state::pickSwatch)
                 }
             } else {
                 Modifier
@@ -473,6 +477,7 @@ private fun Shell(
             presets = state.presets,
             paintSlots = state.paintSlots,
             rail = state.rail,
+            tool = activeTool,
             windowWidth = maxWidth,
             windowHeight = maxHeight,
             onPaintSlot = { index ->
@@ -484,20 +489,19 @@ private fun Shell(
                 state.selectPreset(preset.id)
             },
             onEraserTap = { state.eraserTap() },
+            onSecondaryTool = state::selectSecondary,
             onSettings = { state.showBrushPanel = !state.showBrushPanel },
             onSizeChanged = state::tuneActiveSize,
             onSecondaryChanged = state::tuneActiveSecondary,
             modifier = Modifier.align(railAlignment(layout)),
         )
 
-        if (activeBrush != null) {
+        if (activeTool != null) {
             DesktopSliderLedge(
                 layout = layout,
-                preset = activeBrush,
-                onSizeChanged = { state.tune(activeBrush.withSize(it)) },
-                onSecondaryChanged = {
-                    state.tune(ToolSliderPreset.withSecondary(activeBrush, it))
-                },
+                kind = activeTool,
+                onSizeChanged = state::tuneActiveSize,
+                onSecondaryChanged = state::tuneActiveSecondary,
                 modifier = Modifier.ledgePlacement(this, layout),
             )
         }
@@ -592,14 +596,15 @@ private fun Modifier.ledgePlacement(scope: BoxScope, layout: LayoutSpec): Modifi
  */
 private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPointerEvents(
     handler: CanvasTouchHandler,
-    preset: BrushPreset,
+    kind: ToolKind,
     colorArgb: Int,
     mixer: ch.lkmc.bangnidraw.engine.core.ColorMixer,
+    onColorPicked: (Int) -> Unit,
 ) {
     val sample = PointerSample()
-    // The preset already carries the rail sliders' tuning; the gesture must
-    // not re-derive it from a second copy of the size.
-    DesktopShell.tool = DesktopShell.Tool(preset, colorArgb, mixer)
+    // The kind already carries the rail sliders' tuning; the gesture must not
+    // re-derive it from a second copy of the size.
+    DesktopShell.tool = DesktopShell.Tool(kind, colorArgb, mixer, onColorPicked)
 
     try {
         awaitPointerEventScope {
@@ -688,13 +693,23 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
 /** The tool state the [DesktopInputHost] reads; v1 shell simplicity. */
 private object DesktopShell {
     data class Tool(
-        val preset: BrushPreset,
+        val kind: ToolKind,
         val colorArgb: Int,
         val mixer: ch.lkmc.bangnidraw.engine.core.ColorMixer,
+        /** Where an eyedropper read lands; called on the UI thread. */
+        val onColorPicked: (Int) -> Unit,
     )
 
     var tool: Tool? = null
     var mouseMode = DesktopMouseMode.Draw
+
+    /**
+     * What the right button draws with. It is the stylus eraser end, so it
+     * erases whatever brush the rail holds — and while a secondary tool is
+     * selected there is no brush to erase with, so the gesture is refused
+     * rather than silently smudging.
+     */
+    fun eraserKind(kind: ToolKind): ToolKind? = kind as? ToolKind.Brush
 
     fun handler(engine: DesktopEngine, density: Float): CanvasTouchHandler {
         lateinit var handler: CanvasTouchHandler
@@ -714,6 +729,9 @@ private class DesktopInputHost(
 ) : CanvasInputHost {
     private var driver: StrokeDriver? = null
     private var source = StrokeSource.MOUSE
+    private var pick: EyedropperParams? = null
+    private var pickGate = EyedropperSampleGate()
+    private var fillPending = false
 
     override fun onViewChanged(view: ViewTransform) {
         engine.setView(view)
@@ -731,27 +749,72 @@ private class DesktopInputHost(
         driver?.cancel()
         if (driver != null) engine.cancelStroke()
         driver = null
+        pick = null
+        fillPending = false
 
         val resolvedSource = DesktopStrokePolicy.source(source, DesktopShell.mouseMode)
         this.source = resolvedSource
-        val mode = DesktopStrokePolicy.mode(resolvedSource, tool.preset, tool.mixer)
+        // The right button is the eraser end, whatever tool the rail holds:
+        // the pen you flipped over erases, it does not smudge.
+        val kind = if (resolvedSource == StrokeSource.ERASER_END) {
+            DesktopShell.eraserKind(tool.kind) ?: return
+        } else {
+            tool.kind
+        }
+
+        // Neither of these opens a stroke. The eyedropper reads pixels as the
+        // pointer moves; the fill runs once, from the first sample's point.
+        if (kind is ToolKind.Eyedropper) {
+            pick = kind.params
+            pickGate.reset()
+            return
+        }
+        if (kind is ToolKind.Fill) {
+            // Lock refuses pixels before anything is scanned; the engine
+            // checks again on its own thread, this only saves the work.
+            if (StrokeLayerPolicy.decide(
+                    visible = active.props.visible,
+                    locked = active.props.locked,
+                ) == StrokeLayerDecision.REFUSE_LOCKED
+            ) {
+                return
+            }
+            fillPending = true
+            return
+        }
+
+        val preset = when (kind) {
+            is ToolKind.Brush -> kind.preset
+            is ToolKind.Smudge -> RmwDabPreset.smudge(kind.params)
+            is ToolKind.Water -> RmwDabPreset.water(kind.params)
+            is ToolKind.Blur -> RmwDabPreset.blur(kind.params)
+            is ToolKind.Fill, is ToolKind.Eyedropper -> null
+        } ?: return
+
+        val mode = if (kind is ToolKind.Brush) {
+            DesktopStrokePolicy.mode(resolvedSource, preset, tool.mixer)
+        } else {
+            // An RMW tool never paints the brush colour; the merge reads what
+            // is already there.
+            StrokeMode.PAINT
+        }
         val rmw = if (resolvedSource == StrokeSource.ERASER_END) {
             null
         } else {
-            RmwStrokePolicy.spec(ToolKind.Brush(tool.preset), tool.mixer)
+            RmwStrokePolicy.spec(kind, tool.mixer)
         }
         val spec = StrokeSpec(
             layerId = active.id,
             mode = mode,
-            opacity = tool.preset.opacity,
+            opacity = preset.opacity,
             alphaLock = active.props.alphaLock,
-            dilution = if (mode == StrokeMode.MIX) tool.preset.dilution else 0f,
-            grainMode = tool.preset.grainMode,
-            brushModel = tool.preset.model,
+            dilution = if (mode == StrokeMode.MIX) preset.dilution else 0f,
+            grainMode = preset.grainMode,
+            brushModel = preset.model,
             rmw = rmw,
         )
         driver = StrokeDriver(
-            tool.preset,
+            preset,
             seed = System.nanoTime(),
             zoom = handler().canvasToScreenScale,
             spacingPolicy = if (rmw == null) {
@@ -762,7 +825,7 @@ private class DesktopInputHost(
         )
 
         val rgb = DesktopPalette.toStrokeRgb(tool.colorArgb)
-        engine.beginStroke(spec, tool.preset.bufferMode, rgb[0], rgb[1], rgb[2])
+        engine.beginStroke(spec, preset.bufferMode, rgb[0], rgb[1], rgb[2])
     }
 
     override fun onStrokeSample(
@@ -773,6 +836,27 @@ private class DesktopInputHost(
         orientation: Float,
         timeNs: Long,
     ) {
+        val picking = pick
+        if (picking != null) {
+            // Every read is a synchronous glReadPixels — a full pipeline sync
+            // — so the gate drops intermediate samples to one read per frame.
+            if (!pickGate.shouldRead(System.nanoTime() / NANOS_PER_MS)) return
+
+            val onPicked = DesktopShell.tool?.onColorPicked ?: return
+            engine.sampleColor(x, y, picking) { color ->
+                color?.let { argb -> java.awt.EventQueue.invokeLater { onPicked(argb) } }
+            }
+            return
+        }
+        if (fillPending) {
+            // One fill per gesture, from where it started.
+            fillPending = false
+            val tool = DesktopShell.tool ?: return
+            val params = (tool.kind as? ToolKind.Fill)?.params ?: return
+            engine.startFill(x, y, params, tool.colorArgb) {}
+            return
+        }
+
         val driver = driver ?: return
         var batch = engine.acquireDabBatch() ?: return
         var emitted = if (driver.isActive) {
@@ -795,6 +879,8 @@ private class DesktopInputHost(
     }
 
     override fun onStrokeEnd(pointerId: Int) {
+        pick = null
+        fillPending = false
         val driver = driver ?: return
         this.driver = null
 
@@ -816,6 +902,12 @@ private class DesktopInputHost(
     }
 
     override fun onStrokeCancel() {
+        pick = null
+        if (fillPending) {
+            fillPending = false
+        } else {
+            engine.cancelFill()
+        }
         driver?.cancel()
         driver = null
         engine.cancelStroke()
@@ -853,6 +945,7 @@ private fun DesktopEngine.Frame.toImageBitmap(): androidx.compose.ui.graphics.Im
 private const val RGBA_BYTES = 4
 private const val MOUSE_POINTER_ID = 0
 private const val SYNTHETIC_PRESSURE = 1f
+private const val NANOS_PER_MS = 1_000_000L
 private const val CANVAS_EDGE = 2048
 private const val VERIFY_RUNTIME_FLAG = "--verify-runtime"
 private const val GL_REPORT_FLAG = "--gl-report"

@@ -15,49 +15,48 @@ internal class DesktopImage(val width: Int, val height: Int, val argb: IntArray)
     }
 }
 
-internal sealed interface DesktopOpenResult {
-    data class Opened(val image: DesktopImage) : DesktopOpenResult
-    data class Failed(val message: String) : DesktopOpenResult
+
+
+internal sealed interface DesktopImageResult {
+    data class Opened(val image: DesktopImage) : DesktopImageResult
+    data class Failed(val message: String) : DesktopImageResult
 }
 
 /**
- * Reading a picture off the file system into the engine's tiles.
+ * Reading a flat picture off the file system into the engine's tiles.
  *
- * The desktop shell is document-based rather than gallery-based: a painting
- * is a file the user opened, and PNG is the format they open and save. That
- * is a real limitation — a PNG has one layer, so saving flattens — and it is
- * the shape the product was asked for. A layered format would be a separate
- * on-disk design (`06-document-and-persistence.md`'s project folder), not a
- * variation on this one.
+ * PNG is the interchange format: one layer, so opening one gives a painting
+ * with one layer and saving one flattens. `.bangni` ([DesktopDocumentIo]) is
+ * the format that keeps the stack.
  */
 internal object DesktopImageIo {
 
     /** The extensions the open dialog accepts and `save` writes. */
     const val EXTENSION = "png"
 
-    fun read(file: File): DesktopOpenResult = try {
+    fun read(file: File): DesktopImageResult = try {
         val decoded = javax.imageio.ImageIO.read(file)
         when {
-            decoded == null -> DesktopOpenResult.Failed("${file.name} is not an image this app can read")
+            decoded == null -> DesktopImageResult.Failed("${file.name} is not an image this app can read")
             decoded.width !in Document.MIN_EDGE..Document.MAX_EDGE ||
                 decoded.height !in Document.MIN_EDGE..Document.MAX_EDGE ->
-                DesktopOpenResult.Failed(
+                DesktopImageResult.Failed(
                     "${decoded.width}×${decoded.height} is outside " +
                         "${Document.MIN_EDGE}–${Document.MAX_EDGE} px per side",
                 )
             else -> {
                 val argb = IntArray(decoded.width * decoded.height)
                 decoded.getRGB(0, 0, decoded.width, decoded.height, argb, 0, decoded.width)
-                DesktopOpenResult.Opened(DesktopImage(decoded.width, decoded.height, argb))
+                DesktopImageResult.Opened(DesktopImage(decoded.width, decoded.height, argb))
             }
         }
     } catch (failure: java.io.IOException) {
-        DesktopOpenResult.Failed(failure.message ?: "the file could not be read")
+        DesktopImageResult.Failed(failure.message ?: "the file could not be read")
     } catch (failure: RuntimeException) {
         // ImageIO's readers throw unchecked on malformed data as readily as
         // they throw IOException, and an open dialog must never take the app
         // down with it.
-        DesktopOpenResult.Failed(failure.message ?: "the file could not be decoded")
+        DesktopImageResult.Failed(failure.message ?: "the file could not be decoded")
     }
 
     /**

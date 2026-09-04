@@ -21,6 +21,7 @@ internal fun FrameWindowScope.DesktopMenuBar(
     onOpen: () -> Unit,
     onSave: () -> Unit,
     onSaveAs: () -> Unit,
+    onExportPng: () -> Unit,
     onClose: () -> Unit,
     onAbout: () -> Unit,
     onHelp: () -> Unit,
@@ -40,6 +41,9 @@ internal fun FrameWindowScope.DesktopMenuBar(
                 onClick = onSave,
             )
             Item("Save As…", shortcut = shortcut(Key.S, shift = true), onClick = onSaveAs)
+            // Separate from Save because the formats are not interchangeable:
+            // `.bangni` keeps the layers, a PNG flattens them.
+            Item("Export PNG…", shortcut = shortcut(Key.E, shift = true), onClick = onExportPng)
             Separator()
             Item("Close", shortcut = shortcut(Key.W), onClick = onClose)
         }

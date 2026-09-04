@@ -40,6 +40,11 @@
     <string name="save_to_gallery">导出为相册新图片</string>
     <string name="studio_saved_to_gallery">已添加到相册</string>
     <string name="studio_save_failed">无法添加到相册</string>
+    <string name="studio_export_file">导出文件…</string>
+    <string name="studio_import_file">导入文件</string>
+    <string name="studio_exported">已保存为 .bangni 文件</string>
+    <string name="studio_export_file_failed">无法写入文件</string>
+    <string name="studio_import_file_failed">无法读取该文件</string>
     <string name="gallery_reference_suffix">（含描图图像）</string>
 
     <string name="new_canvas_title">新建草图</string>

@@ -46,6 +46,11 @@
     <string name="save_to_gallery">Export a new gallery image</string>
     <string name="studio_saved_to_gallery">Added to gallery</string>
     <string name="studio_save_failed">Couldn’t add to gallery</string>
+    <string name="studio_export_file">Export file…</string>
+    <string name="studio_import_file">Import file</string>
+    <string name="studio_exported">Saved as a .bangni file</string>
+    <string name="studio_export_file_failed">Couldn’t write the file</string>
+    <string name="studio_import_file_failed">Couldn’t read that file</string>
     <!-- Carries its own leading separator so locales choose spacing;
          quoted because AAPT trims unquoted leading/trailing whitespace. -->
     <string name="gallery_reference_suffix">" (with tracing image)"</string>

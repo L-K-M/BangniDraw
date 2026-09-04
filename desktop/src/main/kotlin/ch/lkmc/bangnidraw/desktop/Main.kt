@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
+import ch.lkmc.bangnidraw.data.shared.BangniCodec
 import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.CompositionGuideVisibility
@@ -371,6 +372,7 @@ private fun androidx.compose.ui.window.ApplicationScope.DocumentWindow(
             },
             onSave = { save(null) },
             onSaveAs = { saveAs(window, document) },
+            onExportPng = { exportPng(window, document) },
             onClose = { requestClose(document, documents) },
             onAbout = onAbout,
             onHelp = { state.showHelp = true },
@@ -517,25 +519,58 @@ private fun requestClose(document: DesktopDocument, documents: DesktopDocuments)
 }
 
 private fun saveAs(parent: java.awt.Frame?, document: DesktopDocument) {
-    val suggested = document.file?.name
-        ?: (DesktopBrand.exportFileStem(DesktopBrand.displayName) + "." + DesktopImageIo.EXTENSION)
-    val target = DesktopFileDialogs.save(parent, suggested) ?: return
+    val suggested = document.file?.name ?: (defaultStem() + "." + BangniCodec.EXTENSION)
+    val target = DesktopFileDialogs.save(parent, suggested, BangniCodec.EXTENSION) ?: return
     writeTo(document, target)
 }
 
-private fun writeTo(document: DesktopDocument, file: java.io.File) {
-    document.engine.savePng(file) { result ->
+/**
+ * A flat PNG, without adopting it: the document keeps whatever file it had,
+ * so exporting a picture to show someone does not turn the painting into a
+ * one-layer file the next Save would flatten.
+ */
+private fun exportPng(parent: java.awt.Frame?, document: DesktopDocument) {
+    val stem = document.file?.nameWithoutExtension ?: defaultStem()
+    val target = DesktopFileDialogs.save(
+        parent,
+        stem + "." + DesktopImageIo.EXTENSION,
+        DesktopImageIo.EXTENSION,
+    ) ?: return
+    writeTo(document, target, adopt = false)
+}
+
+private fun defaultStem(): String = DesktopBrand.exportFileStem(DesktopBrand.displayName)
+
+/**
+ * Writes [file], choosing the format by its extension: `.bangni` keeps every
+ * layer, anything else is a flattened PNG. [adopt] is false for an export,
+ * which must not move the document onto the file it just wrote.
+ */
+private fun writeTo(document: DesktopDocument, file: java.io.File, adopt: Boolean = true) {
+    val onComplete: (DesktopSaveResult) -> Unit = { result ->
         java.awt.EventQueue.invokeLater {
             when (result) {
                 is DesktopSaveResult.Saved -> {
-                    document.file = file
-                    document.dirty = false
+                    if (adopt) {
+                        document.file = file
+                        document.dirty = false
+                    }
                     document.state.savedMessage = result.path
                 }
                 is DesktopSaveResult.Failed ->
                     document.state.savedMessage = "Save failed: " + result.message
             }
         }
+    }
+    if (DesktopDocumentIo.isBangni(file)) {
+        document.engine.saveBangni(
+            target = file,
+            title = file.nameWithoutExtension,
+            createdAt = document.createdAt,
+            onComplete = onComplete,
+        )
+    } else {
+        document.engine.savePng(file, onComplete)
     }
 }
 

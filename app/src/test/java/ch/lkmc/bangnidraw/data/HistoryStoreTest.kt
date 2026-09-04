@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.data
 
+import ch.lkmc.bangnidraw.data.shared.TileCodec
 import ch.lkmc.bangnidraw.engine.core.HistoryEntry
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES

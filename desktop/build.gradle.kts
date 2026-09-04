@@ -224,6 +224,12 @@ sourceSets.main {
     // Portable Compose that is not artwork — the type scale today. Same rule:
     // no android.*, one copy, so the two products cannot drift on it.
     kotlin.srcDir(project.file("../app/src/main/java/ch/lkmc/bangnidraw/ui/shared"))
+
+    // The `.bangni` document format and the tile codec it stores. This one is
+    // load-bearing rather than tidy: a file written on a phone has to open on
+    // a laptop, so a second implementation of the container would be a second
+    // chance to disagree about it.
+    kotlin.srcDir(project.file("../app/src/main/java/ch/lkmc/bangnidraw/data/shared"))
 }
 
 tasks.processResources {

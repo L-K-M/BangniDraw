@@ -173,12 +173,34 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   closing exits. **The first document is created inside the `remember` that
   builds the list, not in an effect** — the "last window closed" rule reads
   the list during composition, and an empty first frame exits immediately.
-  A PNG holds one layer, so saving flattens: that is the format the product
-  was asked for, and a layered file would be a separate on-disk design.
-  Opening reads the picture into the first layer through `PixelOp.Restore` —
-  the same upload path undo uses, so the mirror the next Save composes from
-  is exact — and the document's canvas is that picture's own size, which is
-  why each document constructs its own engine and its own `MemoryBudget`.
+  **`.bangni` is the native document and PNG is interchange.** The container
+  is a ZIP written by `BangniCodec` in `data/shared/` — a third shared
+  `kotlin.srcDir`, so one implementation serves both products and a painting
+  written on a phone opens on a laptop. Entries are `manifest.json` (deflated)
+  and `layers/<id>/<tx>_<ty>.tile` (**stored**: `TileCodec` already deflated
+  them, and deflating a deflate stream costs time to grow it). The manifest is
+  deliberately not `ProjectFile`: gallery bookkeeping, the journal's
+  checkpoint state and the last tool belong to a device, not to a document
+  someone hands you. Every field defaults, so a newer writer's file still
+  opens; only a `formatVersion` a reader cannot honour is refused.
+  Everything in a `.bangni` came from outside the program, so the reader
+  **parses entry names and never joins them onto a path** — that is what makes
+  zip-slip inapplicable rather than merely guarded — bounds the expansion
+  (`MAX_ENTRIES`, `MAX_TOTAL_BYTES`), and drops a tile outside the grid, one
+  for a layer the manifest does not list, or one that fails `TileCodec`, with
+  a warning rather than a failed open. Android's `BangniProjectIo` **re-mints
+  layer ids on import**: two devices can hold the same painting, and importing
+  it twice must not give two projects the same layer directory names. It
+  exports through the system's create-document picker and imports through
+  open-document — neither needs a permission, which ADR 0004 requires.
+  A PNG holds one layer, so opening one gives a painting with one layer and
+  saving one flattens: that is the format's own limit. Opening reads the
+  pixels through `PixelOp.Restore` — the same upload path undo uses, so the
+  mirror the next Save composes from is exact — and the document's canvas is
+  the file's own size, which is why each document constructs its own engine
+  and its own `MemoryBudget`. The format is chosen by extension when saving
+  (the user picked it) and by *content* when opening, so a `.bangni` that lost
+  its extension still opens.
   Dirty is a one-way flag cleared by a save, so undoing past the last save
   still reports unsaved work: it over-reports and never under-reports, which
   is the safe direction for "close without saving?".

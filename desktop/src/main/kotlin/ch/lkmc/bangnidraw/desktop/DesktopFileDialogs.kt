@@ -17,27 +17,49 @@ import java.io.File
  */
 internal object DesktopFileDialogs {
 
-    fun open(parent: Frame?): File? = show(parent, "Open", FileDialog.LOAD, suggestedName = null)
+    fun open(parent: Frame?): File? = show(
+        parent = parent,
+        title = "Open",
+        mode = FileDialog.LOAD,
+        suggestedName = null,
+        extensions = DesktopDocumentIo.OPENABLE_EXTENSIONS,
+    )
 
-    fun save(parent: Frame?, suggestedName: String): File? {
-        val chosen = show(parent, "Save As", FileDialog.SAVE, suggestedName) ?: return null
+    /**
+     * A save target with an extension this app can actually write.
+     *
+     * A user who typed `sketch` means `sketch.<default>`; one who typed
+     * `sketch.png` means PNG and must not get `sketch.png.bangni`. Any other
+     * extension is a typo more often than a request, so [default] is appended
+     * rather than trusted.
+     */
+    fun save(parent: Frame?, suggestedName: String, default: String): File? {
+        val chosen = show(
+            parent = parent,
+            title = "Save As",
+            mode = FileDialog.SAVE,
+            suggestedName = suggestedName,
+            extensions = WRITABLE_EXTENSIONS,
+        ) ?: return null
 
-        // A user who typed "sketch" means sketch.png; one who typed the
-        // extension already must not get "sketch.png.png".
-        return if (chosen.extension.equals(DesktopImageIo.EXTENSION, ignoreCase = true)) {
-            chosen
-        } else {
-            File(chosen.parentFile, chosen.name + "." + DesktopImageIo.EXTENSION)
-        }
+        if (WRITABLE_EXTENSIONS.any { chosen.extension.equals(it, ignoreCase = true) }) return chosen
+
+        return File(chosen.parentFile, chosen.name + "." + default)
     }
 
-    private fun show(parent: Frame?, title: String, mode: Int, suggestedName: String?): File? {
+    private fun show(
+        parent: Frame?,
+        title: String,
+        mode: Int,
+        suggestedName: String?,
+        extensions: List<String>,
+    ): File? {
         val dialog = FileDialog(parent, title, mode)
         if (suggestedName != null) dialog.file = suggestedName
         // A filter is advisory on some platforms and ignored on others, so
-        // `read` still validates whatever comes back.
+        // the reader still validates whatever comes back.
         dialog.setFilenameFilter { _, name ->
-            name.endsWith("." + DesktopImageIo.EXTENSION, ignoreCase = true)
+            extensions.any { name.endsWith(".${'$'}it", ignoreCase = true) }
         }
         dialog.isVisible = true
 
@@ -45,4 +67,8 @@ internal object DesktopFileDialogs {
         val file = dialog.file ?: return null
         return File(directory, file)
     }
+
+    /** The two formats Save As offers: the document, and flat interchange. */
+    private val WRITABLE_EXTENSIONS =
+        listOf(ch.lkmc.bangnidraw.data.shared.BangniCodec.EXTENSION, DesktopImageIo.EXTENSION)
 }

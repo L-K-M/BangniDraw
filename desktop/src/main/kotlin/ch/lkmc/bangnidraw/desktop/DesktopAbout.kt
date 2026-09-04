@@ -53,13 +53,16 @@ internal object DesktopHelp {
             "The layer panel adds, duplicates, deletes, merges and flattens " +
                 "layers, and sets each one's opacity, blend mode, alpha lock " +
                 "and lock. Its bottom row picks the paper colour.",
-            "This is a document-based app: File opens and saves PNGs through " +
-                "the system's own dialogs, several paintings can be open at " +
-                "once, and closing one with unsaved work asks first. A PNG " +
-                "holds one layer, so saving flattens what the layer panel " +
-                "shows — the layers themselves are not stored in the file.",
-            "The overflow's Save PNG writes the whole visible stack to " +
-                "$picturesDirectory when the painting has no file yet.",
+            "This is a document-based app: File opens and saves through the " +
+                "system's own dialogs, several paintings can be open at once, " +
+                "and closing one with unsaved work asks first.",
+            "Save writes a .bangni file — the whole painting, every layer " +
+                "with its opacity, blend mode and locks. The Android app " +
+                "imports and exports the same file, so a painting travels " +
+                "between a phone and this machine intact. Export PNG… writes " +
+                "a flat picture instead; opening a PNG gives you a painting " +
+                "with one layer, because that is all a PNG holds.",
+            "A painting with no file yet saves to $picturesDirectory.",
         ).joinToString("\n\n")
 }
 

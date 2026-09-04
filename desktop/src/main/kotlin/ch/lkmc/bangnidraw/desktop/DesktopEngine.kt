@@ -114,11 +114,11 @@ internal class DesktopEngine(
      */
     private val onEdited: () -> Unit = {},
     /**
-     * The picture this document opens with, already decoded. It is uploaded
-     * as the first layer's pixels before the first frame, so the window never
-     * shows an empty canvas that is about to be replaced.
+     * The painting this document opens with, already decoded. Its pixels are
+     * uploaded before the first frame, so the window never shows an empty
+     * canvas that is about to be replaced.
      */
-    private val initialImage: DesktopImage? = null,
+    private val initial: DesktopInitialContent? = null,
 ) : DesktopGlHost.Client {
     /** One rendered frame's pixels, RGBA8, row-major from the top. */
     class Frame(val width: Int, val height: Int, val pixels: ByteArray)
@@ -153,7 +153,7 @@ internal class DesktopEngine(
     private var framePixels: ByteArray? = null
     private var nextWetRefreshNs = 0L
     private var thumbnailSink: ((LayerId, LayerThumbnail?) -> Unit)? = null
-    private var paperColor = DEFAULT_PAPER_ARGB
+    private var paperColor = initial?.paperArgb ?: DEFAULT_PAPER_ARGB
     private var fillGeneration = 0
 
     /**
@@ -161,7 +161,7 @@ internal class DesktopEngine(
      * the input host reads the active layer while a gesture starts.
      */
     @Volatile
-    var stack: LayerStack = INITIAL_STACK
+    var stack: LayerStack = initial?.stack ?: INITIAL_STACK
         private set
 
     private val undoHistory = DesktopHistory(
@@ -171,7 +171,7 @@ internal class DesktopEngine(
     )
 
     /** Fresh layer ids; `layer-<n>` keeps them legible in diagnostics. */
-    private var nextLayerNumber = 2
+    private var nextLayerNumber = stack.layers.size + 1
     private val ids = IdSource {
         var candidate: LayerId
         do {
@@ -551,6 +551,48 @@ internal class DesktopEngine(
         }
     }
 
+    /**
+     * Saves the whole document — every layer, its props and the paper — as a
+     * `.bangni` file. Composed from the same readback mirror the PNG export
+     * uses, and written on the export worker for the same reason: a large
+     * painting is megabytes of deflate, and the GL thread has to keep
+     * presenting.
+     */
+    fun saveBangni(
+        target: java.io.File,
+        title: String,
+        createdAt: Long,
+        onComplete: (DesktopSaveResult) -> Unit,
+    ) = post {
+        val document: ch.lkmc.bangnidraw.data.shared.BangniDocument
+        try {
+            if (renderer == null) error("rendering is not ready")
+
+            document = DesktopDocumentIo.snapshot(
+                title = title,
+                canvas = canvas,
+                paperArgb = paperColor,
+                stack = stack,
+                mirror = mirror,
+                createdAt = createdAt,
+                updatedAt = System.currentTimeMillis(),
+            )
+        } catch (failure: Exception) {
+            onComplete(DesktopPng.failureResult(failure))
+            return@post
+        }
+
+        val task = DesktopExportTask(
+            export = { DesktopBangniWriter.write(document, target) },
+            onComplete = onComplete,
+        )
+        try {
+            exportExecutor.execute(task)
+        } catch (failure: Exception) {
+            task.fail(failure)
+        }
+    }
+
     fun undo() = post { applyHistory(HistoryDirection.Undo) }
     fun redo() = post { applyHistory(HistoryDirection.Redo) }
 
@@ -768,7 +810,7 @@ internal class DesktopEngine(
         check(next.onContextCreated(strict = true)) {
             DesktopGlDiagnostics.rendererRequirements
         }
-        uploadInitialImage(next)
+        uploadInitialTiles(next)
         next.setStack(stack)
         publishStack()
         next.setPaperColor(paperColor)
@@ -785,7 +827,7 @@ internal class DesktopEngine(
     }
 
     /**
-     * Puts an opened picture into the first layer.
+     * Puts an opened painting's pixels onto its layers.
      *
      * `PixelOp.Restore` is the upload path undo already uses, so the tiles
      * land through the same transaction and the same readback sink that keeps
@@ -795,27 +837,19 @@ internal class DesktopEngine(
      * A failure here is not fatal: the document opens blank rather than not
      * at all, and the file on disk is untouched.
      */
-    private fun uploadInitialImage(renderer: CanvasRenderer) {
-        val image = initialImage ?: return
-        val tiles = DesktopImageIo.tiles(image)
-        if (tiles.isEmpty()) return
-
-        val layer = stack.layers[0]
-        // setStack first: `applyPixelOps` prepares against the published
-        // model, and `targetFor` needs the layer to have textures to fill.
-        renderer.setStack(stack)
-        val applied = renderer.applyPixelOps(
-            ops = listOf(PixelOp.Restore(layer.id, tiles)),
-            revision = nextRevision(),
-            invalidation = SandwichPolicy.Op.PixelEdit(0),
-        )
-        if (!applied) {
-            GlLog.w(LOG_TAG, "the opened picture could not be uploaded")
-            return
+    private fun uploadInitialTiles(renderer: CanvasRenderer) {
+        val opened = initial ?: return
+        val ops = opened.tiles.mapNotNull { (layerId, tiles) ->
+            if (tiles.isEmpty()) null else PixelOp.Restore(layerId, tiles)
         }
-        stack = stack.copy(
-            layers = listOf(Layer(layer.props, tiles.keys.toSet())),
-        )
+        if (ops.isEmpty()) return
+
+        // setStack first: `applyPixelOps` prepares against the published
+        // model, and `targetFor` needs the layers to fill.
+        renderer.setStack(stack)
+        if (!renderer.applyPixelOps(ops, nextRevision(), SandwichPolicy.Op.UndoRedo)) {
+            GlLog.w(LOG_TAG, "the opened painting's pixels could not be uploaded")
+        }
     }
 
     /**

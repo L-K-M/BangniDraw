@@ -25,6 +25,8 @@ internal class DesktopDocument(
     val engine: DesktopEngine,
     val state: DesktopShellState,
     file: File?,
+    /** Kept across saves so a document keeps one creation date in its file. */
+    val createdAt: Long,
 ) {
     /** Where Save writes without asking; null until the first Save As. */
     var file by mutableStateOf(file)
@@ -70,12 +72,11 @@ internal class DesktopDocuments(
     private var nextId = 1L
 
     /** A new empty painting at the default canvas size. */
-    fun create(canvas: CanvasSize): DesktopDocument = add(canvas, file = null, image = null)
+    fun create(canvas: CanvasSize): DesktopDocument = add(canvas, file = null, initial = null)
 
     /**
-     * The picture in [file], as a document whose canvas is that picture's own
-     * size. Returns the failure message when the file cannot be read; nothing
-     * is opened in that case.
+     * The painting in [file], as a document of its own size. Returns the
+     * failure message when the file cannot be read; nothing is opened then.
      */
     fun openFile(file: File): String? {
         // Reopening a file that is already open raises its window instead of
@@ -83,14 +84,16 @@ internal class DesktopDocuments(
         val existing = open.firstOrNull { it.file?.absoluteFile == file.absoluteFile }
         if (existing != null) return null
 
-        return when (val result = DesktopImageIo.read(file)) {
+        return when (val result = DesktopDocumentIo.read(file)) {
             is DesktopOpenResult.Failed -> result.message
             is DesktopOpenResult.Opened -> {
-                add(
-                    canvas = CanvasSize(result.image.width, result.image.height),
-                    file = file,
-                    image = result.image,
-                )
+                val document = add(result.content.canvas, file = file, initial = result.content)
+                // What the file carried that this build skipped. Shown once,
+                // in the strip, rather than as a dialog nobody reads: the
+                // painting did open.
+                if (result.warnings.isNotEmpty()) {
+                    document.state.savedMessage = result.warnings.first()
+                }
                 null
             }
         }
@@ -102,7 +105,11 @@ internal class DesktopDocuments(
         document.engine.stopAndJoin()
     }
 
-    private fun add(canvas: CanvasSize, file: File?, image: DesktopImage?): DesktopDocument {
+    private fun add(
+        canvas: CanvasSize,
+        file: File?,
+        initial: DesktopInitialContent?,
+    ): DesktopDocument {
         // Two-step, because the engine's publish callbacks close over the
         // document they belong to and the document holds the engine.
         lateinit var document: DesktopDocument
@@ -116,7 +123,7 @@ internal class DesktopDocuments(
             onStack = { stack -> document.state.publishStack(stack) },
             onPaper = { argb -> document.state.publishPaper(argb) },
             onEdited = { java.awt.EventQueue.invokeLater { document.dirty = true } },
-            initialImage = image,
+            initial = initial,
         )
         document = DesktopDocument(
             id = nextId++,
@@ -124,6 +131,7 @@ internal class DesktopDocuments(
             engine = engine,
             state = DesktopShellState(engine, catalogue, mixer, prefs),
             file = file,
+            createdAt = initial?.createdAt?.takeIf { it > 0L } ?: System.currentTimeMillis(),
         )
         open += document
         engine.start()

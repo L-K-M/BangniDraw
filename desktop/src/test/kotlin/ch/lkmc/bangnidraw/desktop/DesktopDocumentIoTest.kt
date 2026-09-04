@@ -19,7 +19,7 @@ class DesktopDocumentIoTest {
     fun `a PNG opens as an image of its own size`() {
         val file = write(BufferedImage(TILE_SIZE, TILE_SIZE, BufferedImage.TYPE_INT_ARGB))
 
-        val opened = assertIs<DesktopOpenResult.Opened>(DesktopImageIo.read(file))
+        val opened = assertIs<DesktopImageResult.Opened>(DesktopImageIo.read(file))
 
         assertEquals(TILE_SIZE, opened.image.width)
         assertEquals(TILE_SIZE, opened.image.height)
@@ -29,7 +29,7 @@ class DesktopDocumentIoTest {
     fun `a picture outside the canvas bounds is refused, not clamped`() {
         val tiny = write(BufferedImage(8, 8, BufferedImage.TYPE_INT_ARGB))
 
-        val failed = assertIs<DesktopOpenResult.Failed>(DesktopImageIo.read(tiny))
+        val failed = assertIs<DesktopImageResult.Failed>(DesktopImageIo.read(tiny))
 
         assertContains(failed.message, Document.MIN_EDGE.toString())
     }
@@ -39,7 +39,7 @@ class DesktopDocumentIoTest {
         val text = Files.createTempFile("bangnidraw-open", ".png").toFile()
         text.writeText("not a picture")
 
-        val failed = assertIs<DesktopOpenResult.Failed>(DesktopImageIo.read(text))
+        val failed = assertIs<DesktopImageResult.Failed>(DesktopImageIo.read(text))
 
         assertTrue(failed.message.isNotBlank())
     }
@@ -48,7 +48,7 @@ class DesktopDocumentIoTest {
     fun `a missing file fails without throwing`() {
         val missing = File(Files.createTempDirectory("bangnidraw-open").toFile(), "gone.png")
 
-        assertIs<DesktopOpenResult.Failed>(DesktopImageIo.read(missing))
+        assertIs<DesktopImageResult.Failed>(DesktopImageIo.read(missing))
     }
 
     @Test

@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.data
 
+import ch.lkmc.bangnidraw.data.shared.TileCodec
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import java.nio.ByteBuffer
 import java.nio.ByteOrder

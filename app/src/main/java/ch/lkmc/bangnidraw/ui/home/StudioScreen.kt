@@ -33,6 +33,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -76,6 +79,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.data.BangniProjectFiles
 import ch.lkmc.bangnidraw.data.ImageEncode
 import ch.lkmc.bangnidraw.ui.common.InfoButton
 import ch.lkmc.bangnidraw.data.GalleryExportOutcome
@@ -125,6 +129,39 @@ fun StudioScreen(
         onPauseOrDispose { }
     }
 
+    var pendingExport by remember { mutableStateOf<String?>(null) }
+    val exportFile = rememberLauncherForActivityResult(
+        // The system's own create-document picker: no permission, and the
+        // user picks where the file lands (the app has none by ADR 0004).
+        contract = ActivityResultContracts.CreateDocument(BangniProjectFiles.MIME_TYPE),
+    ) { uri ->
+        val id = pendingExport
+        pendingExport = null
+        if (uri == null || id == null) return@rememberLauncherForActivityResult
+
+        viewModel.exportBangni(id, uri) { written ->
+            Toast.makeText(
+                context,
+                if (written) R.string.studio_exported else R.string.studio_export_file_failed,
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+    val importFile = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+
+        viewModel.importBangni(
+            uri,
+            onImported = { id -> onOpenPainting(id) },
+            onFailed = {
+                Toast.makeText(context, R.string.studio_import_file_failed, Toast.LENGTH_SHORT)
+                    .show()
+            },
+        )
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val widthClass = WidthClass.forWidth(maxWidth.value.toInt())
         val layout = LayoutSpec.forWindow(widthClass, maxHeight.value.toInt(), Hand.RIGHT)
@@ -165,6 +202,13 @@ fun StudioScreen(
                     title = stringResource(R.string.app_name),
                     body = R.string.help_studio_body,
                 )
+                IconButton(onClick = { importFile.launch(BangniProjectFiles.OPEN_MIME_TYPES) }) {
+                    Icon(
+                        Icons.Outlined.FileOpen,
+                        contentDescription = stringResource(R.string.studio_import_file),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 IconButton(onClick = { showSettings = true }) {
                     Icon(
                         Icons.Outlined.Settings,
@@ -323,6 +367,14 @@ fun StudioScreen(
                                     },
                                 )
                             },
+                            onExportFile = {
+                                pendingExport = painting.id
+                                exportFile.launch(
+                                    BangniProjectFiles.fileName(
+                                        painting.title.orEmpty().ifBlank { untitledName },
+                                    ),
+                                )
+                            },
                             onDelete = { alsoGallery ->
                                 viewModel.delete(
                                     painting.id,
@@ -441,6 +493,7 @@ private fun PaintingCell(
     onDuplicate: () -> Unit,
     onSaveAs: () -> Unit,
     onShare: (ImageEncode.Format) -> Unit,
+    onExportFile: () -> Unit,
     onDelete: (alsoGallery: Boolean) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -588,6 +641,13 @@ private fun PaintingCell(
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.studio_share)) },
                                 onClick = { menuOpen = false; sharing = true },
+                            )
+                            // The whole painting, layers and all, as a file
+                            // another device can open. Share sends a picture;
+                            // this sends the document.
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.studio_export_file)) },
+                                onClick = { menuOpen = false; onExportFile() },
                             )
                         }
                         DropdownMenuItem(

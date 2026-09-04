@@ -6,6 +6,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import ch.lkmc.bangnidraw.engine.core.AppTheme
+import ch.lkmc.bangnidraw.ui.shared.BangniTypography
 
 internal val LocalAppTheme = staticCompositionLocalOf { AppTheme.DEFAULT }
 

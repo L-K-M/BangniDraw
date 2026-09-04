@@ -9,6 +9,8 @@ import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerProps
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.MemoryBudget
+import ch.lkmc.bangnidraw.engine.core.PixelOp
+import ch.lkmc.bangnidraw.engine.core.SandwichPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
 import ch.lkmc.bangnidraw.engine.core.TileKey
@@ -122,6 +124,7 @@ internal class DesktopEngine(
     private var frameWidth = 0
     private var frameHeight = 0
     private var framePixels: ByteArray? = null
+    private var nextWetRefreshNs = 0L
 
     val stack = LayerStack(
         listOf(Layer(LayerProps(LayerId("layer-1"), "Layer 1"))),
@@ -357,7 +360,17 @@ internal class DesktopEngine(
         val entry = undoHistory.move(direction) ?: return
         val images = if (direction == HistoryDirection.Undo) entry.before else entry.after
 
-        if (!renderer.restoreCancelledRmw(entry.layerId, images)) {
+        // `applyPixelOps`, not `restoreCancelledRmw`: the latter is the
+        // CANCEL door. History has to go through the op path so
+        // `WatercolorEditPolicy` sees an UndoRedo and dries the wet grid —
+        // otherwise wetness from an undone watercolor stroke survives the
+        // undo and bleeds into whatever is painted next.
+        val applied = renderer.applyPixelOps(
+            ops = listOf(PixelOp.Restore(entry.layerId, images)),
+            revision = nextRevision(),
+            invalidation = SandwichPolicy.Op.UndoRedo,
+        )
+        if (!applied) {
             undoHistory.move(direction.opposite())
             return
         }
@@ -427,12 +440,33 @@ internal class DesktopEngine(
                 task()
                 worked = true
             }
+            if (pumpWetOverlay()) worked = true
             if (repaint.getAndSet(false)) {
                 renderFrame()
                 worked = true
             }
             if (!worked) Thread.sleep(IDLE_SLEEP_MS)
         }
+    }
+
+    /**
+     * Wet paint expires on a clock, not on input. Without this tick a
+     * watercolor stroke stays wet forever on an idle canvas — the shell only
+     * ever redrew in response to something the user did. 100 ms is the
+     * presentation refresh AGENTS.md pins for reclaiming expired pages, and
+     * the loop's 4 ms idle sleep gives it the granularity.
+     */
+    private fun pumpWetOverlay(): Boolean {
+        val renderer = renderer ?: return false
+        if (!renderer.hasWatercolorOverlay()) return false
+
+        val now = System.nanoTime()
+        if (now < nextWetRefreshNs) return false
+        nextWetRefreshNs = now + WET_REFRESH_INTERVAL_NS
+
+        if (renderer.refreshWatercolorOverlay().dirty.isEmpty) return false
+        requestRepaintOnGl()
+        return true
     }
 
     private fun renderFrame() {
@@ -529,6 +563,7 @@ internal class DesktopEngine(
         private const val INITIAL_FRAME_WIDTH = 1280
         private const val INITIAL_FRAME_HEIGHT = 800
         private const val IDLE_SLEEP_MS = 4L
+        private const val WET_REFRESH_INTERVAL_NS = 100_000_000L
         private const val RGBA_CHANNELS = 4
         private const val DEFAULT_PAPER_ARGB = 0xFFFFFFFF.toInt()
 

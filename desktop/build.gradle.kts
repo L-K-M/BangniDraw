@@ -220,6 +220,10 @@ sourceSets.main {
     // one copy under :app compiles into the desktop shell too rather than
     // being transcribed: the two rails must never drift apart on artwork.
     kotlin.srcDir(project.file("../app/src/main/java/ch/lkmc/bangnidraw/ui/glyphs"))
+
+    // Portable Compose that is not artwork — the type scale today. Same rule:
+    // no android.*, one copy, so the two products cannot drift on it.
+    kotlin.srcDir(project.file("../app/src/main/java/ch/lkmc/bangnidraw/ui/shared"))
 }
 
 tasks.processResources {

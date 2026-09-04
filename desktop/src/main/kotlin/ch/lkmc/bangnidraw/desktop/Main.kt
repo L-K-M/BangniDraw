@@ -35,6 +35,7 @@ import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -61,6 +62,7 @@ import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxBinding
+import ch.lkmc.bangnidraw.ui.shared.BangniTypography
 import ch.lkmc.bangnidraw.input.CanvasInputHost
 import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 import ch.lkmc.bangnidraw.input.FrameScheduler
@@ -259,7 +261,7 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
     ) {
         window.minimumSize = Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
 
-        MaterialTheme(colorScheme = DESKTOP_COLOR_SCHEME) {
+        MaterialTheme(colorScheme = DESKTOP_COLOR_SCHEME, typography = BangniTypography) {
             // Surface actually paints [colorScheme.background]; without it
             // the OS window chrome shows through and the Material widgets
             // sit on whatever the host desktop happens to be (macOS's own
@@ -376,6 +378,14 @@ private fun Shell(
     var savedMessage by remember { mutableStateOf<String?>(null) }
     var preferencesReady by remember { mutableStateOf(false) }
     var showColorPanel by remember { mutableStateOf(false) }
+    // The strip is not a log: clear the save path after a beat, as a snackbar
+    // would. Keyed on the message so a second save restarts the countdown.
+    LaunchedEffect(savedMessage) {
+        if (savedMessage != null) {
+            kotlinx.coroutines.delay(SAVED_MESSAGE_MS)
+            savedMessage = null
+        }
+    }
     var showHelp by remember { mutableStateOf(false) }
 
     // Input stays disabled until the initial choices are resolved.
@@ -405,7 +415,11 @@ private fun Shell(
     }
 
     val bitmap = remember(frame) { frame?.toImageBitmap() }
-    val handler = remember(engine) { DesktopShell.handler(engine) }
+    // The real display density, not 1f: GestureArbiter converts TAP_SLOP_DP
+    // to pixels once at construction, so a hardcoded 1f makes the tap slop
+    // 8 px on a 2x display where it should be 16.
+    val density = LocalDensity.current.density
+    val handler = remember(engine, density) { DesktopShell.handler(engine, density) }
     val tune: (BrushPreset) -> Unit = { tuned ->
         presets = presets.map { if (it.id == tuned.id) tuned else it }
     }
@@ -668,10 +682,15 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
                     }
 
                     PointerEventType.Scroll -> {
+                        // `onScroll` takes wheel NOTCHES — `ScrollZoom` raises
+                        // STEP_PER_NOTCH to that power and clamps the burst
+                        // itself. Compose Desktop's scrollDelta is already in
+                        // those units; the divisor this replaces made one
+                        // notch a 0.35% zoom instead of 15%.
                         handler.onScroll(
                             position.x,
                             position.y,
-                            -change.scrollDelta.y / SCROLL_PIXELS_PER_TICK,
+                            -change.scrollDelta.y,
                             pointerClass = true,
                         )
                     }
@@ -718,9 +737,9 @@ private object DesktopShell {
     var tool: Tool? = null
     var mouseMode = DesktopMouseMode.Draw
 
-    fun handler(engine: DesktopEngine): CanvasTouchHandler {
+    fun handler(engine: DesktopEngine, density: Float): CanvasTouchHandler {
         lateinit var handler: CanvasTouchHandler
-        handler = CanvasTouchHandler(density = 1f, host = DesktopInputHost(engine) { handler })
+        handler = CanvasTouchHandler(density = density, host = DesktopInputHost(engine) { handler })
         handler.frameScheduler = SwingFrameScheduler
         handler.attachDeadlineScheduler(SwingGestureDeadlineScheduler())
         return handler
@@ -821,12 +840,15 @@ private class DesktopInputHost(
         this.driver = null
 
         while (driver.isActive) {
-            val batch = engine.acquireDabBatch() ?: run {
+            val batch = engine.acquireDabBatch()
+            if (batch == null) {
+                // Out of ring slots at pen-up: stop generating, but still
+                // COMMIT what was already stamped. `CanvasScreen` breaks here
+                // for the same reason — cancelling instead would throw away
+                // the whole stroke the user just drew, and the engine-side
+                // stroke still has to be closed either way (§4's pairing).
                 driver.cancel()
-                // The engine-side stroke began at pen-down; leaving it open
-                // would wedge every later beginStroke (§4's pairing).
-                engine.cancelStroke()
-                return
+                break
             }
             val emitted = driver.end(batch)
             if (emitted == 0) engine.releaseDabBatch(batch) else engine.stampDabs(batch)
@@ -948,7 +970,6 @@ private val VIEWPORT_VOID = Color(CanvasVoidColorPolicy.argb(AppTheme.SAFFRON))
 private const val RGBA_BYTES = 4
 private const val MOUSE_POINTER_ID = 0
 private const val SYNTHETIC_PRESSURE = 1f
-private const val SCROLL_PIXELS_PER_TICK = 40f
 private const val CANVAS_EDGE = 2048
 private const val VERIFY_RUNTIME_FLAG = "--verify-runtime"
 private const val GL_REPORT_FLAG = "--gl-report"
@@ -959,6 +980,7 @@ private const val INITIAL_GL_HEIGHT = 1
 // The gap LayoutSpec's docked chrome already reserves above the dock;
 // a second copy here could drift and leave the two disagreeing.
 private val LEDGE_GAP = LayoutSpec.LEDGE_GAP_DP.dp
+private const val SAVED_MESSAGE_MS = 6_000L
 // The old floor existed for a fixed 230 dp sidebar beside a toolbar row.
 // The chrome is adaptive now — LayoutSpec shortens the rail, then docks it —
 // so the window may be as small as one a person could still draw in.

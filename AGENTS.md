@@ -147,10 +147,38 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   (`DesktopStrokeTiles.withCommitted`): `prepareCopy` compares tile sets with
   `!=`, so a stroke that forgets makes the *next* structural edit refuse
   instead of failing where the mistake was.
+  **The desktop shell is document-based, not gallery-based.** There is no
+  Studio and no `ProjectStore`: a painting is a file the user opened, `File`
+  opens and saves PNGs through the host's own dialogs (`java.awt.FileDialog`,
+  which is the real Cocoa panel on macOS — `JFileChooser` is Swing's drawing
+  on every platform), several documents can be open at once, and closing one
+  with unsaved work asks first. `DesktopDocuments` owns that list; adding to
+  it opens a window and removing from it closes one, and the last window
+  closing exits. **The first document is created inside the `remember` that
+  builds the list, not in an effect** — the "last window closed" rule reads
+  the list during composition, and an empty first frame exits immediately.
+  A PNG holds one layer, so saving flattens: that is the format the product
+  was asked for, and a layered file would be a separate on-disk design.
+  Opening reads the picture into the first layer through `PixelOp.Restore` —
+  the same upload path undo uses, so the mirror the next Save composes from
+  is exact — and the document's canvas is that picture's own size, which is
+  why each document constructs its own engine and its own `MemoryBudget`.
+  Dirty is a one-way flag cleared by a save, so undoing past the last save
+  still reports unsaved work: it over-reports and never under-reports, which
+  is the safe direction for "close without saving?".
+  **One GL context and one GL thread serve every open document**
+  (`DesktopGlHost`). A context is current on one thread at a time, so several
+  documents cannot each own a thread without each owning a context — and
+  creating contexts at runtime is exactly the delicate part of startup on
+  macOS. Documents attach and detach by posting onto that thread, so a window
+  opening or closing cannot race the loop drawing it, and a closed document
+  drops its queued tasks (`released`) because its renderer is already gone.
+  Only the host deactivates the context; a document's `releaseGl` frees its
+  own renderer and nothing else.
   Rendering is engine → offscreen FBO → glReadPixels → Compose image
   (DESKTOP.md architecture 1), mouse → PointerSample records, in-memory undo
   from the readback mirror, JVM DataStore prefs, and Save PNG to
-  `~/Pictures/BangniDraw`. **The export is the whole visible stack through
+  `~/Pictures/BangniDraw` when the painting has no file yet. **The export is the whole visible stack through
   `Composite`** — the same CPU reference the shaders are pinned against, so a
   file and the screen agree on blend modes and per-layer opacity — and
   transparent paper exports transparent pixels, unpremultiplied on the way

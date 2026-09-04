@@ -29,13 +29,13 @@ import ch.lkmc.bangnidraw.ui.shared.BangniTypography
  * is why [DesktopShellState] hoists the state they read.
  */
 @Composable
-internal fun DesktopPanelWindows(state: DesktopShellState) {
-    if (state.showLayerPanel) LayerPanelWindow(state)
-    if (state.showBrushPanel) ToolPanelWindow(state)
+internal fun DesktopPanelWindows(state: DesktopShellState, documentName: String) {
+    if (state.showLayerPanel) LayerPanelWindow(state, documentName)
+    if (state.showBrushPanel) ToolPanelWindow(state, documentName)
 }
 
 @Composable
-private fun LayerPanelWindow(state: DesktopShellState) {
+private fun LayerPanelWindow(state: DesktopShellState, documentName: String) {
     // Thumbnails are rendered by the GL thread only while somebody is looking
     // at them: the pass costs an isolated layer render plus two PBO reads.
     DisposableEffect(state) {
@@ -49,7 +49,7 @@ private fun LayerPanelWindow(state: DesktopShellState) {
     }
 
     PanelWindow(
-        title = "Layers — " + DesktopBrand.displayName,
+        title = "Layers — $documentName",
         size = DpSize(LAYER_PANEL_WIDTH, LAYER_PANEL_HEIGHT),
         onClose = { state.showLayerPanel = false },
     ) {
@@ -70,13 +70,13 @@ private fun LayerPanelWindow(state: DesktopShellState) {
  * slot's tool, and a second window per tool would be six things to close.
  */
 @Composable
-private fun ToolPanelWindow(state: DesktopShellState) {
+private fun ToolPanelWindow(state: DesktopShellState, documentName: String) {
     val secondary = state.rail.secondary
     val preset = state.activeBrush
     if (secondary == null && preset == null) return
 
     PanelWindow(
-        title = toolPanelTitle(state),
+        title = toolPanelTitle(state, documentName),
         size = DpSize(BRUSH_PANEL_WIDTH, BRUSH_PANEL_HEIGHT),
         onClose = { state.showBrushPanel = false },
     ) {
@@ -97,14 +97,15 @@ private fun ToolPanelWindow(state: DesktopShellState) {
     }
 }
 
-private fun toolPanelTitle(state: DesktopShellState): String {
+/** Panels name their document: several can be open, one set of panels each. */
+private fun toolPanelTitle(state: DesktopShellState, documentName: String): String {
     val secondary = state.rail.secondary
     val name = if (secondary != null) {
         secondaryLabel(secondary)
     } else {
         state.activeBrush?.let(DesktopBrushUi::label).orEmpty()
     }
-    return "$name — " + DesktopBrand.displayName
+    return "$name — $documentName"
 }
 
 @Composable

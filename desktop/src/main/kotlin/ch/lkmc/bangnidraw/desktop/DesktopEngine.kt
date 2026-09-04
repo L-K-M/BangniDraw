@@ -32,6 +32,7 @@ import ch.lkmc.bangnidraw.engine.core.BufferMode
 import ch.lkmc.bangnidraw.engine.gl.CanvasRenderer
 import ch.lkmc.bangnidraw.engine.gl.platform.ClasspathEngineAssets
 import ch.lkmc.bangnidraw.engine.gl.platform.GLES30
+import ch.lkmc.bangnidraw.engine.gl.platform.GlLog
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
@@ -93,9 +94,8 @@ internal class DesktopExportTask(
 internal class DesktopEngine(
     val canvas: CanvasSize,
     memory: DeviceMemory,
-    private val context: DesktopEsContext,
+    private val host: DesktopGlHost,
     private val onFrame: (Frame) -> Unit,
-    private val onFatal: (String) -> Unit,
     /**
      * Publishes the document model whenever the GL thread changes it. The
      * layer panel is a separate window reading Compose state, so the model
@@ -104,7 +104,22 @@ internal class DesktopEngine(
     private val onStack: (LayerStack) -> Unit = {},
     /** Publishes the paper colour, which undo can move like any other edit. */
     private val onPaper: (Int) -> Unit = {},
-) {
+    /**
+     * Fires whenever the painting changes, so the window can offer to save.
+     *
+     * Deliberately a one-way flag rather than a save-point comparison:
+     * undoing back past the last save still reports unsaved work. That
+     * over-reports and never under-reports, which is the safe direction for
+     * the question "close without saving?".
+     */
+    private val onEdited: () -> Unit = {},
+    /**
+     * The picture this document opens with, already decoded. It is uploaded
+     * as the first layer's pixels before the first frame, so the window never
+     * shows an empty canvas that is about to be replaced.
+     */
+    private val initialImage: DesktopImage? = null,
+) : DesktopGlHost.Client {
     /** One rendered frame's pixels, RGBA8, row-major from the top. */
     class Frame(val width: Int, val height: Int, val pixels: ByteArray)
 
@@ -114,10 +129,7 @@ internal class DesktopEngine(
     val layerCap: Int get() = budget.maxLayers
     private val dabRing = DabRing()
     private val revisionCounter = java.util.concurrent.atomic.AtomicInteger(0)
-    private val started = AtomicBoolean(false)
-    private val failed = AtomicBoolean(false)
-    private val glThread = Thread(::runGlLoop, "BangniDraw-GL").apply { isDaemon = true }
-    private val tasks = ConcurrentLinkedQueue<() -> Unit>()
+    private val released = AtomicBoolean(false)
     private val exportExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
         Thread(task, EXPORT_THREAD_NAME).apply { isDaemon = true }
     }
@@ -172,28 +184,21 @@ internal class DesktopEngine(
     // ------------------------------------------------------------- control
 
     fun start() {
-        if (!started.getAndSet(true)) glThread.start()
+        host.attach(this)
     }
 
+    /**
+     * Closes this document: its workers stop, then the GL thread frees its
+     * renderer. The shared thread itself outlives it — another document may
+     * still be open — so nothing is joined here.
+     */
     fun stopAndJoin() {
+        if (released.getAndSet(true)) return
+
         fillGeneration++
         fillExecutor.shutdownNow()
         shutdownExports()
-        if (!started.get()) return
-
-        glThread.interrupt()
-        if (Thread.currentThread() === glThread) return
-
-        try {
-            glThread.join(GL_SHUTDOWN_TIMEOUT_MS)
-        } catch (_: InterruptedException) {
-            context.abandonAfterOwnerTimeout()
-            Thread.currentThread().interrupt()
-            return
-        }
-
-        // Never destroy a context that may still be current in native code.
-        if (glThread.isAlive) context.abandonAfterOwnerTimeout()
+        host.detach(this)
     }
 
     private fun shutdownExports() {
@@ -217,9 +222,12 @@ internal class DesktopEngine(
         }
     }
 
-    /** Submits [block] to the GL thread; dropped after a fatal failure. */
+    /**
+     * Submits [block] to the shared GL thread. Dropped once this document is
+     * closed: its renderer is gone, and a queued task would run against it.
+     */
     fun post(block: () -> Unit) {
-        if (!failed.get()) tasks.add(block)
+        if (!released.get()) host.post(block)
     }
 
     fun requestRepaint() {
@@ -265,6 +273,7 @@ internal class DesktopEngine(
             ),
         )
         onPaper(argb)
+        onEdited()
         requestRepaintOnGl()
     }
 
@@ -392,6 +401,7 @@ internal class DesktopEngine(
             ),
         )
         requestThumbnailRefresh()
+        onEdited()
         return true
     }
 
@@ -581,6 +591,7 @@ internal class DesktopEngine(
         pruneMirror(target)
         publishStack()
         requestThumbnailRefresh()
+        onEdited()
         requestRepaintOnGl()
     }
 
@@ -654,6 +665,7 @@ internal class DesktopEngine(
         )
         publishStack()
         requestThumbnailRefresh()
+        onEdited()
         requestRepaintOnGl()
         return true
     }
@@ -729,22 +741,23 @@ internal class DesktopEngine(
         HistoryDirection.Redo -> HistoryDirection.Undo
     }
 
-    // ------------------------------------------------------------ the loop
+    // ------------------------------------------------------- the GL client
 
-    private fun runGlLoop() {
-        try {
-            context.activate()
-            initializeRenderer()
-            runTasksAndFrames()
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-        } catch (failure: Throwable) {
-            failed.set(true)
-            val detail = failure.message ?: failure::class.simpleName ?: "unknown failure"
-            onFatal("Desktop rendering stopped: $detail")
-        } finally {
-            releaseGl()
+    override fun onGlReady() = initializeRenderer()
+
+    /**
+     * This document's turn of the shared loop: drain the thumbnail PBOs, age
+     * the wet grid, and present a frame if anything asked for one.
+     */
+    override fun pumpGl(): Boolean {
+        var worked = false
+        if (thumbnailSink != null) renderer?.pollLayerThumbnails()
+        if (pumpWetOverlay()) worked = true
+        if (repaint.getAndSet(false)) {
+            renderFrame()
+            worked = true
         }
+        return worked
     }
 
     private fun initializeRenderer() {
@@ -755,6 +768,7 @@ internal class DesktopEngine(
         check(next.onContextCreated(strict = true)) {
             DesktopGlDiagnostics.rendererRequirements
         }
+        uploadInitialImage(next)
         next.setStack(stack)
         publishStack()
         next.setPaperColor(paperColor)
@@ -770,22 +784,38 @@ internal class DesktopEngine(
         requestRepaintOnGl()
     }
 
-    private fun runTasksAndFrames() {
-        while (!Thread.currentThread().isInterrupted) {
-            var worked = false
-            while (true) {
-                val task = tasks.poll() ?: break
-                task()
-                worked = true
-            }
-            if (thumbnailSink != null) renderer?.pollLayerThumbnails()
-            if (pumpWetOverlay()) worked = true
-            if (repaint.getAndSet(false)) {
-                renderFrame()
-                worked = true
-            }
-            if (!worked) Thread.sleep(IDLE_SLEEP_MS)
+    /**
+     * Puts an opened picture into the first layer.
+     *
+     * `PixelOp.Restore` is the upload path undo already uses, so the tiles
+     * land through the same transaction and the same readback sink that keeps
+     * the mirror exact — which matters immediately, because the first Save
+     * composes from that mirror.
+     *
+     * A failure here is not fatal: the document opens blank rather than not
+     * at all, and the file on disk is untouched.
+     */
+    private fun uploadInitialImage(renderer: CanvasRenderer) {
+        val image = initialImage ?: return
+        val tiles = DesktopImageIo.tiles(image)
+        if (tiles.isEmpty()) return
+
+        val layer = stack.layers[0]
+        // setStack first: `applyPixelOps` prepares against the published
+        // model, and `targetFor` needs the layer to have textures to fill.
+        renderer.setStack(stack)
+        val applied = renderer.applyPixelOps(
+            ops = listOf(PixelOp.Restore(layer.id, tiles)),
+            revision = nextRevision(),
+            invalidation = SandwichPolicy.Op.PixelEdit(0),
+        )
+        if (!applied) {
+            GlLog.w(LOG_TAG, "the opened picture could not be uploaded")
+            return
         }
+        stack = stack.copy(
+            layers = listOf(Layer(layer.props, tiles.keys.toSet())),
+        )
     }
 
     /**
@@ -793,7 +823,7 @@ internal class DesktopEngine(
      * watercolor stroke stays wet forever on an idle canvas — the shell only
      * ever redrew in response to something the user did. 100 ms is the
      * presentation refresh AGENTS.md pins for reclaiming expired pages, and
-     * the loop's 4 ms idle sleep gives it the granularity.
+     * the loop's idle sleep gives it the granularity.
      */
     private fun pumpWetOverlay(): Boolean {
         val renderer = renderer ?: return false
@@ -873,14 +903,11 @@ internal class DesktopEngine(
         }
     }
 
-    private fun releaseGl() {
-        try {
-            renderer?.release()
-            renderer = null
-            releaseFrameTarget()
-        } finally {
-            context.deactivate()
-        }
+    /** This document's GL resources; the context belongs to the host. */
+    override fun releaseGl() {
+        renderer?.release()
+        renderer = null
+        releaseFrameTarget()
     }
 
     private fun nextRevision(): Int = revisionCounter.incrementAndGet()
@@ -896,13 +923,12 @@ internal class DesktopEngine(
     }
 
     companion object {
+        private const val LOG_TAG = "BangniDraw"
         private const val EXPORT_THREAD_NAME = "BangniDraw-Export"
         private const val FILL_THREAD_NAME = "BangniDraw-Fill"
         private const val EXPORT_SHUTDOWN_TIMEOUT_MS = 5_000L
-        private const val GL_SHUTDOWN_TIMEOUT_MS = 5_000L
         private const val INITIAL_FRAME_WIDTH = 1280
         private const val INITIAL_FRAME_HEIGHT = 800
-        private const val IDLE_SLEEP_MS = 4L
         private const val WET_REFRESH_INTERVAL_NS = 100_000_000L
         private const val RGBA_CHANNELS = 4
         private const val DEFAULT_PAPER_ARGB = 0xFFFFFFFF.toInt()

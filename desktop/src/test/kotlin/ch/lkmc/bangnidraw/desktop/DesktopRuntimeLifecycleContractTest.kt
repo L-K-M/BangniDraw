@@ -3,6 +3,7 @@ package ch.lkmc.bangnidraw.desktop
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertSame
@@ -55,15 +56,43 @@ class DesktopRuntimeLifecycleContractTest {
 
     @Test
     fun `GL shutdown is bounded without destroying a live context`() {
-        val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
+        val host = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopGlHost.kt")
         val context = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/GlfwEsContext.kt")
 
         assertTrue(
-            engine.contains("glThread.join(GL_SHUTDOWN_TIMEOUT_MS)"),
+            host.contains("thread.join(GL_SHUTDOWN_TIMEOUT_MS)"),
             "native GL shutdown must not block application exit forever",
         )
-        assertTrue(engine.contains("context.abandonAfterOwnerTimeout()"))
+        assertTrue(host.contains("context.abandonAfterOwnerTimeout()"))
         assertTrue(context.contains("if (abandonedAfterOwnerTimeout)"))
+    }
+
+    @Test
+    fun `one context and one thread serve every open document`() {
+        val host = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopGlHost.kt")
+        val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
+
+        // A context is current on one thread at a time, so documents share
+        // the thread rather than each creating a context of their own.
+        assertTrue(host.contains("context.activate()"))
+        assertTrue(engine.contains(": DesktopGlHost.Client"))
+        assertTrue(engine.contains("host.attach(this)"))
+        assertTrue(engine.contains("host.detach(this)"))
+        // Closing one document must not deactivate the shared context.
+        assertFalse(engine.contains("context.deactivate()"))
+        // Attach and detach are posted, so a window opening or closing cannot
+        // race the loop that is drawing it.
+        assertTrue(host.contains("fun detach(client: Client) = post {"))
+    }
+
+    @Test
+    fun `a closed document stops accepting GL work`() {
+        val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
+
+        // The shared thread outlives the document; a task queued after its
+        // renderer is gone would run against nothing.
+        assertTrue(engine.contains("if (!released.get()) host.post(block)"))
+        assertTrue(engine.contains("if (released.getAndSet(true)) return"))
     }
 
     @Test

@@ -4,11 +4,13 @@ package ch.lkmc.bangnidraw.desktop
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -21,6 +23,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -221,11 +224,7 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
     startup: DesktopStartup,
     mode: DesktopLaunchMode,
 ) {
-    val canvasSize = CanvasSize(CANVAS_EDGE, CANVAS_EDGE)
-    val fatal = remember {
-        mutableStateOf((startup as? DesktopStartup.Failed)?.message)
-    }
-    val frameState = remember { mutableStateOf<DesktopEngine.Frame?>(null) }
+    val fatal = remember { mutableStateOf((startup as? DesktopStartup.Failed)?.message) }
     val mixer = remember { MixboxBinding.create() ?: RgbMixer }
     val mixboxAttribution = if (mixer === RgbMixer) {
         MixboxAttribution.Excluded
@@ -239,101 +238,64 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
         onDispose { handler.close() }
     }
 
-    // The state holder is built first so the engine's publish callbacks can
-    // close over it: a floating panel is a sibling Window and cannot read
-    // state that lives inside the canvas window's composable.
-    val shell = remember { mutableStateOf<DesktopShellState?>(null) }
-    val engine = remember(startup) {
-        val ready = startup as? DesktopStartup.Ready ?: return@remember null
-        DesktopEngine(
-            canvas = canvasSize,
-            memory = ready.memory,
-            context = ready.context,
-            onFrame = { frame ->
-                java.awt.EventQueue.invokeLater { frameState.value = frame }
-            },
-            onFatal = { message ->
-                java.awt.EventQueue.invokeLater { fatal.value = message }
-            },
-            onStack = { stack -> shell.value?.publishStack(stack) },
-            onPaper = { argb -> shell.value?.publishPaper(argb) },
-        )
-    }
     val catalogue = remember { DesktopBrushes.loadAll() }
     val prefs = remember { DesktopPrefs() }
-    androidx.compose.runtime.DisposableEffect(prefs) {
-        onDispose { prefs.close() }
+    val host = remember(startup) {
+        val ready = startup as? DesktopStartup.Ready ?: return@remember null
+        DesktopGlHost(ready.context) { message ->
+            java.awt.EventQueue.invokeLater { fatal.value = message }
+        }
     }
-    androidx.compose.runtime.DisposableEffect(engine) {
-        shell.value = engine?.let { DesktopShellState(it, catalogue, mixer, prefs) }
-        onDispose { shell.value = null }
-    }
-    val state = shell.value
-
-    Window(
-        onCloseRequest = ::exitApplication,
-        title = DesktopBrand.displayName,
-        icon = painterResource("bangnidraw.png"),
-    ) {
-        window.minimumSize = Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
-
-        MaterialTheme(colorScheme = DesktopTheme.colorScheme, typography = BangniTypography) {
-            // Surface actually paints [colorScheme.background]; without it
-            // the OS window chrome shows through and the Material widgets
-            // sit on whatever the host desktop happens to be (macOS's own
-            // white, GNOME's own grey), turning the SAFFRON palette
-            // incoherent. Same wrap the Android CanvasScreen relies on.
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background,
-            ) {
-                Box(Modifier.fillMaxSize()) {
-                    val fatalMessage = fatal.value
-                    if (fatalMessage != null) {
-                        // The startup report is long on purpose; a fixed-height window
-                        // must not swallow the half that names the failure.
-                        Box(
-                            Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            // Selectable: this text is what a user pastes into a report.
-                            SelectionContainer {
-                                Text(fatalMessage, style = MaterialTheme.typography.bodyMedium)
-                            }
-                        }
-                    } else if (state != null) {
-                        Shell(
-                            state = state,
-                            frame = frameState.value,
-                            canvasSize = canvasSize,
-                            onAbout = { showAbout = true },
-                        )
-                    }
-
-                    if (showAbout) {
-                        AlertDialog(
-                            onDismissRequest = { showAbout = false },
-                            title = { Text("About " + DesktopBrand.displayName) },
-                            text = { Text(DesktopAbout.body(mixboxAttribution)) },
-                            confirmButton = {
-                                Button(onClick = { showAbout = false }) { Text("Close") }
-                            },
-                        )
-                    }
-                }
+    val documents = remember(host) {
+        val ready = startup as? DesktopStartup.Ready
+        if (ready == null || host == null) {
+            null
+        } else {
+            // The first painting is created here rather than in an effect:
+            // the "last window closed" rule below reads the list during
+            // composition, and an empty first frame would exit immediately.
+            DesktopDocuments(ready.memory, host, catalogue, mixer, prefs).apply {
+                create(CanvasSize(CANVAS_EDGE, CANVAS_EDGE))
             }
         }
     }
 
-    if (state != null) DesktopPanelWindows(state)
-
-    androidx.compose.runtime.DisposableEffect(engine) {
-        engine?.start()
-        onDispose { engine?.stopAndJoin() }
+    androidx.compose.runtime.DisposableEffect(documents) {
+        onDispose {
+            documents?.closeAll()
+            host?.stopAndJoin()
+            prefs.close()
+        }
     }
 
-    LaunchedEffect(frameState.value, mode) {
-        val frame = frameState.value ?: return@LaunchedEffect
+    // A failed startup has no document to draw in; the report window is the
+    // whole application.
+    val fatalMessage = fatal.value
+    if (documents == null || fatalMessage != null) {
+        FailureWindow(fatalMessage ?: DesktopGlDiagnostics.unavailable())
+    } else {
+        for (document in documents.open) {
+            key(document.id) {
+                DocumentWindow(
+                    document = document,
+                    documents = documents,
+                    onAbout = { showAbout = true },
+                )
+            }
+        }
+        // The last window closing ends the application, as it does in every
+        // other document-based app on these platforms.
+        LaunchedEffect(documents.open.size) {
+            if (documents.open.isEmpty()) exitApplication()
+        }
+    }
+
+    if (showAbout) {
+        AboutWindow(mixboxAttribution) { showAbout = false }
+    }
+
+    LaunchedEffect(documents?.open?.firstOrNull()?.frame?.value, mode) {
+        val frame = documents?.open?.firstOrNull()?.frame?.value ?: return@LaunchedEffect
         if (mode != DesktopLaunchMode.SmokeWindow) return@LaunchedEffect
 
         check(frame.pixels.any { it != 0.toByte() }) {
@@ -355,12 +317,217 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
     }
 }
 
+/** One painting, in a window of its own. */
+@Composable
+private fun androidx.compose.ui.window.ApplicationScope.DocumentWindow(
+    document: DesktopDocument,
+    documents: DesktopDocuments,
+    onAbout: () -> Unit,
+) {
+    val state = document.state
+    var openError by remember { mutableStateOf<String?>(null) }
+
+    Window(
+        onCloseRequest = { requestClose(document, documents) },
+        title = document.title,
+        icon = painterResource("bangnidraw.png"),
+    ) {
+        window.minimumSize = Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
+
+        val save: (java.io.File?) -> Unit = { target ->
+            val file = target ?: document.file
+            if (file == null) {
+                saveAs(window, document)
+            } else {
+                writeTo(document, file)
+            }
+        }
+
+        DesktopMenuBar(
+            document = document,
+            onNew = { documents.create(CanvasSize(CANVAS_EDGE, CANVAS_EDGE)) },
+            onOpen = {
+                DesktopFileDialogs.open(window)?.let { file ->
+                    openError = documents.openFile(file)
+                }
+            },
+            onSave = { save(null) },
+            onSaveAs = { saveAs(window, document) },
+            onClose = { requestClose(document, documents) },
+            onAbout = onAbout,
+            onHelp = { state.showHelp = true },
+        )
+
+        MaterialTheme(colorScheme = DesktopTheme.colorScheme, typography = BangniTypography) {
+            // Surface actually paints [colorScheme.background]; without it
+            // the OS window chrome shows through and the Material widgets
+            // sit on whatever the host desktop happens to be (macOS's own
+            // white, GNOME's own grey), turning the SAFFRON palette
+            // incoherent. Same wrap the Android CanvasScreen relies on.
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    Shell(
+                        state = state,
+                        frame = document.frame.value,
+                        canvasSize = document.canvas,
+                        onSave = { save(null) },
+                        onAbout = onAbout,
+                    )
+
+                    if (document.confirmingClose) {
+                        UnsavedChangesDialog(
+                            name = document.file?.name ?: "this painting",
+                            onSave = {
+                                document.confirmingClose = false
+                                val file = document.file
+                                if (file == null) saveAs(window, document) else writeTo(document, file)
+                                if (!document.dirty) documents.close(document)
+                            },
+                            onDiscard = {
+                                document.confirmingClose = false
+                                documents.close(document)
+                            },
+                            onCancel = { document.confirmingClose = false },
+                        )
+                    }
+
+                    val failedOpen = openError
+                    if (failedOpen != null) {
+                        AlertDialog(
+                            onDismissRequest = { openError = null },
+                            title = { Text("Could not open that file") },
+                            text = { Text(failedOpen) },
+                            confirmButton = {
+                                Button(onClick = { openError = null }) { Text("Close") }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    DesktopPanelWindows(state, document.file?.name ?: UNTITLED_NAME)
+}
+
+/** The window a failed GL startup gets instead of a canvas. */
+@Composable
+private fun androidx.compose.ui.window.ApplicationScope.FailureWindow(message: String) {
+    Window(
+        onCloseRequest = ::exitApplication,
+        title = DesktopBrand.displayName,
+        icon = painterResource("bangnidraw.png"),
+    ) {
+        MaterialTheme(colorScheme = DesktopTheme.colorScheme, typography = BangniTypography) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                // The startup report is long on purpose; a fixed-height window
+                // must not swallow the half that names the failure.
+                Box(
+                    Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // Selectable: this text is what a user pastes into a report.
+                    SelectionContainer {
+                        Text(message, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun androidx.compose.ui.window.ApplicationScope.AboutWindow(
+    attribution: MixboxAttribution,
+    onClose: () -> Unit,
+) {
+    Window(
+        onCloseRequest = onClose,
+        title = "About " + DesktopBrand.displayName,
+        icon = painterResource("bangnidraw.png"),
+        alwaysOnTop = true,
+    ) {
+        MaterialTheme(colorScheme = DesktopTheme.colorScheme, typography = BangniTypography) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+            ) {
+                Box(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState())) {
+                    SelectionContainer { Text(DesktopAbout.body(attribution)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UnsavedChangesDialog(
+    name: String,
+    onSave: () -> Unit,
+    onDiscard: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Save changes to $name?") },
+        text = { Text("Closing without saving loses everything painted since the last save.") },
+        confirmButton = { Button(onClick = onSave) { Text("Save") } },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.TextButton(onClick = onDiscard) {
+                    Text("Don't save")
+                }
+                androidx.compose.material3.TextButton(onClick = onCancel) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+/** Closing asks first when the painting has unsaved work. */
+private fun requestClose(document: DesktopDocument, documents: DesktopDocuments) {
+    if (document.dirty) {
+        document.confirmingClose = true
+        return
+    }
+    documents.close(document)
+}
+
+private fun saveAs(parent: java.awt.Frame?, document: DesktopDocument) {
+    val suggested = document.file?.name
+        ?: (DesktopBrand.exportFileStem(DesktopBrand.displayName) + "." + DesktopImageIo.EXTENSION)
+    val target = DesktopFileDialogs.save(parent, suggested) ?: return
+    writeTo(document, target)
+}
+
+private fun writeTo(document: DesktopDocument, file: java.io.File) {
+    document.engine.savePng(file) { result ->
+        java.awt.EventQueue.invokeLater {
+            when (result) {
+                is DesktopSaveResult.Saved -> {
+                    document.file = file
+                    document.dirty = false
+                    document.state.savedMessage = result.path
+                }
+                is DesktopSaveResult.Failed ->
+                    document.state.savedMessage = "Save failed: " + result.message
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Shell(
     state: DesktopShellState,
     frame: DesktopEngine.Frame?,
     canvasSize: CanvasSize,
+    onSave: () -> Unit,
     onAbout: () -> Unit,
 ) {
     val engine = state.engine
@@ -458,15 +625,7 @@ private fun Shell(
             onRedo = { engine.redo() },
             onLayers = { state.showLayerPanel = !state.showLayerPanel },
             onColor = { state.showColorPanel = !state.showColorPanel },
-            onSave = {
-                engine.savePng { result ->
-                    val message = when (result) {
-                        is DesktopSaveResult.Saved -> result.path
-                        is DesktopSaveResult.Failed -> "Save failed: ${result.message}"
-                    }
-                    java.awt.EventQueue.invokeLater { state.savedMessage = message }
-                }
-            },
+            onSave = onSave,
             onAbout = onAbout,
             onHelp = { state.showHelp = true },
             modifier = Modifier.align(Alignment.TopCenter),
@@ -962,6 +1121,7 @@ private const val SAVED_MESSAGE_MS = 6_000L
 // so the window may be as small as one a person could still draw in.
 private const val WINDOW_MIN_W = 640
 private const val WINDOW_MIN_H = 480
+private const val UNTITLED_NAME = "Untitled"
 
 internal object DesktopGlDiagnostics {
     private const val HEADLINE = "OpenGL ES 3.0 is unavailable."

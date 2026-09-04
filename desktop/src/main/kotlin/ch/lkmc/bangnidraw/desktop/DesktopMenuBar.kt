@@ -1,0 +1,97 @@
+package ch.lkmc.bangnidraw.desktop
+
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyShortcut
+import androidx.compose.ui.window.FrameWindowScope
+import androidx.compose.ui.window.MenuBar
+
+/**
+ * The window's menu bar — the desktop affordances the Android chrome has no
+ * place for: New, Open, Save, Save As, Close, and the panels.
+ *
+ * The accelerators are the platform's own: Compose maps [KeyShortcut]'s
+ * `meta` to Command on macOS, and `ctrl` to Control elsewhere, so both are
+ * offered and only the one the host understands fires.
+ */
+@Composable
+internal fun FrameWindowScope.DesktopMenuBar(
+    document: DesktopDocument,
+    onNew: () -> Unit,
+    onOpen: () -> Unit,
+    onSave: () -> Unit,
+    onSaveAs: () -> Unit,
+    onClose: () -> Unit,
+    onAbout: () -> Unit,
+    onHelp: () -> Unit,
+) {
+    val state = document.state
+    MenuBar {
+        Menu("File", mnemonic = 'F') {
+            Item("New", shortcut = shortcut(Key.N), onClick = onNew)
+            Item("Open…", shortcut = shortcut(Key.O), onClick = onOpen)
+            Separator()
+            Item(
+                "Save",
+                shortcut = shortcut(Key.S),
+                // A painting with no file has nothing to save *over*, but
+                // Save still works: it falls through to Save As.
+                enabled = document.dirty || document.file == null,
+                onClick = onSave,
+            )
+            Item("Save As…", shortcut = shortcut(Key.S, shift = true), onClick = onSaveAs)
+            Separator()
+            Item("Close", shortcut = shortcut(Key.W), onClick = onClose)
+        }
+        Menu("Edit", mnemonic = 'E') {
+            Item(
+                "Undo",
+                shortcut = shortcut(Key.Z),
+                enabled = document.engine.canUndo(),
+                onClick = { document.engine.undo() },
+            )
+            Item(
+                "Redo",
+                shortcut = shortcut(Key.Z, shift = true),
+                enabled = document.engine.canRedo(),
+                onClick = { document.engine.redo() },
+            )
+        }
+        Menu("Window", mnemonic = 'W') {
+            // Checkbox items, because these panels are windows that stay open
+            // until they are closed — a plain item would not say which are up.
+            CheckboxItem(
+                "Layers",
+                checked = state.showLayerPanel,
+                shortcut = shortcut(Key.L),
+                onCheckedChange = { state.showLayerPanel = it },
+            )
+            CheckboxItem(
+                "Tool settings",
+                checked = state.showBrushPanel,
+                shortcut = shortcut(Key.B),
+                onCheckedChange = { state.showBrushPanel = it },
+            )
+            CheckboxItem(
+                "Colour",
+                checked = state.showColorPanel,
+                onCheckedChange = { state.showColorPanel = it },
+            )
+        }
+        Menu("Help", mnemonic = 'H') {
+            Item("Canvas help", onClick = onHelp)
+            Item("About " + DesktopBrand.displayName, onClick = onAbout)
+        }
+    }
+}
+
+/**
+ * The host's own modifier. macOS puts these on Command and everything else on
+ * Control; `KeyShortcut` takes both flags, and only the platform's is applied.
+ */
+private fun shortcut(key: Key, shift: Boolean = false): KeyShortcut =
+    if (DesktopPlatform.isMacOs) {
+        KeyShortcut(key, meta = true, shift = shift)
+    } else {
+        KeyShortcut(key, ctrl = true, shift = shift)
+    }

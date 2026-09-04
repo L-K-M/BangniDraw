@@ -1,0 +1,154 @@
+package ch.lkmc.bangnidraw.desktop
+
+import ch.lkmc.bangnidraw.engine.core.Composite
+import ch.lkmc.bangnidraw.engine.core.Document
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
+import ch.lkmc.bangnidraw.engine.core.TileKey
+import java.awt.image.BufferedImage
+import java.io.File
+import java.nio.file.Files
+import kotlin.test.Test
+import kotlin.test.assertContains
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+
+class DesktopDocumentIoTest {
+
+    @Test
+    fun `a PNG opens as an image of its own size`() {
+        val file = write(BufferedImage(TILE_SIZE, TILE_SIZE, BufferedImage.TYPE_INT_ARGB))
+
+        val opened = assertIs<DesktopOpenResult.Opened>(DesktopImageIo.read(file))
+
+        assertEquals(TILE_SIZE, opened.image.width)
+        assertEquals(TILE_SIZE, opened.image.height)
+    }
+
+    @Test
+    fun `a picture outside the canvas bounds is refused, not clamped`() {
+        val tiny = write(BufferedImage(8, 8, BufferedImage.TYPE_INT_ARGB))
+
+        val failed = assertIs<DesktopOpenResult.Failed>(DesktopImageIo.read(tiny))
+
+        assertContains(failed.message, Document.MIN_EDGE.toString())
+    }
+
+    @Test
+    fun `a file that is not an image fails without throwing`() {
+        val text = Files.createTempFile("bangnidraw-open", ".png").toFile()
+        text.writeText("not a picture")
+
+        val failed = assertIs<DesktopOpenResult.Failed>(DesktopImageIo.read(text))
+
+        assertTrue(failed.message.isNotBlank())
+    }
+
+    @Test
+    fun `a missing file fails without throwing`() {
+        val missing = File(Files.createTempDirectory("bangnidraw-open").toFile(), "gone.png")
+
+        assertIs<DesktopOpenResult.Failed>(DesktopImageIo.read(missing))
+    }
+
+    @Test
+    fun `tiles are premultiplied RGBA, and empty ones are dropped`() {
+        val image = BufferedImage(TILE_SIZE * 2, TILE_SIZE, BufferedImage.TYPE_INT_ARGB)
+        // Straight ARGB: half-alpha pure red.
+        image.setRGB(0, 0, 0x80FF0000.toInt())
+
+        val tiles = DesktopImageIo.tiles(
+            DesktopImage(image.width, image.height, image.rgbArray()),
+        )
+
+        // Only the tile that has a pixel: an all-transparent one would cost a
+        // GPU slice and a mirror entry for nothing.
+        assertEquals(setOf(TileKey(0, 0)), tiles.keys)
+        val bytes = tiles.getValue(TileKey(0, 0))
+        val premultiplied = Composite.premultiply(0x80FF0000.toInt())
+        assertEquals(Composite.red(premultiplied), bytes[0].toInt() and 0xFF)
+        assertEquals(Composite.green(premultiplied), bytes[1].toInt() and 0xFF)
+        assertEquals(Composite.blue(premultiplied), bytes[2].toInt() and 0xFF)
+        assertEquals(Composite.alpha(premultiplied), bytes[3].toInt() and 0xFF)
+        assertEquals(TILE_SIZE * TILE_SIZE * 4, bytes.size)
+    }
+
+    @Test
+    fun `a picture that does not fill its last tile leaves the rest transparent`() {
+        val width = TILE_SIZE + 1
+        val image = BufferedImage(width, TILE_SIZE, BufferedImage.TYPE_INT_ARGB)
+        image.setRGB(TILE_SIZE, 0, 0xFF00FF00.toInt())
+
+        val tiles = DesktopImageIo.tiles(DesktopImage(width, TILE_SIZE, image.rgbArray()))
+
+        val edge = tiles.getValue(TileKey(1, 0))
+        // The one real column is opaque green; the next is outside the canvas.
+        assertEquals(0xFF, edge[3].toInt() and 0xFF)
+        assertEquals(0, edge[7].toInt() and 0xFF)
+    }
+
+    // ------------------------------------------------------------ contract
+
+    @Test
+    fun `closing a document asks before losing unsaved work`() {
+        val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
+
+        assertTrue(main.contains("private fun requestClose(document: DesktopDocument"))
+        assertTrue(main.contains("if (document.dirty) {"))
+        assertTrue(main.contains("document.confirmingClose = true"))
+        assertTrue(main.contains("UnsavedChangesDialog("))
+    }
+
+    @Test
+    fun `a save clears the dirty mark and adopts the file`() {
+        val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
+        val write = main.substringAfter("private fun writeTo(").substringBefore("\n}")
+
+        // Both, and only on success: a failed save must not claim the file.
+        assertTrue(write.contains("document.file = file"))
+        assertTrue(write.contains("document.dirty = false"))
+        assertTrue(write.contains("is DesktopSaveResult.Failed"))
+    }
+
+    @Test
+    fun `reopening an open file raises its window instead of duplicating it`() {
+        val documents =
+            source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopDocuments.kt")
+
+        // Two documents on one path would overwrite each other on save.
+        assertTrue(documents.contains("open.firstOrNull { it.file?.absoluteFile == file.absoluteFile }"))
+    }
+
+    @Test
+    fun `the last window closing exits the application`() {
+        val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
+
+        assertTrue(main.contains("if (documents.open.isEmpty()) exitApplication()"))
+        // The first document is created during composition, not in an effect:
+        // the rule above reads the list while composing, and an empty first
+        // frame would exit before anything opened.
+        assertTrue(main.contains("DesktopDocuments(ready.memory, host, catalogue, mixer, prefs).apply {"))
+    }
+
+    private fun write(image: BufferedImage): File {
+        val file = Files.createTempDirectory("bangnidraw-open").resolve("picture.png").toFile()
+        javax.imageio.ImageIO.write(image, DesktopImageIo.EXTENSION, file)
+        return file
+    }
+
+    private fun BufferedImage.rgbArray(): IntArray {
+        val out = IntArray(width * height)
+        getRGB(0, 0, width, height, out, 0, width)
+        return out
+    }
+
+    private fun source(path: String): String = File(repoRoot(), path).readText(Charsets.UTF_8)
+
+    private fun repoRoot(): File {
+        var candidate = File(".").canonicalFile
+        while (!File(candidate, "settings.gradle.kts").isFile) {
+            candidate = candidate.parentFile ?: error("repository root not found")
+        }
+        return candidate
+    }
+}

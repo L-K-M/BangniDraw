@@ -72,7 +72,7 @@ class DesktopInputContractTest {
     @Test
     fun `wet paint expires on a clock while the canvas is idle`() {
         val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
-        val loop = between(engine, "private fun runTasksAndFrames(", "private fun renderFrame(")
+        val loop = between(engine, "override fun pumpGl(", "private fun initializeRenderer(")
 
         assertTrue(loop.contains("pumpWetOverlay()"), "the GL loop must tick the wet overlay")
         assertTrue(engine.contains("hasWatercolorOverlay()"))

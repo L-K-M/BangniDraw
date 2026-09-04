@@ -48,7 +48,13 @@ internal object DesktopHelp {
             "The layer panel adds, duplicates, deletes, merges and flattens " +
                 "layers, and sets each one's opacity, blend mode, alpha lock " +
                 "and lock. Its bottom row picks the paper colour.",
-            "Save PNG writes the whole visible stack to $picturesDirectory.",
+            "This is a document-based app: File opens and saves PNGs through " +
+                "the system's own dialogs, several paintings can be open at " +
+                "once, and closing one with unsaved work asks first. A PNG " +
+                "holds one layer, so saving flattens what the layer panel " +
+                "shows — the layers themselves are not stored in the file.",
+            "The overflow's Save PNG writes the whole visible stack to " +
+                "$picturesDirectory when the painting has no file yet.",
         ).joinToString("\n\n")
 }
 

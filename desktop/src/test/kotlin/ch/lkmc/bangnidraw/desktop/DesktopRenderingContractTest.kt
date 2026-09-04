@@ -31,8 +31,8 @@ class DesktopRenderingContractTest {
 
         assertTrue(engine.contains("GLES30.glCheckFramebufferStatus"))
         assertTrue(engine.contains("check(r.drawFrame("))
-        assertTrue(main.contains("engine.savePng { result ->"))
-        assertTrue(main.contains("EventQueue.invokeLater { state.savedMessage = message }"))
+        assertTrue(engine.contains("fun savePng(target: java.io.File? = null"))
+        assertTrue(main.contains("document.state.savedMessage = result.path"))
         assertTrue(engine.contains("restoreCancelledRmw(spec.layerId, images)"))
         assertTrue(engine.contains("readbackRevisions"))
         assertTrue(engine.contains("ReadbackDelivery.Complete"))
@@ -76,10 +76,10 @@ class DesktopRenderingContractTest {
     @Test
     fun `renderer initialization schedules the first frame`() {
         val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
-        check("private fun initializeRenderer()" in engine && "private fun runTasksAndFrames()" in engine) { "renderer markers not found" }
+        check("private fun initializeRenderer()" in engine && "private fun pumpWetOverlay()" in engine) { "renderer markers not found" }
         val initialization = engine
             .substringAfter("private fun initializeRenderer()")
-            .substringBefore("private fun runTasksAndFrames()")
+            .substringBefore("private fun pumpWetOverlay()")
 
         assertTrue(initialization.contains("requestRepaintOnGl()"))
     }
@@ -89,8 +89,12 @@ class DesktopRenderingContractTest {
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
 
         assertEquals(1, Regex("MixboxBinding\\.create\\(\\)").findAll(main).count())
-        // One mixer reaches the shell state, which every surface reads it from.
-        assertTrue(main.contains("DesktopShellState(it, catalogue, mixer, prefs)"))
+        // One mixer reaches every document, and each shell state reads it.
+        assertTrue(main.contains("DesktopDocuments(ready.memory, host, catalogue, mixer, prefs)"))
+        assertTrue(
+            source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopDocuments.kt")
+                .contains("DesktopShellState(engine, catalogue, mixer, prefs)"),
+        )
     }
 
     /**

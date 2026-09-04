@@ -399,7 +399,8 @@ private fun androidx.compose.ui.window.ApplicationScope.DocumentWindow(
 
                     if (document.confirmingClose) {
                         UnsavedChangesDialog(
-                            name = document.file?.name ?: "this painting",
+                            name = document.file?.name
+                                ?: DesktopStrings.get("desktop_unsaved_this"),
                             onSave = {
                                 document.confirmingClose = false
                                 val file = document.file
@@ -418,10 +419,12 @@ private fun androidx.compose.ui.window.ApplicationScope.DocumentWindow(
                     if (failedOpen != null) {
                         AlertDialog(
                             onDismissRequest = { openError = null },
-                            title = { Text("Could not open that file") },
+                            title = { Text(DesktopStrings.get("desktop_open_failed")) },
                             text = { Text(failedOpen) },
                             confirmButton = {
-                                Button(onClick = { openError = null }) { Text("Close") }
+                                Button(onClick = { openError = null }) {
+                                    Text(DesktopStrings.get("about_close"))
+                                }
                             },
                         )
                     }
@@ -430,7 +433,7 @@ private fun androidx.compose.ui.window.ApplicationScope.DocumentWindow(
         }
     }
 
-    DesktopPanelWindows(state, document.file?.name ?: UNTITLED_NAME)
+    DesktopPanelWindows(state, document.canvas, document.file?.name ?: untitled())
 }
 
 /** The window a failed GL startup gets instead of a canvas. */
@@ -469,7 +472,7 @@ private fun androidx.compose.ui.window.ApplicationScope.AboutWindow(
 ) {
     Window(
         onCloseRequest = onClose,
-        title = "About " + DesktopBrand.displayName,
+        title = DesktopStrings.get("desktop_about", DesktopBrand.displayName),
         icon = painterResource("bangnidraw.png"),
         alwaysOnTop = true,
     ) {
@@ -495,15 +498,17 @@ private fun UnsavedChangesDialog(
 ) {
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("Save changes to $name?") },
-        text = { Text("Closing without saving loses everything painted since the last save.") },
-        confirmButton = { Button(onClick = onSave) { Text("Save") } },
+        title = { Text(DesktopStrings.get("desktop_unsaved_title", name)) },
+        text = { Text(DesktopStrings.get("desktop_unsaved_body")) },
+        confirmButton = { Button(onClick = onSave) { Text(DesktopStrings.get("desktop_save")) } },
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 androidx.compose.material3.TextButton(onClick = onDiscard) {
-                    Text("Don't save")
+                    Text(DesktopStrings.get("desktop_dont_save"))
                 }
-                androidx.compose.material3.TextButton(onClick = onCancel) { Text("Cancel") }
+                androidx.compose.material3.TextButton(onClick = onCancel) {
+                    Text(DesktopStrings.get("layer_cancel"))
+                }
             }
         },
     )
@@ -558,7 +563,8 @@ private fun writeTo(document: DesktopDocument, file: java.io.File, adopt: Boolea
                     document.state.savedMessage = result.path
                 }
                 is DesktopSaveResult.Failed ->
-                    document.state.savedMessage = "Save failed: " + result.message
+                    document.state.savedMessage =
+                        DesktopStrings.get("desktop_save_failed", result.message)
             }
         }
     }
@@ -703,7 +709,7 @@ private fun Shell(
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap,
-                    contentDescription = "canvas",
+                    contentDescription = DesktopStrings.get("desktop_canvas"),
                     modifier = Modifier.fillMaxSize().then(canvasInput),
                 )
             }
@@ -839,7 +845,7 @@ private fun Shell(
     if (state.showHelp) {
         AlertDialog(
             onDismissRequest = { state.showHelp = false },
-            title = { Text("Canvas") },
+            title = { Text(DesktopStrings.get("help_canvas_title")) },
             text = {
                 // The body is longer than a dialog on a 480 dp window; it
                 // also names the export directory, which is a path someone
@@ -852,7 +858,9 @@ private fun Shell(
                 }
             },
             confirmButton = {
-                Button(onClick = { state.showHelp = false }) { Text("Close") }
+                Button(onClick = { state.showHelp = false }) {
+                    Text(DesktopStrings.get("about_close"))
+                }
             },
         )
     }
@@ -865,7 +873,7 @@ private fun FocusHandle(onClick: () -> Unit, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
         modifier = modifier
             .size(FOCUS_HANDLE_TARGET)
-            .semantics { contentDescription = "Show controls" }
+            .semantics { contentDescription = DesktopStrings.get("canvas_show_controls") }
             .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick),
     ) {
         Surface(
@@ -875,6 +883,9 @@ private fun FocusHandle(onClick: () -> Unit, modifier: Modifier = Modifier) {
         ) {}
     }
 }
+
+/** The name a painting carries before its first save. */
+private fun untitled(): String = DesktopStrings.get("desktop_untitled")
 
 /** The rail hugs the hand's bottom corner, or the window's foot when docked. */
 private fun railAlignment(layout: LayoutSpec): Alignment = when {
@@ -1316,7 +1327,6 @@ private const val SAVED_MESSAGE_MS = 6_000L
 // so the window may be as small as one a person could still draw in.
 private const val WINDOW_MIN_W = 640
 private const val WINDOW_MIN_H = 480
-private const val UNTITLED_NAME = "Untitled"
 // Below the top strip, so the pill never covers Undo.
 private val RESET_PILL_TOP = (LayoutSpec.TOP_STRIP_DP + 12).dp
 private val FOCUS_HANDLE_TARGET = 48.dp

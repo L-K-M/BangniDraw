@@ -22,7 +22,6 @@ import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.engine.core.Curve
-import java.util.Locale
 
 /**
  * The controls every settings panel is built from — the desktop twin of
@@ -88,7 +87,7 @@ internal fun CurveRow(label: String, curve: Curve, onChange: (Curve) -> Unit) {
                     value = knot,
                     range = 0f..1f,
                     axis = DesktopSliderAxis.Horizontal,
-                    description = "$label knot ${index + 1}",
+                    description = DesktopStrings.get("desktop_curve_knot", label, index + 1),
                     onValueChange = { value ->
                         onChange(
                             when (index) {
@@ -138,10 +137,11 @@ internal fun SettingToggle(label: String, checked: Boolean, onChange: (Boolean) 
     }
 }
 
-internal fun percent(value: Float): String = "%.0f%%".format(Locale.ROOT, value * PERCENT)
+internal fun percent(value: Float): String =
+    DesktopStrings.get("desktop_percent_value", value * PERCENT)
 
-internal fun px(value: Float): String = "%.0f px".format(Locale.ROOT, value)
+internal fun px(value: Float): String = DesktopStrings.get("desktop_pixel_value", value)
 
-internal fun multiple(value: Float): String = "%.2f×".format(Locale.ROOT, value)
+internal fun multiple(value: Float): String = DesktopStrings.get("desktop_multiplier_value", value)
 
 private const val PERCENT = 100f

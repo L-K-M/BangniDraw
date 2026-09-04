@@ -42,13 +42,14 @@ internal class DesktopDocument(
     /** The window title: the file's name, or "Untitled" before the first save. */
     val title: String
         get() {
-            val name = file?.name ?: UNTITLED
-            val mark = if (dirty) " •" else ""
+            val name = file?.name ?: DesktopStrings.get("desktop_untitled")
+            val mark = if (dirty) DIRTY_MARK else ""
             return "$name$mark — " + DesktopBrand.displayName
         }
 
     private companion object {
-        const val UNTITLED = "Untitled"
+        /** The unsaved-changes mark every document window on these platforms wears. */
+        const val DIRTY_MARK = " •"
     }
 }
 

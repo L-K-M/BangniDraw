@@ -91,8 +91,8 @@ internal fun DesktopTopStrip(
 ) {
     val navigation: @Composable () -> Unit = {
         Row(horizontalArrangement = Arrangement.Start) {
-            HistoryButton("Undo", Icons.AutoMirrored.Filled.Undo, canUndo, onUndo)
-            HistoryButton("Redo", Icons.AutoMirrored.Filled.Redo, canRedo, onRedo)
+            HistoryButton(DesktopStrings.get("canvas_undo"), Icons.AutoMirrored.Filled.Undo, canUndo, onUndo)
+            HistoryButton(DesktopStrings.get("canvas_redo"), Icons.AutoMirrored.Filled.Redo, canRedo, onRedo)
         }
     }
     val tools: @Composable () -> Unit = {
@@ -155,7 +155,9 @@ private fun HistoryButton(
                 // Android states why a dead tap is dead rather than dropping
                 // the node; a disabled IconButton already carries that, so
                 // only the reason is added here.
-                .semantics { if (!enabled) stateDescription = UNAVAILABLE_STATE },
+                .semantics {
+                    if (!enabled) stateDescription = DesktopStrings.get("cd_unavailable")
+                },
         ) {
             Icon(
                 icon,
@@ -176,7 +178,7 @@ private fun HistoryButton(
 private fun LayersButton(activeLayer: Int, open: Boolean, onClick: () -> Unit) {
     TooltipBox(
         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
-        tooltip = { PlainTooltip { Text(LAYERS_LABEL) } },
+        tooltip = { PlainTooltip { Text(DesktopStrings.get("layers_title")) } },
         state = rememberTooltipState(),
     ) {
         Box(contentAlignment = Alignment.BottomEnd) {
@@ -185,7 +187,7 @@ private fun LayersButton(activeLayer: Int, open: Boolean, onClick: () -> Unit) {
                 modifier = Modifier.size(ICON_BUTTON).semantics {
                     role = Role.Button
                     selected = open
-                    contentDescription = LAYERS_LABEL
+                    contentDescription = DesktopStrings.get("layers_title")
                 },
             ) {
                 Icon(
@@ -225,8 +227,12 @@ private fun LayersButton(activeLayer: Int, open: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun ColorButton(brushColor: Int, open: Boolean, onClick: () -> Unit) {
-    // Locale.ROOT: a locale with its own digits would shape the hex code.
-    val description = "Colour #%06X".format(Locale.ROOT, brushColor and RGB_MASK)
+    // Locale.ROOT for the hex itself: a locale with its own digits would
+    // shape the code. The sentence around it is the user's language.
+    val description = DesktopStrings.get(
+        "cd_color",
+        "#%06X".format(Locale.ROOT, brushColor and RGB_MASK),
+    )
     TooltipBox(
         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
         tooltip = { PlainTooltip { Text(description) } },
@@ -273,17 +279,22 @@ private fun OverflowMenu(
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }, modifier = Modifier.size(ICON_BUTTON)) {
-            Icon(Icons.Filled.MoreVert, contentDescription = "More")
+            Icon(Icons.Filled.MoreVert, contentDescription = DesktopStrings.get("canvas_more"))
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            OverflowItem("Save", onSave) { open = false }
+            OverflowItem(DesktopStrings.get("desktop_save"), onSave) { open = false }
             OverflowItem(
-                if (guidesVisible) "Hide guides" else "Show guides",
+                DesktopStrings.get(
+                    if (guidesVisible) "desktop_hide_guides" else "desktop_show_guides",
+                ),
                 onToggleGuides,
             ) { open = false }
-            OverflowItem("Focus mode (Tab)", onFocus) { open = false }
-            OverflowItem("About " + DesktopBrand.displayName, onAbout) { open = false }
-            OverflowItem("Help", onHelp) { open = false }
+            OverflowItem(DesktopStrings.get("canvas_focus"), onFocus) { open = false }
+            OverflowItem(
+                DesktopStrings.get("desktop_about", DesktopBrand.displayName),
+                onAbout,
+            ) { open = false }
+            OverflowItem(DesktopStrings.get("desktop_menu_help"), onHelp) { open = false }
         }
     }
 }
@@ -305,8 +316,6 @@ private val COLOR_SWATCH = 24.dp
 private val COLOR_RADIUS = 6.dp
 private const val DISABLED_ALPHA = 0.38f
 private const val RGB_MASK = 0xFFFFFF
-private const val UNAVAILABLE_STATE = "Unavailable"
-private const val LAYERS_LABEL = "Layers"
 private val BADGE_RADIUS = 6.dp
 private val BADGE_INSET = 6.dp
 private val BADGE_RING = 1.dp

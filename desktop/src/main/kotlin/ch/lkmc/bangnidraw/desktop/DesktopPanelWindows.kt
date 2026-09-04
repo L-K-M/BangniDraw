@@ -29,13 +29,21 @@ import ch.lkmc.bangnidraw.ui.shared.BangniTypography
  * is why [DesktopShellState] hoists the state they read.
  */
 @Composable
-internal fun DesktopPanelWindows(state: DesktopShellState, documentName: String) {
-    if (state.showLayerPanel) LayerPanelWindow(state, documentName)
+internal fun DesktopPanelWindows(
+    state: DesktopShellState,
+    canvas: ch.lkmc.bangnidraw.engine.core.CanvasSize,
+    documentName: String,
+) {
+    if (state.showLayerPanel) LayerPanelWindow(state, canvas, documentName)
     if (state.showBrushPanel) ToolPanelWindow(state, documentName)
 }
 
 @Composable
-private fun LayerPanelWindow(state: DesktopShellState, documentName: String) {
+private fun LayerPanelWindow(
+    state: DesktopShellState,
+    canvas: ch.lkmc.bangnidraw.engine.core.CanvasSize,
+    documentName: String,
+) {
     // Thumbnails are rendered by the GL thread only while somebody is looking
     // at them: the pass costs an isolated layer render plus two PBO reads.
     DisposableEffect(state) {
@@ -49,13 +57,14 @@ private fun LayerPanelWindow(state: DesktopShellState, documentName: String) {
     }
 
     PanelWindow(
-        title = "Layers — $documentName",
+        title = DesktopStrings.get("layers_title") + " — " + documentName,
         size = DpSize(LAYER_PANEL_WIDTH, LAYER_PANEL_HEIGHT),
         onClose = { state.showLayerPanel = false },
     ) {
         DesktopLayerPanel(
             stack = state.stack,
             paperColor = state.paperColor,
+            canvas = canvas,
             layerCap = state.layerCap,
             thumbnails = state.thumbnails,
             refusal = state.refusal,

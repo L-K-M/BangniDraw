@@ -256,10 +256,13 @@ class DesktopDocumentTest {
 
     @Test
     fun `every refusal has something to say`() {
+        val canvas = ch.lkmc.bangnidraw.engine.core.CanvasSize(2048, 2048)
         for (reason in Refusal.entries) {
-            assertTrue(DesktopLayerNames.refusal(reason, layerCap = 12).isNotBlank())
+            assertTrue(DesktopLayerNames.refusal(reason, canvas, layerCap = 12).isNotBlank())
         }
-        assertTrue(DesktopLayerNames.refusal(Refusal.AT_CAP, layerCap = 12).contains("12"))
+        // The cap message names the number, because "too many layers" without
+        // one is not something a user can act on.
+        assertTrue(DesktopLayerNames.refusal(Refusal.AT_CAP, canvas, layerCap = 12).contains("12"))
     }
 
     private fun invalidationOf(

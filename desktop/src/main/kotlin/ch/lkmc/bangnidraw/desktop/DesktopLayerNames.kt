@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.desktop
 
 import ch.lkmc.bangnidraw.engine.core.BlendMode
+import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.LayerNameResolver
 import ch.lkmc.bangnidraw.engine.core.Refusal
 
@@ -26,33 +27,38 @@ internal object DesktopLayerNames {
      */
     fun resolve(stored: String): String = LayerNameResolver.resolve(
         stored = stored,
-        defaultName = { n -> "Layer $n" },
-        flattenedName = "Flattened",
-        copySuffix = " copy",
+        defaultName = { n -> DesktopStrings.get("layer_default_display") + " " + n },
+        flattenedName = DesktopStrings.get("layer_flattened"),
+        copySuffix = DesktopStrings.get("layer_copy_suffix"),
     )
 
-    fun blendMode(mode: BlendMode): String = when (mode) {
-        BlendMode.NORMAL -> "Normal"
-        BlendMode.MULTIPLY -> "Multiply"
-        BlendMode.SCREEN -> "Screen"
-        BlendMode.OVERLAY -> "Overlay"
-        BlendMode.DARKEN -> "Darken"
-        BlendMode.LIGHTEN -> "Lighten"
-        BlendMode.ADD -> "Add"
-        BlendMode.DIFFERENCE -> "Difference"
-    }
+    fun blendMode(mode: BlendMode): String = DesktopStrings.get(
+        when (mode) {
+            BlendMode.NORMAL -> "blend_normal"
+            BlendMode.MULTIPLY -> "blend_multiply"
+            BlendMode.SCREEN -> "blend_screen"
+            BlendMode.OVERLAY -> "blend_overlay"
+            BlendMode.DARKEN -> "blend_darken"
+            BlendMode.LIGHTEN -> "blend_lighten"
+            BlendMode.ADD -> "blend_add"
+            BlendMode.DIFFERENCE -> "blend_difference"
+        },
+    )
 
     /**
      * Why an operation did nothing. [Refusal] is a value precisely so the
      * panel can say this instead of failing silently.
      */
-    fun refusal(reason: Refusal, layerCap: Int): String = when (reason) {
-        Refusal.LAST_LAYER -> "A painting keeps at least one layer."
-        Refusal.AT_CAP -> "This canvas holds at most $layerCap layers."
-        Refusal.LOCKED -> "That layer is locked."
-        Refusal.HIDDEN_PARTNER -> "Both layers must be visible to merge."
-        Refusal.NO_LAYER_BELOW -> "There is no layer below this one."
-        Refusal.NOOP -> "Nothing changed."
+    fun refusal(reason: Refusal, canvas: CanvasSize, layerCap: Int): String = when (reason) {
+        // The cap depends on the canvas, so its message names both — the same
+        // plural `:app`'s panel shows.
+        Refusal.AT_CAP ->
+            DesktopStrings.plural("layer_limit", layerCap, canvas.width, canvas.height, layerCap)
+        Refusal.LAST_LAYER -> DesktopStrings.get("layer_only")
+        Refusal.LOCKED -> DesktopStrings.get("layer_locked")
+        Refusal.HIDDEN_PARTNER -> DesktopStrings.get("layer_hidden_partner")
+        Refusal.NO_LAYER_BELOW -> DesktopStrings.get("layer_no_below")
+        Refusal.NOOP -> DesktopStrings.get("layer_no_change")
     }
 }
 

@@ -53,157 +53,169 @@ internal fun DesktopToolSettings(state: DesktopShellState, modifier: Modifier = 
 
 @Composable
 private fun Smudge(params: SmudgeParams, onChanged: (SmudgeParams) -> Unit) {
-    SettingsGroup("Dab")
-    SettingSlider("Size", params.size, params.sizeMin..params.sizeMax, px(params.size)) {
+    SettingsGroup(DesktopStrings.get("desktop_dab_group"))
+    SettingSlider(DesktopStrings.get("brush_size"), params.size, params.sizeMin..params.sizeMax, px(params.size)) {
         onChanged(params.copy(size = it))
     }
-    SettingSlider("Hardness", params.hardness, UNIT, percent(params.hardness)) {
+    SettingSlider(DesktopStrings.get("brush_hardness"), params.hardness, UNIT, percent(params.hardness)) {
         onChanged(params.copy(hardness = it))
     }
-    SettingSlider("Spacing", params.spacing, SPACING, percent(params.spacing)) {
+    SettingSlider(DesktopStrings.get("brush_spacing"), params.spacing, SPACING, percent(params.spacing)) {
         onChanged(params.copy(spacing = it))
     }
 
-    SettingsGroup("Pickup")
-    SettingSlider("Strength", params.strength, UNIT, percent(params.strength)) {
+    SettingsGroup(DesktopStrings.get("desktop_pickup_group"))
+    SettingSlider(DesktopStrings.get("smudge_strength"), params.strength, UNIT, percent(params.strength)) {
         onChanged(params.copy(strength = it))
     }
     // 0 is a clean finger: the pickup buffer keeps the colour it started with
     // instead of absorbing what it drags through.
-    SettingSlider("Pickup rate", params.pickupRate, UNIT, percent(params.pickupRate)) {
+    SettingSlider(DesktopStrings.get("smudge_pickup"), params.pickupRate, UNIT, percent(params.pickupRate)) {
         onChanged(params.copy(pickupRate = it))
     }
-    SettingToggle("Pigment mixing in the pickup", params.mixing) {
+    SettingToggle(DesktopStrings.get("brush_pigment"), params.mixing) {
         onChanged(params.copy(mixing = it))
     }
 
-    SettingsGroup("Dynamics")
-    CurveRow("Pressure → strength", params.pressureStrength) {
+    SettingsGroup(DesktopStrings.get("brush_group_dynamics"))
+    CurveRow(DesktopStrings.get("smudge_pressure_strength"), params.pressureStrength) {
         onChanged(params.copy(pressureStrength = it))
     }
-    SettingSlider("Stabilizer", params.stabilizer, UNIT, percent(params.stabilizer)) {
+    SettingSlider(DesktopStrings.get("brush_stabilizer"), params.stabilizer, UNIT, percent(params.stabilizer)) {
         onChanged(params.copy(stabilizer = it))
     }
 }
 
 @Composable
 private fun Water(params: WaterParams, onChanged: (WaterParams) -> Unit) {
-    SettingsGroup("Dab")
+    SettingsGroup(DesktopStrings.get("desktop_dab_group"))
     // The maximum is the GLES scratch bound, not the tool's taste: WaterParams
     // refuses a size past it (`WatercolorDabPlan.MAX_DIAMETER_PX`).
     SettingSlider(
-        "Size",
+        DesktopStrings.get("brush_size"),
         params.size,
         params.sizeMin..minOf(params.sizeMax, WatercolorDabPlan.MAX_DIAMETER_PX.toFloat()),
         px(params.size),
     ) {
         onChanged(params.withSize(it))
     }
-    SettingSlider("Hardness", params.hardness, UNIT, percent(params.hardness)) {
+    SettingSlider(DesktopStrings.get("brush_hardness"), params.hardness, UNIT, percent(params.hardness)) {
         onChanged(params.copy(hardness = it))
     }
-    SettingSlider("Spacing", params.spacing, SPACING, percent(params.spacing)) {
+    SettingSlider(DesktopStrings.get("brush_spacing"), params.spacing, SPACING, percent(params.spacing)) {
         onChanged(params.copy(spacing = it))
     }
 
-    SettingsGroup("Water")
-    SettingSlider("Load", params.waterLoad, UNIT, percent(params.waterLoad)) {
+    SettingsGroup(DesktopStrings.get("desktop_water_group"))
+    SettingSlider(DesktopStrings.get("water_amount"), params.waterLoad, UNIT, percent(params.waterLoad)) {
         onChanged(params.withWaterLoad(it))
     }
-    SettingSlider("Spread", params.spread, UNIT, percent(params.spread)) {
+    SettingSlider(DesktopStrings.get("water_spread"), params.spread, UNIT, percent(params.spread)) {
         onChanged(params.copy(spread = it))
     }
-    SettingSlider("Granulation", params.granulation, UNIT, percent(params.granulation)) {
+    SettingSlider(DesktopStrings.get("water_granulation"), params.granulation, UNIT, percent(params.granulation)) {
         onChanged(params.copy(granulation = it))
     }
-    SettingSlider("Edge darkening", params.edgeDarkening, UNIT, percent(params.edgeDarkening)) {
+    SettingSlider(DesktopStrings.get("water_edge_darkening"), params.edgeDarkening, UNIT, percent(params.edgeDarkening)) {
         onChanged(params.copy(edgeDarkening = it))
     }
 
-    SettingsGroup("Dynamics")
-    CurveRow("Pressure → water", params.pressureWater) {
+    SettingsGroup(DesktopStrings.get("brush_group_dynamics"))
+    CurveRow(DesktopStrings.get("brush_pressure_flow"), params.pressureWater) {
         onChanged(params.copy(pressureWater = it))
     }
-    SettingSlider("Stabilizer", params.stabilizer, UNIT, percent(params.stabilizer)) {
+    SettingSlider(DesktopStrings.get("brush_stabilizer"), params.stabilizer, UNIT, percent(params.stabilizer)) {
         onChanged(params.copy(stabilizer = it))
     }
 }
 
 @Composable
 private fun Blur(params: BlurParams, onChanged: (BlurParams) -> Unit) {
-    SettingsGroup("Dab")
-    SettingSlider("Size", params.size, params.sizeMin..params.sizeMax, px(params.size)) {
+    SettingsGroup(DesktopStrings.get("desktop_dab_group"))
+    SettingSlider(DesktopStrings.get("brush_size"), params.size, params.sizeMin..params.sizeMax, px(params.size)) {
         onChanged(params.copy(size = it))
     }
-    SettingSlider("Spacing", params.spacing, SPACING, percent(params.spacing)) {
+    SettingSlider(DesktopStrings.get("brush_spacing"), params.spacing, SPACING, percent(params.spacing)) {
         onChanged(params.copy(spacing = it))
     }
 
-    SettingsGroup("Kernel")
-    SettingSlider("Strength", params.strength, UNIT, percent(params.strength)) {
+    SettingsGroup(DesktopStrings.get("desktop_kernel_group"))
+    SettingSlider(DesktopStrings.get("smudge_strength"), params.strength, UNIT, percent(params.strength)) {
         onChanged(params.copy(strength = it))
     }
     // The kernel radius is size × this, clamped to 1..24 px by the pass.
-    SettingSlider("Radius", params.radiusFraction, UNIT, percent(params.radiusFraction)) {
+    SettingSlider(DesktopStrings.get("blur_radius"), params.radiusFraction, UNIT, percent(params.radiusFraction)) {
         onChanged(params.copy(radiusFraction = it))
     }
 
-    SettingsGroup("Dynamics")
-    CurveRow("Pressure → strength", params.pressureStrength) {
+    SettingsGroup(DesktopStrings.get("brush_group_dynamics"))
+    CurveRow(DesktopStrings.get("smudge_pressure_strength"), params.pressureStrength) {
         onChanged(params.copy(pressureStrength = it))
     }
 }
 
 @Composable
 private fun Fill(params: FillParams, onChanged: (FillParams) -> Unit) {
-    SettingsGroup("Region")
-    SettingSlider("Tolerance", params.tolerance, UNIT, percent(params.tolerance)) {
+    SettingsGroup(DesktopStrings.get("desktop_region_group"))
+    SettingSlider(DesktopStrings.get("fill_tolerance"), params.tolerance, UNIT, percent(params.tolerance)) {
         onChanged(params.copy(tolerance = it))
     }
-    SettingChoice("Measured against") {
-        SettingChip("Composite", params.reference == FillReference.Composite) {
+    SettingChoice(DesktopStrings.get("fill_reference")) {
+        SettingChip(
+            DesktopStrings.get("fill_reference_composite"),
+            params.reference == FillReference.Composite,
+        ) {
             onChanged(params.copy(reference = FillReference.Composite))
         }
-        SettingChip("This layer", params.reference == FillReference.CurrentLayer) {
+        SettingChip(
+            DesktopStrings.get("fill_reference_current"),
+            params.reference == FillReference.CurrentLayer,
+        ) {
             onChanged(params.copy(reference = FillReference.CurrentLayer))
         }
     }
     // Off is a global fill: every matching pixel, not just the region the
     // click landed in.
-    SettingToggle("Only the connected region", params.contiguous) {
+    SettingToggle(DesktopStrings.get("fill_contiguous"), params.contiguous) {
         onChanged(params.copy(contiguous = it))
     }
 
-    SettingsGroup("Edges")
+    SettingsGroup(DesktopStrings.get("desktop_edges_group"))
     // Grows the region to close the anti-aliased gap around an inked outline.
     SettingSlider(
-        "Expand",
+        DesktopStrings.get("fill_expand"),
         params.expand.toFloat(),
         0f..FillParams.MAX_EXPAND.toFloat(),
-        "${params.expand} px",
+        DesktopStrings.get("desktop_fill_expand_value", params.expand),
     ) {
         onChanged(params.copy(expand = it.toInt().coerceIn(0, FillParams.MAX_EXPAND)))
     }
-    SettingToggle("Antialias", params.antialias) { onChanged(params.copy(antialias = it)) }
-    SettingSlider("Opacity", params.opacity, UNIT, percent(params.opacity)) {
+    SettingToggle(DesktopStrings.get("fill_antialias"), params.antialias) { onChanged(params.copy(antialias = it)) }
+    SettingSlider(DesktopStrings.get("fill_opacity"), params.opacity, UNIT, percent(params.opacity)) {
         onChanged(params.copy(opacity = it))
     }
 }
 
 @Composable
 private fun Eyedropper(params: EyedropperParams, onChanged: (EyedropperParams) -> Unit) {
-    SettingsGroup("Sample")
-    SettingChoice("Reads") {
-        SettingChip("Composite", params.source == SampleSource.Composite) {
+    SettingsGroup(DesktopStrings.get("desktop_sample_group"))
+    SettingChoice(DesktopStrings.get("eyedropper_sample")) {
+        SettingChip(
+            DesktopStrings.get("fill_reference_composite"),
+            params.source == SampleSource.Composite,
+        ) {
             onChanged(params.copy(source = SampleSource.Composite))
         }
-        SettingChip("This layer", params.source == SampleSource.CurrentLayer) {
+        SettingChip(
+            DesktopStrings.get("fill_reference_current"),
+            params.source == SampleSource.CurrentLayer,
+        ) {
             onChanged(params.copy(source = SampleSource.CurrentLayer))
         }
     }
     // 0 is one pixel; 1 averages a 3×3 block, and so on.
     SettingSlider(
-        "Average",
+        DesktopStrings.get("eyedropper_radius"),
         params.radius.toFloat(),
         0f..EyedropperParams.MAX_RADIUS.toFloat(),
         radiusLabel(params.radius),
@@ -212,8 +224,11 @@ private fun Eyedropper(params: EyedropperParams, onChanged: (EyedropperParams) -
     }
 }
 
-private fun radiusLabel(radius: Int): String =
-    if (radius == 0) "1 px" else "${radius * 2 + 1}×${radius * 2 + 1} px"
+private fun radiusLabel(radius: Int): String = if (radius == 0) {
+    DesktopStrings.get("desktop_eyedropper_radius_one")
+} else {
+    DesktopStrings.get("desktop_eyedropper_radius_block", radius * 2 + 1)
+}
 
 private val UNIT = 0f..1f
 private val SPACING = 0.02f..1f

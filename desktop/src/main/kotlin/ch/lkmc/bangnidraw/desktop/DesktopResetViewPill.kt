@@ -20,7 +20,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.engine.core.ResetViewPolicy
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
-import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -72,10 +71,14 @@ internal fun DesktopResetViewPill(
  * what it is undoing rather than only offering to undo it.
  */
 private fun label(view: ViewTransform): String {
+    val reset = DesktopStrings.get("canvas_reset_view")
     val zoom = (view.scale * PERCENT).roundToInt()
     val degrees = Math.toDegrees(view.rotation.toDouble()).roundToInt()
-    val angle = if (degrees == 0) "" else String.format(Locale.ROOT, ", %d°", degrees)
-    return String.format(Locale.ROOT, "Reset view · %d%%%s", zoom, angle)
+    return if (degrees == 0) {
+        DesktopStrings.get("desktop_reset_view_zoom", reset, zoom)
+    } else {
+        DesktopStrings.get("desktop_reset_view_zoom_angle", reset, zoom, degrees)
+    }
 }
 
 private const val PERCENT = 100f

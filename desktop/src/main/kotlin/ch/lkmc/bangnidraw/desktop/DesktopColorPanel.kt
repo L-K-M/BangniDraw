@@ -61,7 +61,7 @@ internal fun DesktopColorPanel(
             .width(PANEL_WIDTH)
             .semantics {
                 liveRegion = LiveRegionMode.Polite
-                paneTitle = "Colour"
+                paneTitle = DesktopStrings.get("color_panel")
             },
     ) {
         Column(
@@ -74,10 +74,10 @@ internal fun DesktopColorPanel(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Colour", style = MaterialTheme.typography.titleSmall)
+                Text(DesktopStrings.get("color_panel"), style = MaterialTheme.typography.titleSmall)
                 Box(Modifier.weight(1f))
                 IconButton(onClick = onClose) {
-                    Icon(Icons.Filled.Close, contentDescription = "Close colour panel")
+                    Icon(Icons.Filled.Close, contentDescription = DesktopStrings.get("panel_close"))
                 }
             }
 
@@ -184,11 +184,13 @@ private fun channelValue(channel: HsvChannel, value: Float): String {
     return if (channel == HsvChannel.HUE) "$rounded°" else "$rounded%"
 }
 
-private fun channelLabel(channel: HsvChannel): String = when (channel) {
-    HsvChannel.HUE -> "Hue"
-    HsvChannel.SATURATION -> "Saturation"
-    HsvChannel.VALUE -> "Value"
-}
+private fun channelLabel(channel: HsvChannel): String = DesktopStrings.get(
+    when (channel) {
+        HsvChannel.HUE -> "color_hue"
+        HsvChannel.SATURATION -> "color_saturation"
+        HsvChannel.VALUE -> "color_value"
+    },
+)
 
 private val PANEL_WIDTH = 320.dp
 private val PANEL_PADDING = 16.dp

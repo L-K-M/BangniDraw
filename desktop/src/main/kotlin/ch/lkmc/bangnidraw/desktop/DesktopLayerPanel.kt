@@ -54,6 +54,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.engine.core.BlendMode
+import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.Layer
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerPanelOrder
@@ -97,6 +98,7 @@ internal class DesktopLayerActions(
 internal fun DesktopLayerPanel(
     stack: LayerStack,
     paperColor: Int,
+    canvas: CanvasSize,
     layerCap: Int,
     thumbnails: Map<LayerId, LayerThumbnail>,
     refusal: DesktopRefusal?,
@@ -110,7 +112,7 @@ internal fun DesktopLayerPanel(
     // re-show the hint rather than looking like a dead button.
     LaunchedEffect(refusal) {
         val reason = refusal ?: return@LaunchedEffect
-        hint = DesktopLayerNames.refusal(reason.reason, layerCap)
+        hint = DesktopLayerNames.refusal(reason.reason, canvas, layerCap)
         kotlinx.coroutines.delay(HINT_MS)
         hint = null
     }
@@ -177,24 +179,24 @@ private fun Header(count: Int, cap: Int, onAdd: () -> Unit, onFlatten: () -> Uni
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().height(HEADER_HEIGHT).padding(horizontal = ROW_PADDING),
     ) {
-        Text("Layers", style = MaterialTheme.typography.titleSmall)
+        Text(DesktopStrings.get("layers_title"), style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.width(8.dp))
         Text(
-            "$count/$cap",
+            DesktopStrings.get("layers_count", count, cap),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.weight(1f))
         IconButton(onClick = onAdd) {
-            Icon(Icons.Filled.Add, contentDescription = "Add layer")
+            Icon(Icons.Filled.Add, contentDescription = DesktopStrings.get("layer_add"))
         }
         Box {
             IconButton(onClick = { menu = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "Layer panel menu")
+                Icon(Icons.Filled.MoreVert, contentDescription = DesktopStrings.get("layer_panel_more"))
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(
-                    text = { Text("Flatten") },
+                    text = { Text(DesktopStrings.get("layer_flatten")) },
                     onClick = {
                         menu = false
                         onFlatten()
@@ -249,7 +251,7 @@ private fun LayerRow(
                         value = layer.props.opacity,
                         range = 0f..1f,
                         axis = DesktopSliderAxis.Horizontal,
-                        description = "$name opacity",
+                        description = DesktopStrings.get("layer_opacity"),
                         onValueChange = { actions.setOpacity(stackIndex, it) },
                         modifier = Modifier.weight(1f),
                         fillWidth = true,
@@ -257,7 +259,10 @@ private fun LayerRow(
                     Text(
                         // %.0f rounds where toInt would truncate, matching
                         // the reading `:app`'s panel shows for the same value.
-                        "%.0f%%".format(java.util.Locale.ROOT, layer.props.opacity * PERCENT),
+                        DesktopStrings.get(
+                            "layer_opacity_value",
+                            (layer.props.opacity * PERCENT).toInt(),
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.End,
@@ -272,8 +277,8 @@ private fun LayerRow(
                     if (layer.props.blendMode != BlendMode.NORMAL) {
                         add(DesktopLayerNames.blendMode(layer.props.blendMode))
                     }
-                    if (layer.props.alphaLock) add("Alpha locked")
-                    if (layer.props.locked) add("Locked")
+                    if (layer.props.alphaLock) add(DesktopStrings.get("layer_alpha_lock"))
+                    if (layer.props.locked) add(DesktopStrings.get("layer_lock"))
                 }
                 if (badges.isNotEmpty()) {
                     Text(
@@ -286,12 +291,14 @@ private fun LayerRow(
             IconButton(onClick = { actions.setVisible(stackIndex, !layer.props.visible) }) {
                 Icon(
                     if (layer.props.visible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                    contentDescription = if (layer.props.visible) "Hide $name" else "Show $name",
+                    contentDescription = DesktopStrings.get(
+                        if (layer.props.visible) "layer_hide" else "layer_show",
+                    ),
                 )
             }
             Box {
                 IconButton(onClick = { menu = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "$name actions")
+                    Icon(Icons.Filled.MoreVert, contentDescription = DesktopStrings.get("layer_more"))
                 }
                 LayerMenu(
                     open = menu,
@@ -319,11 +326,11 @@ private fun LayerMenu(
 ) {
     var blendMenu by remember { mutableStateOf(false) }
     DropdownMenu(expanded = open, onDismissRequest = onDismiss) {
-        Item("Rename…", onDismiss, onRename)
-        Item("Duplicate", onDismiss) { actions.duplicate(stackIndex) }
-        Item("Delete", onDismiss) { actions.delete(stackIndex) }
-        Item("Clear", onDismiss) { actions.clear(stackIndex) }
-        Item("Merge down", onDismiss) { actions.mergeDown(stackIndex) }
+        Item(DesktopStrings.get("layer_rename"), onDismiss, onRename)
+        Item(DesktopStrings.get("layer_duplicate"), onDismiss) { actions.duplicate(stackIndex) }
+        Item(DesktopStrings.get("layer_delete"), onDismiss) { actions.delete(stackIndex) }
+        Item(DesktopStrings.get("layer_clear"), onDismiss) { actions.clear(stackIndex) }
+        Item(DesktopStrings.get("layer_merge_down"), onDismiss) { actions.mergeDown(stackIndex) }
         Divider()
         // Only the moves this row can actually make; LayerPanelOrder decides,
         // so a top row never offers "move to top".
@@ -334,7 +341,10 @@ private fun LayerMenu(
         Box {
             DropdownMenuItem(
                 text = {
-                    Text("Blend mode: " + DesktopLayerNames.blendMode(layer.props.blendMode))
+                    Text(
+                        DesktopStrings.get("layer_blend_mode") + ": " +
+                            DesktopLayerNames.blendMode(layer.props.blendMode),
+                    )
                 },
                 onClick = { blendMenu = true },
             )
@@ -354,10 +364,10 @@ private fun LayerMenu(
                 }
             }
         }
-        Item(check("Alpha lock", layer.props.alphaLock), onDismiss) {
+        Item(check(DesktopStrings.get("layer_alpha_lock"), layer.props.alphaLock), onDismiss) {
             actions.setAlphaLock(stackIndex, !layer.props.alphaLock)
         }
-        Item(check("Lock", layer.props.locked), onDismiss) {
+        Item(check(DesktopStrings.get("layer_lock"), layer.props.locked), onDismiss) {
             actions.setLocked(stackIndex, !layer.props.locked)
         }
     }
@@ -406,7 +416,7 @@ private fun PaperRow(paperColor: Int, onPaperColor: (Int) -> Unit) {
             ) {
                 PaperSwatch(Color(paperColor))
                 Spacer(Modifier.width(12.dp))
-                Text("Paper", style = MaterialTheme.typography.bodyMedium)
+                Text(DesktopStrings.get("layer_paper"), style = MaterialTheme.typography.bodyMedium)
             }
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -447,26 +457,32 @@ private fun RenameDialog(initial: String, onDismiss: () -> Unit, onConfirm: (Str
     var text by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename layer") },
+        title = { Text(DesktopStrings.get("layer_rename_title")) },
         text = {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
                 singleLine = true,
-                label = { Text("Name") },
+                label = { Text(DesktopStrings.get("layer_rename_hint")) },
             )
         },
-        confirmButton = { TextButton(onClick = { onConfirm(text) }) { Text("Rename") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(text) }) { Text(DesktopStrings.get("layer_rename")) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(DesktopStrings.get("layer_cancel")) }
+        },
     )
 }
 
-private fun reorderLabel(action: LayerReorderAction): String = when (action) {
-    LayerReorderAction.UP -> "Move up"
-    LayerReorderAction.DOWN -> "Move down"
-    LayerReorderAction.TOP -> "Move to top"
-    LayerReorderAction.BOTTOM -> "Move to bottom"
-}
+private fun reorderLabel(action: LayerReorderAction): String = DesktopStrings.get(
+    when (action) {
+        LayerReorderAction.UP -> "layer_move_up"
+        LayerReorderAction.DOWN -> "layer_move_down"
+        LayerReorderAction.TOP -> "layer_move_top"
+        LayerReorderAction.BOTTOM -> "layer_move_bottom"
+    },
+)
 
 private fun check(label: String, on: Boolean): String = if (on) "$label ✓" else label
 

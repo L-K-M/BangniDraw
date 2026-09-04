@@ -28,63 +28,71 @@ internal fun FrameWindowScope.DesktopMenuBar(
 ) {
     val state = document.state
     MenuBar {
-        Menu("File", mnemonic = 'F') {
-            Item("New", shortcut = shortcut(Key.N), onClick = onNew)
-            Item("Open…", shortcut = shortcut(Key.O), onClick = onOpen)
+        Menu(DesktopStrings.get("desktop_menu_file"), mnemonic = 'F') {
+            Item(DesktopStrings.get("desktop_new"), shortcut = shortcut(Key.N), onClick = onNew)
+            Item(DesktopStrings.get("desktop_open"), shortcut = shortcut(Key.O), onClick = onOpen)
             Separator()
             Item(
-                "Save",
+                DesktopStrings.get("desktop_save"),
                 shortcut = shortcut(Key.S),
                 // A painting with no file has nothing to save *over*, but
                 // Save still works: it falls through to Save As.
                 enabled = document.dirty || document.file == null,
                 onClick = onSave,
             )
-            Item("Save As…", shortcut = shortcut(Key.S, shift = true), onClick = onSaveAs)
+            Item(
+                DesktopStrings.get("desktop_save_as"),
+                shortcut = shortcut(Key.S, shift = true),
+                onClick = onSaveAs,
+            )
             // Separate from Save because the formats are not interchangeable:
             // `.bangni` keeps the layers, a PNG flattens them.
-            Item("Export PNG…", shortcut = shortcut(Key.E, shift = true), onClick = onExportPng)
-            Separator()
-            Item("Close", shortcut = shortcut(Key.W), onClick = onClose)
-        }
-        Menu("Edit", mnemonic = 'E') {
             Item(
-                "Undo",
+                DesktopStrings.get("desktop_export_png"),
+                shortcut = shortcut(Key.E, shift = true),
+                onClick = onExportPng,
+            )
+            Separator()
+            Item(DesktopStrings.get("desktop_close"), shortcut = shortcut(Key.W), onClick = onClose)
+        }
+        Menu(DesktopStrings.get("desktop_menu_edit"), mnemonic = 'E') {
+            Item(
+                DesktopStrings.get("canvas_undo"),
                 shortcut = shortcut(Key.Z),
                 enabled = document.engine.canUndo(),
                 onClick = { document.engine.undo() },
             )
             Item(
-                "Redo",
+                DesktopStrings.get("canvas_redo"),
                 shortcut = shortcut(Key.Z, shift = true),
                 enabled = document.engine.canRedo(),
                 onClick = { document.engine.redo() },
             )
         }
-        Menu("Window", mnemonic = 'W') {
+        Menu(DesktopStrings.get("desktop_menu_window"), mnemonic = 'W') {
             // Checkbox items, because these panels are windows that stay open
             // until they are closed — a plain item would not say which are up.
             CheckboxItem(
-                "Layers",
+                DesktopStrings.get("layers_title"),
                 checked = state.showLayerPanel,
                 shortcut = shortcut(Key.L),
                 onCheckedChange = { state.showLayerPanel = it },
             )
             CheckboxItem(
-                "Tool settings",
+                DesktopStrings.get("desktop_tool_settings"),
                 checked = state.showBrushPanel,
                 shortcut = shortcut(Key.B),
                 onCheckedChange = { state.showBrushPanel = it },
             )
             CheckboxItem(
-                "Colour",
+                DesktopStrings.get("color_panel"),
                 checked = state.showColorPanel,
                 onCheckedChange = { state.showColorPanel = it },
             )
         }
-        Menu("Help", mnemonic = 'H') {
-            Item("Canvas help", onClick = onHelp)
-            Item("About " + DesktopBrand.displayName, onClick = onAbout)
+        Menu(DesktopStrings.get("desktop_menu_help"), mnemonic = 'H') {
+            Item(DesktopStrings.get("desktop_canvas_help"), onClick = onHelp)
+            Item(DesktopStrings.get("desktop_about", DesktopBrand.displayName), onClick = onAbout)
         }
     }
 }

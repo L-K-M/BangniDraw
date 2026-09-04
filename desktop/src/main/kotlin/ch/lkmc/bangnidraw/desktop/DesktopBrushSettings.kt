@@ -68,7 +68,7 @@ internal fun DesktopBrushSettings(
         if (preset.eraseMode) {
             // The rail's slot holds one eraser at a time; this is where the
             // other one is chosen, since a second click now opens this panel.
-            SettingsGroup("Eraser")
+            SettingsGroup(DesktopStrings.get("desktop_eraser_choice"))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (eraser in presets.filter(BrushPreset::eraseMode)) {
                     FilterChip(
@@ -80,44 +80,64 @@ internal fun DesktopBrushSettings(
             }
         }
 
-        SettingsGroup("Stroke")
+        SettingsGroup(DesktopStrings.get("brush_group_stroke"))
         SettingSlider(
-            "Size",
+            DesktopStrings.get("brush_size"),
             preset.size,
             preset.sizeMin..preset.sizeMax,
             px(preset.size),
         ) { onChanged(preset.withSize(it)) }
         if (preset.watercolor == null) {
-            SettingSlider("Opacity", preset.opacity, 0f..1f, percent(preset.opacity)) {
+            SettingSlider(
+                DesktopStrings.get("brush_opacity"),
+                preset.opacity,
+                0f..1f,
+                percent(preset.opacity),
+            ) {
                 onChanged(preset.copy(opacity = it))
             }
         }
-        SettingSlider("Flow", preset.flow, 0f..1f, percent(preset.flow)) {
+        SettingSlider(DesktopStrings.get("brush_flow"), preset.flow, 0f..1f, percent(preset.flow)) {
             onChanged(preset.copy(flow = it))
         }
 
-        SettingsGroup("Tip")
-        SettingSlider("Hardness", preset.hardness, 0f..1f, percent(preset.hardness)) {
+        SettingsGroup(DesktopStrings.get("brush_group_tip"))
+        SettingSlider(
+            DesktopStrings.get("brush_hardness"),
+            preset.hardness,
+            0f..1f,
+            percent(preset.hardness),
+        ) {
             onChanged(preset.copy(hardness = it))
         }
-        SettingSlider("Spacing", preset.spacing, SPACING_MIN..SPACING_MAX, percent(preset.spacing)) {
+        SettingSlider(
+            DesktopStrings.get("brush_spacing"),
+            preset.spacing,
+            SPACING_MIN..SPACING_MAX,
+            percent(preset.spacing),
+        ) {
             onChanged(preset.copy(spacing = it))
         }
-        SettingChoice("Shape") {
-            SettingChip("Round", preset.tip is TipShape.Round) {
+        SettingChoice(DesktopStrings.get("brush_tip_shape")) {
+            SettingChip(DesktopStrings.get("brush_tip_round"), preset.tip is TipShape.Round) {
                 onChanged(preset.copy(tip = TipShape.Round))
             }
-            SettingChip("Flat", preset.tip is TipShape.Flat) {
+            SettingChip(DesktopStrings.get("brush_tip_flat"), preset.tip is TipShape.Flat) {
                 onChanged(preset.copy(tip = TipShape.Flat(DEFAULT_ASPECT)))
             }
         }
         val flat = preset.tip as? TipShape.Flat
         if (flat != null) {
-            SettingSlider("Aspect", flat.aspect, TipShape.Flat.MIN_ASPECT..1f, percent(flat.aspect)) {
+            SettingSlider(
+                DesktopStrings.get("brush_tip_aspect"),
+                flat.aspect,
+                TipShape.Flat.MIN_ASPECT..1f,
+                percent(flat.aspect),
+            ) {
                 onChanged(preset.copy(tip = TipShape.Flat(it)))
             }
         }
-        SettingChoice("Orientation") {
+        SettingChoice(DesktopStrings.get("brush_tip_orientation")) {
             for (orientation in TipOrientation.entries) {
                 SettingChip(orientationLabel(orientation), preset.orientation == orientation) {
                     onChanged(preset.copy(orientation = orientation))
@@ -125,34 +145,39 @@ internal fun DesktopBrushSettings(
             }
         }
 
-        SettingsGroup("Dynamics")
-        CurveRow("Pressure → size", preset.pressureSize) {
+        SettingsGroup(DesktopStrings.get("brush_group_dynamics"))
+        CurveRow(DesktopStrings.get("brush_pressure_size"), preset.pressureSize) {
             onChanged(preset.copy(pressureSize = it))
         }
         if (preset.watercolor == null) {
-            CurveRow("Pressure → opacity", preset.pressureOpacity) {
+            CurveRow(DesktopStrings.get("brush_pressure_opacity"), preset.pressureOpacity) {
                 onChanged(preset.copy(pressureOpacity = it))
             }
         }
-        CurveRow("Pressure → flow", preset.pressureFlow) {
+        CurveRow(DesktopStrings.get("brush_pressure_flow"), preset.pressureFlow) {
             onChanged(preset.copy(pressureFlow = it))
         }
-        SettingSlider("Tilt → size", preset.tilt.sizeAtFlat, TILT_RANGE, multiple(preset.tilt.sizeAtFlat)) {
+        SettingSlider(
+            DesktopStrings.get("brush_tilt_size"),
+            preset.tilt.sizeAtFlat,
+            TILT_RANGE,
+            multiple(preset.tilt.sizeAtFlat),
+        ) {
             onChanged(preset.copy(tilt = preset.tilt.copy(sizeAtFlat = it)))
         }
         SettingSlider(
-            "Tilt → opacity",
+            DesktopStrings.get("brush_tilt_opacity"),
             preset.tilt.opacityAtFlat,
             0f..TILT_MAX,
             multiple(preset.tilt.opacityAtFlat),
         ) {
             onChanged(preset.copy(tilt = preset.tilt.copy(opacityAtFlat = it)))
         }
-        SettingToggle("Tilt elongates the dab", preset.tilt.elongate) {
+        SettingToggle(DesktopStrings.get("brush_tilt_elongate"), preset.tilt.elongate) {
             onChanged(preset.copy(tilt = preset.tilt.copy(elongate = it)))
         }
         SettingSlider(
-            "Speed → size",
+            DesktopStrings.get("desktop_speed_size"),
             preset.velocity.sizeAtFast,
             TILT_RANGE,
             multiple(preset.velocity.sizeAtFast),
@@ -160,7 +185,7 @@ internal fun DesktopBrushSettings(
             onChanged(preset.copy(velocity = preset.velocity.copy(sizeAtFast = it)))
         }
         SettingSlider(
-            "Speed → opacity",
+            DesktopStrings.get("desktop_speed_opacity"),
             preset.velocity.opacityAtFast,
             0f..TILT_MAX,
             multiple(preset.velocity.opacityAtFast),
@@ -168,47 +193,67 @@ internal fun DesktopBrushSettings(
             onChanged(preset.copy(velocity = preset.velocity.copy(opacityAtFast = it)))
         }
         SettingSlider(
-            "Fast is",
+            DesktopStrings.get("desktop_speed_threshold"),
             preset.velocity.fastPxPerMs,
             FAST_MIN..FAST_MAX,
-            "%.1f px/ms".format(Locale.ROOT, preset.velocity.fastPxPerMs),
+            DesktopStrings.get("desktop_speed_threshold_value", preset.velocity.fastPxPerMs),
         ) {
             onChanged(preset.copy(velocity = preset.velocity.copy(fastPxPerMs = it)))
         }
-        SettingSlider("Jitter → size", preset.jitter.size, 0f..1f, percent(preset.jitter.size)) {
+        SettingSlider(
+            DesktopStrings.get("brush_jitter_size"),
+            preset.jitter.size,
+            0f..1f,
+            percent(preset.jitter.size),
+        ) {
             onChanged(preset.copy(jitter = preset.jitter.copy(size = it)))
         }
         SettingSlider(
-            "Jitter → position",
+            DesktopStrings.get("brush_jitter_position"),
             preset.jitter.position,
             0f..1f,
             percent(preset.jitter.position),
         ) {
             onChanged(preset.copy(jitter = preset.jitter.copy(position = it)))
         }
-        SettingSlider("Stabilizer", preset.stabilizer, 0f..1f, percent(preset.stabilizer)) {
+        SettingSlider(
+            DesktopStrings.get("brush_stabilizer"),
+            preset.stabilizer,
+            0f..1f,
+            percent(preset.stabilizer),
+        ) {
             onChanged(preset.copy(stabilizer = it))
         }
 
-        SettingsGroup("Paint")
-        SettingToggle("Paper grain", preset.grainMode != GrainMode.None) { on ->
+        SettingsGroup(DesktopStrings.get("brush_group_paint"))
+        SettingToggle(DesktopStrings.get("desktop_paper_grain"), preset.grainMode != GrainMode.None) { on ->
             onChanged(preset.copy(grain = if (on) PROCEDURAL_GRAIN else null))
         }
         // Pigment mixing needs a pigment mixer to mean anything: without
         // Mixbox the stroke is RGB either way, so the control would lie.
         if (!preset.eraseMode && mixerChoice == MixerChoice.PIGMENT) {
-            SettingToggle("Pigment mixing", preset.mixing) { onChanged(preset.copy(mixing = it)) }
+            SettingToggle(DesktopStrings.get("brush_pigment"), preset.mixing) {
+                onChanged(preset.copy(mixing = it))
+            }
             if (preset.mixing) {
-                SettingSlider("Dilution", preset.dilution, 0f..1f, percent(preset.dilution)) {
+                SettingSlider(
+                    DesktopStrings.get("brush_dilution"),
+                    preset.dilution,
+                    0f..1f,
+                    percent(preset.dilution),
+                ) {
                     onChanged(preset.copy(dilution = it))
                 }
             }
         }
-        SettingChoice("Build-up") {
-            SettingChip("Flat", preset.bufferMode == BufferMode.Max) {
+        SettingChoice(DesktopStrings.get("brush_buffer_mode")) {
+            SettingChip(DesktopStrings.get("brush_buffer_max"), preset.bufferMode == BufferMode.Max) {
                 onChanged(preset.copy(bufferMode = BufferMode.Max))
             }
-            SettingChip("Accumulate", preset.bufferMode == BufferMode.Accumulate) {
+            SettingChip(
+                DesktopStrings.get("brush_buffer_accumulate"),
+                preset.bufferMode == BufferMode.Accumulate,
+            ) {
                 onChanged(preset.copy(bufferMode = BufferMode.Accumulate))
             }
         }
@@ -218,16 +263,18 @@ internal fun DesktopBrushSettings(
             onClick = { catalogue.firstOrNull { it.id == preset.id }?.let(onChanged) },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Reset to shipped settings")
+            Text(DesktopStrings.get("brush_reset"))
         }
     }
 }
 
-private fun orientationLabel(orientation: TipOrientation): String = when (orientation) {
-    TipOrientation.Fixed -> "Fixed"
-    TipOrientation.Stylus -> "Stylus"
-    TipOrientation.StrokeDirection -> "Direction"
-}
+private fun orientationLabel(orientation: TipOrientation): String = DesktopStrings.get(
+    when (orientation) {
+        TipOrientation.Fixed -> "brush_tip_fixed"
+        TipOrientation.Stylus -> "brush_tip_stylus"
+        TipOrientation.StrokeDirection -> "brush_tip_direction"
+    },
+)
 
 private val PANEL_PADDING = 16.dp
 private const val DEFAULT_ASPECT = 0.3f

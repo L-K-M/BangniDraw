@@ -237,6 +237,18 @@ tasks.processResources {
         into("brand")
         rename { "android-strings.xml" }
     }
+
+    // The user-visible text, from the same `strings.xml` the Android app
+    // ships — one source, and `MissingTranslation` already gates the second
+    // locale in CI, so a desktop-only string cannot land untranslated.
+    from(androidStringsFile) {
+        into("strings")
+        rename { "values.xml" }
+    }
+    from(layout.projectDirectory.file("../app/src/main/res/values-b+zh+Hans/strings.xml")) {
+        into("strings")
+        rename { "zh-Hans.xml" }
+    }
 }
 
 tasks.processResources {

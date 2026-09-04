@@ -25,45 +25,14 @@ internal object DesktopAbout {
  * used to print it.
  */
 internal object DesktopHelp {
+    /**
+     * The canvas help, from the shared `strings.xml` like every other label.
+     * It states the interactions this shell hides — the second click, the
+     * right button, the keyboard — which is the rule AGENTS.md sets for every
+     * help body in this product.
+     */
     fun canvasBody(picturesDirectory: String = DesktopPlatform.picturesDir().toString()): String =
-        listOf(
-            "Draw with the left mouse button. Holding the right button erases " +
-                "instead, the way a stylus flipped to its eraser end does. " +
-                "Scroll to zoom around the pointer.",
-            "The rail picks a brush: one icon per preset, the eraser below the " +
-                "rule. Clicking a slot that is already selected opens the " +
-                "brush panel, which is also where the hard and soft erasers " +
-                "are chosen.",
-            "Below the rule are the other tools: smudge, water, blur, fill " +
-                "and the eyedropper. Each keeps its own settings, and a " +
-                "narrow window moves blur and the eyedropper into a menu.",
-            "The two sliders at the foot of the rail set size and the tool's " +
-                "second value — opacity, flow, strength or water load. They " +
-                "follow the selected tool, and each keeps its own tuning. " +
-                "Fill and the eyedropper have neither, so the sliders go away.",
-            "The pointer carries a ring the size of the brush; the guides " +
-                "and focus mode are in the overflow menu. Keyboard: B brush, " +
-                "E eraser, S smudge, W water, G fill, I eyedropper (or hold " +
-                "Alt), [ and ] for size, 0 to reset the view, Tab for focus, " +
-                "L for layers, C for colour.",
-            "Undo and Redo sit in the strip; the swatch beside them opens the " +
-                "colour panel, and the layers button beside that opens the " +
-                "layer panel. Both panels are windows of their own — move " +
-                "them anywhere, and close them when you are done.",
-            "The layer panel adds, duplicates, deletes, merges and flattens " +
-                "layers, and sets each one's opacity, blend mode, alpha lock " +
-                "and lock. Its bottom row picks the paper colour.",
-            "This is a document-based app: File opens and saves through the " +
-                "system's own dialogs, several paintings can be open at once, " +
-                "and closing one with unsaved work asks first.",
-            "Save writes a .bangni file — the whole painting, every layer " +
-                "with its opacity, blend mode and locks. The Android app " +
-                "imports and exports the same file, so a painting travels " +
-                "between a phone and this machine intact. Export PNG… writes " +
-                "a flat picture instead; opening a PNG gives you a painting " +
-                "with one layer, because that is all a PNG holds.",
-            "A painting with no file yet saves to $picturesDirectory.",
-        ).joinToString("\n\n")
+        DesktopStrings.get("desktop_help_body", picturesDirectory)
 }
 
 /** Routes macOS's native About item into the Compose dialog. */

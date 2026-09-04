@@ -156,7 +156,7 @@ internal fun DesktopToolRail(
             add(
                 DesktopToolSlot(
                     icon = Icons.Filled.MoreHoriz,
-                    description = MORE_BRUSHES,
+                    description = DesktopStrings.get("desktop_more_brushes"),
                     active = rail.brushSelected() && hidden.any { it.id == rail.selectedId },
                     onClick = {},
                     menuItems = hidden.map { paint ->
@@ -181,7 +181,7 @@ internal fun DesktopToolRail(
             DesktopToolSlot(
                 icon = brushGlyphIcon(BrushToolGlyphPolicy.forPreset(eraser)),
                 description = DesktopBrushUi.label(eraser) +
-                    if (alternates) ERASER_SETTINGS_HINT else "",
+                    if (alternates) DesktopStrings.get("desktop_eraser_settings_hint") else "",
                 active = selected,
                 // One rule for every slot: the first click selects, the second
                 // opens settings. The hard/soft choice lives in that panel, so
@@ -488,7 +488,7 @@ private fun secondarySlots(
 
     return visible + DesktopToolSlot(
         icon = Icons.Filled.MoreHoriz,
-        description = MORE_TOOLS,
+        description = DesktopStrings.get("tool_more"),
         active = hidden.any { it == rail.secondary },
         onClick = {},
         menuItems = hidden.map { tool ->
@@ -517,26 +517,34 @@ private fun secondaryIcon(tool: DesktopSecondaryTool): ImageVector = when (tool)
     DesktopSecondaryTool.EYEDROPPER -> Icons.Filled.Colorize
 }
 
-internal fun secondaryLabel(tool: DesktopSecondaryTool): String = when (tool) {
-    DesktopSecondaryTool.SMUDGE -> "Smudge"
-    DesktopSecondaryTool.WATER -> "Water"
-    DesktopSecondaryTool.BLUR -> "Blur"
-    DesktopSecondaryTool.FILL -> "Fill"
-    DesktopSecondaryTool.EYEDROPPER -> "Eyedropper"
-}
+internal fun secondaryLabel(tool: DesktopSecondaryTool): String = DesktopStrings.get(
+    when (tool) {
+        DesktopSecondaryTool.SMUDGE -> "tool_smudge"
+        DesktopSecondaryTool.WATER -> "tool_water"
+        DesktopSecondaryTool.BLUR -> "tool_blur"
+        DesktopSecondaryTool.FILL -> "tool_fill"
+        DesktopSecondaryTool.EYEDROPPER -> "tool_eyedropper"
+    },
+)
 
 private fun sizeDescription(preset: BrushPreset): String {
     val range = DesktopBrushUi.sizeRange(preset)
-    return "Brush size ${preset.size.toInt()} " +
-        "(${range.start.toInt()}–${range.endInclusive.toInt()})"
+    return DesktopStrings.get(
+        "desktop_brush_size_value",
+        DesktopStrings.get("brush_size"),
+        preset.size.toInt(),
+        range.start.toInt(),
+        range.endInclusive.toInt(),
+    )
 }
 
-private fun secondaryDescription(kind: ToolKind): String =
+private fun secondaryDescription(kind: ToolKind): String = DesktopStrings.get(
     when (ToolSliderPreset.secondaryFor(kind)) {
-        ToolSliderSecondary.FLOW -> "Flow"
-        ToolSliderSecondary.WATER -> "Water"
-        ToolSliderSecondary.OPACITY -> "Opacity"
-    }
+        ToolSliderSecondary.FLOW -> "brush_flow"
+        ToolSliderSecondary.WATER -> "water_amount"
+        ToolSliderSecondary.OPACITY -> "brush_opacity"
+    },
+)
 
 private data class DesktopToolSlot(
     val icon: ImageVector,
@@ -557,9 +565,6 @@ private data class DesktopToolMenuItem(
 internal val DESKTOP_THEME = AppTheme.SAFFRON
 
 private const val SELECTED_STATE = "Selected"
-private const val MORE_BRUSHES = "More brushes"
-private const val MORE_TOOLS = "More tools"
-private const val ERASER_SETTINGS_HINT = " — click again for eraser settings"
 private val TOOL_VISUAL = 40.dp
 private val TOOL_VISUAL_INSET = 8.dp
 private val TOOL_GAP = DesktopRailGeometry.TOOL_GAP_DP.dp

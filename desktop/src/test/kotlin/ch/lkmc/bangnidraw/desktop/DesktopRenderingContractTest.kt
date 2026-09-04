@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 class DesktopRenderingContractTest {
 
@@ -24,6 +25,31 @@ class DesktopRenderingContractTest {
         // The old shell put the canvas in a row beside a fixed sidebar; the
         // Android chrome floats over a full-bleed canvas instead.
         assertFalse(shell.contains("SidePanel("))
+    }
+
+    @Test
+    fun `an opened tracing image is placed while the renderer is built`() {
+        val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
+        val init = between(engine, "private fun initializeRenderer(", "private fun uploadInitialTiles(")
+
+        // `renderer` is assigned at the end of initializeRenderer, so a task
+        // posted from the caller right after start() finds it null and drops
+        // the upload silently — which is exactly what a cold start does. The
+        // reference therefore lands on this path, like the layers' own
+        // pixels, where the ordering is structural rather than a race.
+        val place = init.indexOf("uploadInitialReference(next)")
+        val publish = init.indexOf("renderer = next")
+        if (place < 0) fail("the opened painting's tracing image is no longer placed here")
+        if (publish < 0) fail("initializeRenderer no longer publishes the renderer")
+        assertTrue(place < publish, "the tracing image is placed after the renderer is published")
+
+        // And the shell must not push it a second time from the outside.
+        val documents =
+            source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopDocuments.kt")
+        assertFalse(
+            documents.contains("uploadReferenceTiles"),
+            "the document list races the renderer with its own reference upload",
+        )
     }
 
     @Test

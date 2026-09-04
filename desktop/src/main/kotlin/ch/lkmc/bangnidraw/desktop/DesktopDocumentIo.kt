@@ -26,6 +26,12 @@ internal class DesktopInitialContent(
     /** The tracing image the file carried, with the pixels it was stored as. */
     val reference: TracingReference? = null,
     val referencePng: ByteArray? = null,
+    /**
+     * Its decoded tiles, so the engine can upload them the moment its
+     * renderer exists rather than racing a post against that. Decoded here,
+     * off the GL thread, for the same reason the layers' tiles are.
+     */
+    val referenceTiles: Map<TileKey, ByteArray>? = null,
 )
 
 internal sealed interface DesktopOpenResult {
@@ -154,7 +160,11 @@ internal object DesktopDocumentIo {
         val reference = manifest.tracingReference
             ?.toReferenceOrNull()
             ?.takeIf { referencePng != null }
-        if (manifest.tracingReference != null && reference == null) {
+        // Decoded here rather than after the document exists: a reference
+        // whose pixels no longer decode is a skipped aid, and one that does
+        // has to reach the renderer without racing its creation.
+        val referenceTiles = reference?.let { DesktopReferenceIo.tiles(referencePng!!, it) }
+        if (manifest.tracingReference != null && referenceTiles == null) {
             warnings += "skipped an unreadable tracing image"
         }
 
@@ -166,8 +176,9 @@ internal object DesktopDocumentIo {
                 paperArgb = manifest.paperColor,
                 title = manifest.title,
                 createdAt = manifest.createdAt,
-                reference = reference,
-                referencePng = referencePng?.takeIf { reference != null },
+                reference = reference?.takeIf { referenceTiles != null },
+                referencePng = referencePng?.takeIf { referenceTiles != null },
+                referenceTiles = referenceTiles,
             ),
             warnings,
         )

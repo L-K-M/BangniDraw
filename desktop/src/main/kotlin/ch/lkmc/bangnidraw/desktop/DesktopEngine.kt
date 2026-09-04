@@ -842,6 +842,7 @@ internal class DesktopEngine(
             DesktopGlDiagnostics.rendererRequirements
         }
         uploadInitialTiles(next)
+        uploadInitialReference(next)
         next.setStack(stack)
         publishStack()
         next.setPaperColor(paperColor)
@@ -880,6 +881,28 @@ internal class DesktopEngine(
         renderer.setStack(stack)
         if (!renderer.applyPixelOps(ops, nextRevision(), SandwichPolicy.Op.UndoRedo)) {
             GlLog.w(LOG_TAG, "the opened painting's pixels could not be uploaded")
+        }
+    }
+
+    /**
+     * Places an opened painting's tracing image, if it had one.
+     *
+     * Here rather than posted from the caller: `renderer` is assigned at the
+     * end of [initializeRenderer], so a task posted right after `start()`
+     * finds it null and drops the upload without a sound — and a cold start,
+     * where the GL host is still coming up, is exactly when that happens.
+     * Applying it on this path makes the ordering structural instead.
+     */
+    private fun uploadInitialReference(renderer: CanvasRenderer) {
+        val opened = initial ?: return
+        val reference = opened.reference ?: return
+        val tiles = opened.referenceTiles ?: return
+
+        renderer.setTracingReference(reference)
+        if (renderer.isReady) {
+            renderer.uploadReferenceTiles(reference.assetName, tiles.toList())
+        } else {
+            GlLog.w(LOG_TAG, "the opened painting's tracing image could not be uploaded")
         }
     }
 

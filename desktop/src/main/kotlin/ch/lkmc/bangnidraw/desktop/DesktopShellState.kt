@@ -38,7 +38,6 @@ import ch.lkmc.bangnidraw.engine.core.ReferenceImportDecision
 import ch.lkmc.bangnidraw.engine.core.ReferenceLayerReserve
 import ch.lkmc.bangnidraw.engine.core.ReferenceTransform
 import ch.lkmc.bangnidraw.engine.core.ReferenceVisibility
-import ch.lkmc.bangnidraw.engine.core.TileKey
 import ch.lkmc.bangnidraw.engine.core.TracingReference
 import ch.lkmc.bangnidraw.engine.core.TracingReferencePolicy
 import ch.lkmc.bangnidraw.engine.core.Refusal
@@ -657,11 +656,14 @@ internal class DesktopShellState(
         return true
     }
 
-    /** A reference read back out of a `.bangni`; its tiles are already decoded. */
-    fun restoreReference(reference: TracingReference, png: ByteArray, tiles: Map<TileKey, ByteArray>) {
+    /**
+     * Adopts a reference the document opened with. Only the shell's own copy:
+     * the engine places the pixels while it builds its renderer, because a
+     * push from here would race that and lose silently on a cold start.
+     */
+    fun restoreReference(reference: TracingReference, png: ByteArray) {
         referencePng = png
-        applyReference(reference)
-        engine.uploadReferenceTiles(reference.assetName, tiles.toList())
+        this.reference = reference
     }
 
     fun setReferenceOpacity(opacity: Float) {

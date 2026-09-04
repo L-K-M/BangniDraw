@@ -337,12 +337,37 @@ private fun LayerRow(
             Thumbnail(thumbnail)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                // The two modes that change what a stroke does are worth
+                // saying on the row: an alpha-locked or locked layer refuses
+                // edits, and a panel that only shows that inside a menu makes
+                // it look like a bug. They share the name's line because the
+                // row is a fixed height (the drag counts rows by it).
+                val badges = buildList {
+                    if (layer.props.blendMode != BlendMode.NORMAL) {
+                        add(DesktopLayerNames.blendMode(layer.props.blendMode))
+                    }
+                    if (layer.props.alphaLock) add(DesktopStrings.get("layer_alpha_lock"))
+                    if (layer.props.locked) add(DesktopStrings.get("layer_lock"))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (badges.isNotEmpty()) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            badges.joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     DesktopThinSlider(
                         value = layer.props.opacity,
@@ -364,24 +389,6 @@ private fun LayerRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.End,
                         modifier = Modifier.width(OPACITY_LABEL),
-                    )
-                }
-                // The two modes that change what a stroke does are worth a
-                // line of their own: an alpha-locked or locked layer refuses
-                // edits, and a panel that only shows it inside a menu makes
-                // that look like a bug.
-                val badges = buildList {
-                    if (layer.props.blendMode != BlendMode.NORMAL) {
-                        add(DesktopLayerNames.blendMode(layer.props.blendMode))
-                    }
-                    if (layer.props.alphaLock) add(DesktopStrings.get("layer_alpha_lock"))
-                    if (layer.props.locked) add(DesktopStrings.get("layer_lock"))
-                }
-                if (badges.isNotEmpty()) {
-                    Text(
-                        badges.joinToString(" · "),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -610,8 +617,12 @@ private fun LayerThumbnail.toImageBitmap(): ImageBitmap {
 }
 
 private val HEADER_HEIGHT = 56.dp
-/** Fixed, because the drag arithmetic counts rows by their height. */
-private val ROW_HEIGHT = 76.dp
+/**
+ * Fixed, because the drag arithmetic counts rows by their height — so the
+ * row's content has to fit it: 12 dp of padding, the name line, and the
+ * slider's own 48 dp slab. The badges share the name's line for that reason.
+ */
+private val ROW_HEIGHT = 84.dp
 private val HANDLE = 32.dp
 private val PAPER_ROW_HEIGHT = 48.dp
 private val ROW_PADDING = 12.dp

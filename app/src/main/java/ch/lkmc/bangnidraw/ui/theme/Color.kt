@@ -88,10 +88,6 @@ internal fun themePreviewColor(theme: AppTheme): Color =
     Color(ThemeColorPolicy.colors(theme).primaryContainerArgb)
 
 // These swatches become document pixels and never follow the app theme.
-val PaperSwatchWhite = Color(0xFFFFFFFF)
-val PaperSwatchWarm = Color(0xFFF8F1E3)
-val PaperSwatchGray = Color(0xFF9E9E9E)
-val PaperSwatchBlack = Color(0xFF000000)
 
 /** The custom-paper swatch's opening tint: a cool paper blue no fixed swatch has. */
 val PaperSwatchCustomDefault = Color(0xFFDCE6EE)

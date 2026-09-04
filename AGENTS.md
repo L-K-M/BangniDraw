@@ -123,6 +123,22 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   choice in the brush panel instead. (A long-press, Android's route to it, is
   not a mouse gesture — but a second click that means two different things
   depending on the slot is worse than a panel row.)
+  **The hover cursor and the composition guides are `:app`'s own**, moved to
+  `ui/shared/` and compiled into both modules — their size accuracy and their
+  geometry are exactly what must not drift. The desktop must send
+  `onHoverEnter`, not only `onHoverMove`: an enter is what fills
+  `StylusState.tool`, and `HoverCursorPolicy` reads a `FINGER` tool as "no
+  cursor". Navigation reaches the shell through **one** publisher
+  (`CanvasInputHost.onViewChanged` → `DesktopShellState.view`), because
+  `CanvasTouchHandler.setView` moves only the handler's own state and
+  `handler.view` is a plain field the reset pill cannot recompose on.
+  The **keyboard is the shared `CanvasShortcuts` table** and nothing else —
+  a desktop-only chord would be one Android's Settings sheet does not list.
+  `DesktopShortcuts` splits the translation from the Compose event because a
+  `KeyEvent` cannot be constructed outside the toolkit, so the table half is
+  the half a test can drive. A focusable root asks for focus once: with a menu
+  bar present the AWT focus owner can be the menu, and Compose then never sees
+  the key.
   **The layer and settings panels are OS windows of their own**
   (`DesktopPanelWindows`), `alwaysOnTop`, not sheets inside the document
   window — the user asked to be able to move them independently of it. That is

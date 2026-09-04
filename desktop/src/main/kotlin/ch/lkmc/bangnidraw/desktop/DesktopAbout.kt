@@ -41,6 +41,11 @@ internal object DesktopHelp {
                 "second value — opacity, flow, strength or water load. They " +
                 "follow the selected tool, and each keeps its own tuning. " +
                 "Fill and the eyedropper have neither, so the sliders go away.",
+            "The pointer carries a ring the size of the brush; the guides " +
+                "and focus mode are in the overflow menu. Keyboard: B brush, " +
+                "E eraser, S smudge, W water, G fill, I eyedropper (or hold " +
+                "Alt), [ and ] for size, 0 to reset the view, Tab for focus, " +
+                "L for layers, C for colour.",
             "Undo and Redo sit in the strip; the swatch beside them opens the " +
                 "colour panel, and the layers button beside that opens the " +
                 "layer panel. Both panels are windows of their own — move " +

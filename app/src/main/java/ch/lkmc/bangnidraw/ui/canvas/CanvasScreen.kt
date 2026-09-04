@@ -158,6 +158,8 @@ import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.core.WidthClass
 import ch.lkmc.bangnidraw.input.CanvasInputHost
 import ch.lkmc.bangnidraw.input.CanvasTouchHandler
+import ch.lkmc.bangnidraw.ui.shared.CompositionGuides
+import ch.lkmc.bangnidraw.ui.shared.HoverCursor
 import ch.lkmc.bangnidraw.ui.theme.LocalAppTheme
 import ch.lkmc.bangnidraw.ui.theme.canvasVoidColor
 import kotlinx.coroutines.Job

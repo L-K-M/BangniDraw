@@ -6,22 +6,31 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import ch.lkmc.bangnidraw.engine.core.BlurParams
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
+import ch.lkmc.bangnidraw.engine.core.BrushPresets
+import ch.lkmc.bangnidraw.engine.core.BrushSizeScale
+import ch.lkmc.bangnidraw.engine.core.CanvasChromeState
+import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
+import ch.lkmc.bangnidraw.engine.core.CanvasUiPolicy
 import ch.lkmc.bangnidraw.engine.core.ColorMixer
+import ch.lkmc.bangnidraw.engine.core.CompositionGuideVisibility
 import ch.lkmc.bangnidraw.engine.core.EyedropperParams
 import ch.lkmc.bangnidraw.engine.core.FillParams
-import ch.lkmc.bangnidraw.engine.core.SmudgeParams
-import ch.lkmc.bangnidraw.engine.core.ToolKind
-import ch.lkmc.bangnidraw.engine.core.WaterParams
+import ch.lkmc.bangnidraw.engine.core.FocusMode
 import ch.lkmc.bangnidraw.engine.core.HsvSelection
+import ch.lkmc.bangnidraw.engine.core.IdSource
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerPanelOrder
 import ch.lkmc.bangnidraw.engine.core.LayerStack
 import ch.lkmc.bangnidraw.engine.core.LayerThumbnail
 import ch.lkmc.bangnidraw.engine.core.PaintSlotAssignments
-import ch.lkmc.bangnidraw.engine.core.IdSource
 import ch.lkmc.bangnidraw.engine.core.Refusal
+import ch.lkmc.bangnidraw.engine.core.SizeAdjustment
+import ch.lkmc.bangnidraw.engine.core.SmudgeParams
 import ch.lkmc.bangnidraw.engine.core.StackResult
+import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
+import ch.lkmc.bangnidraw.engine.core.ViewTransform
+import ch.lkmc.bangnidraw.engine.core.WaterParams
 
 /**
  * One document's shell state, shared by every window that shows it.
@@ -71,6 +80,38 @@ internal class DesktopShellState(
     var showLayerPanel by mutableStateOf(false)
     var showBrushPanel by mutableStateOf(false)
     var showHelp by mutableStateOf(false)
+
+    /**
+     * Focus mode hides the chrome so the canvas is unobstructed (Tab).
+     *
+     * The transitions come from the shared [CanvasUiPolicy], but its
+     * `openPanel` is deliberately *not* used: it models one panel at a time,
+     * and on desktop the panels are independent windows the user asked to be
+     * able to arrange side by side.
+     */
+    var chrome by mutableStateOf(CanvasChromeState())
+
+    var guides by mutableStateOf(CompositionGuideVisibility.HIDDEN)
+
+    /**
+     * The pan/zoom/rotate the canvas is showing. Mirrored into snapshot state
+     * because `CanvasTouchHandler.view` is a plain field on a single-writer
+     * struct: the reset pill has to recompose when it moves, and reading the
+     * handler directly makes that depend on whatever else recomposed.
+     */
+    var view by mutableStateOf(ViewTransform())
+
+    /**
+     * Bumped on every hover move. The cursor position lives on a
+     * single-writer struct rather than snapshot state, so the overlay needs a
+     * key to invalidate its draw node.
+     */
+    var hoverRevision by androidx.compose.runtime.mutableIntStateOf(0)
+
+    /** Set by the shell, which owns the touch handler the view lives on. */
+    var resetView: (() -> Unit)? = null
+
+    val focused: Boolean get() = chrome.focusMode == FocusMode.FOCUSED
 
     val restoreGate = DesktopPreferenceRestoreGate()
 
@@ -127,6 +168,81 @@ internal class DesktopShellState(
 
     fun selectSecondary(tool: DesktopSecondaryTool) {
         rail = DesktopRailPolicy.selectSecondary(rail, tool)
+    }
+
+    // ---------------------------------------------------------- shortcuts
+
+    /** What the tool was before Alt borrowed the eyedropper. */
+    private var borrowedFrom: DesktopSecondaryTool? = null
+    private var borrowing = false
+
+    /**
+     * Runs one entry of the shared keyboard table. Unhandled actions are a
+     * no-op rather than an error: the table is the same one Android's
+     * Settings sheet prints, and a chord this shell has no surface for must
+     * still be listed there.
+     */
+    fun run(shortcut: CanvasShortcut) {
+        when (shortcut) {
+            CanvasShortcut.UNDO -> engine.undo()
+            CanvasShortcut.REDO -> engine.redo()
+            CanvasShortcut.SIZE_DOWN -> adjustSize(SizeAdjustment.DECREASE)
+            CanvasShortcut.SIZE_UP -> adjustSize(SizeAdjustment.INCREASE)
+            CanvasShortcut.BRUSH -> selectPreset(lastPaintId())
+            CanvasShortcut.ERASER -> eraserTap()
+            CanvasShortcut.SMUDGE -> selectSecondary(DesktopSecondaryTool.SMUDGE)
+            CanvasShortcut.WATER -> selectSecondary(DesktopSecondaryTool.WATER)
+            CanvasShortcut.FILL -> selectSecondary(DesktopSecondaryTool.FILL)
+            CanvasShortcut.EYEDROPPER -> selectSecondary(DesktopSecondaryTool.EYEDROPPER)
+            CanvasShortcut.BEGIN_EYEDROPPER -> borrowEyedropper()
+            CanvasShortcut.END_EYEDROPPER -> returnEyedropper()
+            CanvasShortcut.RESET_VIEW -> resetView?.invoke()
+            CanvasShortcut.TOGGLE_FOCUS -> chrome = if (focused) {
+                CanvasUiPolicy.exitFocus(chrome)
+            } else {
+                CanvasUiPolicy.enterFocus(chrome)
+            }
+            CanvasShortcut.TOGGLE_LAYERS -> showLayerPanel = !showLayerPanel
+            CanvasShortcut.TOGGLE_COLOR -> showColorPanel = !showColorPanel
+        }
+    }
+
+    /** The paint the rail remembers, or the catalogue's opening brush. */
+    private fun lastPaintId(): String =
+        rail.selectedId.takeIf { it != rail.eraserId } ?: BrushPresets.INK_PEN_ID
+
+    private fun adjustSize(adjustment: SizeAdjustment) {
+        val kind = activeTool ?: return
+        val preset = ToolSliderPreset.forKind(kind) ?: return
+        tuneActiveSize(
+            BrushSizeScale.adjust(preset.size, preset.sizeMin, preset.sizeMax, adjustment),
+        )
+    }
+
+    /**
+     * Alt held is a *temporary* eyedropper: releasing it returns the tool the
+     * user was painting with, rather than leaving them on a tool they never
+     * chose. Held-key repeat sends more downs, so the first one wins.
+     */
+    private fun borrowEyedropper() {
+        if (borrowing) return
+
+        borrowing = true
+        borrowedFrom = rail.secondary
+        selectSecondary(DesktopSecondaryTool.EYEDROPPER)
+    }
+
+    private fun returnEyedropper() {
+        if (!borrowing) return
+
+        borrowing = false
+        val previous = borrowedFrom
+        borrowedFrom = null
+        if (previous == null) {
+            rail = DesktopRailPolicy.select(rail, rail.selectedId, presets)
+        } else {
+            selectSecondary(previous)
+        }
     }
 
     /**

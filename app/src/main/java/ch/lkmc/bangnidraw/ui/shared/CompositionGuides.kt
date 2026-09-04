@@ -1,4 +1,4 @@
-package ch.lkmc.bangnidraw.ui.canvas
+package ch.lkmc.bangnidraw.ui.shared
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
@@ -10,8 +10,6 @@ import ch.lkmc.bangnidraw.engine.core.CanvasSize
 import ch.lkmc.bangnidraw.engine.core.CompositionGuide
 import ch.lkmc.bangnidraw.engine.core.CompositionGuideVisibility
 import ch.lkmc.bangnidraw.engine.core.ScreenTransform
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWhite
 
 /** Draws rule-of-thirds and centre guides through the paper's transform. */
 @Composable

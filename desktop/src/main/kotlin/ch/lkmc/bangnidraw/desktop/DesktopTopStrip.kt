@@ -77,6 +77,7 @@ internal fun DesktopTopStrip(
     brushColor: Int,
     colorPanelOpen: Boolean,
     savedMessage: String?,
+    guidesVisible: Boolean,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onLayers: () -> Unit,
@@ -84,6 +85,8 @@ internal fun DesktopTopStrip(
     onSave: () -> Unit,
     onAbout: () -> Unit,
     onHelp: () -> Unit,
+    onToggleGuides: () -> Unit,
+    onFocus: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val navigation: @Composable () -> Unit = {
@@ -96,7 +99,7 @@ internal fun DesktopTopStrip(
         Row(horizontalArrangement = Arrangement.End) {
             LayersButton(layerCount, layerPanelOpen, onLayers)
             ColorButton(brushColor, colorPanelOpen, onColor)
-            OverflowMenu(onSave, onAbout, onHelp)
+            OverflowMenu(guidesVisible, onSave, onToggleGuides, onFocus, onAbout, onHelp)
         }
     }
 
@@ -259,14 +262,26 @@ private fun ColorButton(brushColor: Int, open: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun OverflowMenu(onSave: () -> Unit, onAbout: () -> Unit, onHelp: () -> Unit) {
+private fun OverflowMenu(
+    guidesVisible: Boolean,
+    onSave: () -> Unit,
+    onToggleGuides: () -> Unit,
+    onFocus: () -> Unit,
+    onAbout: () -> Unit,
+    onHelp: () -> Unit,
+) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }, modifier = Modifier.size(ICON_BUTTON)) {
             Icon(Icons.Filled.MoreVert, contentDescription = "More")
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            OverflowItem("Save PNG", onSave) { open = false }
+            OverflowItem("Save", onSave) { open = false }
+            OverflowItem(
+                if (guidesVisible) "Hide guides" else "Show guides",
+                onToggleGuides,
+            ) { open = false }
+            OverflowItem("Focus mode (Tab)", onFocus) { open = false }
             OverflowItem("About " + DesktopBrand.displayName, onAbout) { open = false }
             OverflowItem("Help", onHelp) { open = false }
         }

@@ -89,7 +89,7 @@ class CompositionGuidesContractTest {
         const val CANVAS_SCREEN_PATH =
             "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CanvasScreen.kt"
         const val COMPOSITION_GUIDES_PATH =
-            "app/src/main/java/ch/lkmc/bangnidraw/ui/canvas/CompositionGuides.kt"
+            "app/src/main/java/ch/lkmc/bangnidraw/ui/shared/CompositionGuides.kt"
         const val OVERFLOW_MENU_START = "private fun OverflowMenu("
         const val OVERFLOW_ITEM_START = "private fun OverflowItem("
         const val OVERLAY_START = "CompositionGuides("

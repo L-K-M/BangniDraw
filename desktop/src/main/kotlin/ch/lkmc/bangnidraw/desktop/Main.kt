@@ -4,6 +4,8 @@ package ch.lkmc.bangnidraw.desktop
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -36,14 +39,21 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
+import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
+import ch.lkmc.bangnidraw.engine.core.CompositionGuideVisibility
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HsvSelection
@@ -66,6 +76,8 @@ import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxBinding
 import ch.lkmc.bangnidraw.ui.shared.BangniTypography
+import ch.lkmc.bangnidraw.ui.shared.CompositionGuides
+import ch.lkmc.bangnidraw.ui.shared.HoverCursor
 import ch.lkmc.bangnidraw.input.CanvasInputHost
 import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 import ch.lkmc.bangnidraw.input.FrameScheduler
@@ -331,6 +343,12 @@ private fun androidx.compose.ui.window.ApplicationScope.DocumentWindow(
         onCloseRequest = { requestClose(document, documents) },
         title = document.title,
         icon = painterResource("bangnidraw.png"),
+        // Preview, not onKeyEvent: Tab and the bare letters would otherwise
+        // be spent on focus traversal and on whatever widget has focus.
+        onPreviewKeyEvent = { event ->
+            val shortcut = DesktopShortcuts.resolve(event)
+            if (shortcut == null) false else { state.run(shortcut); true }
+        },
     ) {
         window.minimumSize = Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
 
@@ -574,9 +592,46 @@ private fun Shell(
     // to pixels once at construction, so a hardcoded 1f makes the tap slop
     // 8 px on a 2x display where it should be 16.
     val density = LocalDensity.current.density
-    val handler = remember(engine, density) { DesktopShell.handler(engine, density) }
+    val handler = remember(engine, density) {
+        DesktopShell.handler(engine, density) { view ->
+            java.awt.EventQueue.invokeLater { state.view = view }
+        }
+    }
+    // `setView` only moves the handler's own state; the engine and the pill
+    // both learn about it through the same publisher a gesture goes through.
+    val resetView: () -> Unit = remember(handler, engine) {
+        {
+            val fit = ViewTransform()
+            handler.setView(fit)
+            engine.setView(fit)
+            state.view = fit
+        }
+    }
+    // The shortcut table's "0" reaches the view through the state holder, and
+    // the handler only exists here.
+    androidx.compose.runtime.DisposableEffect(handler) {
+        state.resetView = resetView
+        onDispose { state.resetView = null }
+    }
+    val eraserPreset = remember(state.presets) { DesktopRailPolicy.eraserOrNull(state.presets) }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    // The window-level preview handler alone is not enough: with a menu bar
+    // present the AWT focus owner can be the menu, and Compose then never
+    // sees the key. A focusable root that asks for focus once is what makes
+    // the shared shortcut table reachable.
+    val keyboard = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(keyboard) { runCatching { keyboard.requestFocus() } }
+
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .focusRequester(keyboard)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                val shortcut = DesktopShortcuts.resolve(event)
+                if (shortcut == null) false else { state.run(shortcut); true }
+            },
+    ) {
         val widthDp = maxWidth.value.roundToInt()
         val heightDp = maxHeight.value.roundToInt()
         val layout = remember(widthDp, heightDp) {
@@ -598,7 +653,14 @@ private fun Shell(
         ) {
             val canvasInput = if (state.preferencesReady && activeTool != null) {
                 Modifier.pointerInput(activeTool, colorArgb, state.mixer) {
-                    awaitPointerEvents(handler, activeTool, colorArgb, state.mixer, state::pickSwatch)
+                    awaitPointerEvents(
+                        handler = handler,
+                        kind = activeTool,
+                        colorArgb = colorArgb,
+                        mixer = state.mixer,
+                        onColorPicked = state::pickSwatch,
+                        onHover = { state.hoverRevision += 1 },
+                    )
                 }
             } else {
                 Modifier
@@ -610,59 +672,108 @@ private fun Shell(
                     modifier = Modifier.fillMaxSize().then(canvasInput),
                 )
             }
+            // Both overlays are `:app`'s own, compiled from the shared
+            // directory rather than reimplemented: the guides' geometry and
+            // the cursor's size accuracy are exactly what must not drift.
+            CompositionGuides(
+                visibility = state.guides,
+                canvas = canvasSize,
+                screenTransform = handler.screenTransform,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (activeTool != null && eraserPreset != null) {
+                HoverCursor(
+                    stylus = handler.stylus,
+                    active = activeTool,
+                    eraserPreset = eraserPreset,
+                    brushColor = colorArgb,
+                    canvasToScreenScale = handler.canvasToScreenScale,
+                    revision = state.hoverRevision,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
 
-        DesktopTopStrip(
-            layout = layout,
-            canUndo = engine.canUndo(),
-            canRedo = engine.canRedo(),
-            layerCount = state.stack.activeIndex + 1,
-            layerPanelOpen = state.showLayerPanel,
-            brushColor = colorArgb,
-            colorPanelOpen = state.showColorPanel,
-            savedMessage = state.savedMessage,
-            onUndo = { engine.undo() },
-            onRedo = { engine.redo() },
-            onLayers = { state.showLayerPanel = !state.showLayerPanel },
-            onColor = { state.showColorPanel = !state.showColorPanel },
-            onSave = onSave,
-            onAbout = onAbout,
-            onHelp = { state.showHelp = true },
-            modifier = Modifier.align(Alignment.TopCenter),
+        DesktopResetViewPill(
+            view = state.view,
+            density = density,
+            onReset = resetView,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = RESET_PILL_TOP),
         )
 
-        DesktopToolRail(
-            layout = layout,
-            presets = state.presets,
-            paintSlots = state.paintSlots,
-            rail = state.rail,
-            tool = activeTool,
-            windowWidth = maxWidth,
-            windowHeight = maxHeight,
-            onPaintSlot = { index ->
-                state.paintSlots = state.paintSlots.activate(index)
-                state.selectPreset(state.paintSlots.activePresetId)
-            },
-            onAssignPaint = { preset ->
-                state.paintSlots = state.paintSlots.assign(preset.id)
-                state.selectPreset(preset.id)
-            },
-            onEraserTap = { state.eraserTap() },
-            onSecondaryTool = state::selectSecondary,
-            onSettings = { state.showBrushPanel = !state.showBrushPanel },
-            onSizeChanged = state::tuneActiveSize,
-            onSecondaryChanged = state::tuneActiveSecondary,
-            modifier = Modifier.align(railAlignment(layout)),
-        )
-
-        if (activeTool != null) {
-            DesktopSliderLedge(
+        // Focus mode hides the chrome and leaves the paper (Tab). The panels
+        // are separate windows and stay where the user put them.
+        if (state.focused) {
+            // `:app`'s FocusHandle: a pill at the hand's edge, so the way back
+            // is visible without the chrome it hides. Its drag gesture is not
+            // ported — a click is the mouse equivalent, and Tab still works.
+            FocusHandle(
+                onClick = { state.run(CanvasShortcut.TOGGLE_FOCUS) },
+                modifier = Modifier.align(
+                    if (layout.railSide == Hand.RIGHT) {
+                        AbsoluteAlignment.CenterRight
+                    } else {
+                        AbsoluteAlignment.CenterLeft
+                    },
+                ),
+            )
+        }
+        if (!state.focused) {
+            DesktopTopStrip(
                 layout = layout,
-                kind = activeTool,
+                canUndo = engine.canUndo(),
+                canRedo = engine.canRedo(),
+                layerCount = state.stack.activeIndex + 1,
+                layerPanelOpen = state.showLayerPanel,
+                brushColor = colorArgb,
+                colorPanelOpen = state.showColorPanel,
+                savedMessage = state.savedMessage,
+                guidesVisible = state.guides == CompositionGuideVisibility.VISIBLE,
+                onUndo = { engine.undo() },
+                onRedo = { engine.redo() },
+                onLayers = { state.showLayerPanel = !state.showLayerPanel },
+                onColor = { state.showColorPanel = !state.showColorPanel },
+                onSave = onSave,
+                onAbout = onAbout,
+                onHelp = { state.showHelp = true },
+                onToggleGuides = { state.guides = state.guides.toggled() },
+                onFocus = { state.run(CanvasShortcut.TOGGLE_FOCUS) },
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+
+            DesktopToolRail(
+                layout = layout,
+                presets = state.presets,
+                paintSlots = state.paintSlots,
+                rail = state.rail,
+                tool = activeTool,
+                windowWidth = maxWidth,
+                windowHeight = maxHeight,
+                onPaintSlot = { index ->
+                    state.paintSlots = state.paintSlots.activate(index)
+                    state.selectPreset(state.paintSlots.activePresetId)
+                },
+                onAssignPaint = { preset ->
+                    state.paintSlots = state.paintSlots.assign(preset.id)
+                    state.selectPreset(preset.id)
+                },
+                onEraserTap = { state.eraserTap() },
+                onSecondaryTool = state::selectSecondary,
+                onSettings = { state.showBrushPanel = !state.showBrushPanel },
                 onSizeChanged = state::tuneActiveSize,
                 onSecondaryChanged = state::tuneActiveSecondary,
-                modifier = Modifier.ledgePlacement(this, layout),
+                modifier = Modifier.align(railAlignment(layout)),
             )
+
+            if (activeTool != null) {
+                DesktopSliderLedge(
+                    layout = layout,
+                    kind = activeTool,
+                    onSizeChanged = state::tuneActiveSize,
+                    onSecondaryChanged = state::tuneActiveSecondary,
+                    modifier = Modifier.ledgePlacement(this, layout),
+                )
+            }
         }
 
         if (state.showColorPanel) {
@@ -709,6 +820,24 @@ private fun Shell(
                 Button(onClick = { state.showHelp = false }) { Text("Close") }
             },
         )
+    }
+}
+
+/** The way out of focus mode, at the hand's edge — `:app`'s own affordance. */
+@Composable
+private fun FocusHandle(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(FOCUS_HANDLE_TARGET)
+            .semantics { contentDescription = "Show controls" }
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick),
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = FOCUS_HANDLE_ALPHA),
+            shape = RoundedCornerShape(FOCUS_HANDLE_RADIUS),
+            modifier = Modifier.size(width = FOCUS_HANDLE_WIDTH, height = FOCUS_HANDLE_HEIGHT),
+        ) {}
     }
 }
 
@@ -759,11 +888,19 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
     colorArgb: Int,
     mixer: ch.lkmc.bangnidraw.engine.core.ColorMixer,
     onColorPicked: (Int) -> Unit,
+    /** Invalidates the hover cursor: its position is not snapshot state. */
+    onHover: () -> Unit,
 ) {
     val sample = PointerSample()
     // The kind already carries the rail sliders' tuning; the gesture must not
     // re-derive it from a second copy of the size.
     DesktopShell.tool = DesktopShell.Tool(kind, colorArgb, mixer, onColorPicked)
+    // A hover *enter* is what fills `StylusState.tool`, and the cursor is
+    // chosen from it — a stream of moves alone leaves it FINGER, which
+    // `HoverCursorPolicy` reads as "no cursor". Tracked here rather than
+    // trusted to Enter arriving: a pointer already inside the window when
+    // this input loop restarts never sends one.
+    var hovering = false
 
     try {
         awaitPointerEventScope {
@@ -795,12 +932,17 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
                             )
                             handler.onPointerMoveEnd(timeNs)
                         } else {
-                            handler.onHoverMove(
-                                sample.setHover(
-                                    MOUSE_POINTER_ID, PointerTool.MOUSE,
-                                    position.x, position.y, 0f, timeNs,
-                                ),
+                            val hover = sample.setHover(
+                                MOUSE_POINTER_ID, PointerTool.MOUSE,
+                                position.x, position.y, 0f, timeNs,
                             )
+                            if (hovering) {
+                                handler.onHoverMove(hover)
+                            } else {
+                                hovering = true
+                                handler.onHoverEnter(hover)
+                            }
+                            onHover()
                         }
                     }
 
@@ -818,6 +960,12 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
                         )
                     }
 
+                    PointerEventType.Exit -> {
+                        hovering = false
+                        handler.onHoverExit(timeNs)
+                        onHover()
+                    }
+
                     PointerEventType.Release -> {
                         handler.onPointerUp(
                             sample.set(
@@ -831,7 +979,9 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
             }
         }
     } finally {
-        handler.onPointerCancel(System.nanoTime())
+        val timeNs = System.nanoTime()
+        handler.onPointerCancel(timeNs)
+        if (hovering) handler.onHoverExit(timeNs)
         DesktopShell.mouseMode = DesktopMouseMode.Draw
     }
 }
@@ -870,9 +1020,16 @@ private object DesktopShell {
      */
     fun eraserKind(kind: ToolKind): ToolKind? = kind as? ToolKind.Brush
 
-    fun handler(engine: DesktopEngine, density: Float): CanvasTouchHandler {
+    fun handler(
+        engine: DesktopEngine,
+        density: Float,
+        onView: (ViewTransform) -> Unit,
+    ): CanvasTouchHandler {
         lateinit var handler: CanvasTouchHandler
-        handler = CanvasTouchHandler(density = density, host = DesktopInputHost(engine) { handler })
+        handler = CanvasTouchHandler(
+            density = density,
+            host = DesktopInputHost(engine, onView) { handler },
+        )
         handler.frameScheduler = SwingFrameScheduler
         handler.attachDeadlineScheduler(SwingGestureDeadlineScheduler())
         return handler
@@ -882,6 +1039,8 @@ private object DesktopShell {
 /** The stroke plumbing the Android CanvasScreen carries, minus its stylus-only features. */
 private class DesktopInputHost(
     private val engine: DesktopEngine,
+    /** Publishes navigation to the shell, which draws the reset pill from it. */
+    private val onView: (ViewTransform) -> Unit,
     // Late-bound: the handler the host reports view scale from is the one
     // being constructed with this host.
     private val handler: () -> CanvasTouchHandler,
@@ -894,6 +1053,7 @@ private class DesktopInputHost(
 
     override fun onViewChanged(view: ViewTransform) {
         engine.setView(view)
+        onView(view)
     }
 
     override fun onUndoRequested() = engine.undo()
@@ -1122,6 +1282,13 @@ private const val SAVED_MESSAGE_MS = 6_000L
 private const val WINDOW_MIN_W = 640
 private const val WINDOW_MIN_H = 480
 private const val UNTITLED_NAME = "Untitled"
+// Below the top strip, so the pill never covers Undo.
+private val RESET_PILL_TOP = (LayoutSpec.TOP_STRIP_DP + 12).dp
+private val FOCUS_HANDLE_TARGET = 48.dp
+private val FOCUS_HANDLE_WIDTH = 6.dp
+private val FOCUS_HANDLE_HEIGHT = 48.dp
+private val FOCUS_HANDLE_RADIUS = 3.dp
+private const val FOCUS_HANDLE_ALPHA = 0.35f
 
 internal object DesktopGlDiagnostics {
     private const val HEADLINE = "OpenGL ES 3.0 is unavailable."

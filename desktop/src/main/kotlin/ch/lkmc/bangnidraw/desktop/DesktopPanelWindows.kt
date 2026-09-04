@@ -56,7 +56,13 @@ private fun ReferencePanelWindow(
         title = DesktopStrings.get("reference_image") + " — " + documentName,
         size = DpSize(REFERENCE_WIDTH, REFERENCE_HEIGHT),
         theme = state.theme,
-        onClose = { state.showReferencePanel = false },
+        // Closing the panel also leaves the placement mode. Its toggle is in
+        // this window and nowhere else, so a mode that outlived it would be a
+        // canvas that has silently stopped painting with no visible cause.
+        onClose = {
+            state.showReferencePanel = false
+            state.editingReference = false
+        },
     ) {
         DesktopReferencePanel(reference, state, onReplace)
     }

@@ -585,6 +585,11 @@ internal class DesktopShellState(
      * While true the mouse moves the tracing image instead of painting.
      * Android reaches the same state with two fingers on the canvas; a mouse
      * has one pointer, so the mode is explicit here.
+     *
+     * It belongs to the reference panel: the only control that turns it off
+     * is there, so closing that window clears it too, and so does removing
+     * the image. A mode that outlived its switch would read as a canvas that
+     * had stopped painting for no reason.
      */
     var editingReference by mutableStateOf(false)
 

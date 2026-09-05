@@ -3859,6 +3859,7 @@ Deferred, owed to a later PR:
 | 2 | hybrid → `b732c50` | `useful feedback` | a real BLOCKER in round 1's own fsync fix; 5 more applied, 1 remedy refused |
 | 3 | hybrid → `c2179b7` | `useful feedback` | a defect in round 2's own heap floor; 4 more applied, none declined |
 | 4 | hybrid → `69e45fc` | `nits only` | 2 minor + 1 info, all applied, no product code changed; **loop ends** |
+| — | hybrid → `cbd465c` | *not scored* | fired after steady state; two small `DesktopBangniWriter` items taken anyway, see below |
 
 Real, and worth the 161 minutes the review took: a `.bangni` charged its
 expansion budget at *compressed* size while every tile decodes to 256 KiB, so
@@ -4035,4 +4036,21 @@ have succeeded, to a heap floor that inverted its own budget, to a test
 assertion that could not fail. Rounds 2 and 3 each caught a defect in the
 previous round's fix, which is worth remembering rather than filing away: both
 compiled and passed CI, so nothing but a reader was ever going to find them.
+
+**A round after the end.** Pushing round 4's fixes started another review, as
+every push does. The loop was already over on round 4's merits and this one was
+not triaged or scored — but it named a real defect in code this PR introduces,
+in three lines, so shipping it knowingly to save a CI cycle would have been the
+wrong trade. `File.mkdirs()` returns false when the directory already exists,
+so `!parent.isDirectory && !parent.mkdirs()` reports a *save* as failed
+whenever anything else creates the parent between the check and the call. It
+calls `mkdirs()` first and asks afterwards now. The second item was a comment:
+the `AtomicMoveNotSupportedException` fallback is not atomic, so on a mount
+that cannot rename a crash mid-copy leaves exactly the truncated file the class
+header promises to prevent — undocumented where it happens, and now stated
+there.
+
+That push is the last. Whatever the next round says, it is not read: the stop
+rule ended this at round 4, and "one more small thing" is the shape of a loop
+that never closes.
 

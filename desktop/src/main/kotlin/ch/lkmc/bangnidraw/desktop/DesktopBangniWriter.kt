@@ -26,7 +26,12 @@ internal object DesktopBangniWriter {
         }
         val parent = target.parentFile
             ?: return DesktopSaveResult.Failed("${target.absolutePath} has no parent directory")
-        if (!parent.isDirectory && !parent.mkdirs()) {
+        // mkdirs first, then ask whether the directory is there: it returns
+        // false when the directory already exists, so testing `isDirectory`
+        // *before* it reports a save as failed whenever anything else creates
+        // the parent in between — a second save, or another process.
+        parent.mkdirs()
+        if (!parent.isDirectory) {
             return DesktopSaveResult.Failed("could not create ${parent.absolutePath}")
         }
 
@@ -76,6 +81,12 @@ internal object DesktopBangniWriter {
                 java.nio.file.StandardCopyOption.REPLACE_EXISTING,
             )
         } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            // Not atomic, on a mount that cannot rename — some SMB and FUSE
+            // shares. A crash mid-copy leaves a truncated target, the one
+            // outcome this file's header promises cannot happen; nothing but
+            // rename support can prevent it, and refusing to save at all on
+            // such a mount would be worse. Read the header before changing
+            // this.
             java.nio.file.Files.move(
                 partial.toPath(),
                 target.toPath(),

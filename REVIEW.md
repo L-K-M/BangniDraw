@@ -30,11 +30,14 @@ _Nothing open._
   the two cannot both be true: *if* a whole-run cancellation never starts a
   dependent job while a job-level timeout does, the supersede case can never
   reach the sentinel and no guard is required; only if that fails would every
-  push draw a comment. Deciding which is exactly what the dry-run the finding
-  itself prescribes is for — a throwaway branch with `timeout-minutes: 1`.
-  That is a design change to a privileged `pull_request_target` workflow with
-  its own testing, not a line to fold
-  into a one-line budget change that is holding up PR #193. **Follow-up
+  push draw a comment. Deciding which needs a dry-run with *both* legs, on a
+  throwaway branch: `timeout-minutes: 1` reproduces the job-level timeout,
+  but never a whole-run cancellation — so the supersede half, the one the
+  guard question actually turns on, needs a second push while a run is live
+  (or a manual cancellation), with a window long enough for it to land
+  mid-run. That is a design change to a privileged `pull_request_target`
+  workflow with its own testing, not a line to fold into a one-line budget
+  change that is holding up PR #193. **Follow-up
   owed**: the corrected condition, plus whatever the dry-run settles about the
   supersede case, recorded in CICD.md when it lands.
 

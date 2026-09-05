@@ -57,9 +57,13 @@ an explicit `concurrency:` group, `timeout-minutes:` on every job, and
   It is not a knob to trim: a job killed by this timeout posts nothing, and
   a reviewer that says nothing looks exactly like one that found nothing
   (CLAUDE.md's infrastructure-failure rule). PR #193 hit that four times at
-  90 minutes, discarding 19 chunks of real findings each time. If a PR ever
-  needs more, raise it — do not remove it, since the family contract wants
-  every job bounded.
+  90 minutes, discarding 19 chunks of real findings each time. Measured over
+  that run, a chunk averages 4.52 min including the retry an
+  output-token-limited one triggers — so 90 bought about 20 chunks, which is
+  exactly where it kept dying, and 180 buys about 40. Treat 40 as the
+  ceiling: a PR past it needs a bigger budget *before* the run, not another
+  silent timeout after it. Raise the number when that happens — do not remove
+  it, since the family contract wants every job bounded.
 - **Graceful degradation:** if the `ZAI_API_KEY` secret is absent the job
   logs a skip and stays green.
 - **Trust boundary:** the guard is same-repo, not admin-only — anyone with

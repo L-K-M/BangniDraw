@@ -3858,6 +3858,7 @@ Deferred, owed to a later PR:
 | 1 | full, `e211a58` | `useful feedback` | 20 inline + a size-truncated summary; most applied, 3 refuted, 1 declined, 4 deferred |
 | 2 | hybrid → `b732c50` | `useful feedback` | a real BLOCKER in round 1's own fsync fix; 5 more applied, 1 remedy refused |
 | 3 | hybrid → `c2179b7` | `useful feedback` | a defect in round 2's own heap floor; 4 more applied, none declined |
+| 4 | hybrid → `69e45fc` | `nits only` | 2 minor + 1 info, all applied, no product code changed; **loop ends** |
 
 Real, and worth the 161 minutes the review took: a `.bangni` charged its
 expansion budget at *compressed* size while every tile decodes to 256 KiB, so
@@ -4001,4 +4002,37 @@ sync on a closed descriptor, a floor that inverts its own budget — because bot
 compiled, passed, and were wrong. The round-over-round trend is convergent: 20
 findings, then 6, then 5, and the severity has fallen from silent data loss to
 a leaked temp directory.
+
+### Round 4 — steady state
+
+Two minor findings and one informational, no majors and no blockers, and
+**not one line of product code changed**. That is the nits-only rule, and the
+loop ends here.
+
+- A contract assertion this PR added in round 3 was vacuous:
+  `assertTrue(main.contains("result.path"))` sits beside an assertion pinning
+  `savedMessage = if (edited) {`, and `result.path` appears in *both* branches
+  of that condition — so it constrained nothing while the behaviour round 3
+  actually added, the `desktop_save_stale` key, went unpinned. It pins the key
+  now, and fails when the key is removed.
+- `desktop/build.gradle.kts` copied the zh-Hans `strings.xml` with a bare
+  `from(...)`, which Gradle skips in silence when the source is missing. Rename
+  the locale folder and the desktop would ship English-only with nothing
+  failing — and `MissingTranslation` does not cover it, because nothing is
+  missing from a folder that no longer exists. A configuration-time `check`
+  now fails in under a second; verified by moving the folder away. The English
+  path already failed loudly, since `app_name` is read out of it.
+- The informational item asked whether `desktop_help_body`'s paragraph breaks,
+  Android escapes and `%1$s` argument survived the move from five joined
+  Kotlin strings into `strings.xml`. They do — verified, not assumed — and a
+  test in `DesktopAboutTest` now says so, since nothing about that failing
+  would have failed a build.
+
+**The arc.** 20 findings, then 6, then 5, then 3; severity from silent data
+loss (a blank file written over an opened painting, an app crash on a picked
+file, a zip bomb the budget did not bound) through a save that could never
+have succeeded, to a heap floor that inverted its own budget, to a test
+assertion that could not fail. Rounds 2 and 3 each caught a defect in the
+previous round's fix, which is worth remembering rather than filing away: both
+compiled and passed CI, so nothing but a reader was ever going to find them.
 

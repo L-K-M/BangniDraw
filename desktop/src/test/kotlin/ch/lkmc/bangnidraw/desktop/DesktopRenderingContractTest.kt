@@ -82,7 +82,10 @@ class DesktopRenderingContractTest {
         // The clean-save path still reports the path it wrote; a stale one
         // says so instead, which is why this is no longer the only form.
         assertTrue(main.contains("document.state.savedMessage = if (edited) {"))
-        assertTrue(main.contains("result.path"))
+        // The key, not `result.path` — that appears in both branches of the
+        // condition above, so asserting it constrained nothing while leaving
+        // the behaviour this round added unpinned.
+        assertTrue(main.contains("desktop_save_stale"))
         assertTrue(engine.contains("restoreCancelledRmw(spec.layerId, images)"))
         assertTrue(engine.contains("readbackRevisions"))
         assertTrue(engine.contains("ReadbackDelivery.Complete"))

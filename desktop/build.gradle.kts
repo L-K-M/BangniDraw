@@ -247,7 +247,17 @@ tasks.processResources {
         into("strings")
         rename { "values.xml" }
     }
-    from(layout.projectDirectory.file("../app/src/main/res/values-b+zh+Hans/strings.xml")) {
+    // Checked, because `from` skips a missing source without a word: rename
+    // the locale folder and the desktop would ship English-only with nothing
+    // failing. `MissingTranslation` does not cover it either — nothing is
+    // missing from a folder that no longer exists. The English path already
+    // fails loudly, since `app_name` is read out of it.
+    val zhHansStrings =
+        layout.projectDirectory.file("../app/src/main/res/values-b+zh+Hans/strings.xml")
+    check(zhHansStrings.asFile.isFile) {
+        "the shared zh-Hans strings are missing: ${zhHansStrings.asFile}"
+    }
+    from(zhHansStrings) {
         into("strings")
         rename { "zh-Hans.xml" }
     }

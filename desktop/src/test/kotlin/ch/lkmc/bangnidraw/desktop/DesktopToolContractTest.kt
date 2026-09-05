@@ -164,7 +164,11 @@ class DesktopToolContractTest {
         // reformats the call, and an assertion that cannot fail is worse
         // than no assertion, because it reads as cover.
         assertFalse(
-            Regex("""scan\.run\([^)]*isCancelled\s*=\s*\{\s*false\s*\}""").containsMatchIn(fill),
+            // `[^)]*` stops at the first `)`, so any earlier argument
+            // carrying parentheses — `progress = { p -> report(p) }` — hides
+            // the call this is looking for.
+            Regex("""scan\.run\((?:[^()]|\([^()]*\))*isCancelled\s*=\s*\{\s*false\s*\}""")
+                .containsMatchIn(fill),
             "the scan must not run inline with a cancellation that never fires",
         )
 

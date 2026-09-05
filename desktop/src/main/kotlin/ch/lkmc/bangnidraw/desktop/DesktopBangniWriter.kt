@@ -40,8 +40,16 @@ internal object DesktopBangniWriter {
             // crash can commit the rename over the previous version while the
             // new bytes are still only in cache — losing both. `AtomicFiles`
             // syncs for the same reason on the Android side.
+            //
+            // The buffer is flushed by hand and never closed: closing a
+            // `BufferedOutputStream` closes what it wraps, and `sync()` on a
+            // descriptor that is already closed throws `SyncFailedException`
+            // — an IOException, which the catch below turns into a failed
+            // save. Only the outer `use` closes, after the sync.
             java.io.FileOutputStream(partial).use { raw ->
-                raw.buffered().use { out -> BangniCodec.write(out, document) }
+                val out = raw.buffered()
+                BangniCodec.write(out, document)
+                out.flush()
                 raw.fd.sync()
             }
             if (Thread.currentThread().isInterrupted) {

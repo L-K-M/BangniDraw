@@ -3856,6 +3856,7 @@ Deferred, owed to a later PR:
 | Round | Scope | Score | Notes |
 | --- | --- | --- | --- |
 | 1 | full, `e211a58` | `useful feedback` | 20 inline + a size-truncated summary; most applied, 3 refuted, 1 declined, 4 deferred |
+| 2 | hybrid → `b732c50` | `useful feedback` | a real BLOCKER in round 1's own fsync fix; 5 more applied, 1 remedy refused |
 
 Real, and worth the 161 minutes the review took: a `.bangni` charged its
 expansion budget at *compressed* size while every tile decodes to 256 KiB, so
@@ -3881,3 +3882,73 @@ created the disagreement it meant to remove.
 Declined: the `*/*` MIME entry (R-274), which is a catch-all on purpose,
 because a filter that guesses a `.bangni`'s type wrong greys out the user's
 own file.
+
+### Round 2
+
+The round earned its place, and the lesson is the one CLAUDE.md already
+warns about: **a fix pushed in one round introduced a defect caught in the
+next.** Round 1's fsync landed as
+
+```kotlin
+raw.buffered().use { out -> BangniCodec.write(out, document) }
+raw.fd.sync()
+```
+
+and closing a `BufferedOutputStream` closes what it wraps, so the sync ran on
+a descriptor that was already closed. Measured on this JDK rather than
+assumed: it throws `SyncFailedException`, which is an `IOException`, which the
+writer's own catch turns into `DesktopSaveResult.Failed` — **every `.bangni`
+save would have failed.** The reviewer predicted a silent no-op on JDK 13+ and
+a throw only on 8–12; on 17 it throws. Its conclusion held either way.
+
+It passed CI because nothing in the repository ever called
+`DesktopBangniWriter.write`: every other `.bangni` test drives `BangniCodec`
+through a byte array. `DesktopBangniWriterTest` now writes real files —
+round trip, no scratch file left behind, and replacing an existing painting —
+and all three fail without the fix.
+
+- **R-279 ⏸️ (applied differently) round 2, Major: the 256 MiB decoded cap can
+  refuse documents earlier builds opened.** The finding is right and the
+  premise it rests on is right twice over: `LOW_RAM_GPU_TILE_BYTES` is a
+  phone's GPU budget sitting in a codec the desktop shares, and the code
+  charged a tile *both* its decoded size and its arrival bytes while the KDoc
+  said only the former. Both fixed. But its remedy — back to 2 GiB — was
+  refused, because 2 GiB retained is the original OOM on any phone. The
+  numbers say no constant can do this job: the format's own ceiling is
+  `MAX_LAYERS` (16) × `MAX_TILES` (1024) × `TILE_BYTES` = **4 GiB**, so any
+  value that never refuses a legal document is far past what a phone can hold.
+  So the ceiling and the budget were separated. `MAX_TOTAL_BYTES` is now that
+  4 GiB, derived rather than chosen, and it is a *correctness* bound — it
+  refuses the 50 GB a crafted 200,000-entry file decodes to, and nothing a
+  writer can produce. The budget is `Limits.forHeap`: half this JVM's max
+  heap, floored at 256 MiB and clamped to the ceiling, and it is the default,
+  so a caller that passes nothing is bounded by its own memory rather than by
+  someone's guess. A phone narrows itself; a laptop opens the painting.
+
+Applied without argument: the per-entry overflow now says which bound tripped
+rather than naming the total; the active-layer index is bounded *and* its two
+lists are appended together so the invariant is structural rather than
+narrated; the `scan.run` guard regex allows one level of nested parentheses,
+because `[^)]*` stopped at the first `)` and a `progress = { p -> report(p) }`
+would have hidden the very call it guards; `BangniFile`'s forward-compatibility
+KDoc now names `ignoreUnknownKeys`, since defaults alone only cover the keys a
+newer writer *omits*; and `PaperSwatchCustomDefault` moved to `ui.shared` with
+its four siblings.
+
+Two of round 1's own contract assertions were also right to flag: they matched
+exact indentation, so a reformat would have failed them while the behaviour
+they guard was intact. They compare whitespace-collapsed source now — and the
+first attempt at that was itself wrong, slicing on a `" on"` delimiter that
+also occurs inside "arrive **on** the GL thread", so each callback is matched
+by an anchored regex instead.
+
+- **R-280 ⏸️ (applied) round 2, Major: a save completing after the canvas moved
+  on clears `dirty` and closes the window anyway.** Recorded rather than passed
+  over silently because the finding named round 1 as the amplifier and that is
+  worth keeping straight: the unconditional `dirty = false` predates this PR,
+  and before round 1 the same lost strokes needed a second click on the close
+  button instead of none. Round 1 did make it worse, and the guard belongs
+  here either way. `DesktopDocument.edits` is snapshotted when the write starts
+  and compared when it lands; a document that moved keeps `dirty` and its
+  window, and the next close prompts again.
+

@@ -17,9 +17,12 @@ import kotlinx.serialization.Serializable
  * the undo journal's checkpoint state, the last tool. A document you hand to
  * another machine carries the painting and nothing else.
  *
- * Every field has a default, so a file written by a newer version still opens
- * for whatever this version understands (the same rule
- * `06-document-and-persistence.md` §13 sets for `project.json`).
+ * Every field has a default **and the decoder runs with
+ * `ignoreUnknownKeys`** — defaults cover the keys a newer writer omits, only
+ * that flag covers the ones it adds, and the forward-compatibility rule needs
+ * both halves — so a file written by a newer version still opens for whatever
+ * this version understands (the same rule `06-document-and-persistence.md`
+ * §13 sets for `project.json`).
  */
 @Serializable
 data class BangniManifest(

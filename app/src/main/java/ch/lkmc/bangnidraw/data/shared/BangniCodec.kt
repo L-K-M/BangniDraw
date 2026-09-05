@@ -47,11 +47,13 @@ import kotlinx.serialization.json.Json
  *   reported as unknown. Nothing here builds a `File` from an entry name,
  *   which is what makes zip-slip inapplicable rather than merely guarded.
  * - **The expansion is bounded, at decoded size.** A file may not carry more
- *   than [MAX_ENTRIES] entries, expand past [MAX_TOTAL_BYTES] in total, or
- *   past [MAX_ENTRY_BYTES] in any one entry — and a tile is charged the
+ *   than [MAX_ENTRIES] entries, expand past [Limits.maxTotalBytes] in total,
+ *   or past [MAX_ENTRY_BYTES] in any one entry — and a tile is charged the
  *   [TILE_BYTES] it becomes, not the compressed bytes it arrives as, since
  *   those differ by three orders of magnitude for an empty one. So a zip bomb
- *   fails the open instead of the process.
+ *   fails the open instead of the process. The total is the *reader's* bound,
+ *   [Limits.forHeap], not a fixed number: this codec is shared, and a ceiling
+ *   sized for a phone would refuse a painting on a laptop that can hold it.
  * - **A tile outside the canvas grid, or one that fails [TileCodec], is
  *   skipped with a warning.** One bad tile must not fail an open
  *   (`06-document-and-persistence.md` §4).
@@ -67,21 +69,19 @@ object BangniCodec {
     const val MAX_ENTRIES = 200_000
 
     /**
-     * The expansion budget, charged at **decoded** size.
+     * The format's own ceiling on decoded pixels: [PerfConstants.MAX_LAYERS]
+     * layers of [TileGrid.MAX_TILES] tiles, 4 GiB.
      *
-     * Tiles are stored, not deflated, by the zip — [TileCodec] already
-     * compressed them — so the bytes that arrive from the stream are a small
-     * fraction of the [TILE_BYTES] each becomes in memory, and a budget
-     * counting only what arrived bounds nothing: 200,000 transparent tiles
-     * compress to well under a hundred megabytes and decode to 50 GB.
-     *
-     * 256 MiB is `PerfConstants.LOW_RAM_GPU_TILE_BYTES` — every tile the
-     * smallest device this app supports can hold on the GPU at once. A file
-     * whose pixels exceed that could not be opened as a document there
-     * anyway, so refusing it with a message beats meeting it as an
-     * `OutOfMemoryError` halfway through.
+     * This is a *correctness* bound, not a memory one. It exists so a crafted
+     * file cannot claim more than the format can express — 200,000 entries
+     * decode to 50 GB, which this refuses — and it is deliberately loose
+     * enough that no document either writer can produce is ever refused. A
+     * reader that cannot hold 4 GiB narrows it through [Limits.forHeap]; a
+     * mobile-derived constant here would refuse a painting on a laptop that
+     * has the memory for it.
      */
-    const val MAX_TOTAL_BYTES = PerfConstants.LOW_RAM_GPU_TILE_BYTES
+    const val MAX_TOTAL_BYTES: Long =
+        PerfConstants.MAX_LAYERS.toLong() * TileGrid.MAX_TILES * TILE_BYTES
 
     /**
      * The ceiling on one entry. Without it the reader accumulates up to the
@@ -94,10 +94,14 @@ object BangniCodec {
     const val MAX_WARNINGS = 64
 
     /**
-     * What a read may expand to. A parameter rather than three constants read
-     * in place, so the accounting can be driven at test scale: proving that a
-     * tile is charged at its decoded size should not cost the budget itself
-     * in heap.
+     * What a read may expand to, **charged at decoded size** — tiles are
+     * *stored* rather than deflated, because `TileCodec` already compressed
+     * them, so an empty one arrives as a few hundred bytes and becomes
+     * [TILE_BYTES]. A budget counting arrival bytes bounds nothing.
+     *
+     * A parameter rather than constants read in place for two reasons: a test
+     * can drive the accounting at four tiles instead of sixteen thousand, and
+     * a reader can bound it by the memory it actually has.
      */
     data class Limits(
         val maxEntries: Int = MAX_ENTRIES,
@@ -106,7 +110,30 @@ object BangniCodec {
         val maxWarnings: Int = MAX_WARNINGS,
     ) {
         companion object {
-            val DEFAULT = Limits()
+            /**
+             * Bounded by what this JVM can hold rather than by a constant
+             * someone guessed. The whole painting is built in memory before
+             * `read` returns, so the ceiling is a property of the heap: half
+             * of it, floored so a small heap still opens a small painting and
+             * clamped to the format's own ceiling above.
+             *
+             * Half, not all, because the decoded tiles are not the only thing
+             * live at that moment — the compressed entry, the map, and
+             * whatever the caller already holds share the heap with them.
+             */
+            fun forHeap(maxMemoryBytes: Long): Limits = Limits(
+                maxTotalBytes = (maxMemoryBytes / 2)
+                    .coerceIn(MIN_TOTAL_BYTES, MAX_TOTAL_BYTES),
+            )
+
+            /**
+             * The default every `read` without an explicit budget gets, so
+             * forgetting to pass one is safe rather than merely undefined.
+             */
+            val DEFAULT = forHeap(Runtime.getRuntime().maxMemory())
+
+            /** Four fully painted 4096-square layers; below this, refuse to shrink further. */
+            const val MIN_TOTAL_BYTES = 256L * 1024 * 1024
         }
     }
 
@@ -168,20 +195,33 @@ object BangniCodec {
             }
             if (entry.isDirectory) continue
 
-            val bytes = zip.readBoundedBytes(minOf(limits.maxTotalBytes - totalBytes, limits.maxEntryBytes))
+            val remaining = limits.maxTotalBytes - totalBytes
+            val bytes = zip.readBoundedBytes(minOf(remaining, limits.maxEntryBytes))
                 ?: return BangniReadResult.Failed(
-                    "the file expands past ${limits.maxTotalBytes / (1024 * 1024)} MB",
+                    // Which bound tripped: the reader stops at whichever is
+                    // nearer, and naming the wrong one sends the next person
+                    // looking for a total budget problem that is not there.
+                    if (remaining <= limits.maxEntryBytes) {
+                        "the file expands past ${limits.maxTotalBytes / (1024 * 1024)} MB"
+                    } else {
+                        "an entry expands past ${limits.maxEntryBytes / (1024 * 1024)} MB"
+                    },
                 )
-            totalBytes += bytes.size
 
             when {
                 entry.name == MANIFEST_ENTRY ->
                     manifest = json.decodeFromString(BangniManifest.serializer(), bytes.decodeToString())
-                entry.name == REFERENCE_ENTRY -> referencePng = bytes
+                // Kept, so charged what it occupies. A tile is charged its
+                // decoded size in its own branch instead.
+                entry.name == REFERENCE_ENTRY -> {
+                    totalBytes += bytes.size
+                    referencePng = bytes
+                }
                 entry.name.startsWith(LAYERS_PREFIX) && entry.name.endsWith(TILE_SUFFIX) -> {
                     // Charged before the decode, at the size the decode will
-                    // reach: what arrived is the compressed tile, and an
-                    // empty one is a few hundred bytes.
+                    // reach and *only* that: the compressed bytes are about to
+                    // be discarded, so charging them too would quietly shrink
+                    // the budget below what it says it is.
                     totalBytes += TILE_BYTES
                     if (totalBytes > limits.maxTotalBytes) {
                         return BangniReadResult.Failed(

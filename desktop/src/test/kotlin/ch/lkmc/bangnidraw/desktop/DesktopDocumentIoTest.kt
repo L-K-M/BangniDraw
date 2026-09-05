@@ -110,6 +110,25 @@ class DesktopDocumentIoTest {
         assertTrue(write.contains("is DesktopSaveResult.Failed"))
     }
 
+    /** Source with every run of whitespace collapsed, so formatting cannot break a claim. */
+    private fun collapsed(source: String): String = source.replace(Regex("\\s+"), " ")
+
+    @Test
+    fun `an in-flight save does not discard edits made while it runs`() {
+        val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
+        val write = collapsed(main.substringAfter("private fun writeTo(").substringBefore("\n}"))
+
+        // The canvas is live for the whole asynchronous write, so a stroke
+        // made while it runs is not in the file. Clearing `dirty` for it
+        // would lose it quietly; closing the window too would lose it for
+        // good, which is what the close-on-completion above would otherwise
+        // have turned this into.
+        assertTrue("val editsAtStart = document.edits" in write, write)
+        assertTrue("val edited = document.edits != editsAtStart" in write, write)
+        assertTrue("if (!edited) document.dirty = false" in write, write)
+        assertTrue("if (!edited) onSaved()" in write, write)
+    }
+
     @Test
     fun `saving from the close prompt closes the window when the write lands`() {
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
@@ -138,10 +157,17 @@ class DesktopDocumentIoTest {
         // The GL thread publishes all four of these, from the same call
         // sites: `onEdited` sits one line below `onPaper` in DesktopEngine.
         // Compose state written from there races the panels reading it.
+        // Anchored at each callback rather than sliced by a delimiter: with
+        // whitespace collapsed, any plausible delimiter also occurs inside
+        // the prose around the code.
+        val collapsed = collapsed(engine)
         for (callback in listOf("onFrame", "onStack", "onPaper", "onEdited")) {
-            val body = engine.substringAfter("$callback = ").substringBefore("\n            on")
+            val marks = Regex(
+                Regex.escape(callback) +
+                    """ = \{[^{}]*java\.awt\.EventQueue\.invokeLater""",
+            )
             assertTrue(
-                "java.awt.EventQueue.invokeLater" in body,
+                marks.containsMatchIn(collapsed),
                 "$callback publishes Compose state off the event thread",
             )
         }
@@ -159,7 +185,9 @@ class DesktopDocumentIoTest {
         assertTrue(documents.contains("open.firstOrNull { it.file?.canonicalOrAbsolute() == key }"))
         // A path that cannot be canonicalized still has to compare as
         // something, or an unreadable parent lets the file open twice.
-        assertTrue(documents.contains("} catch (_: java.io.IOException) {\n            absoluteFile"))
+        // Whitespace-normalized: an assertion that a reformat can break is
+        // one that gets deleted rather than fixed.
+        assertTrue(collapsed(documents).contains("} catch (_: java.io.IOException) { absoluteFile"))
     }
 
     @Test

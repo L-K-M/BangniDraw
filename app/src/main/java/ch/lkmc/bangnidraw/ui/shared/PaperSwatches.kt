@@ -20,3 +20,6 @@ val PaperSwatchWhite = Color(0xFFFFFFFF)
 val PaperSwatchWarm = Color(0xFFF8F1E3)
 val PaperSwatchGray = Color(0xFF9E9E9E)
 val PaperSwatchBlack = Color(0xFF000000)
+
+/** Where the custom-paper picker starts, and a plain constant like its siblings. */
+val PaperSwatchCustomDefault = Color(0xFFDCE6EE)

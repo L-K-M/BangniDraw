@@ -245,16 +245,23 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   compressed them — so an empty tile arrives as a few hundred bytes and becomes
   `TILE_BYTES`, and a budget counting arrival bytes bounds nothing (200,000 of
   them are tens of megabytes on the way in and 50 GB on the way out).
-  `MAX_TOTAL_BYTES` is `PerfConstants.LOW_RAM_GPU_TILE_BYTES` — more pixels
-  than the smallest supported device holds on the GPU at once, so a file past
-  it could not be opened there anyway — `MAX_ENTRY_BYTES` stops one entry
-  accumulating the whole remaining budget in a single buffer before it is
-  refused, and the warning list is bounded too. The three live on
-  `BangniCodec.Limits`, a parameter rather than constants read in place, so a
-  test can drive the accounting at four tiles instead of a thousand. What is
-  still owed is streaming tiles to the project store as they are read: the
-  reader builds the whole map first, so a *legitimate* very large painting
-  meets the same ceiling a crafted one does.
+  **The ceiling and the budget are different numbers, and conflating them
+  breaks one product or the other.** `MAX_TOTAL_BYTES` is the *format's* own
+  ceiling — `MAX_LAYERS` (16) × `MAX_TILES` (1024) × `TILE_BYTES`, 4 GiB,
+  derived rather than chosen — and it is a correctness bound: it refuses what
+  the format cannot express (200,000 entries decode to 50 GB) and never a
+  document either writer can produce. The *budget* is `Limits.forHeap`: half
+  this JVM's max heap, floored at 256 MiB, clamped to that ceiling, and it is
+  `Limits.DEFAULT`, so a caller passing nothing is still bounded by its own
+  memory. Do not put a device-sized constant here: this codec is shared, and a
+  phone's GPU budget in it refuses a painting on a laptop that can hold it —
+  which is exactly what a review caught. A tile is charged its decoded size
+  **once**; charging the arrival bytes too silently shrinks the budget below
+  what it says. `MAX_ENTRY_BYTES` stops one entry accumulating the whole
+  remaining budget in a single buffer before it is refused, the failure names
+  *which* bound tripped, and the warning list is bounded too. What is still
+  owed is streaming tiles to the project store as they are read: the reader
+  builds the whole map first, which is why the budget has to be the heap's.
   The manifest is not trusted past the codec either — `Document`'s own
   `require`s (dpi above all, which it divides by) run inside `import`'s guard,
   because an `IllegalArgumentException` from there would otherwise pass every
@@ -298,7 +305,17 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   **A save completes an event later than it is asked for**, on the EDT through
   `invokeLater`, so anything that must follow one travels on `writeTo`'s
   `onSaved` rather than reading `document.dirty` on the next line — that read
-  returns the value from before the save, every time. **Everything the engine
+  returns the value from before the save, every time. The canvas stays live
+  for the whole write, so the completion compares `DesktopDocument.edits`
+  against a snapshot taken when it started: a document that moved on keeps
+  `dirty` and keeps its window, because the file does not hold what it holds.
+  **`DesktopBangniWriter` syncs the descriptor before the rename, and the
+  buffer is flushed by hand rather than closed** — closing a
+  `BufferedOutputStream` closes what it wraps, and `FileDescriptor.sync()` on
+  an already-closed descriptor throws `SyncFailedException`, an `IOException`
+  the writer's own catch turns into a failed save. That shipped once and every
+  save would have failed; nothing caught it because no test called the writer
+  at all, so `DesktopBangniWriterTest` now writes real files. **Everything the engine
   publishes reaches Compose the same way**: `onFrame`, `onStack`, `onPaper` and
   `onEdited` are all called on the GL thread, from adjacent lines, and all four
   marshal. And **an opened painting drains its readback before anything reads

@@ -611,19 +611,31 @@ private fun writeTo(
     document: DesktopDocument,
     file: java.io.File,
     adopt: Boolean = true,
-    /** Runs on the EDT once the write succeeded, after `dirty` is cleared. */
+    /**
+     * Runs on the EDT once the write succeeded — and only when nothing was
+     * edited while it ran, since then the file does not hold what the
+     * document does.
+     */
     onSaved: () -> Unit = {},
 ) {
+    // The canvas stays live for the whole write. A stroke made while it runs
+    // is not in the file, so clearing `dirty` for it would lose it silently,
+    // and closing the window on top of that would lose it for good.
+    val editsAtStart = document.edits
     val onComplete: (DesktopSaveResult) -> Unit = { result ->
         java.awt.EventQueue.invokeLater {
             when (result) {
                 is DesktopSaveResult.Saved -> {
+                    val edited = document.edits != editsAtStart
                     if (adopt) {
                         document.file = file
-                        document.dirty = false
+                        // Left dirty when the document moved on: the next
+                        // close prompts again rather than discarding the
+                        // strokes this file does not carry.
+                        if (!edited) document.dirty = false
                     }
                     document.state.savedMessage = result.path
-                    onSaved()
+                    if (!edited) onSaved()
                 }
                 is DesktopSaveResult.Failed ->
                     document.state.savedMessage =

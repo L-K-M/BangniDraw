@@ -34,6 +34,22 @@ internal class DesktopDocument(
     /** Set by any edit, cleared by a successful save. */
     var dirty by mutableStateOf(false)
 
+    /**
+     * How many edits this document has seen. Only ever compared, never read
+     * for its value: a save runs asynchronously while the canvas stays live,
+     * so the completion has to know whether what it wrote is still what the
+     * document holds before it clears [dirty] or closes the window. Bumped on
+     * the event thread beside `dirty`, so a snapshot taken there is coherent.
+     */
+    var edits by mutableStateOf(0)
+        private set
+
+    /** Marks an edit. On the event thread, like every other state here. */
+    fun noteEdited() {
+        edits += 1
+        dirty = true
+    }
+
     /** Raised to open the "close without saving?" prompt for this window. */
     var confirmingClose by mutableStateOf(false)
 
@@ -147,7 +163,7 @@ internal class DesktopDocuments(
             onPaper = { argb ->
                 java.awt.EventQueue.invokeLater { document.state.publishPaper(argb) }
             },
-            onEdited = { java.awt.EventQueue.invokeLater { document.dirty = true } },
+            onEdited = { java.awt.EventQueue.invokeLater { document.noteEdited() } },
             initial = initial,
         )
         document = DesktopDocument(

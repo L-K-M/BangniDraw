@@ -9,7 +9,9 @@ import ch.lkmc.bangnidraw.engine.core.BlendMode
 import ch.lkmc.bangnidraw.engine.core.LayerId
 import ch.lkmc.bangnidraw.engine.core.LayerProps
 import ch.lkmc.bangnidraw.engine.core.LayerRecord
+import ch.lkmc.bangnidraw.engine.core.PerfConstants
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
+import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -193,6 +195,28 @@ class BangniCodecTest {
     // ------------------------------------------------ the expansion budget
 
     @Test
+    fun `the default budget is the reader's heap, not a fixed number`() {
+        // A shared codec with a phone-sized constant refuses a painting on a
+        // laptop that can hold it; one with a laptop-sized constant lets a
+        // phone meet it as an OutOfMemoryError. The ceiling is the format's,
+        // the budget is the reader's.
+        val format = BangniCodec.MAX_TOTAL_BYTES
+        assertEquals(
+            PerfConstants.MAX_LAYERS.toLong() * TileGrid.MAX_TILES * TILE_BYTES,
+            format,
+            "the format ceiling must admit every document the writers can produce",
+        )
+
+        val tiny = BangniCodec.Limits.forHeap(64L * 1024 * 1024)
+        val huge = BangniCodec.Limits.forHeap(64L * 1024 * 1024 * 1024)
+
+        assertEquals(BangniCodec.Limits.MIN_TOTAL_BYTES, tiny.maxTotalBytes)
+        assertEquals(format, huge.maxTotalBytes)
+        assertTrue(BangniCodec.Limits.DEFAULT.maxTotalBytes in BangniCodec.Limits.MIN_TOTAL_BYTES..format)
+    }
+
+
+    @Test
     fun `a tile is charged the size it decodes to, not the size it arrives as`() {
         // Six empty tiles. Compressed they are a few hundred bytes each, so a
         // budget counting arrival bytes would let all six through; decoded
@@ -213,7 +237,28 @@ class BangniCodecTest {
                 BangniCodec.Limits(maxTotalBytes = 4L * TILE_BYTES),
             ),
         )
-        assertTrue(failed.message.contains("expands past"), failed.message)
+        // The total budget tripped, and the message says so.
+        assertTrue(failed.message.startsWith("the file expands past"), failed.message)
+    }
+
+    @Test
+    fun `a tile is charged once, not its decoded and its stored size both`() {
+        // Four tiles against a four-tile budget: charging the compressed
+        // bytes as well would put it over and refuse a file that fits.
+        val entries = (0 until 4).map { index ->
+            "layers/layer-1/${index}_0.tile" to TileCodec.encode(ByteArray(TILE_BYTES))
+        }
+        val zip = zipOf(
+            BangniCodec.MANIFEST_ENTRY to json(manifest(listOf(record("layer-1")))),
+            *entries.toTypedArray(),
+        )
+
+        val read = BangniCodec.read(
+            ByteArrayInputStream(zip),
+            BangniCodec.Limits(maxTotalBytes = 4L * TILE_BYTES),
+        )
+
+        assertIs<BangniReadResult.Ok>(read, "four tiles must fit a four-tile budget")
     }
 
     @Test
@@ -235,7 +280,9 @@ class BangniCodecTest {
                 BangniCodec.Limits(maxTotalBytes = 64L * 1024 * 1024, maxEntryBytes = 4096),
             ),
         )
-        assertTrue(failed.message.contains("expands past"), failed.message)
+        // The per-entry cap tripped, not the total — naming the wrong one
+        // sends the next reader hunting a budget problem that is not there.
+        assertTrue(failed.message.startsWith("an entry expands past"), failed.message)
         assertTrue(bomb.size < 4096, "the bomb must arrive smaller than the cap it trips")
     }
 

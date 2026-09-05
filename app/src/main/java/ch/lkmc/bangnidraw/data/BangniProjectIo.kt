@@ -131,7 +131,6 @@ internal object BangniProjectIo {
                 warnings += "skipped a layer with an unusable id: ${record.id}"
                 continue
             }
-            importedIds += record.id
             val props = original.copy(id = newLayerId())
             val tiles = read.document.tiles[original.id].orEmpty().filterKeys(grid::contains)
             val written = LinkedHashSet<TileKey>(tiles.size)
@@ -140,13 +139,19 @@ internal object BangniProjectIo {
                 store.write(key, pixels)
                 written += key
             }
+            // Appended together, so the two lists cannot drift: the index
+            // found in one is an index into the other.
             layers += Layer(props, written)
+            importedIds += record.id
         }
         if (layers.isEmpty()) return ImportResult.Failed("the file has no layers this build can read")
 
         val activeIndex = importedIds
             .indexOfFirst { it == manifest.activeLayerId }
-            .takeIf { it >= 0 } ?: 0
+            // Bounded as well as found: the pairing above is what makes this
+            // index right, and a bound is what keeps a future edit to that
+            // loop from turning a drift into a wrong active layer.
+            .takeIf { it in layers.indices } ?: 0
         val stack = try {
             LayerStack(
                 layers = layers,

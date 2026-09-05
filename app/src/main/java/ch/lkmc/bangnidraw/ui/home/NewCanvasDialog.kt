@@ -70,7 +70,7 @@ import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.ui.common.InfoButton
 import ch.lkmc.bangnidraw.ui.common.drawQuadrantChecker
 import ch.lkmc.bangnidraw.ui.shared.PaperSwatchBlack
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchCustomDefault
+import ch.lkmc.bangnidraw.ui.shared.PaperSwatchCustomDefault
 import ch.lkmc.bangnidraw.ui.shared.PaperSwatchGray
 import ch.lkmc.bangnidraw.ui.shared.PaperSwatchWarm
 import ch.lkmc.bangnidraw.ui.shared.PaperSwatchWhite

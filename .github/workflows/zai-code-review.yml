@@ -24,7 +24,16 @@ jobs:
   review:
     name: Review PR with GLM 5.3
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Sized to the review, not to a round number. The action chunks the diff
+    # and spends roughly 4.5 minutes of high-effort reasoning on each chunk,
+    # so the budget has to cover the largest PR this repo actually produces:
+    # #193 needed 28 chunks (~126 min) and died at 90 four times running,
+    # each time discarding every finding it had already produced — a
+    # timeout here reads exactly like a clean review, which is the failure
+    # mode CLAUDE.md warns about. 180 covers that with headroom for the
+    # retry an output-token-limited chunk triggers. Still bounded, as the
+    # family contract requires; raise it again rather than removing it.
+    timeout-minutes: 180
     # pull_request_target exposes repository secrets and a write-capable token.
     # Never run this privileged job for branches from untrusted forks.
     if: >-

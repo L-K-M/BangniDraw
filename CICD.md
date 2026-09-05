@@ -68,6 +68,17 @@ an explicit `concurrency:` group, `timeout-minutes:` on every job, and
   *before* the run, not another silent timeout after it. Raise the number when
   that happens — do not remove it, since the family contract wants every job
   bounded.
+- **Raising that budget does not rescue a run already in flight — or a re-run
+  of it.** GitHub resolves a run's workflow file once, when the run is
+  created, and "Re-run jobs" replays that stored definition rather than
+  re-reading the ref. Measured: #193's review was re-run at 06:06 UTC on
+  2026-09-05, after the 180 above had already merged to `main`, and the job
+  was cancelled at 07:36:29 — 89 min 58 s, the old cap to the second. For
+  `pull_request_target` the workflow comes from the base branch, which is
+  exactly the case where the fix is sitting on `main` and looks like it must
+  apply. It does not. Get a *fresh* run instead: push to the head branch
+  (`synchronize`) or close and reopen the PR (`reopened`) — both are in this
+  workflow's `types`.
 - **Graceful degradation:** if the `ZAI_API_KEY` secret is absent the job
   logs a skip and stays green.
 - **Trust boundary:** the guard is same-repo, not admin-only — anyone with
@@ -98,5 +109,6 @@ merging.
 | CI can't find compileSdk / platform | Runner image changed. Add `android-actions/setup-android` to the job, or bump the pinned platform. |
 | Release job fails at the version gate | Tag was created by hand or on the wrong commit. Delete the tag and re-cut with `scripts/release.sh X.Y.Z --push`. |
 | "works in debug, breaks in release" | Missing R8 keep rule — `app/proguard-rules.pro`, see AGENTS.md. |
+| Review still dies at the old timeout after raising it | The run is a re-run; it replays the workflow file stored at run creation. Push to the head branch or reopen the PR to get a fresh run. |
 | Review workflow skipped on a PR | Draft PR, fork PR (by design), or `ZAI_API_KEY` unset. |
 | Local `assembleDebug` dies in `aapt2` on an arm64 Linux box | The SDK's aapt2 is x86_64-only. Build on CI, a Mac, or an x86_64 machine. |

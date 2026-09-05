@@ -87,10 +87,10 @@ import ch.lkmc.bangnidraw.engine.core.PanelMode
 import ch.lkmc.bangnidraw.engine.core.Refusal
 import ch.lkmc.bangnidraw.ui.common.InfoButton
 import ch.lkmc.bangnidraw.ui.common.drawQuadrantChecker
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchGray
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWarm
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWhite
+import ch.lkmc.bangnidraw.ui.shared.PaperSwatchBlack
+import ch.lkmc.bangnidraw.ui.shared.PaperSwatchGray
+import ch.lkmc.bangnidraw.ui.shared.PaperSwatchWarm
+import ch.lkmc.bangnidraw.ui.shared.PaperSwatchWhite
 import kotlinx.coroutines.delay
 
 /** The top-first layer sheet from `08-ui-and-layout.md` §3.3. */

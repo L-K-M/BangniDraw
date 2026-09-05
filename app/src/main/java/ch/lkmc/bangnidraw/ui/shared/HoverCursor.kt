@@ -1,4 +1,4 @@
-package ch.lkmc.bangnidraw.ui.canvas
+package ch.lkmc.bangnidraw.ui.shared
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
@@ -13,8 +13,6 @@ import ch.lkmc.bangnidraw.engine.core.HoverCursorPolicy
 import ch.lkmc.bangnidraw.engine.core.HoverRing
 import ch.lkmc.bangnidraw.engine.core.ToolKind
 import ch.lkmc.bangnidraw.input.StylusState
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWhite
 
 /** Size-accurate cursor over the SurfaceView; [revision] is frame-coalesced input. */
 @Composable

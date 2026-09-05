@@ -4,24 +4,29 @@ package ch.lkmc.bangnidraw.desktop
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,39 +38,54 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
-import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.BrushPreset
+import ch.lkmc.bangnidraw.data.shared.BangniCodec
+import ch.lkmc.bangnidraw.engine.core.CanvasShortcut
 import ch.lkmc.bangnidraw.engine.core.CanvasSize
-import ch.lkmc.bangnidraw.engine.core.CanvasVoidColorPolicy
+import ch.lkmc.bangnidraw.engine.core.CompositionGuideVisibility
 import ch.lkmc.bangnidraw.engine.core.DabSpacingPolicy
 import ch.lkmc.bangnidraw.engine.core.Hand
 import ch.lkmc.bangnidraw.engine.core.HsvSelection
 import ch.lkmc.bangnidraw.engine.core.LayoutSpec
 import ch.lkmc.bangnidraw.engine.core.PaintSlotAssignments
+import ch.lkmc.bangnidraw.engine.core.EyedropperParams
+import ch.lkmc.bangnidraw.engine.core.EyedropperSampleGate
 import ch.lkmc.bangnidraw.engine.core.PointerTool
+import ch.lkmc.bangnidraw.engine.core.RmwDabPreset
 import ch.lkmc.bangnidraw.engine.core.RailMode
 import ch.lkmc.bangnidraw.engine.core.RgbMixer
 import ch.lkmc.bangnidraw.engine.core.RmwStrokePolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeDriver
+import ch.lkmc.bangnidraw.engine.core.StrokeLayerDecision
+import ch.lkmc.bangnidraw.engine.core.StrokeLayerPolicy
 import ch.lkmc.bangnidraw.engine.core.StrokeMode
 import ch.lkmc.bangnidraw.engine.core.StrokeSource
 import ch.lkmc.bangnidraw.engine.core.StrokeSpec
-import ch.lkmc.bangnidraw.engine.core.ThemeColorPolicy
 import ch.lkmc.bangnidraw.engine.core.ToolKind
-import ch.lkmc.bangnidraw.engine.core.ToolSliderPreset
 import ch.lkmc.bangnidraw.engine.core.ViewTransform
 import ch.lkmc.bangnidraw.engine.mixbox.MixboxBinding
+import ch.lkmc.bangnidraw.ui.shared.BangniTypography
+import ch.lkmc.bangnidraw.ui.shared.CompositionGuides
+import ch.lkmc.bangnidraw.ui.shared.HoverCursor
 import ch.lkmc.bangnidraw.input.CanvasInputHost
 import ch.lkmc.bangnidraw.input.CanvasTouchHandler
 import ch.lkmc.bangnidraw.input.FrameScheduler
 import ch.lkmc.bangnidraw.input.PointerSample
 import java.awt.Dimension
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
 
@@ -219,11 +239,7 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
     startup: DesktopStartup,
     mode: DesktopLaunchMode,
 ) {
-    val canvasSize = CanvasSize(CANVAS_EDGE, CANVAS_EDGE)
-    val fatal = remember {
-        mutableStateOf((startup as? DesktopStartup.Failed)?.message)
-    }
-    val frameState = remember { mutableStateOf<DesktopEngine.Frame?>(null) }
+    val fatal = remember { mutableStateOf((startup as? DesktopStartup.Failed)?.message) }
     val mixer = remember { MixboxBinding.create() ?: RgbMixer }
     val mixboxAttribution = if (mixer === RgbMixer) {
         MixboxAttribution.Excluded
@@ -237,84 +253,64 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
         onDispose { handler.close() }
     }
 
-    val engine = remember(startup) {
+    val catalogue = remember { DesktopBrushes.loadAll() }
+    val prefs = remember { DesktopPrefs() }
+    val host = remember(startup) {
         val ready = startup as? DesktopStartup.Ready ?: return@remember null
-        DesktopEngine(
-            canvas = canvasSize,
-            memory = ready.memory,
-            context = ready.context,
-            onFrame = { frame ->
-                java.awt.EventQueue.invokeLater { frameState.value = frame }
-            },
-            onFatal = { message ->
-                java.awt.EventQueue.invokeLater { fatal.value = message }
-            },
-        )
+        DesktopGlHost(ready.context) { message ->
+            java.awt.EventQueue.invokeLater { fatal.value = message }
+        }
     }
-
-    Window(
-        onCloseRequest = ::exitApplication,
-        title = DesktopBrand.displayName,
-        icon = painterResource("bangnidraw.png"),
-    ) {
-        window.minimumSize = Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
-
-        MaterialTheme(colorScheme = DESKTOP_COLOR_SCHEME) {
-            // Surface actually paints [colorScheme.background]; without it
-            // the OS window chrome shows through and the Material widgets
-            // sit on whatever the host desktop happens to be (macOS's own
-            // white, GNOME's own grey), turning the SAFFRON palette
-            // incoherent. Same wrap the Android CanvasScreen relies on.
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background,
-            ) {
-                Box(Modifier.fillMaxSize()) {
-                    val fatalMessage = fatal.value
-                    if (fatalMessage != null) {
-                        // The startup report is long on purpose; a fixed-height window
-                        // must not swallow the half that names the failure.
-                        Box(
-                            Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            // Selectable: this text is what a user pastes into a report.
-                            SelectionContainer {
-                                Text(fatalMessage, style = MaterialTheme.typography.bodyMedium)
-                            }
-                        }
-                    } else if (engine != null) {
-                        Shell(
-                            engine = engine,
-                            frame = frameState.value,
-                            canvasSize = canvasSize,
-                            mixer = mixer,
-                            onAbout = { showAbout = true },
-                        )
-                    }
-
-                    if (showAbout) {
-                        AlertDialog(
-                            onDismissRequest = { showAbout = false },
-                            title = { Text("About " + DesktopBrand.displayName) },
-                            text = { Text(DesktopAbout.body(mixboxAttribution)) },
-                            confirmButton = {
-                                Button(onClick = { showAbout = false }) { Text("Close") }
-                            },
-                        )
-                    }
-                }
+    val documents = remember(host) {
+        val ready = startup as? DesktopStartup.Ready
+        if (ready == null || host == null) {
+            null
+        } else {
+            // The first painting is created here rather than in an effect:
+            // the "last window closed" rule below reads the list during
+            // composition, and an empty first frame would exit immediately.
+            DesktopDocuments(ready.memory, host, catalogue, mixer, prefs).apply {
+                create(CanvasSize(CANVAS_EDGE, CANVAS_EDGE))
             }
         }
     }
 
-    androidx.compose.runtime.DisposableEffect(engine) {
-        engine?.start()
-        onDispose { engine?.stopAndJoin() }
+    androidx.compose.runtime.DisposableEffect(documents) {
+        onDispose {
+            documents?.closeAll()
+            host?.stopAndJoin()
+            prefs.close()
+        }
     }
 
-    LaunchedEffect(frameState.value, mode) {
-        val frame = frameState.value ?: return@LaunchedEffect
+    // A failed startup has no document to draw in; the report window is the
+    // whole application.
+    val fatalMessage = fatal.value
+    if (documents == null || fatalMessage != null) {
+        FailureWindow(fatalMessage ?: DesktopGlDiagnostics.unavailable())
+    } else {
+        for (document in documents.open) {
+            key(document.id) {
+                DocumentWindow(
+                    document = document,
+                    documents = documents,
+                    onAbout = { showAbout = true },
+                )
+            }
+        }
+        // The last window closing ends the application, as it does in every
+        // other document-based app on these platforms.
+        LaunchedEffect(documents.open.size) {
+            if (documents.open.isEmpty()) exitApplication()
+        }
+    }
+
+    if (showAbout) {
+        AboutWindow(mixboxAttribution) { showAbout = false }
+    }
+
+    LaunchedEffect(documents?.open?.firstOrNull()?.frame?.value, mode) {
+        val frame = documents?.open?.firstOrNull()?.frame?.value ?: return@LaunchedEffect
         if (mode != DesktopLaunchMode.SmokeWindow) return@LaunchedEffect
 
         check(frame.pixels.any { it != 0.toByte() }) {
@@ -336,97 +332,454 @@ private fun androidx.compose.ui.window.ApplicationScope.DesktopApplication(
     }
 }
 
+/** One painting, in a window of its own. */
+@Composable
+private fun androidx.compose.ui.window.ApplicationScope.DocumentWindow(
+    document: DesktopDocument,
+    documents: DesktopDocuments,
+    onAbout: () -> Unit,
+) {
+    val state = document.state
+    var openError by remember { mutableStateOf<String?>(null) }
+
+    Window(
+        onCloseRequest = { requestClose(document, documents) },
+        title = document.title,
+        icon = painterResource("bangnidraw.png"),
+        // Preview, not onKeyEvent: Tab and the bare letters would otherwise
+        // be spent on focus traversal and on whatever widget has focus.
+        onPreviewKeyEvent = { event ->
+            val shortcut = DesktopShortcuts.resolve(event)
+            if (shortcut == null) false else { state.run(shortcut); true }
+        },
+    ) {
+        window.minimumSize = Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
+
+        // The reference import needs the window: `java.awt.FileDialog` is
+        // modal to a Frame, and the shell composables never see one.
+        val importReference: () -> Unit = {
+            DesktopFileDialogs.openImage(window)?.let { file ->
+                when (
+                    val result = DesktopReferenceIo.import(
+                        file = file,
+                        canvas = document.canvas,
+                        maxPixelBytes = state.referenceImageBytes,
+                    )
+                ) {
+                    is DesktopReferenceResult.Failed -> {
+                        // The decoder's own words go to stderr; the panel says
+                        // what happened in the user's language.
+                        System.err.println("tracing image import failed: " + result.message)
+                        state.reportReference(DesktopStrings.get("err_reference_import"))
+                    }
+
+                    is DesktopReferenceResult.Imported ->
+                        if (state.placeReference(result.image)) state.showReferencePanel = true
+                }
+            }
+        }
+
+        val save: (java.io.File?) -> Unit = { target ->
+            val file = target ?: document.file
+            if (file == null) {
+                saveAs(window, document)
+            } else {
+                writeTo(document, file)
+            }
+        }
+
+        DesktopMenuBar(
+            document = document,
+            onNew = { documents.create(CanvasSize(CANVAS_EDGE, CANVAS_EDGE)) },
+            onOpen = {
+                DesktopFileDialogs.open(window)?.let { file ->
+                    openError = documents.openFile(file)
+                }
+            },
+            onSave = { save(null) },
+            onSaveAs = { saveAs(window, document) },
+            onExportPng = { exportPng(window, document) },
+            onClose = { requestClose(document, documents) },
+            onAbout = onAbout,
+            onHelp = { state.showHelp = true },
+        )
+
+        MaterialTheme(colorScheme = DesktopTheme.colorScheme(state.theme), typography = BangniTypography) {
+            // Surface actually paints [colorScheme.background]; without it
+            // the OS window chrome shows through and the Material widgets
+            // sit on whatever the host desktop happens to be (macOS's own
+            // white, GNOME's own grey), turning the SAFFRON palette
+            // incoherent. Same wrap the Android CanvasScreen relies on.
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    Shell(
+                        state = state,
+                        frame = document.frame.value,
+                        canvasSize = document.canvas,
+                        onSave = { save(null) },
+                        onAbout = onAbout,
+                        // `:app`'s rule: no image yet means pick one, an image
+                        // already placed means open its panel.
+                        onTracingReference = {
+                            if (state.reference == null) {
+                                importReference()
+                            } else {
+                                state.showReferencePanel = !state.showReferencePanel
+                            }
+                        },
+                    )
+
+                    if (document.confirmingClose) {
+                        UnsavedChangesDialog(
+                            name = document.file?.name
+                                ?: DesktopStrings.get("desktop_unsaved_this"),
+                            onSave = {
+                                document.confirmingClose = false
+                                // The write completes on a later EDT event,
+                                // so the close has to travel with it: reading
+                                // `document.dirty` on the next line reads the
+                                // value from before the save every time.
+                                val file = document.file
+                                if (file == null) {
+                                    saveAs(window, document) { documents.close(document) }
+                                } else {
+                                    writeTo(document, file, onSaved = { documents.close(document) })
+                                }
+                            },
+                            onDiscard = {
+                                document.confirmingClose = false
+                                documents.close(document)
+                            },
+                            onCancel = { document.confirmingClose = false },
+                        )
+                    }
+
+                    val failedOpen = openError
+                    if (failedOpen != null) {
+                        AlertDialog(
+                            onDismissRequest = { openError = null },
+                            title = { Text(DesktopStrings.get("desktop_open_failed")) },
+                            text = { Text(failedOpen) },
+                            confirmButton = {
+                                Button(onClick = { openError = null }) {
+                                    Text(DesktopStrings.get("about_close"))
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        // Inside the document window's content, not beside it: these are
+        // sibling OS windows either way, and the import action they replace a
+        // reference through needs the `FrameWindowScope`'s frame for its
+        // modal file dialog.
+        DesktopPanelWindows(
+            state = state,
+            canvas = document.canvas,
+            documentName = document.file?.name ?: untitled(),
+            onReplaceReference = importReference,
+        )
+    }
+}
+
+/** The window a failed GL startup gets instead of a canvas. */
+@Composable
+private fun androidx.compose.ui.window.ApplicationScope.FailureWindow(message: String) {
+    Window(
+        onCloseRequest = ::exitApplication,
+        title = DesktopBrand.displayName,
+        icon = painterResource("bangnidraw.png"),
+    ) {
+        MaterialTheme(colorScheme = DesktopTheme.colorScheme(), typography = BangniTypography) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                // The startup report is long on purpose; a fixed-height window
+                // must not swallow the half that names the failure.
+                Box(
+                    Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // Selectable: this text is what a user pastes into a report.
+                    SelectionContainer {
+                        Text(message, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun androidx.compose.ui.window.ApplicationScope.AboutWindow(
+    attribution: MixboxAttribution,
+    onClose: () -> Unit,
+) {
+    Window(
+        onCloseRequest = onClose,
+        title = DesktopStrings.get("desktop_about", DesktopBrand.displayName),
+        icon = painterResource("bangnidraw.png"),
+        alwaysOnTop = true,
+    ) {
+        MaterialTheme(colorScheme = DesktopTheme.colorScheme(), typography = BangniTypography) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+            ) {
+                Box(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState())) {
+                    SelectionContainer { Text(DesktopAbout.body(attribution)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UnsavedChangesDialog(
+    name: String,
+    onSave: () -> Unit,
+    onDiscard: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text(DesktopStrings.get("desktop_unsaved_title", name)) },
+        text = { Text(DesktopStrings.get("desktop_unsaved_body")) },
+        confirmButton = { Button(onClick = onSave) { Text(DesktopStrings.get("desktop_save")) } },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.TextButton(onClick = onDiscard) {
+                    Text(DesktopStrings.get("desktop_dont_save"))
+                }
+                androidx.compose.material3.TextButton(onClick = onCancel) {
+                    Text(DesktopStrings.get("layer_cancel"))
+                }
+            }
+        },
+    )
+}
+
+/** Closing asks first when the painting has unsaved work. */
+private fun requestClose(document: DesktopDocument, documents: DesktopDocuments) {
+    if (document.dirty) {
+        document.confirmingClose = true
+        return
+    }
+    documents.close(document)
+}
+
+/** [onSaved] runs on the EDT after a successful write, and not at all otherwise. */
+private fun saveAs(
+    parent: java.awt.Frame?,
+    document: DesktopDocument,
+    onSaved: () -> Unit = {},
+) {
+    val suggested = document.file?.name ?: (defaultStem() + "." + BangniCodec.EXTENSION)
+    val target = DesktopFileDialogs.save(parent, suggested, BangniCodec.EXTENSION) ?: return
+    writeTo(document, target, onSaved = onSaved)
+}
+
+/**
+ * A flat PNG, without adopting it: the document keeps whatever file it had,
+ * so exporting a picture to show someone does not turn the painting into a
+ * one-layer file the next Save would flatten.
+ */
+private fun exportPng(parent: java.awt.Frame?, document: DesktopDocument) {
+    val stem = document.file?.nameWithoutExtension ?: defaultStem()
+    val target = DesktopFileDialogs.save(
+        parent,
+        stem + "." + DesktopImageIo.EXTENSION,
+        DesktopImageIo.EXTENSION,
+    ) ?: return
+    writeTo(document, target, adopt = false)
+}
+
+private fun defaultStem(): String = DesktopBrand.exportFileStem(DesktopBrand.displayName)
+
+/**
+ * Writes [file], choosing the format by its extension: `.bangni` keeps every
+ * layer, anything else is a flattened PNG. [adopt] is false for an export,
+ * which must not move the document onto the file it just wrote.
+ */
+private fun writeTo(
+    document: DesktopDocument,
+    file: java.io.File,
+    adopt: Boolean = true,
+    /**
+     * Runs on the EDT once the write succeeded — and only when nothing was
+     * edited while it ran, since then the file does not hold what the
+     * document does.
+     */
+    onSaved: () -> Unit = {},
+) {
+    // The canvas stays live for the whole write. A stroke made while it runs
+    // is not in the file, so clearing `dirty` for it would lose it silently,
+    // and closing the window on top of that would lose it for good.
+    val editsAtStart = document.edits
+    val onComplete: (DesktopSaveResult) -> Unit = { result ->
+        java.awt.EventQueue.invokeLater {
+            when (result) {
+                is DesktopSaveResult.Saved -> {
+                    val edited = document.edits != editsAtStart
+                    if (adopt) {
+                        document.file = file
+                        // Left dirty when the document moved on: the next
+                        // close prompts again rather than discarding the
+                        // strokes this file does not carry.
+                        if (!edited) document.markClean()
+                    }
+                    // A stale save is not a plain success: the file lacks
+                    // what the canvas gained while it wrote, and saying only
+                    // "Saved" beside a window that then refuses to close
+                    // reads as the close being ignored.
+                    document.state.savedMessage = if (edited) {
+                        DesktopStrings.get("desktop_save_stale", result.path)
+                    } else {
+                        result.path
+                    }
+                    if (!edited) onSaved()
+                }
+                is DesktopSaveResult.Failed ->
+                    document.state.savedMessage =
+                        DesktopStrings.get("desktop_save_failed", result.message)
+            }
+        }
+    }
+    if (DesktopDocumentIo.isBangni(file)) {
+        document.engine.saveBangni(
+            target = file,
+            title = file.nameWithoutExtension,
+            createdAt = document.createdAt,
+            reference = document.state.reference,
+            referencePng = document.state.referencePng,
+            onComplete = onComplete,
+        )
+    } else {
+        document.engine.savePng(file, onComplete)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Shell(
-    engine: DesktopEngine,
+    state: DesktopShellState,
     frame: DesktopEngine.Frame?,
     canvasSize: CanvasSize,
-    mixer: ch.lkmc.bangnidraw.engine.core.ColorMixer,
+    onSave: () -> Unit,
     onAbout: () -> Unit,
+    onTracingReference: () -> Unit,
 ) {
-    val catalogue = remember { DesktopBrushes.loadAll() }
-    val prefs = remember { DesktopPrefs() }
-    val restoreGate = remember { DesktopPreferenceRestoreGate() }
-    androidx.compose.runtime.DisposableEffect(prefs) {
-        onDispose { prefs.close() }
+    val engine = state.engine
+    val activeTool = state.activeTool
+    val colorArgb = state.colorSelection.argb
+
+    // The strip is not a log: clear the save path after a beat, as a snackbar
+    // would. Keyed on the message so a second save restarts the countdown.
+    LaunchedEffect(state.savedMessage) {
+        if (state.savedMessage != null) {
+            kotlinx.coroutines.delay(SAVED_MESSAGE_MS)
+            state.savedMessage = null
+        }
     }
-    // Slider edits stay with the preset they were made on, exactly as the
-    // Android rail keeps per-preset tuning; the catalogue is the base copy.
-    var presets by remember { mutableStateOf(catalogue) }
-    var rail by remember { mutableStateOf(DesktopRailPolicy.initial(catalogue)) }
-    // The same durable paint assignments the Android rail keeps: choosing a
-    // preset from the overflow swaps it into the active slot rather than
-    // duplicating it, so every paint stays reachable exactly once.
-    var paintSlots by remember {
-        mutableStateOf(
-            PaintSlotAssignments.restore(
-                DesktopRailPolicy.paints(catalogue).map(BrushPreset::id),
-            ),
-        )
-    }
-    var colorSelection by remember {
-        mutableStateOf(HsvSelection.fromArgb(DesktopPalette.SWATCHES.first()))
-    }
-    // The same derivation the rail uses internally: the ledge's sliders and
-    // the rail's foot must tune the brush the rail highlights, and each
-    // deriving it separately is how they would drift apart.
-    val activeBrush = DesktopRailPolicy.activePreset(presets, rail)
-    val colorArgb = colorSelection.argb
-    var savedMessage by remember { mutableStateOf<String?>(null) }
-    var preferencesReady by remember { mutableStateOf(false) }
-    var showColorPanel by remember { mutableStateOf(false) }
-    var showHelp by remember { mutableStateOf(false) }
 
     // Input stays disabled until the initial choices are resolved.
-    LaunchedEffect(Unit) {
+    LaunchedEffect(state) {
         try {
-            val brushId = prefs.readBrushId()
-            if (restoreGate.allows(DesktopPreferenceKind.Brush)) {
+            val brushId = state.prefs.readBrushId()
+            if (state.restoreGate.allows(DesktopPreferenceKind.Brush)) {
                 brushId?.let { id ->
-                    rail = DesktopRailPolicy.select(rail, id, presets)
+                    state.rail = DesktopRailPolicy.select(state.rail, id, state.presets)
                     // A restored paint must also occupy the active slot, or
                     // the rail would show it selected somewhere off screen.
-                    if (rail.selectedId == id && rail.paintSelected()) {
-                        paintSlots = paintSlots.assign(id)
+                    if (state.rail.selectedId == id && state.rail.paintSelected()) {
+                        state.paintSlots = state.paintSlots.assign(id)
                     }
                 }
             }
 
-            val color = prefs.readColorArgb()
-            if (restoreGate.allows(DesktopPreferenceKind.Color)) {
-                color?.let { colorSelection = colorSelection.sync(it) }
+            val color = state.prefs.readColorArgb()
+            if (state.restoreGate.allows(DesktopPreferenceKind.Color)) {
+                color?.let { state.colorSelection = state.colorSelection.sync(it) }
             }
+
+            state.restoreSettings(
+                themeName = state.prefs.readText(DesktopPreferenceKeys.THEME),
+                handName = state.prefs.readText(DesktopPreferenceKeys.HAND),
+                mixerName = state.prefs.readText(DesktopPreferenceKeys.MIXER),
+                snap = state.prefs.readNumber(DesktopPreferenceKeys.SNAP_RIGHT_ANGLES),
+            )
+            state.restorePalettes(
+                recent = state.prefs.readText(DesktopPreferenceKeys.RECENT_COLORS),
+                stored = state.prefs.readText(DesktopPreferenceKeys.PALETTES),
+            )
         } catch (failure: java.io.IOException) {
             System.err.println("desktop preferences could not be read: ${failure.message}")
         } finally {
-            preferencesReady = true
+            state.preferencesReady = true
         }
     }
 
     val bitmap = remember(frame) { frame?.toImageBitmap() }
-    val handler = remember(engine) { DesktopShell.handler(engine) }
-    val tune: (BrushPreset) -> Unit = { tuned ->
-        presets = presets.map { if (it.id == tuned.id) tuned else it }
+    // The real display density, not 1f: GestureArbiter converts TAP_SLOP_DP
+    // to pixels once at construction, so a hardcoded 1f makes the tap slop
+    // 8 px on a 2x display where it should be 16.
+    val density = LocalDensity.current.density
+    val handler = remember(engine, density) {
+        DesktopShell.handler(engine, density) { view ->
+            java.awt.EventQueue.invokeLater { state.view = view }
+        }
     }
-    // Deliberately not DesktopRailPolicy.activePreset: that resolves what the
-    // sliders tune, falling back to some other preset when a stored id has
-    // gone. Persistence must name the brush the user actually picked, or a
-    // stale selection would rewrite itself into a brush they never chose.
-    val persistBrush: (String) -> Unit = { id ->
-        presets.firstOrNull { it.id == id }?.let(prefs::writeBrush)
+    // `setView` only moves the handler's own state; the engine and the pill
+    // both learn about it through the same publisher a gesture goes through.
+    val resetView: () -> Unit = remember(handler, engine) {
+        {
+            val fit = ViewTransform()
+            handler.setView(fit)
+            engine.setView(fit)
+            state.view = fit
+        }
     }
-    val selectPreset: (String) -> Unit = { id ->
-        restoreGate.markChanged(DesktopPreferenceKind.Brush)
-        rail = DesktopRailPolicy.select(rail, id, presets)
-        persistBrush(id)
+    // The shortcut table's "0" reaches the view through the state holder, and
+    // the handler only exists here.
+    androidx.compose.runtime.DisposableEffect(handler) {
+        state.resetView = resetView
+        onDispose { state.resetView = null }
+    }
+    val eraserPreset = remember(state.presets) { DesktopRailPolicy.eraserOrNull(state.presets) }
+    // A settings choice that only takes effect on the next gesture would look
+    // broken; the handler reads this field per gesture, so pushing it here is
+    // enough.
+    LaunchedEffect(handler, state.snapRightAngles) {
+        handler.snapRightAngles = state.snapRightAngles
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    // The window-level preview handler alone is not enough: with a menu bar
+    // present the AWT focus owner can be the menu, and Compose then never
+    // sees the key. A focusable root that asks for focus once is what makes
+    // the shared shortcut table reachable.
+    val keyboard = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(keyboard) { runCatching { keyboard.requestFocus() } }
+
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .focusRequester(keyboard)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                val shortcut = DesktopShortcuts.resolve(event)
+                if (shortcut == null) false else { state.run(shortcut); true }
+            },
+    ) {
         val widthDp = maxWidth.value.roundToInt()
         val heightDp = maxHeight.value.roundToInt()
-        val layout = remember(widthDp, heightDp) {
-            DesktopChromeLayout.forWindow(widthDp, heightDp)
+        val layout = remember(widthDp, heightDp, state.hand) {
+            DesktopChromeLayout.forWindow(widthDp, heightDp, state.hand)
         }
 
         // The canvas is full-bleed and the chrome floats above it, the same
@@ -440,102 +793,151 @@ private fun Shell(
                     engine.setViewportSize(size.width, size.height)
                     handler.setViewport(canvasSize, size.width, size.height)
                 }
-                .background(VIEWPORT_VOID),
+                .background(DesktopTheme.viewportVoid(state.theme)),
         ) {
-            val canvasInput = if (preferencesReady && activeBrush != null) {
-                Modifier.pointerInput(activeBrush, colorArgb, mixer) {
-                    awaitPointerEvents(handler, activeBrush, colorArgb, mixer)
-                }
-            } else {
-                Modifier
+            val canvasInput = when {
+                // Placing the tracing image takes the whole pointer: Android
+                // gives it two fingers while one keeps painting, and a mouse
+                // has only the one to give.
+                state.editingReference && state.reference != null ->
+                    Modifier.pointerInput(state) {
+                        awaitReferenceEvents(handler, state)
+                    }
+
+                state.preferencesReady && activeTool != null ->
+                    Modifier.pointerInput(activeTool, colorArgb, state.activeMixer) {
+                        awaitPointerEvents(
+                            handler = handler,
+                            kind = activeTool,
+                            colorArgb = colorArgb,
+                            mixer = state.activeMixer,
+                            onColorPicked = state::applyPick,
+                            onPickFinished = state::finishPick,
+                            onPainted = state::notePainted,
+                            onHover = { state.hoverRevision += 1 },
+                        )
+                    }
+
+                else -> Modifier
             }
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap,
-                    contentDescription = "canvas",
+                    contentDescription = DesktopStrings.get("desktop_canvas"),
                     modifier = Modifier.fillMaxSize().then(canvasInput),
+                )
+            }
+            // Both overlays are `:app`'s own, compiled from the shared
+            // directory rather than reimplemented: the guides' geometry and
+            // the cursor's size accuracy are exactly what must not drift.
+            CompositionGuides(
+                visibility = state.guides,
+                canvas = canvasSize,
+                screenTransform = handler.screenTransform,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (activeTool != null && eraserPreset != null) {
+                HoverCursor(
+                    stylus = handler.stylus,
+                    active = activeTool,
+                    eraserPreset = eraserPreset,
+                    brushColor = colorArgb,
+                    canvasToScreenScale = handler.canvasToScreenScale,
+                    revision = state.hoverRevision,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }
 
-        DesktopTopStrip(
-            layout = layout,
-            canUndo = engine.canUndo(),
-            canRedo = engine.canRedo(),
-            brushColor = colorArgb,
-            colorPanelOpen = showColorPanel,
-            savedMessage = savedMessage,
-            onUndo = { engine.undo() },
-            onRedo = { engine.redo() },
-            onColor = { showColorPanel = !showColorPanel },
-            onSave = {
-                engine.savePng { result ->
-                    val message = when (result) {
-                        is DesktopSaveResult.Saved -> result.path
-                        is DesktopSaveResult.Failed -> "Save failed: ${result.message}"
-                    }
-                    java.awt.EventQueue.invokeLater { savedMessage = message }
-                }
-            },
-            onAbout = onAbout,
-            onHelp = { showHelp = true },
-            modifier = Modifier.align(Alignment.TopCenter),
+        DesktopResetViewPill(
+            view = state.view,
+            density = density,
+            onReset = resetView,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = RESET_PILL_TOP),
         )
 
-        DesktopToolRail(
-            layout = layout,
-            presets = presets,
-            paintSlots = paintSlots,
-            rail = rail,
-            windowWidth = maxWidth,
-            windowHeight = maxHeight,
-            onPaintSlot = { index ->
-                paintSlots = paintSlots.activate(index)
-                selectPreset(paintSlots.activePresetId)
-            },
-            onAssignPaint = { preset ->
-                paintSlots = paintSlots.assign(preset.id)
-                selectPreset(preset.id)
-            },
-            onEraserTap = {
-                restoreGate.markChanged(DesktopPreferenceKind.Brush)
-                rail = DesktopRailPolicy.eraserTap(rail, presets)
-                persistBrush(rail.selectedId)
-            },
-            onSizeChanged = { value -> activeBrush?.let { tune(it.withSize(value)) } },
-            onSecondaryChanged = { value ->
-                activeBrush?.let { tune(ToolSliderPreset.withSecondary(it, value)) }
-            },
-            modifier = Modifier.align(railAlignment(layout)),
-        )
-
-        if (activeBrush != null) {
-            DesktopSliderLedge(
-                layout = layout,
-                preset = activeBrush,
-                onSizeChanged = { tune(activeBrush.withSize(it)) },
-                onSecondaryChanged = {
-                    tune(ToolSliderPreset.withSecondary(activeBrush, it))
-                },
-                modifier = Modifier.ledgePlacement(this, layout),
+        // Focus mode hides the chrome and leaves the paper (Tab). The panels
+        // are separate windows and stay where the user put them.
+        if (state.focused) {
+            // `:app`'s FocusHandle: a pill at the hand's edge, so the way back
+            // is visible without the chrome it hides. Its drag gesture is not
+            // ported — a click is the mouse equivalent, and Tab still works.
+            FocusHandle(
+                onClick = { state.run(CanvasShortcut.TOGGLE_FOCUS) },
+                modifier = Modifier.align(
+                    if (layout.railSide == Hand.RIGHT) {
+                        AbsoluteAlignment.CenterRight
+                    } else {
+                        AbsoluteAlignment.CenterLeft
+                    },
+                ),
             )
         }
+        if (!state.focused) {
+            DesktopTopStrip(
+                layout = layout,
+                canUndo = engine.canUndo(),
+                canRedo = engine.canRedo(),
+                activeLayer = state.stack.activeIndex + 1,
+                layerPanelOpen = state.showLayerPanel,
+                brushColor = colorArgb,
+                colorPanelOpen = state.showColorPanel,
+                savedMessage = state.savedMessage,
+                guidesVisible = state.guides == CompositionGuideVisibility.VISIBLE,
+                onUndo = { engine.undo() },
+                onRedo = { engine.redo() },
+                onLayers = { state.showLayerPanel = !state.showLayerPanel },
+                onColor = { state.showColorPanel = !state.showColorPanel },
+                onSave = onSave,
+                onAbout = onAbout,
+                onHelp = { state.showHelp = true },
+                onSettings = { state.showSettings = true },
+                onTracingReference = onTracingReference,
+                onToggleGuides = { state.guides = state.guides.toggled() },
+                onFocus = { state.run(CanvasShortcut.TOGGLE_FOCUS) },
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
 
-        if (showColorPanel) {
+            DesktopToolRail(
+                layout = layout,
+                presets = state.presets,
+                paintSlots = state.paintSlots,
+                rail = state.rail,
+                tool = activeTool,
+                windowWidth = maxWidth,
+                windowHeight = maxHeight,
+                onPaintSlot = { index ->
+                    state.paintSlots = state.paintSlots.activate(index)
+                    state.selectPreset(state.paintSlots.activePresetId)
+                },
+                onAssignPaint = { preset ->
+                    state.paintSlots = state.paintSlots.assign(preset.id)
+                    state.selectPreset(preset.id)
+                },
+                onEraserTap = { state.eraserTap() },
+                onSecondaryTool = state::selectSecondary,
+                onSettings = { state.showBrushPanel = !state.showBrushPanel },
+                onSizeChanged = state::tuneActiveSize,
+                onSecondaryChanged = state::tuneActiveSecondary,
+                modifier = Modifier.align(railAlignment(layout)),
+            )
+
+            if (activeTool != null) {
+                DesktopSliderLedge(
+                    layout = layout,
+                    kind = activeTool,
+                    onSizeChanged = state::tuneActiveSize,
+                    onSecondaryChanged = state::tuneActiveSecondary,
+                    modifier = Modifier.ledgePlacement(this, layout),
+                )
+            }
+        }
+
+        if (state.showColorPanel) {
             val insets = layout.panelInsets(widthDp, heightDp)
             DesktopColorPanel(
-                selection = colorSelection,
-                onSelection = { selection ->
-                    restoreGate.markChanged(DesktopPreferenceKind.Color)
-                    colorSelection = selection
-                    prefs.writeColor(selection.argb)
-                },
-                onSwatch = { argb ->
-                    restoreGate.markChanged(DesktopPreferenceKind.Color)
-                    colorSelection = colorSelection.commit(argb)
-                    prefs.writeColor(argb)
-                },
-                onClose = { showColorPanel = false },
+                state = state,
+                onClose = { state.showColorPanel = false },
                 modifier = Modifier
                     .align(
                         if (layout.panelSide == Hand.RIGHT) {
@@ -554,10 +956,10 @@ private fun Shell(
         }
     }
 
-    if (showHelp) {
+    if (state.showHelp) {
         AlertDialog(
-            onDismissRequest = { showHelp = false },
-            title = { Text("Canvas") },
+            onDismissRequest = { state.showHelp = false },
+            title = { Text(DesktopStrings.get("help_canvas_title")) },
             text = {
                 // The body is longer than a dialog on a 480 dp window; it
                 // also names the export directory, which is a path someone
@@ -570,11 +972,34 @@ private fun Shell(
                 }
             },
             confirmButton = {
-                Button(onClick = { showHelp = false }) { Text("Close") }
+                Button(onClick = { state.showHelp = false }) {
+                    Text(DesktopStrings.get("about_close"))
+                }
             },
         )
     }
 }
+
+/** The way out of focus mode, at the hand's edge — `:app`'s own affordance. */
+@Composable
+private fun FocusHandle(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(FOCUS_HANDLE_TARGET)
+            .semantics { contentDescription = DesktopStrings.get("canvas_show_controls") }
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick),
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = FOCUS_HANDLE_ALPHA),
+            shape = RoundedCornerShape(FOCUS_HANDLE_RADIUS),
+            modifier = Modifier.size(width = FOCUS_HANDLE_WIDTH, height = FOCUS_HANDLE_HEIGHT),
+        ) {}
+    }
+}
+
+/** The name a painting carries before its first save. */
+private fun untitled(): String = DesktopStrings.get("desktop_untitled")
 
 /** The rail hugs the hand's bottom corner, or the window's foot when docked. */
 private fun railAlignment(layout: LayoutSpec): Alignment = when {
@@ -619,14 +1044,26 @@ private fun Modifier.ledgePlacement(scope: BoxScope, layout: LayoutSpec): Modifi
  */
 private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPointerEvents(
     handler: CanvasTouchHandler,
-    preset: BrushPreset,
+    kind: ToolKind,
     colorArgb: Int,
     mixer: ch.lkmc.bangnidraw.engine.core.ColorMixer,
+    onColorPicked: (Int) -> Unit,
+    onPickFinished: () -> Unit,
+    onPainted: (Int) -> Unit,
+    /** Invalidates the hover cursor: its position is not snapshot state. */
+    onHover: () -> Unit,
 ) {
     val sample = PointerSample()
-    // The preset already carries the rail sliders' tuning; the gesture must
-    // not re-derive it from a second copy of the size.
-    DesktopShell.tool = DesktopShell.Tool(preset, colorArgb, mixer)
+    // The kind already carries the rail sliders' tuning; the gesture must not
+    // re-derive it from a second copy of the size.
+    DesktopShell.tool =
+        DesktopShell.Tool(kind, colorArgb, mixer, onColorPicked, onPickFinished, onPainted)
+    // A hover *enter* is what fills `StylusState.tool`, and the cursor is
+    // chosen from it — a stream of moves alone leaves it FINGER, which
+    // `HoverCursorPolicy` reads as "no cursor". Tracked here rather than
+    // trusted to Enter arriving: a pointer already inside the window when
+    // this input loop restarts never sends one.
+    var hovering = false
 
     try {
         awaitPointerEventScope {
@@ -658,22 +1095,38 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
                             )
                             handler.onPointerMoveEnd(timeNs)
                         } else {
-                            handler.onHoverMove(
-                                sample.setHover(
-                                    MOUSE_POINTER_ID, PointerTool.MOUSE,
-                                    position.x, position.y, 0f, timeNs,
-                                ),
+                            val hover = sample.setHover(
+                                MOUSE_POINTER_ID, PointerTool.MOUSE,
+                                position.x, position.y, 0f, timeNs,
                             )
+                            if (hovering) {
+                                handler.onHoverMove(hover)
+                            } else {
+                                hovering = true
+                                handler.onHoverEnter(hover)
+                            }
+                            onHover()
                         }
                     }
 
                     PointerEventType.Scroll -> {
+                        // `onScroll` takes wheel NOTCHES — `ScrollZoom` raises
+                        // STEP_PER_NOTCH to that power and clamps the burst
+                        // itself. Compose Desktop's scrollDelta is already in
+                        // those units; the divisor this replaces made one
+                        // notch a 0.35% zoom instead of 15%.
                         handler.onScroll(
                             position.x,
                             position.y,
-                            -change.scrollDelta.y / SCROLL_PIXELS_PER_TICK,
+                            -change.scrollDelta.y,
                             pointerClass = true,
                         )
+                    }
+
+                    PointerEventType.Exit -> {
+                        hovering = false
+                        handler.onHoverExit(timeNs)
+                        onHover()
                     }
 
                     PointerEventType.Release -> {
@@ -689,10 +1142,87 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
             }
         }
     } finally {
-        handler.onPointerCancel(System.nanoTime())
+        val timeNs = System.nanoTime()
+        handler.onPointerCancel(timeNs)
+        if (hovering) handler.onHoverExit(timeNs)
         DesktopShell.mouseMode = DesktopMouseMode.Draw
     }
 }
+/**
+ * Mouse → tracing-image placement, while [DesktopShellState.editingReference]
+ * is on. Drag moves it, the wheel scales it about the pointer, and Shift with
+ * the wheel rotates it about the same point.
+ *
+ * Everything is expressed in canvas coordinates and handed to
+ * [DesktopShellState.transformReference], which is `ReferenceTransform.gesture`
+ * — the same call Android's two-finger path makes, so the two products place
+ * an image identically however the gesture reached them.
+ */
+private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitReferenceEvents(
+    handler: CanvasTouchHandler,
+    state: DesktopShellState,
+) {
+    var lastX = 0f
+    var lastY = 0f
+    var dragging = false
+
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull() ?: continue
+            val screen = handler.screenTransform ?: continue
+            val position = change.position
+            val pivotX = screen.invertX(position.x, position.y)
+            val pivotY = screen.invertY(position.x, position.y)
+
+            when (event.type) {
+                PointerEventType.Press -> {
+                    dragging = true
+                    lastX = pivotX
+                    lastY = pivotY
+                    change.consume()
+                }
+
+                PointerEventType.Move -> {
+                    if (!dragging || !change.pressed) continue
+
+                    state.transformReference(
+                        pivotX = lastX,
+                        pivotY = lastY,
+                        panX = pivotX - lastX,
+                        panY = pivotY - lastY,
+                        zoom = 1f,
+                        rotationDelta = 0f,
+                    )
+                    lastX = pivotX
+                    lastY = pivotY
+                    change.consume()
+                }
+
+                PointerEventType.Release, PointerEventType.Exit -> dragging = false
+
+                PointerEventType.Scroll -> {
+                    // Wheel-up is a negative delta; scaling up on wheel-up is
+                    // the direction the canvas zoom already uses.
+                    val notches = -change.scrollDelta.y
+                    if (notches != 0f) {
+                        val shift = event.keyboardModifiers.isShiftPressed
+                        state.transformReference(
+                            pivotX = pivotX,
+                            pivotY = pivotY,
+                            panX = 0f,
+                            panY = 0f,
+                            zoom = if (shift) 1f else SCALE_PER_NOTCH.pow(notches),
+                            rotationDelta = if (shift) notches * ROTATION_PER_NOTCH else 0f,
+                        )
+                    }
+                    change.consume()
+                }
+            }
+        }
+    }
+}
+
 private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPointerEventsSwatch(
     swatch: Int,
     onColor: (Int) -> Unit,
@@ -710,17 +1240,38 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitPoi
 /** The tool state the [DesktopInputHost] reads; v1 shell simplicity. */
 private object DesktopShell {
     data class Tool(
-        val preset: BrushPreset,
+        val kind: ToolKind,
         val colorArgb: Int,
         val mixer: ch.lkmc.bangnidraw.engine.core.ColorMixer,
+        /** Where an eyedropper read lands; called on the UI thread. */
+        val onColorPicked: (Int) -> Unit,
+        /** Ends an armed pick at pen-up, whether or not it read anything. */
+        val onPickFinished: () -> Unit,
+        /** The colour a committed brush stroke actually painted with. */
+        val onPainted: (Int) -> Unit,
     )
 
     var tool: Tool? = null
     var mouseMode = DesktopMouseMode.Draw
 
-    fun handler(engine: DesktopEngine): CanvasTouchHandler {
+    /**
+     * What the right button draws with. It is the stylus eraser end, so it
+     * erases whatever brush the rail holds — and while a secondary tool is
+     * selected there is no brush to erase with, so the gesture is refused
+     * rather than silently smudging.
+     */
+    fun eraserKind(kind: ToolKind): ToolKind? = kind as? ToolKind.Brush
+
+    fun handler(
+        engine: DesktopEngine,
+        density: Float,
+        onView: (ViewTransform) -> Unit,
+    ): CanvasTouchHandler {
         lateinit var handler: CanvasTouchHandler
-        handler = CanvasTouchHandler(density = 1f, host = DesktopInputHost(engine) { handler })
+        handler = CanvasTouchHandler(
+            density = density,
+            host = DesktopInputHost(engine, onView) { handler },
+        )
         handler.frameScheduler = SwingFrameScheduler
         handler.attachDeadlineScheduler(SwingGestureDeadlineScheduler())
         return handler
@@ -730,15 +1281,30 @@ private object DesktopShell {
 /** The stroke plumbing the Android CanvasScreen carries, minus its stylus-only features. */
 private class DesktopInputHost(
     private val engine: DesktopEngine,
+    /** Publishes navigation to the shell, which draws the reset pill from it. */
+    private val onView: (ViewTransform) -> Unit,
     // Late-bound: the handler the host reports view scale from is the one
     // being constructed with this host.
     private val handler: () -> CanvasTouchHandler,
 ) : CanvasInputHost {
     private var driver: StrokeDriver? = null
     private var source = StrokeSource.MOUSE
+    private var pick: EyedropperParams? = null
+    private var pickGate = EyedropperSampleGate()
+    private var fillPending = false
+
+    /**
+     * The colour this stroke paints with, or null when the gesture does not
+     * put the paint colour on the canvas — an eraser, an RMW tool, a fill.
+     * `:app` decides the same thing at begin and calls it `StrokeColorUsage`;
+     * the eraser end is excluded here rather than there because this shell
+     * erases with the rail's own brush instead of pushing an eraser preset.
+     */
+    private var paintedColor: Int? = null
 
     override fun onViewChanged(view: ViewTransform) {
         engine.setView(view)
+        onView(view)
     }
 
     override fun onUndoRequested() = engine.undo()
@@ -753,27 +1319,73 @@ private class DesktopInputHost(
         driver?.cancel()
         if (driver != null) engine.cancelStroke()
         driver = null
+        pick = null
+        fillPending = false
+        paintedColor = null
 
         val resolvedSource = DesktopStrokePolicy.source(source, DesktopShell.mouseMode)
         this.source = resolvedSource
-        val mode = DesktopStrokePolicy.mode(resolvedSource, tool.preset, tool.mixer)
+        // The right button is the eraser end, whatever tool the rail holds:
+        // the pen you flipped over erases, it does not smudge.
+        val kind = if (resolvedSource == StrokeSource.ERASER_END) {
+            DesktopShell.eraserKind(tool.kind) ?: return
+        } else {
+            tool.kind
+        }
+
+        // Neither of these opens a stroke. The eyedropper reads pixels as the
+        // pointer moves; the fill runs once, from the first sample's point.
+        if (kind is ToolKind.Eyedropper) {
+            pick = kind.params
+            pickGate.reset()
+            return
+        }
+        if (kind is ToolKind.Fill) {
+            // Lock refuses pixels before anything is scanned; the engine
+            // checks again on its own thread, this only saves the work.
+            if (StrokeLayerPolicy.decide(
+                    visible = active.props.visible,
+                    locked = active.props.locked,
+                ) == StrokeLayerDecision.REFUSE_LOCKED
+            ) {
+                return
+            }
+            fillPending = true
+            return
+        }
+
+        val preset = when (kind) {
+            is ToolKind.Brush -> kind.preset
+            is ToolKind.Smudge -> RmwDabPreset.smudge(kind.params)
+            is ToolKind.Water -> RmwDabPreset.water(kind.params)
+            is ToolKind.Blur -> RmwDabPreset.blur(kind.params)
+            is ToolKind.Fill, is ToolKind.Eyedropper -> null
+        } ?: return
+
+        val mode = if (kind is ToolKind.Brush) {
+            DesktopStrokePolicy.mode(resolvedSource, preset, tool.mixer)
+        } else {
+            // An RMW tool never paints the brush colour; the merge reads what
+            // is already there.
+            StrokeMode.PAINT
+        }
         val rmw = if (resolvedSource == StrokeSource.ERASER_END) {
             null
         } else {
-            RmwStrokePolicy.spec(ToolKind.Brush(tool.preset), tool.mixer)
+            RmwStrokePolicy.spec(kind, tool.mixer)
         }
         val spec = StrokeSpec(
             layerId = active.id,
             mode = mode,
-            opacity = tool.preset.opacity,
+            opacity = preset.opacity,
             alphaLock = active.props.alphaLock,
-            dilution = if (mode == StrokeMode.MIX) tool.preset.dilution else 0f,
-            grainMode = tool.preset.grainMode,
-            brushModel = tool.preset.model,
+            dilution = if (mode == StrokeMode.MIX) preset.dilution else 0f,
+            grainMode = preset.grainMode,
+            brushModel = preset.model,
             rmw = rmw,
         )
         driver = StrokeDriver(
-            tool.preset,
+            preset,
             seed = System.nanoTime(),
             zoom = handler().canvasToScreenScale,
             spacingPolicy = if (rmw == null) {
@@ -783,8 +1395,14 @@ private class DesktopInputHost(
             },
         )
 
+        paintedColor = tool.colorArgb.takeIf {
+            kind is ToolKind.Brush &&
+                !preset.eraseMode &&
+                resolvedSource != StrokeSource.ERASER_END
+        }
+
         val rgb = DesktopPalette.toStrokeRgb(tool.colorArgb)
-        engine.beginStroke(spec, tool.preset.bufferMode, rgb[0], rgb[1], rgb[2])
+        engine.beginStroke(spec, preset.bufferMode, rgb[0], rgb[1], rgb[2])
     }
 
     override fun onStrokeSample(
@@ -795,6 +1413,27 @@ private class DesktopInputHost(
         orientation: Float,
         timeNs: Long,
     ) {
+        val picking = pick
+        if (picking != null) {
+            // Every read is a synchronous glReadPixels — a full pipeline sync
+            // — so the gate drops intermediate samples to one read per frame.
+            if (!pickGate.shouldRead(System.nanoTime() / NANOS_PER_MS)) return
+
+            val onPicked = DesktopShell.tool?.onColorPicked ?: return
+            engine.sampleColor(x, y, picking) { color ->
+                color?.let { argb -> java.awt.EventQueue.invokeLater { onPicked(argb) } }
+            }
+            return
+        }
+        if (fillPending) {
+            // One fill per gesture, from where it started.
+            fillPending = false
+            val tool = DesktopShell.tool ?: return
+            val params = (tool.kind as? ToolKind.Fill)?.params ?: return
+            engine.startFill(x, y, params, tool.colorArgb) {}
+            return
+        }
+
         val driver = driver ?: return
         var batch = engine.acquireDabBatch() ?: return
         var emitted = if (driver.isActive) {
@@ -817,24 +1456,57 @@ private class DesktopInputHost(
     }
 
     override fun onStrokeEnd(pointerId: Int) {
+        finishPick()
+        fillPending = false
+        val painted = paintedColor
+        paintedColor = null
+        // Captured here rather than inside the completion below: this runs on
+        // the input thread, that runs on the GL thread, and `DesktopShell.tool`
+        // is written by the Compose pointer loop. Reading it from there would
+        // be an unsynchronized cross-thread read for no gain.
+        val onPainted = DesktopShell.tool?.onPainted
         val driver = driver ?: return
         this.driver = null
 
         while (driver.isActive) {
-            val batch = engine.acquireDabBatch() ?: run {
+            val batch = engine.acquireDabBatch()
+            if (batch == null) {
+                // Out of ring slots at pen-up: stop generating, but still
+                // COMMIT what was already stamped. `CanvasScreen` breaks here
+                // for the same reason — cancelling instead would throw away
+                // the whole stroke the user just drew, and the engine-side
+                // stroke still has to be closed either way (§4's pairing).
                 driver.cancel()
-                // The engine-side stroke began at pen-down; leaving it open
-                // would wedge every later beginStroke (§4's pairing).
-                engine.cancelStroke()
-                return
+                break
             }
             val emitted = driver.end(batch)
             if (emitted == 0) engine.releaseDabBatch(batch) else engine.stampDabs(batch)
         }
-        engine.endStroke(driver.opacityCeiling) {}
+        // Recorded only once the merge applied, as `:app`'s recent colours
+        // are: a stroke the engine refused never touched the canvas. The
+        // callback arrives on the GL thread, so it only marshals.
+        engine.endStroke(driver.opacityCeiling) {
+            if (painted != null && onPainted != null) {
+                java.awt.EventQueue.invokeLater { onPainted(painted) }
+            }
+        }
+    }
+
+    /** Returns the tool an armed panel pick borrowed, at pen-up or cancel. */
+    private fun finishPick() {
+        val picking = pick != null
+        pick = null
+        if (picking) DesktopShell.tool?.onPickFinished?.invoke()
     }
 
     override fun onStrokeCancel() {
+        finishPick()
+        paintedColor = null
+        if (fillPending) {
+            fillPending = false
+        } else {
+            engine.cancelFill()
+        }
         driver?.cancel()
         driver = null
         engine.cancelStroke()
@@ -869,86 +1541,14 @@ private fun DesktopEngine.Frame.toImageBitmap(): androidx.compose.ui.graphics.Im
     return image.toComposeImageBitmap()
 }
 
-/**
- * The M4 shell wears the Android app's default palette (SAFFRON, light —
- * see [ThemeColorPolicy]). The desktop shell is DESKTOP.md-minimal by
- * design and does not port [ToolRail]/[TopStrip]/[ColorPanel], but it
- * belongs to the same product: reading the ARGB tokens straight from
- * engine-core avoids hand-mirroring hex constants and keeps the desktop
- * moving in lockstep with the Android build's theme.
- */
-private val DESKTOP_COLOR_SCHEME: ColorScheme = run {
-    val colors = ThemeColorPolicy.colors(AppTheme.SAFFRON)
-    val errors = ThemeColorPolicy.errorColors(AppTheme.SAFFRON.tone)
-    // Mirrors app/src/main/java/ch/lkmc/bangnidraw/ui/theme/Color.kt's
-    // bangniColorScheme — every Material3 role mapped from ThemeColorPolicy
-    // with the same derivations (tertiary reuses secondary; surface-container
-    // family derives from surfaceContainer/High/Variant). AlertDialog and
-    // menus render on surfaceContainerHigh, so a partial mapping shows stock
-    // cool greys against the warm SAFFRON palette. When Android's scheme
-    // grows a role, mirror it here in the same commit.
-    ColorScheme(
-        primary = Color(colors.primaryArgb),
-        onPrimary = Color(colors.onPrimaryArgb),
-        primaryContainer = Color(colors.primaryContainerArgb),
-        onPrimaryContainer = Color(colors.onPrimaryContainerArgb),
-        secondary = Color(colors.secondaryArgb),
-        onSecondary = Color(colors.onSecondaryArgb),
-        secondaryContainer = Color(colors.secondaryContainerArgb),
-        onSecondaryContainer = Color(colors.onSecondaryContainerArgb),
-        tertiary = Color(colors.secondaryArgb),
-        onTertiary = Color(colors.onSecondaryArgb),
-        tertiaryContainer = Color(colors.secondaryContainerArgb),
-        onTertiaryContainer = Color(colors.onSecondaryContainerArgb),
-        error = Color(errors.errorArgb),
-        onError = Color(errors.onErrorArgb),
-        errorContainer = Color(errors.errorContainerArgb),
-        onErrorContainer = Color(errors.onErrorContainerArgb),
-        background = Color(colors.backgroundArgb),
-        onBackground = Color(colors.onBackgroundArgb),
-        surface = Color(colors.surfaceArgb),
-        onSurface = Color(colors.onSurfaceArgb),
-        surfaceVariant = Color(colors.surfaceVariantArgb),
-        onSurfaceVariant = Color(colors.onSurfaceVariantArgb),
-        surfaceDim = Color(colors.surfaceContainerHighArgb),
-        surfaceBright = Color(colors.surfaceArgb),
-        surfaceContainerLowest = Color(colors.surfaceArgb),
-        surfaceContainerLow = Color(colors.backgroundArgb),
-        surfaceContainer = Color(colors.surfaceContainerArgb),
-        surfaceContainerHigh = Color(colors.surfaceContainerHighArgb),
-        surfaceContainerHighest = Color(colors.surfaceVariantArgb),
-        outline = Color(colors.outlineArgb),
-        outlineVariant = Color(colors.outlineVariantArgb),
-        inverseSurface = Color(colors.onSurfaceArgb),
-        inverseOnSurface = Color(colors.surfaceArgb),
-        inversePrimary = Color(colors.primaryContainerArgb),
-        surfaceTint = Color(colors.primaryArgb),
-        scrim = Color.Black,
-        primaryFixed = Color(colors.primaryContainerArgb),
-        primaryFixedDim = Color(colors.primaryContainerArgb),
-        onPrimaryFixed = Color(colors.onPrimaryContainerArgb),
-        onPrimaryFixedVariant = Color(colors.onPrimaryContainerArgb),
-        secondaryFixed = Color(colors.secondaryContainerArgb),
-        secondaryFixedDim = Color(colors.secondaryContainerArgb),
-        onSecondaryFixed = Color(colors.onSecondaryContainerArgb),
-        onSecondaryFixedVariant = Color(colors.onSecondaryContainerArgb),
-        tertiaryFixed = Color(colors.secondaryContainerArgb),
-        tertiaryFixedDim = Color(colors.secondaryContainerArgb),
-        onTertiaryFixed = Color(colors.onSecondaryContainerArgb),
-        onTertiaryFixedVariant = Color(colors.onSecondaryContainerArgb),
-    )
-}
-
-/**
- * The neutral warm-grey around the paper — same [CanvasVoidColorPolicy]
- * source the Android app uses, so the desktop shell reads as part of the
- * same product family rather than a debug harness on the host OS's grey.
- */
-private val VIEWPORT_VOID = Color(CanvasVoidColorPolicy.argb(AppTheme.SAFFRON))
 private const val RGBA_BYTES = 4
 private const val MOUSE_POINTER_ID = 0
 private const val SYNTHETIC_PRESSURE = 1f
-private const val SCROLL_PIXELS_PER_TICK = 40f
+/** One wheel notch on the tracing image: the canvas zoom's own 15% step. */
+private const val SCALE_PER_NOTCH = 1.15f
+/** And with Shift, five degrees a notch — fine enough to line a photo up. */
+private const val ROTATION_PER_NOTCH = 0.0872665f
+private const val NANOS_PER_MS = 1_000_000L
 private const val CANVAS_EDGE = 2048
 private const val VERIFY_RUNTIME_FLAG = "--verify-runtime"
 private const val GL_REPORT_FLAG = "--gl-report"
@@ -959,11 +1559,19 @@ private const val INITIAL_GL_HEIGHT = 1
 // The gap LayoutSpec's docked chrome already reserves above the dock;
 // a second copy here could drift and leave the two disagreeing.
 private val LEDGE_GAP = LayoutSpec.LEDGE_GAP_DP.dp
+private const val SAVED_MESSAGE_MS = 6_000L
 // The old floor existed for a fixed 230 dp sidebar beside a toolbar row.
 // The chrome is adaptive now — LayoutSpec shortens the rail, then docks it —
 // so the window may be as small as one a person could still draw in.
 private const val WINDOW_MIN_W = 640
 private const val WINDOW_MIN_H = 480
+// Below the top strip, so the pill never covers Undo.
+private val RESET_PILL_TOP = (LayoutSpec.TOP_STRIP_DP + 12).dp
+private val FOCUS_HANDLE_TARGET = 48.dp
+private val FOCUS_HANDLE_WIDTH = 6.dp
+private val FOCUS_HANDLE_HEIGHT = 48.dp
+private val FOCUS_HANDLE_RADIUS = 3.dp
+private const val FOCUS_HANDLE_ALPHA = 0.35f
 
 internal object DesktopGlDiagnostics {
     private const val HEADLINE = "OpenGL ES 3.0 is unavailable."

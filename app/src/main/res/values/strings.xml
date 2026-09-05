@@ -46,6 +46,11 @@
     <string name="save_to_gallery">Export a new gallery image</string>
     <string name="studio_saved_to_gallery">Added to gallery</string>
     <string name="studio_save_failed">Couldn’t add to gallery</string>
+    <string name="studio_export_file">Export file…</string>
+    <string name="studio_import_file">Import file</string>
+    <string name="studio_exported">Saved as a .bangni file</string>
+    <string name="studio_export_file_failed">Couldn’t write the file</string>
+    <string name="studio_import_file_failed">Couldn’t read that file</string>
     <!-- Carries its own leading separator so locales choose spacing;
          quoted because AAPT trims unquoted leading/trailing whitespace. -->
     <string name="gallery_reference_suffix">" (with tracing image)"</string>
@@ -439,4 +444,62 @@
     <string name="help_color_body">The ring picks the hue; the square sets saturation and brightness. Fine-tune with the sliders, or type hex and RGB values.\n\nHold the current color to add it to the palette. Tap the previous color to swap back.\n\nPalettes keep saved colors \u2014 create your own with +. Hold a swatch to replace, pick, move, or delete it.\n\nThe mixing dish blends two colors: set wells A and B, drag the slider for the in-between steps, tap a step to use it.</string>
     <string name="help_reference_body">Pin a photo over your painting to trace or compare; two fingers on the canvas move, scale, and rotate it.\n\nThe tracing image never enters shares or exports. With gallery sync on, a second gallery copy that includes it is kept alongside. It uses the memory of one layer.</string>
     <string name="help_canvas_body">Draw with one finger or a pen; two fingers move, zoom, and rotate the canvas. Tap two fingers to undo, three to redo \u2014 or hold the undo and redo buttons to see how deep the history goes. Tap the pill that appears after moving the view to reset it.\n\nHold a finger still to pick a color. Hold the color chip for the colors you last painted with. Tap the active tool again to open its settings.\n\nThe sliders beside the rail set brush size and opacity. The \u22ee menu shares and exports, renames the painting, pins a tracing image, toggles composition guides, and hides all controls in Focus mode.</string>
+
+    <!-- Desktop shell. The desktop reads this same file (DesktopStrings), so
+         its text lives here rather than as literals in a Kotlin file, and
+         MissingTranslation gates the second locale for it too. -->
+    <string name="desktop_menu_file">File</string>
+    <string name="desktop_menu_edit">Edit</string>
+    <string name="desktop_menu_window">Window</string>
+    <string name="desktop_menu_help">Help</string>
+    <string name="desktop_new">New</string>
+    <string name="desktop_open">Open\u2026</string>
+    <string name="desktop_save">Save</string>
+    <string name="desktop_save_as">Save As\u2026</string>
+    <string name="desktop_export_png">Export PNG\u2026</string>
+    <string name="desktop_close">Close</string>
+    <string name="desktop_untitled">Untitled</string>
+    <string name="desktop_tool_settings">Tool settings</string>
+    <string name="desktop_canvas_help">Canvas help</string>
+    <string name="desktop_about">About %1$s</string>
+    <string name="desktop_show_guides">Show guides</string>
+    <string name="desktop_hide_guides">Hide guides</string>
+    <string name="desktop_unsaved_title">Save changes to %1$s?</string>
+    <string name="desktop_unsaved_body">Closing without saving loses everything painted since the last save.</string>
+    <string name="desktop_unsaved_this">this painting</string>
+    <string name="desktop_dont_save">Don\'t save</string>
+    <string name="desktop_save_failed">Save failed: %1$s</string>
+    <string name="desktop_save_stale">Saved %1$s \u2014 without the strokes made while it wrote</string>
+    <string name="desktop_open_failed">Could not open that file</string>
+    <string name="desktop_more_brushes">More brushes</string>
+    <string name="desktop_eraser_settings_hint">" \u2014 click again for eraser settings"</string>
+    <string name="desktop_reset_view_zoom">%1$s \u00b7 %2$d%%</string>
+    <string name="desktop_reset_view_zoom_angle">%1$s \u00b7 %2$d%%, %3$d\u00b0</string>
+    <string name="desktop_canvas">Canvas</string>
+    <string name="desktop_brush_size_value">%1$s %2$d (%3$d\u2013%4$d)</string>
+    <string name="desktop_curve_knot">%1$s knot %2$d</string>
+    <string name="desktop_layer_badges">Layer state</string>
+    <string name="desktop_eraser_choice">Eraser</string>
+    <string name="desktop_paper_grain">Paper grain</string>
+    <string name="desktop_speed_size">Speed \u2192 size</string>
+    <string name="desktop_speed_opacity">Speed \u2192 opacity</string>
+    <string name="desktop_speed_threshold">Fast is</string>
+    <string name="desktop_speed_threshold_value">%1$.1f px/ms</string>
+    <string name="desktop_multiplier_value">%1$.2f\u00d7</string>
+    <string name="desktop_pixel_value">%1$.0f px</string>
+    <string name="desktop_percent_value">%1$.0f%%</string>
+    <string name="desktop_dab_group">Dab</string>
+    <string name="desktop_pickup_group">Pickup</string>
+    <string name="desktop_kernel_group">Kernel</string>
+    <string name="desktop_water_group">Water</string>
+    <string name="desktop_region_group">Region</string>
+    <string name="desktop_edges_group">Edges</string>
+    <string name="desktop_sample_group">Sample</string>
+    <string name="desktop_eyedropper_radius_one">1 px</string>
+    <string name="desktop_eyedropper_radius_block">%1$d\u00d7%1$d px</string>
+    <string name="desktop_fill_expand_value">%1$d px</string>
+    <string name="desktop_reference_help">Pin a picture over your painting to trace or compare. It is never part of a save, an export or a PNG — it stays in the .bangni document only, and it uses the memory of one layer while it is there.</string>
+    <string name="desktop_reference_edit">Move with the mouse</string>
+    <string name="desktop_reference_edit_help">Drag the tracing image to move it, scroll to scale it around the pointer, and hold Shift while scrolling to rotate it. Painting resumes when this is off.</string>
+    <string name="desktop_help_body">Draw with the left mouse button. Holding the right button erases instead, the way a stylus flipped to its eraser end does. Scroll to zoom around the pointer.\n\nThe rail picks a tool: brushes above the rule, the eraser below it, then smudge, water, blur, fill and the eyedropper. Clicking a slot that is already selected opens its settings, which is also where the hard and soft erasers are chosen.\n\nThe two sliders at the foot of the rail set size and the tool\'s second value \u2014 opacity, flow, strength or water load. Fill and the eyedropper have neither, so the sliders go away.\n\nUndo and Redo sit in the strip; the swatch beside them opens the colour panel, and the layers button beside that opens the layer panel. Both panels are windows of their own \u2014 move them anywhere, and close them when you are done.\n\nThe pointer carries a ring the size of the brush. Keyboard: B brush, E eraser, S smudge, W water, G fill, I eyedropper (or hold Alt), [ and ] for size, 0 to reset the view, Tab for focus mode, L for layers, C for colour.\n\nSave writes a .bangni file \u2014 the whole painting, every layer. The Android app imports and exports the same file. Export PNG\u2026 writes a flat picture instead; opening a PNG gives you a painting with one layer, because that is all a PNG holds.\n\nA painting with no file yet saves to %1$s.</string>
 </resources>

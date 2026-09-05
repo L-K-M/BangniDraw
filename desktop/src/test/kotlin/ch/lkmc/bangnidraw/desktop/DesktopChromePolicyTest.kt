@@ -125,29 +125,27 @@ class DesktopChromePolicyTest {
     }
 
     @Test
-    fun `the eraser slot selects first and only then cycles erasers`() {
+    fun `the eraser slot selects, and a second click leaves it alone`() {
         val paint = DesktopRailPolicy.initial(presets)
 
         val selected = DesktopRailPolicy.eraserTap(paint, presets)
         assertEquals(BrushPresets.HARD_ERASER_ID, selected.selectedId)
         assertEquals(BrushPresets.HARD_ERASER_ID, selected.eraserId)
+        assertTrue(presets.first { it.id == selected.eraserId }.eraseMode)
 
-        val toggled = DesktopRailPolicy.eraserTap(selected, presets)
-        assertEquals(BrushPresets.SOFT_ERASER_ID, toggled.selectedId)
-        assertEquals(BrushPresets.SOFT_ERASER_ID, toggled.eraserId)
-
-        // Cycling returns; the slot never lands on a preset that is not an eraser.
-        val cycled = DesktopRailPolicy.eraserTap(toggled, presets)
-        assertEquals(BrushPresets.HARD_ERASER_ID, cycled.selectedId)
-        assertTrue(presets.first { it.id == cycled.eraserId }.eraseMode)
+        // The second click is the settings door for every slot, so the policy
+        // must not also spend it on the other eraser.
+        assertSame(selected, DesktopRailPolicy.eraserTap(selected, presets))
     }
 
     @Test
-    fun `a single-eraser catalogue has nothing to toggle to`() {
-        val single = presets.filterNot { it.id == BrushPresets.SOFT_ERASER_ID }
-        val selected = DesktopRailPolicy.eraserTap(DesktopRailPolicy.initial(single), single)
+    fun `the other eraser is reached by selecting it, as the settings panel does`() {
+        val selected = DesktopRailPolicy.eraserTap(DesktopRailPolicy.initial(presets), presets)
 
-        assertSame(selected, DesktopRailPolicy.eraserTap(selected, single))
+        val soft = DesktopRailPolicy.select(selected, BrushPresets.SOFT_ERASER_ID, presets)
+
+        assertEquals(BrushPresets.SOFT_ERASER_ID, soft.selectedId)
+        assertEquals(BrushPresets.SOFT_ERASER_ID, soft.eraserId)
     }
 
     @Test
@@ -175,22 +173,82 @@ class DesktopChromePolicyTest {
             val available = height - LayoutSpec.TOP_STRIP_DP
             val budget = DesktopRailPolicy.paintBudget(layout, available, paints)
             val overflows = budget < paints
-            val slots = budget + (if (overflows) 1 else 0) + 1 // overflow, eraser
+            val secondary = DesktopRailPolicy.secondarySlotCount(layout) +
+                if (DesktopRailPolicy.hiddenSecondary(layout).isEmpty()) 0 else 1
+            val slots = budget + (if (overflows) 1 else 0) + 1 + secondary
 
             val used = slots * layout.toolSlotDp + (slots - 1) * TOOL_GAP_DP +
-                DIVIDER_HEIGHT_DP + layout.sliderLengthDp + RAIL_PADDING_DP
+                DIVIDER_HEIGHT_DP * 2 + layout.sliderLengthDp + RAIL_PADDING_DP
 
             assertTrue(budget in 1..paints, "budget $budget out of range at ${height}dp")
-            assertTrue(used <= available, "rail needs ${used}dp of ${available}dp at ${height}dp")
+            // The budget floors at one paint — a rail with no paint at all
+            // could not draw — so the only permitted overrun is that floor,
+            // which the rail's own scroll absorbs.
+            assertTrue(
+                used <= available || budget == 1,
+                "rail needs ${used}dp of ${available}dp at ${height}dp",
+            )
         }
     }
 
     @Test
     fun `a tall enough rail shows every paint with no overflow slot`() {
         val paints = DesktopRailPolicy.paints(presets).size
-        val layout = DesktopChromeLayout.forWindow(widthDp = 1280, heightDp = 1200)
+        // Tall enough for every paint *and* the eraser and five secondary
+        // tools the FULL rail also carries.
+        val heightDp = 2000
+        val layout = DesktopChromeLayout.forWindow(widthDp = 1280, heightDp = heightDp)
 
-        assertEquals(paints, DesktopRailPolicy.paintBudget(layout, 1200 - LayoutSpec.TOP_STRIP_DP, paints))
+        assertEquals(
+            paints,
+            DesktopRailPolicy.paintBudget(layout, heightDp - LayoutSpec.TOP_STRIP_DP, paints),
+        )
+    }
+
+    @Test
+    fun `the FULL rail gives every secondary tool a slot, shorter modes group them`() {
+        val full = DesktopChromeLayout.forWindow(widthDp = 1280, heightDp = 1000)
+        val grouped = DesktopChromeLayout.forWindow(widthDp = 960, heightDp = 600)
+
+        assertEquals(RailMode.FULL, full.railMode)
+        assertEquals(DesktopSecondaryTool.entries, DesktopRailPolicy.visibleSecondary(full))
+        assertTrue(DesktopRailPolicy.hiddenSecondary(full).isEmpty())
+
+        // Same three `:app`'s grouped rail keeps, and the same two behind its
+        // menu — so a tool is in the same place on both products.
+        assertEquals(
+            listOf(
+                DesktopSecondaryTool.SMUDGE,
+                DesktopSecondaryTool.WATER,
+                DesktopSecondaryTool.FILL,
+            ),
+            DesktopRailPolicy.visibleSecondary(grouped),
+        )
+        assertEquals(
+            listOf(DesktopSecondaryTool.BLUR, DesktopSecondaryTool.EYEDROPPER),
+            DesktopRailPolicy.hiddenSecondary(grouped),
+        )
+    }
+
+    @Test
+    fun `selecting a secondary tool leaves the remembered brush alone`() {
+        val rail = DesktopRailPolicy.initial(presets)
+
+        val smudging = DesktopRailPolicy.selectSecondary(rail, DesktopSecondaryTool.SMUDGE)
+
+        assertEquals(DesktopSecondaryTool.SMUDGE, smudging.secondary)
+        assertEquals(rail.selectedId, smudging.selectedId)
+        assertFalse(smudging.brushSelected())
+        assertFalse(smudging.paintSelected())
+        // Re-selecting the same tool is not a change, so the rail's second
+        // click can be the settings door.
+        assertSame(smudging, DesktopRailPolicy.selectSecondary(smudging, DesktopSecondaryTool.SMUDGE))
+
+        // Any brush click puts the rail back on brushes: one lit slot.
+        val painting = DesktopRailPolicy.select(smudging, BrushPresets.MARKER_ID, presets)
+        assertNull(painting.secondary)
+        assertTrue(painting.paintSelected())
+        assertNull(DesktopRailPolicy.eraserTap(smudging, presets).secondary)
     }
 
     @Test

@@ -7,6 +7,7 @@ import android.util.LruCache
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import ch.lkmc.bangnidraw.R
+import ch.lkmc.bangnidraw.data.BangniProjectIo
 import ch.lkmc.bangnidraw.data.CpuFlatten
 import ch.lkmc.bangnidraw.data.GalleryExporter
 import ch.lkmc.bangnidraw.data.GalleryExportOutcome
@@ -485,6 +486,120 @@ class StudioViewModel @Inject constructor(
                 return@launch
             }
             withContext(Dispatchers.Main) { onReady(uri, mime) }
+        }
+    }
+
+    /**
+     * Writes one painting to [uri] as a `.bangni` document — every layer, so
+     * it opens on another machine with its stack intact. The caller obtained
+     * [uri] from the system's create-document picker, which needs no
+     * permission (the app has none, and keeping it that way is an ADR).
+     */
+    internal fun exportBangni(id: String, uri: android.net.Uri, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val doc = (store.load(id) as? ProjectStore.LoadResult.Loaded)?.document
+            if (doc == null) {
+                withContext(Dispatchers.Main) { onDone(false) }
+                return@launch
+            }
+            val written = try {
+                context.contentResolver.openOutputStream(uri)?.buffered()?.use { out ->
+                    BangniProjectIo.export(
+                        document = doc,
+                        out = out,
+                        layerDirFor = { layer -> store.layerDir(doc.id, layer) },
+                        // The tracing image travels inside the file; a missing
+                        // or unreadable asset exports as no reference at all.
+                        referenceAsset = { reference ->
+                            runCatching {
+                                store.referenceFile(doc.id, reference.assetName)
+                                    .takeIf { it.isFile }
+                                    ?.readBytes()
+                            }.getOrNull()
+                        },
+                    )
+                } != null
+            } catch (e: IOException) {
+                android.util.Log.w(LOG_TAG, "bangni export failed", e)
+                false
+            } catch (e: SecurityException) {
+                // A picker grant can be revoked between the pick and the write.
+                android.util.Log.w(LOG_TAG, "bangni export refused", e)
+                false
+            }
+            withContext(Dispatchers.Main) { onDone(written) }
+        }
+    }
+
+    /**
+     * Reads a `.bangni` at [uri] into a new painting and reports its id.
+     *
+     * Layer ids are re-minted by [BangniProjectIo.import], so importing the
+     * same file twice yields two independent paintings rather than two
+     * folders sharing layer directory names.
+     */
+    internal fun importBangni(
+        uri: android.net.Uri,
+        onImported: (String) -> Unit,
+        onFailed: (String?) -> Unit,
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val id = UUID.randomUUID().toString()
+            val result = try {
+                context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
+                    BangniProjectIo.import(
+                        input = input,
+                        id = id,
+                        newLayerId = { LayerId(UUID.randomUUID().toString()) },
+                        layerDirFor = { layer -> store.layerDir(id, layer) },
+                        writeReferenceAsset = { name, bytes ->
+                            store.writeReferenceAsset(id, name, bytes)
+                        },
+                    )
+                }
+            } catch (e: IOException) {
+                android.util.Log.w(LOG_TAG, "bangni import failed", e)
+                BangniProjectIo.ImportResult.Failed(e.message ?: "")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Nothing in the block above suspends today, so this cannot
+                // fire — it is here so that adding a suspending call later
+                // does not silently turn cancellation into a failed import.
+                throw e
+            } catch (e: Exception) {
+                // Everything in the block reads a file the user picked.
+                // Parse failures arrive as RuntimeExceptions — kotlinx's
+                // SerializationException is an IllegalArgumentException, a
+                // provider can throw IllegalState — and one escaping this
+                // coroutine ends the process while they are only browsing.
+                android.util.Log.w(LOG_TAG, "bangni import refused", e)
+                BangniProjectIo.ImportResult.Failed(e.message ?: "")
+            }
+            if (result !is BangniProjectIo.ImportResult.Imported) {
+                // The tiles this attempt already wrote would otherwise be an
+                // orphan directory nothing ever lists.
+                runCatching { store.delete(id) }
+                val message = (result as? BangniProjectIo.ImportResult.Failed)?.message
+                withContext(Dispatchers.Main) { onFailed(message) }
+                return@launch
+            }
+
+            val titled = if (result.document.title.isBlank()) {
+                result.document.copy(
+                    title = context.getString(R.string.studio_untitled) + " " +
+                        prefs.nextSketchNumber(),
+                )
+            } else {
+                result.document
+            }
+            try {
+                store.create(titled)
+            } catch (e: IOException) {
+                android.util.Log.w(LOG_TAG, "import create failed", e)
+                runCatching { store.delete(id) }
+                withContext(Dispatchers.Main) { onFailed(null) }
+                return@launch
+            }
+            withContext(Dispatchers.Main) { onImported(id) }
         }
     }
 

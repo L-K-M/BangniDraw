@@ -3763,3 +3763,294 @@ Follow-ups owed to a later PR: `:app`'s `TopStrip` colour swatch has the same
 square-fill-under-rounded-border artifact fixed here; `Icons.Filled.Draw` and
 `Icons.Filled.Create` are similar silhouettes at rail size on both platforms;
 and the SHORT ledge discrepancy noted above.
+
+## PR #193 — desktop parity: layers, panels, secondary tools, `.bangni` (2026-09-05)
+
+One round, full scope, at `e211a58`: 20 inline suggestions and a summary
+GitHub truncated for size (the action said so and posted the findings
+separately, so nothing was lost). Most were real and are applied; five are
+recorded here.
+
+- **R-270 ⏸️ (refuted) round 1, Critical: `DesktopReferenceIo.kt:138` uses an
+  underscore instead of a dot and "the desktop module will not compile,
+  blocking the whole PR".** It does not. The line reads
+  `TracingReferencePolicy.normalizedSize(` with a dot, `grep -rn
+  "TracingReferencePolicy_"` matches nothing anywhere in the repository, and
+  the `desktop-linux` CI job compiled this exact commit successfully
+  (run 33953428594). Three independent checks, because a "won't compile"
+  claim on a green PR is the one that most misleads a merge decision — which
+  is why this one also got a reply on the PR rather than only an entry here.
+- **R-271 ⏸️ (refuted) round 1, Major: an imported reference asset name reaches
+  the filesystem unchecked (zip-slip).** The name never reaches it raw.
+  `BangniProjectIo.importedReference` calls `record.toReferenceOrNull()`
+  first, which constructs a `TracingReference`, whose `init` requires
+  `isSafeAssetName(assetName)` — `isSafePathSegment` plus a `.png` suffix. An
+  asset named `../../evil.png` fails that, returns null, and is dropped with a
+  warning; `writeReferenceAsset` is then handed `reference.assetName`, the
+  validated value, not `record.assetName`. The finding hedged on exactly this
+  ("unless `BangniProjectIo.import` or the store sanitizes it — both outside
+  this diff"), and it does. AGENTS.md already records the rule.
+- **R-272 ⏸️ (refuted) round 1, Major: the layer panel's opacity label
+  truncates where `:app` rounds, so the two disagree for half the slider.**
+  The premise is backwards. `:app`'s `LayerPanel.kt:633` reads
+  `(opacity * PERCENT).toInt()` — it truncates too, and the two panels
+  therefore already agree on every value. Applying the suggested `roundToInt`
+  would have *created* the one-percent disagreement the finding set out to
+  fix, on a reading AGENTS.md requires to match. What was genuinely wrong is
+  the comment above the call, which claimed `%.0f` rounding and cited parity
+  as the reason; it now says what the code does and why both sides must move
+  together. Fixed as documentation, refused as code.
+- **R-273 ⏸️ (partly refuted) round 1, Major: `tune` bypasses the restore
+  gate.** Two thirds of this finding were right and are applied — `notePainted`
+  and `persistPalettes` both write persisted state and now mark
+  `DesktopPreferenceKind.Color`, so a stroke or a palette edit during the
+  startup read is no longer overwritten by `restorePalettes`. `tune` is the
+  exception: the Brush restore in `Main.kt` only re-selects a preset
+  (`DesktopRailPolicy.select` and a slot assignment) and never rewrites a
+  preset's fields, and `tune` performs no persisted write of its own — so
+  there is no write for a restore to race. Marking it would claim a hazard
+  that does not exist and invite the next reader to look for it.
+- **R-274 ⏸️ (declined) round 1, Minor: drop the `*/*` entry from
+  `OPEN_MIME_TYPES`.** It is a catch-all and it does neutralize the two
+  entries beside it — that much is accurate. It stays because providers
+  disagree about what a `.bangni` is (octet-stream, `application/zip`,
+  `application/x-zip-compressed`, or a type invented from the extension), and
+  a filter that guesses wrong greys out the user's own file with no way to
+  reach it. Picking a wrong file is already safe: the format is recognized by
+  content and `BangniCodec.read` refuses anything else without throwing. The
+  KDoc claimed a filter that was not operative and now says this instead.
+
+Deferred, owed to a later PR:
+
+- **R-275 ⏸️ (deferred) round 1, Major: EXIF orientation is ignored, so phone
+  photos import sideways.** The observation is real; the stated reason is not
+  — the finding says desktop "diverges from Android", but `:app` has no
+  `ExifInterface` either (`grep -rn "ExifInterface\|TAG_ORIENTATION"` over
+  `app/src/main` is empty), so both products ignore orientation and there is
+  no parity gap. Fixing it properly means parsing the APP1 segment or adding
+  `metadata-extractor`, plus fixtures for all eight orientations, in *both*
+  products — a change with a dependency decision in it, not a review fix.
+- **R-276 ⏸️ (deferred) round 1, Major: `DesktopDocuments.openFile` does not
+  raise the window of an already-open file.** True, and the comment claiming
+  it did is corrected. Actually raising it needs a focus-request channel from
+  the list to the `Window` composable; that is a feature, and one whose only
+  honest verification is on a real desktop. The duplicate check itself was
+  strengthened in this round (canonical rather than absolute paths, so a
+  symlink cannot produce the overwriting pair the check exists to prevent).
+- **R-277 ⏸️ (deferred) round 1, Major: `DesktopPrefs`'s stringly-typed keys
+  drop DataStore's type safety.** Confirmed hazard: `Preferences.Key` compares
+  by name alone, so `stringPreferencesKey("x")` and `intPreferencesKey("x")`
+  are one slot and a mixed read throws `ClassCastException` inside the flow's
+  `map`, killing every collector far from the write. No key is currently used
+  both ways, so this is latent; the reviewer's own suggestion was a KDoc,
+  which is applied along with an encoding note on `SNAP_RIGHT_ANGLES`. Typed
+  `TextKey`/`NumberKey` value classes would make it a compile error and are
+  the real fix.
+- **R-278 ⏸️ (deferred) round 1, Critical (part): stream a `.bangni`'s tiles to
+  disk instead of holding the whole painting in memory.** The bounded part of
+  that finding is applied (see below). The architectural part is not: the
+  reader builds the entire tile map before returning, so a *legitimate* very
+  large painting is bounded by the same ceiling a malicious one is. Streaming
+  tiles into the project store as they are read removes that ceiling for both.
+
+| Round | Scope | Score | Notes |
+| --- | --- | --- | --- |
+| 1 | full, `e211a58` | `useful feedback` | 20 inline + a size-truncated summary; most applied, 3 refuted, 1 declined, 4 deferred |
+| 2 | hybrid → `b732c50` | `useful feedback` | a real BLOCKER in round 1's own fsync fix; 5 more applied, 1 remedy refused |
+| 3 | hybrid → `c2179b7` | `useful feedback` | a defect in round 2's own heap floor; 4 more applied, none declined |
+| 4 | hybrid → `69e45fc` | `nits only` | 2 minor + 1 info, all applied, no product code changed; **loop ends** |
+| — | hybrid → `cbd465c` | *not scored* | fired after steady state; two small `DesktopBangniWriter` items taken anyway, see below |
+
+Real, and worth the 161 minutes the review took: a `.bangni` charged its
+expansion budget at *compressed* size while every tile decodes to 256 KiB, so
+200,000 stored tiles arrived as tens of megabytes and became tens of gigabytes;
+a crafted `"dpi": 0` reached `Document`'s own `require` and left `import` as an
+`IllegalArgumentException`, past every caller's catch, crashing the app on a
+file the user merely picked; opening a painting and saving it straight back
+wrote a blank file over it, because nothing drained the readback that fills the
+mirror both saves compose from; Save in the close prompt never closed the
+window, because the completion it checked runs an event later; a fill committed
+to whatever layer was selected when its multi-second scan *finished*, lock and
+all; the active layer was looked up by an index into the manifest and applied
+to the shorter list that skipping produced; and the `.bangni` writer renamed
+over the previous version without ever forcing the new bytes to the device.
+
+Refuted: the "will not compile" blocker (R-270) — the line has a dot, nothing
+in the repo matches the underscore form, and CI compiled the commit; the
+reference-asset zip-slip (R-271), guarded by `TracingReference`'s own
+constructor; and the opacity-rounding parity claim (R-272), which had the
+direction backwards — `:app` truncates too, so the suggested fix would have
+created the disagreement it meant to remove.
+
+Declined: the `*/*` MIME entry (R-274), which is a catch-all on purpose,
+because a filter that guesses a `.bangni`'s type wrong greys out the user's
+own file.
+
+### Round 2
+
+The round earned its place, and the lesson is the one CLAUDE.md already
+warns about: **a fix pushed in one round introduced a defect caught in the
+next.** Round 1's fsync landed as
+
+```kotlin
+raw.buffered().use { out -> BangniCodec.write(out, document) }
+raw.fd.sync()
+```
+
+and closing a `BufferedOutputStream` closes what it wraps, so the sync ran on
+a descriptor that was already closed. Measured on this JDK rather than
+assumed: it throws `SyncFailedException`, which is an `IOException`, which the
+writer's own catch turns into `DesktopSaveResult.Failed` — **every `.bangni`
+save would have failed.** The reviewer predicted a silent no-op on JDK 13+ and
+a throw only on 8–12; on 17 it throws. Its conclusion held either way.
+
+It passed CI because nothing in the repository ever called
+`DesktopBangniWriter.write`: every other `.bangni` test drives `BangniCodec`
+through a byte array. `DesktopBangniWriterTest` now writes real files —
+round trip, no scratch file left behind, and replacing an existing painting —
+and all three fail without the fix.
+
+- **R-279 ⏸️ (applied differently) round 2, Major: the 256 MiB decoded cap can
+  refuse documents earlier builds opened.** The finding is right and the
+  premise it rests on is right twice over: `LOW_RAM_GPU_TILE_BYTES` is a
+  phone's GPU budget sitting in a codec the desktop shares, and the code
+  charged a tile *both* its decoded size and its arrival bytes while the KDoc
+  said only the former. Both fixed. But its remedy — back to 2 GiB — was
+  refused, because 2 GiB retained is the original OOM on any phone. The
+  numbers say no constant can do this job: the format's own ceiling is
+  `MAX_LAYERS` (16) × `MAX_TILES` (1024) × `TILE_BYTES` = **4 GiB**, so any
+  value that never refuses a legal document is far past what a phone can hold.
+  So the ceiling and the budget were separated. `MAX_TOTAL_BYTES` is now that
+  4 GiB, derived rather than chosen, and it is a *correctness* bound — it
+  refuses the 50 GB a crafted 200,000-entry file decodes to, and nothing a
+  writer can produce. The budget is `Limits.forHeap`: half this JVM's max
+  heap, floored at 256 MiB and clamped to the ceiling, and it is the default,
+  so a caller that passes nothing is bounded by its own memory rather than by
+  someone's guess. A phone narrows itself; a laptop opens the painting.
+
+Applied without argument: the per-entry overflow now says which bound tripped
+rather than naming the total; the active-layer index is bounded *and* its two
+lists are appended together so the invariant is structural rather than
+narrated; the `scan.run` guard regex allows one level of nested parentheses,
+because `[^)]*` stopped at the first `)` and a `progress = { p -> report(p) }`
+would have hidden the very call it guards; `BangniFile`'s forward-compatibility
+KDoc now names `ignoreUnknownKeys`, since defaults alone only cover the keys a
+newer writer *omits*; and `PaperSwatchCustomDefault` moved to `ui.shared` with
+its four siblings.
+
+Two of round 1's own contract assertions were also right to flag: they matched
+exact indentation, so a reformat would have failed them while the behaviour
+they guard was intact. They compare whitespace-collapsed source now — and the
+first attempt at that was itself wrong, slicing on a `" on"` delimiter that
+also occurs inside "arrive **on** the GL thread", so each callback is matched
+by an anchored regex instead.
+
+- **R-280 ⏸️ (applied) round 2, Major: a save completing after the canvas moved
+  on clears `dirty` and closes the window anyway.** Recorded rather than passed
+  over silently because the finding named round 1 as the amplifier and that is
+  worth keeping straight: the unconditional `dirty = false` predates this PR,
+  and before round 1 the same lost strokes needed a second click on the close
+  button instead of none. Round 1 did make it worse, and the guard belongs
+  here either way. `DesktopDocument.edits` is snapshotted when the write starts
+  and compared when it lands; a document that moved keeps `dirty` and its
+  window, and the next close prompts again.
+
+### Round 3
+
+Two rounds running, the review has found a defect in the fix the round before
+it pushed — and both times in the part that had been reasoned about most.
+Round 2 replaced a mobile-sized constant with `Limits.forHeap`, half the JVM's
+max heap, and gave it a 256 MiB floor "so a small heap still opens a small
+painting". The floor inverts the thing it sits inside: it binds only *below*
+512 MiB, which is to say only where half the heap is already small, and there
+it hands out a budget larger than the heap — `forHeap(192 MiB)` returned
+256 MiB, 133 % of it. Every claim written around it, in the KDoc, in AGENTS.md
+and in this file, said the opposite ("a phone narrows itself"). Half of a small
+heap is *already* enough for a small painting; the floor only ever helped open
+one too big to hold, which is the `OutOfMemoryError` the whole two-round
+exercise existed to replace with a message. Deleted, and the test now walks
+64 MiB through 1 GiB asserting the budget is half the heap and never exceeds it.
+
+Nothing was declined this round.
+
+- The `edits` counter guards a save only while every edit goes through
+  `noteEdited`, and nothing forced that — one `dirty = true` elsewhere would
+  have reopened the lost-stroke path with no signal. `dirty` has a private
+  setter now, with `markClean` for the save completion, so it is a compile
+  error rather than a convention. The finding drew the parallel to this PR's
+  own layer/index pairing, which is exactly right.
+- A stale save reported a plain "Saved <path>" while withholding the close, so
+  the close read as ignored. It says `desktop_save_stale` instead, in both
+  locales.
+- The `PaperSwatchCustomDefault` move left its KDoc behind, orphaned onto
+  `DrawingSwatches`.
+- `DesktopBangniWriterTest`'s `tempDir()` registered the directory with
+  `deleteOnExit`, which cannot remove one that still holds files — in a class
+  whose whole subject is a writer that leaves nothing behind. A shutdown hook
+  deletes it recursively now.
+
+The reviewer also audited both locale files for format specifiers, key
+completeness and AAPT escaping and reported them clean, and flagged one
+informational asymmetry (`desktop_speed_threshold` is a predicate fragment in
+English and a noun label in Chinese) that reads correctly either way once
+concatenated with its value. No action.
+
+**On the pattern.** Three rounds, each finding a real defect in the last one's
+fix, is not the integration-failure stop rule: CI stayed green every time and
+no fix was reverted, which is what that rule actually names. It is worth saying
+plainly anyway. What CI cannot catch is precisely what these rounds caught — a
+sync on a closed descriptor, a floor that inverts its own budget — because both
+compiled, passed, and were wrong. The round-over-round trend is convergent: 20
+findings, then 6, then 5, and the severity has fallen from silent data loss to
+a leaked temp directory.
+
+### Round 4 — steady state
+
+Two minor findings and one informational, no majors and no blockers, and
+**not one line of product code changed**. That is the nits-only rule, and the
+loop ends here.
+
+- A contract assertion this PR added in round 3 was vacuous:
+  `assertTrue(main.contains("result.path"))` sits beside an assertion pinning
+  `savedMessage = if (edited) {`, and `result.path` appears in *both* branches
+  of that condition — so it constrained nothing while the behaviour round 3
+  actually added, the `desktop_save_stale` key, went unpinned. It pins the key
+  now, and fails when the key is removed.
+- `desktop/build.gradle.kts` copied the zh-Hans `strings.xml` with a bare
+  `from(...)`, which Gradle skips in silence when the source is missing. Rename
+  the locale folder and the desktop would ship English-only with nothing
+  failing — and `MissingTranslation` does not cover it, because nothing is
+  missing from a folder that no longer exists. A configuration-time `check`
+  now fails in under a second; verified by moving the folder away. The English
+  path already failed loudly, since `app_name` is read out of it.
+- The informational item asked whether `desktop_help_body`'s paragraph breaks,
+  Android escapes and `%1$s` argument survived the move from five joined
+  Kotlin strings into `strings.xml`. They do — verified, not assumed — and a
+  test in `DesktopAboutTest` now says so, since nothing about that failing
+  would have failed a build.
+
+**The arc.** 20 findings, then 6, then 5, then 3; severity from silent data
+loss (a blank file written over an opened painting, an app crash on a picked
+file, a zip bomb the budget did not bound) through a save that could never
+have succeeded, to a heap floor that inverted its own budget, to a test
+assertion that could not fail. Rounds 2 and 3 each caught a defect in the
+previous round's fix, which is worth remembering rather than filing away: both
+compiled and passed CI, so nothing but a reader was ever going to find them.
+
+**A round after the end.** Pushing round 4's fixes started another review, as
+every push does. The loop was already over on round 4's merits and this one was
+not triaged or scored — but it named a real defect in code this PR introduces,
+in three lines, so shipping it knowingly to save a CI cycle would have been the
+wrong trade. `File.mkdirs()` returns false when the directory already exists,
+so `!parent.isDirectory && !parent.mkdirs()` reports a *save* as failed
+whenever anything else creates the parent between the check and the call. It
+calls `mkdirs()` first and asks afterwards now. The second item was a comment:
+the `AtomicMoveNotSupportedException` fallback is not atomic, so on a mount
+that cannot rename a crash mid-copy leaves exactly the truncated file the class
+header promises to prevent — undocumented where it happens, and now stated
+there.
+
+That push is the last. Whatever the next round says, it is not read: the stop
+rule ended this at round 4, and "one more small thing" is the shape of a loop
+that never closes.
+

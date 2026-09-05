@@ -98,18 +98,258 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   reaching for either. All four rail modes are
   live, so the window minimum is 640×480 rather than the old sidebar's 960×600.
   What the desktop chrome deliberately omits is only what this shell cannot
-  do: Back and Layers (one painting, one layer, no Studio) and the five
-  secondary tools (no engine path). Its own rail budget
+  do: Back (no Studio). **All five secondary tools are live** — smudge, water
+  and blur through `RmwStrokePolicy.spec`, fill through
+  `fillReference` → `FloodFill` → `applyFill`, the eyedropper through
+  `sampleColor` behind `EyedropperSampleGate` — laid out as `:app` lays them
+  out: five slots in FULL, and smudge/water/fill with blur and the eyedropper
+  behind a menu in every shorter mode. The right mouse button is the stylus
+  eraser end, so it erases *whatever brush the rail holds* and refuses
+  outright while a secondary tool is selected; smudging with the button you
+  flipped the pen over for would be a surprise. `ToolSliderPreset` is the read
+  half of the rail's two sliders and `DesktopToolTuning` is the write half —
+  change them together, and note that Water's load is a domain field the
+  synthesized preset cannot carry, so the *kind* decides the secondary value,
+  never the preset alone. Its own rail budget
   (`DesktopRailPolicy.paintBudget`) exists because `LayoutSpec.paintSlotBudget`
-  reserves six non-paint slots for those tools and stops computing outside
+  reserves its non-paint slots for a different set and stops computing outside
   FULL; the paints past the budget go to a menu on the rail, since the
-  settings sheet Android overflows them into does not exist here. A long-press
-  is not a mouse gesture, so the eraser slot's *second* click is what swaps
-  hard for soft eraser.
+  settings sheet Android overflows them into is a window here, not a place to
+  hide presets. The budget floors at one paint, and the rail's own scroll
+  absorbs the overrun that floor can cause in a very short window.
+  **Clicking a rail slot that is already selected opens that slot's settings**,
+  as Android's does. That is one rule for every slot, which is why the eraser
+  slot no longer spends its second click on the *other* eraser: hard/soft is a
+  choice in the brush panel instead. (A long-press, Android's route to it, is
+  not a mouse gesture — but a second click that means two different things
+  depending on the slot is worse than a panel row.)
+  **The hover cursor, the composition guides and the colour picker are
+  `:app`'s own**, moved to `ui/shared/` and compiled into both modules — their
+  size accuracy and their geometry are exactly what must not drift. The picker
+  is `HsvRingSquare`: its ring width and its square edge are `HsvPicker`'s own
+  constants and the pointer math that reads them is the same object, so a tap
+  near their boundary cannot mean one thing on a phone and another on a
+  laptop. Haptics stay with the caller — the shared composable fires
+  `onHueMilestone` and only Android has a device to tick — which is also why
+  its `pointerInput` keys on the picker size alone and reads the callback
+  through `rememberUpdatedState`. The desktop must send
+  `onHoverEnter`, not only `onHoverMove`: an enter is what fills
+  `StylusState.tool`, and `HoverCursorPolicy` reads a `FINGER` tool as "no
+  cursor". Navigation reaches the shell through **one** publisher
+  (`CanvasInputHost.onViewChanged` → `DesktopShellState.view`), because
+  `CanvasTouchHandler.setView` moves only the handler's own state and
+  `handler.view` is a plain field the reset pill cannot recompose on.
+  The **keyboard is the shared `CanvasShortcuts` table** and nothing else —
+  a desktop-only chord would be one Android's Settings sheet does not list.
+  `DesktopShortcuts` splits the translation from the Compose event because a
+  `KeyEvent` cannot be constructed outside the toolkit, so the table half is
+  the half a test can drive. A focusable root asks for focus once: with a menu
+  bar present the AWT focus owner can be the menu, and Compose then never sees
+  the key.
+  **The layer, tool, Settings and tracing-image panels are OS windows of their
+  own** (`DesktopPanelWindows`), `alwaysOnTop`, not sheets inside the document
+  window — the user asked to be able to move them independently of it. That is
+  why `DesktopShellState` hoists every piece of state they read: a sibling
+  `Window` cannot see state declared inside the canvas window's composable.
+  They are composed *inside* the document window's content for the same
+  reason: the tracing-image import is a modal `java.awt.FileDialog`, which
+  needs the `FrameWindowScope`'s frame. Each wraps its content in
+  `DesktopTheme.colorScheme`, or it renders in the host desktop's Material
+  rather than this product's. There is **one** tool-settings
+  window, not six: it is opened by clicking the active rail slot, so it always
+  shows that slot's tool.
+  **`DesktopSettings` is `:app`'s Settings sheet minus the rows for hardware
+  this shell has none of** — haptics, stylus-only, the pen button, the
+  eraser-end preset and the pressure curve (see the stylus note below), and
+  the gallery mirror, since a painting here is a file. What remains is the
+  same choice stored in the same shape: theme, drawing hand, right-angle snap,
+  the colour mixer, the shared `CanvasShortcutCatalog` table, and About. Its
+  theme chips wrap (`FlowRow`) because eight do not fit the window's width,
+  and a theme nobody can see is a theme nobody can pick.
+  **The colour panel is `:app`'s, section for section** — ring picker,
+  channel readings, current/previous chips, hex and RGB fields, the palette
+  switcher and its swatches, and the mixing dish. Where Android hides an
+  action behind a long-press, the desktop uses the mouse's own idiom: a
+  secondary click opens the swatch's or the dish well's menu
+  (`ContextMenuArea`), and "add to palette" is a button rather than a
+  long-press on the current chip. Its palettes persist as one JSON preference
+  through `DesktopPaletteCodec` — `Palette` is already `@Serializable` for
+  `:app`'s per-palette files, so this is that encoding in a list, and a
+  built-in id inside it is dropped because the catalogue owns those.
+  Recent colours are recorded where `:app` records them, at a *committed*
+  stroke, and only for a gesture that actually painted the brush colour: the
+  desktop's right button erases with the rail's own brush rather than pushing
+  an eraser preset, so `StrokeSource.ERASER_END` has to be excluded explicitly
+  where Android's `!preset.eraseMode` already covers it.
+  **The tracing image is the desktop's too**, with one row Android has no need
+  for. Android moves, scales and rotates it with two fingers while one keeps
+  painting; a mouse has one pointer, so `DesktopShellState.editingReference` is
+  an explicit mode — drag moves, the wheel scales about the pointer, Shift and
+  the wheel rotates — and every step goes through
+  `ReferenceTransform.gesture`, the same call the two-finger path makes. The
+  image is normalized at import by `TracingReferencePolicy` against
+  `MemoryBudget.transientImageBytes`, kept as PNG bytes beside its tiles so a
+  save can write it into the `.bangni`, and it costs a layer of the pool while
+  it is there (`layerCap` shrinks). It is never journaled: `:app` keeps it out
+  of painting undo too.
+  **The layer panel reorders by drag**, as `:app`'s does and by the same
+  mechanism: a `displayOrder` of ids that the drag reshuffles locally, keyed
+  on `stack.layers` so any model change (including a refusal) snaps it back,
+  and one `moveTo(from, to)` at drag end. The rows are a fixed `ROW_HEIGHT`
+  because the drag counts rows by their height. The handle publishes no
+  semantics of its own — a pointer drag is not something a screen reader can
+  perform, and the row menu's four moves are the path that works without one.
+  **The document model is a mutable slot holding an immutable `LayerStack`,
+  on the GL thread.** Panel
+  actions arrive as `engine.editStack { stack, ids -> … }`, evaluated against
+  the live model so a stale panel index is refused rather than applied to the
+  wrong layer, and `Refusal` values come back for the panel's hint. Undo does
+  **not** replay `HistoryEntry` through `LayerHistory`: everything is in
+  memory and `LayerStack` is immutable, so a `DesktopUndoStep` holds *both*
+  stacks plus the tiles whose contents differ, keyed identically on the two
+  sides. Undo is "publish `stackBefore` and upload its pixels"; redo is its
+  exact inverse. `DesktopUndoOps.ops` derives the `PixelOp`s from the two
+  stacks — a layer that leaves is `Delete`, one that stays or rejoins is
+  `Restore` — so no panel action has to name its own pixel work. A stroke
+  commit is the same shape, and it must widen the active layer's tile set
+  (`DesktopStrokeTiles.withCommitted`): `prepareCopy` compares tile sets with
+  `!=`, so a stroke that forgets makes the *next* structural edit refuse
+  instead of failing where the mistake was.
+  **The desktop shell is document-based, not gallery-based.** There is no
+  Studio and no `ProjectStore`: a painting is a file the user opened, `File`
+  opens and saves PNGs through the host's own dialogs (`java.awt.FileDialog`,
+  which is the real Cocoa panel on macOS — `JFileChooser` is Swing's drawing
+  on every platform), several documents can be open at once, and closing one
+  with unsaved work asks first. `DesktopDocuments` owns that list; adding to
+  it opens a window and removing from it closes one, and the last window
+  closing exits. **The first document is created inside the `remember` that
+  builds the list, not in an effect** — the "last window closed" rule reads
+  the list during composition, and an empty first frame exits immediately.
+  **`.bangni` is the native document and PNG is interchange.** The container
+  is a ZIP written by `BangniCodec` in `data/shared/` — a third shared
+  `kotlin.srcDir`, so one implementation serves both products and a painting
+  written on a phone opens on a laptop. Entries are `manifest.json` (deflated)
+  and `layers/<id>/<tx>_<ty>.tile` (**stored**: `TileCodec` already deflated
+  them, and deflating a deflate stream costs time to grow it). The manifest is
+  deliberately not `ProjectFile`: gallery bookkeeping, the journal's
+  checkpoint state and the last tool belong to a device, not to a document
+  someone hands you. Every field defaults, so a newer writer's file still
+  opens; only a `formatVersion` a reader cannot honour is refused.
+  Everything in a `.bangni` came from outside the program, so the reader
+  **parses entry names and never joins them onto a path** — that is what makes
+  zip-slip inapplicable rather than merely guarded — bounds the expansion, and
+  drops a tile outside the grid, one for a layer the manifest does not list, or
+  one that fails `TileCodec`, with a warning rather than a failed open.
+  **That budget is charged at decoded size, and the distinction is the whole
+  point:** tiles are *stored*, not deflated, because `TileCodec` already
+  compressed them — so an empty tile arrives as a few hundred bytes and becomes
+  `TILE_BYTES`, and a budget counting arrival bytes bounds nothing (200,000 of
+  them are tens of megabytes on the way in and 50 GB on the way out).
+  **The ceiling and the budget are different numbers, and conflating them
+  breaks one product or the other.** `MAX_TOTAL_BYTES` is the *format's* own
+  ceiling — `MAX_LAYERS` (16) × `MAX_TILES` (1024) × `TILE_BYTES`, 4 GiB,
+  derived rather than chosen — and it is a correctness bound: it refuses what
+  the format cannot express (200,000 entries decode to 50 GB) and never a
+  document either writer can produce. The *budget* is `Limits.forHeap`: half
+  this JVM's max heap, clamped to that ceiling, and it is `Limits.DEFAULT`, so
+  a caller passing nothing is still bounded by its own memory. **Do not floor
+  it.** A 256 MiB floor shipped here for one round and inverted the whole
+  point: it binds only *below* 512 MiB, which is to say only where it hands
+  out a budget larger than the heap it claims to respect — 133 % of it at
+  192 MiB. A heap too small for a painting must refuse it with a message,
+  which is the reason the budget exists. Do not put a device-sized constant here: this codec is shared, and a
+  phone's GPU budget in it refuses a painting on a laptop that can hold it —
+  which is exactly what a review caught. A tile is charged its decoded size
+  **once**; charging the arrival bytes too silently shrinks the budget below
+  what it says. `MAX_ENTRY_BYTES` stops one entry accumulating the whole
+  remaining budget in a single buffer before it is refused, the failure names
+  *which* bound tripped, and the warning list is bounded too. What is still
+  owed is streaming tiles to the project store as they are read: the reader
+  builds the whole map first, which is why the budget has to be the heap's.
+  The manifest is not trusted past the codec either — `Document`'s own
+  `require`s (dpi above all, which it divides by) run inside `import`'s guard,
+  because an `IllegalArgumentException` from there would otherwise pass every
+  caller's catch, and `StudioViewModel`'s import catches `Exception` for the
+  same reason. `TracingReference`'s constructor is what validates an imported
+  asset name; `writeReferenceAsset` is handed the validated `assetName`, never
+  the record's raw field. Android's `BangniProjectIo` **re-mints
+  layer ids on import**: two devices can hold the same painting, and importing
+  it twice must not give two projects the same layer directory names. It
+  exports through the system's create-document picker and imports through
+  open-document — neither needs a permission, which ADR 0004 requires.
+  **The tracing image travels inside the file** — a `reference.png` entry plus
+  a `BangniReferenceRecord` in the manifest — because a `.bangni` is the
+  painting itself moving between the user's own machines, not a share. Both
+  or neither: a record with no pixels beside it would arrive as a reference
+  the other end can never draw, so an asset that is gone from disk exports as
+  no reference, and an import with nowhere to stage the pixels drops the
+  record and warns. The asset name comes out of the file, so it is validated
+  by `TracingReference`'s own `isSafeAssetName` before anything joins it onto
+  a path.
+  A PNG holds one layer, so opening one gives a painting with one layer and
+  saving one flattens: that is the format's own limit. Opening reads the
+  pixels through `PixelOp.Restore` — the same upload path undo uses, so the
+  mirror the next Save composes from is exact — and the document's canvas is
+  the file's own size, which is why each document constructs its own engine
+  and its own `MemoryBudget`. The format is chosen by extension when saving
+  (the user picked it) and by *content* when opening, so a `.bangni` that lost
+  its extension still opens.
+  Dirty is a one-way flag cleared by a save, so undoing past the last save
+  still reports unsaved work: it over-reports and never under-reports, which
+  is the safe direction for "close without saving?".
+  **One GL context and one GL thread serve every open document**
+  (`DesktopGlHost`). A context is current on one thread at a time, so several
+  documents cannot each own a thread without each owning a context — and
+  creating contexts at runtime is exactly the delicate part of startup on
+  macOS. Documents attach and detach by posting onto that thread, so a window
+  opening or closing cannot race the loop drawing it, and a closed document
+  drops its queued tasks (`released`) because its renderer is already gone.
+  Only the host deactivates the context; a document's `releaseGl` frees its
+  own renderer and nothing else.
+  **A save completes an event later than it is asked for**, on the EDT through
+  `invokeLater`, so anything that must follow one travels on `writeTo`'s
+  `onSaved` rather than reading `document.dirty` on the next line — that read
+  returns the value from before the save, every time. The canvas stays live
+  for the whole write, so the completion compares `DesktopDocument.edits`
+  against a snapshot taken when it started: a document that moved on keeps
+  `dirty`, keeps its window, and says so (`desktop_save_stale`) rather than
+  reporting a plain success. That counter only guards anything while **every**
+  edit goes through `noteEdited` and only a current save calls `markClean`, so
+  `dirty` has a private setter — a bare assignment elsewhere would bump no
+  counter and silently reopen the lost-stroke path, and this makes it a
+  compile error instead.
+  **`DesktopBangniWriter` syncs the descriptor before the rename, and the
+  buffer is flushed by hand rather than closed** — closing a
+  `BufferedOutputStream` closes what it wraps, and `FileDescriptor.sync()` on
+  an already-closed descriptor throws `SyncFailedException`, an `IOException`
+  the writer's own catch turns into a failed save. That shipped once and every
+  save would have failed; nothing caught it because no test called the writer
+  at all, so `DesktopBangniWriterTest` now writes real files. **Everything the engine
+  publishes reaches Compose the same way**: `onFrame`, `onStack`, `onPaper` and
+  `onEdited` are all called on the GL thread, from adjacent lines, and all four
+  marshal. And **an opened painting drains its readback before anything reads
+  the mirror** — both saves compose from it, only `finishReadback` fills it, and
+  nothing else drains until the first stroke or stack edit, so without the drain
+  in `uploadInitialTiles` an open followed by a Save writes a blank file over
+  the one just read. A **fill re-checks the layer lock where it re-reads the
+  active layer**: `startFill` authorizes one layer and `finishFill` commits to
+  whatever is selected seconds later. `fillGeneration` is `@Volatile` because
+  the scan's `isCancelled` reads it off the GL thread.
+  Image dimensions are read from the **header** before any decode, in
+  `DesktopImageIo` as in `DesktopReferenceIo`: `ImageIO.read` decodes first and
+  a 30000² PNG throws `OutOfMemoryError`, which is an `Error` and passes
+  straight through both catches and out of the process. `EXTENSIONS` lists only
+  what this JVM's ImageIO actually reads — no WebP, which the JDK ships no
+  reader for.
   Rendering is engine → offscreen FBO → glReadPixels → Compose image
   (DESKTOP.md architecture 1), mouse → PointerSample records, in-memory undo
   from the readback mirror, JVM DataStore prefs, and Save PNG to
-  `~/Pictures/BangniDraw`. Mirror byte arrays are immutable after publication:
+  `~/Pictures/BangniDraw` when the painting has no file yet. **The export is the whole visible stack through
+  `Composite`** — the same CPU reference the shaders are pinned against, so a
+  file and the screen agree on blend modes and per-layer opacity — and
+  transparent paper exports transparent pixels, unpremultiplied on the way
+  out. The paper colour is undoable and rides on the ordinary
+  `DesktopUndoStep` rather than needing an entry of its own. Mirror byte arrays are immutable after publication:
   export shallow-copies its map on the GL thread, then composes and writes on
   the export worker. Do not add an export-time fence wait — stroke commits
   already drain readback, and holding the GL owner can exhaust `DabRing`.
@@ -357,11 +597,26 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   Bodies are one blank-line-separated paragraph per control, and must state
   the non-obvious interaction (long-press, second-tap) the surface hides.
   The canvas overflow's Help is the one surface with no section string of
-  its own; its dialog title is `help_canvas_title`. The desktop shell has no
-  string resources yet, so its overflow Help reads `DesktopHelp.canvasBody` —
-  same rule, same duty to state the non-obvious interaction (the eraser's
-  second click, the right button erasing) and to carry the export directory
-  the icon rail no longer prints.
+  its own; its dialog title is `help_canvas_title`. The desktop shell reads
+  **the same `strings.xml`**, staged into its jar by `processResources` and
+  read at runtime by `DesktopStrings` — one source of user-visible wording for
+  both products, and `MissingTranslation` already gates the second locale, so
+  a desktop-only string cannot land untranslated. `DesktopStrings` decodes
+  Android's own escaping (`\uXXXX`, `\n`, the surrounding-quote rule AAPT
+  uses to keep leading and trailing spaces) and picks a plural form the way
+  `values-b+zh+Hans` needs. Desktop-only wording therefore lives in
+  `strings.xml` under a `desktop_` prefix in **both** locale files, in the
+  same change. Its overflow Help is `desktop_help_body`, under the same rule
+  as every other help body: state the non-obvious interaction (a second click
+  on the selected slot opening its settings, the right button erasing) and
+  carry the export directory the icon rail no longer prints. `DesktopStringsTest` scans the shell's sources
+  for every `DesktopStrings.get`/`plural` name and fails on one the catalogue
+  does not have.
+- **`:app` and `:desktop` both *truncate* the layer opacity percent.**
+  `(opacity * PERCENT).toInt()`, in both panels. It reads like a rounding bug
+  from either side alone, and a reviewer has already proposed "fixing" one of
+  them — which would put the two products a percent apart for half the slider,
+  on a number AGENTS.md requires to match. Change both or neither.
 - **Greyscale ARGB cannot encode hue.** `ColorPanel` keeps an `HsvSelection`;
   panel-originated ARGB echoes must not reconstruct HSV, while external colors
   must. Do not key the selection state directly to the current ARGB.
@@ -419,6 +674,29 @@ each painting mirrors to one MediaStore image. Decision logic lives in
 
 Recorded per PLAN.md's rule: when the plan contradicts itself, PLAN.md wins
 and the contradiction is noted here.
+
+- **Compose Desktop cannot report stylus pressure, and the reason is in the
+  shipped bytecode.** `SYNTHETIC_PRESSURE = 1f` is therefore not a shortcut to
+  be fixed later by wiring something up — nothing exists to wire. Read out of
+  `ui-desktop-1.12.0.jar`: the AWT mouse path
+  (`ComposeSceneMediator_desktopKt.onMouseEvent`) calls
+  `ComposeScene.sendPointerEvent` with `PointerType.Mouse` hardcoded and the
+  `pressure` argument **defaulted**, and that default is `1.0f`
+  (`fconst_1` on the bit-512 branch of `sendPointerEvent$default`). It cannot
+  do otherwise: every desktop pointer event is built from a
+  `java.awt.event.MouseEvent`, which carries x, y, the button and the
+  modifiers and no pressure at all — the JDK has never exposed a tablet API,
+  so Wintab, `NSEvent.pressure` and XInput2 valuators are all out of reach
+  without JNI. The only real options are a native tablet library (JPen is
+  LGPL and ships its own `.so`/`.dll`/`.dylib`; jtablet2 is unmaintained and
+  Windows/macOS only), which means committing or downloading native binaries
+  and therefore an ADR, or waiting for CMP to expose it. **Do not "fix" this
+  by synthesizing pressure from pointer speed**: the brushes already carry
+  speed dynamics of their own (`desktop_speed_size`, `desktop_speed_opacity`),
+  which is the honest way to get variation from a mouse, and a fake pressure
+  channel would make the two products disagree about what the word means.
+  Re-check this whenever Compose Multiplatform is bumped; the finding is one
+  `javap` away.
 
 - **The desktop GLES context is created from EGL directly; GLFW is only the
   fallback.** DESKTOP.md's "The JVM binding" section specifies GLFW with

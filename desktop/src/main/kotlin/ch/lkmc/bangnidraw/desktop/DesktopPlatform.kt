@@ -25,6 +25,13 @@ internal object DesktopPlatform {
         )
     }
 
+    /**
+     * Whether this is macOS, which puts menu accelerators on Command rather
+     * than Control — and puts the menu bar itself at the top of the screen.
+     */
+    val isMacOs: Boolean
+        get() = (System.getProperty("os.name") ?: "").startsWith("Mac")
+
     /** The OS config directory; prefs and the undo journal live under it. */
     fun configDir(): java.io.File {
         val osName = System.getProperty("os.name") ?: "unknown"

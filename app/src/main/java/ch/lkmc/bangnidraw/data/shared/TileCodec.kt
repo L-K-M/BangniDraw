@@ -1,4 +1,4 @@
-package ch.lkmc.bangnidraw.data
+package ch.lkmc.bangnidraw.data.shared
 
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE

@@ -220,12 +220,46 @@ sourceSets.main {
     // one copy under :app compiles into the desktop shell too rather than
     // being transcribed: the two rails must never drift apart on artwork.
     kotlin.srcDir(project.file("../app/src/main/java/ch/lkmc/bangnidraw/ui/glyphs"))
+
+    // Portable Compose that is not artwork: the type scale, the hover cursor,
+    // the composition guides and the colour picker. Same rule as the glyphs —
+    // no android.*, one copy — because these are the pieces whose *geometry*
+    // must not drift between the two products.
+    kotlin.srcDir(project.file("../app/src/main/java/ch/lkmc/bangnidraw/ui/shared"))
+
+    // The `.bangni` document format and the tile codec it stores. This one is
+    // load-bearing rather than tidy: a file written on a phone has to open on
+    // a laptop, so a second implementation of the container would be a second
+    // chance to disagree about it.
+    kotlin.srcDir(project.file("../app/src/main/java/ch/lkmc/bangnidraw/data/shared"))
 }
 
 tasks.processResources {
     from(androidStringsFile) {
         into("brand")
         rename { "android-strings.xml" }
+    }
+
+    // The user-visible text, from the same `strings.xml` the Android app
+    // ships — one source, and `MissingTranslation` already gates the second
+    // locale in CI, so a desktop-only string cannot land untranslated.
+    from(androidStringsFile) {
+        into("strings")
+        rename { "values.xml" }
+    }
+    // Checked, because `from` skips a missing source without a word: rename
+    // the locale folder and the desktop would ship English-only with nothing
+    // failing. `MissingTranslation` does not cover it either — nothing is
+    // missing from a folder that no longer exists. The English path already
+    // fails loudly, since `app_name` is read out of it.
+    val zhHansStrings =
+        layout.projectDirectory.file("../app/src/main/res/values-b+zh+Hans/strings.xml")
+    check(zhHansStrings.asFile.isFile) {
+        "the shared zh-Hans strings are missing: ${zhHansStrings.asFile}"
+    }
+    from(zhHansStrings) {
+        into("strings")
+        rename { "zh-Hans.xml" }
     }
 }
 

@@ -1,0 +1,129 @@
+package ch.lkmc.bangnidraw.desktop
+
+import ch.lkmc.bangnidraw.engine.core.Composite
+import ch.lkmc.bangnidraw.engine.core.Document
+import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_SIZE
+import ch.lkmc.bangnidraw.engine.core.TileGrid
+import ch.lkmc.bangnidraw.engine.core.TileKey
+import java.io.File
+
+/** One decoded picture: straight ARGB, row-major, top-left origin. */
+internal class DesktopImage(val width: Int, val height: Int, val argb: IntArray) {
+    init {
+        require(width > 0 && height > 0) { "image dimensions must be positive" }
+        require(argb.size == width * height) { "pixel count does not match the dimensions" }
+    }
+}
+
+
+
+internal sealed interface DesktopImageResult {
+    data class Opened(val image: DesktopImage) : DesktopImageResult
+    data class Failed(val message: String) : DesktopImageResult
+}
+
+/**
+ * Reading a flat picture off the file system into the engine's tiles.
+ *
+ * PNG is the interchange format: one layer, so opening one gives a painting
+ * with one layer and saving one flattens. `.bangni` ([DesktopDocumentIo]) is
+ * the format that keeps the stack.
+ */
+internal object DesktopImageIo {
+
+    /** The extensions the open dialog accepts and `save` writes. */
+    const val EXTENSION = "png"
+
+    /**
+     * The size comes out of the header first, as [DesktopReferenceIo] reads
+     * it. `ImageIO.read` would decode the whole raster before anything could
+     * refuse it, so a 30000² PNG — a few hundred KB on disk — allocates
+     * gigabytes and throws `OutOfMemoryError`, which is an `Error` and passes
+     * straight through the catches below and out of the process.
+     */
+    fun read(file: File): DesktopImageResult = try {
+        javax.imageio.ImageIO.createImageInputStream(file).use { stream ->
+            val reader = stream?.let { javax.imageio.ImageIO.getImageReaders(it).asSequence().firstOrNull() }
+            if (reader == null) {
+                DesktopImageResult.Failed("${file.name} is not an image this app can read")
+            } else {
+                try {
+                    reader.input = stream
+                    val width = reader.getWidth(0)
+                    val height = reader.getHeight(0)
+                    if (width !in Document.MIN_EDGE..Document.MAX_EDGE ||
+                        height !in Document.MIN_EDGE..Document.MAX_EDGE
+                    ) {
+                        DesktopImageResult.Failed(
+                            "${width}×$height is outside " +
+                                "${Document.MIN_EDGE}–${Document.MAX_EDGE} px per side",
+                        )
+                    } else {
+                        val decoded = reader.read(0)
+                        val argb = IntArray(width * height)
+                        decoded.getRGB(0, 0, width, height, argb, 0, width)
+                        DesktopImageResult.Opened(DesktopImage(width, height, argb))
+                    }
+                } finally {
+                    reader.dispose()
+                }
+            }
+        }
+    } catch (failure: java.io.IOException) {
+        DesktopImageResult.Failed(failure.message ?: "the file could not be read")
+    } catch (failure: RuntimeException) {
+        // ImageIO's readers throw unchecked on malformed data as readily as
+        // they throw IOException, and an open dialog must never take the app
+        // down with it.
+        DesktopImageResult.Failed(failure.message ?: "the file could not be decoded")
+    }
+
+    /**
+     * [image] as engine tiles: premultiplied RGBA bytes, 256², keyed by grid
+     * position. Every tile the grid covers is produced, including the partial
+     * ones at the right and bottom edges — their pixels outside the canvas
+     * stay zero, which is what the renderer's own tiles hold there.
+     *
+     * A fully transparent tile is omitted: an empty key would cost a GPU
+     * slice and a mirror entry for nothing, and `Composite` treats a missing
+     * tile and a transparent one identically.
+     */
+    fun tiles(image: DesktopImage): Map<TileKey, ByteArray> {
+        val grid = TileGrid(image.width, image.height)
+        val out = LinkedHashMap<TileKey, ByteArray>()
+        for (ty in 0 until grid.tilesY) {
+            for (tx in 0 until grid.tilesX) {
+                val key = TileKey(tx, ty)
+                val rect = grid.tileRect(key)
+                if (rect.isEmpty) continue
+
+                val bytes = ByteArray(TILE_SIZE * TILE_SIZE * RGBA_CHANNELS)
+                var opaque = false
+                for (row in 0 until rect.height) {
+                    var src = (rect.top + row) * image.width + rect.left
+                    var dst = row * TILE_SIZE * RGBA_CHANNELS
+                    for (column in 0 until rect.width) {
+                        // A file holds straight ARGB; every tile in this
+                        // engine is premultiplied (`03` §2.4).
+                        val pixel = Composite.premultiply(image.argb[src])
+                        bytes[dst] = ((pixel ushr RED_SHIFT) and CHANNEL_MASK).toByte()
+                        bytes[dst + 1] = ((pixel ushr GREEN_SHIFT) and CHANNEL_MASK).toByte()
+                        bytes[dst + 2] = (pixel and CHANNEL_MASK).toByte()
+                        bytes[dst + 3] = (pixel ushr ALPHA_SHIFT).toByte()
+                        if (pixel != 0) opaque = true
+                        src += 1
+                        dst += RGBA_CHANNELS
+                    }
+                }
+                if (opaque) out[key] = bytes
+            }
+        }
+        return out
+    }
+
+    private const val RGBA_CHANNELS = 4
+    private const val CHANNEL_MASK = 0xFF
+    private const val ALPHA_SHIFT = 24
+    private const val RED_SHIFT = 16
+    private const val GREEN_SHIFT = 8
+}

@@ -5,17 +5,20 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 class DesktopRenderingContractTest {
 
     @Test
     fun `the chrome is the shared adaptive layout, not a desktop-only one`() {
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
-        val shell = between(main, "private fun Shell(", "private fun railAlignment(")
+        val shell = between(main, "private fun Shell(", "/** The rail hugs the hand")
 
         // Every rail/strip/panel dimension comes from LayoutSpec, so the two
         // products cannot drift apart on geometry.
-        assertTrue(shell.contains("DesktopChromeLayout.forWindow(widthDp, heightDp)"))
+        // The hand is a settings choice now, so the call carries it; the claim
+        // is that the layout comes from LayoutSpec, not its argument count.
+        assertTrue(shell.contains("DesktopChromeLayout.forWindow(widthDp, heightDp,"))
         assertTrue(shell.contains("DesktopTopStrip("))
         assertTrue(shell.contains("DesktopToolRail("))
         assertTrue(shell.contains("layout.panelInsets(widthDp, heightDp)"))
@@ -25,23 +28,74 @@ class DesktopRenderingContractTest {
     }
 
     @Test
+    fun `an opened tracing image is placed while the renderer is built`() {
+        val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
+        val init = between(engine, "private fun initializeRenderer(", "private fun uploadInitialTiles(")
+
+        // `renderer` is assigned at the end of initializeRenderer, so a task
+        // posted from the caller right after start() finds it null and drops
+        // the upload silently — which is exactly what a cold start does. The
+        // reference therefore lands on this path, like the layers' own
+        // pixels, where the ordering is structural rather than a race.
+        val place = init.indexOf("uploadInitialReference(next)")
+        val publish = init.indexOf("renderer = next")
+        if (place < 0) fail("the opened painting's tracing image is no longer placed here")
+        if (publish < 0) fail("initializeRenderer no longer publishes the renderer")
+        assertTrue(place < publish, "the tracing image is placed after the renderer is published")
+
+        // And the shell must not push it a second time from the outside.
+        val documents =
+            source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopDocuments.kt")
+        assertFalse(
+            documents.contains("uploadReferenceTiles"),
+            "the document list races the renderer with its own reference upload",
+        )
+    }
+
+    @Test
+    fun `an opened painting drains its readback before anything reads the mirror`() {
+        val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
+        val upload = between(engine, "private fun uploadInitialTiles(", "private fun uploadInitialReference(")
+
+        // Both saves compose from the mirror, and only finishReadback fills
+        // it. Nothing else drains until the first stroke or stack edit — so
+        // without this, opening a painting and saving it straight back writes
+        // a blank file over the one just read.
+        assertTrue(
+            upload.contains("DesktopReadbackPolicy.drain(renderer::finishReadback)"),
+            "an opened painting can be saved from an empty mirror",
+        )
+        // Drained, not required: a timeout is not worth refusing to open the
+        // painting over, which is what the checking variant would do here.
+        // The call form, not the name — the source names it in a comment.
+        assertFalse(upload.contains("requireReadback(renderer)"), upload)
+    }
+
+    @Test
     fun `desktop validates its frame target and renderer output`() {
         val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
 
         assertTrue(engine.contains("GLES30.glCheckFramebufferStatus"))
         assertTrue(engine.contains("check(r.drawFrame("))
-        assertTrue(main.contains("engine.savePng { result ->"))
-        assertTrue(main.contains("EventQueue.invokeLater { savedMessage = message }"))
+        assertTrue(engine.contains("fun savePng(target: java.io.File? = null"))
+        // The clean-save path still reports the path it wrote; a stale one
+        // says so instead, which is why this is no longer the only form.
+        assertTrue(main.contains("document.state.savedMessage = if (edited) {"))
+        // The key, not `result.path` — that appears in both branches of the
+        // condition above, so asserting it constrained nothing while leaving
+        // the behaviour this round added unpinned.
+        assertTrue(main.contains("desktop_save_stale"))
         assertTrue(engine.contains("restoreCancelledRmw(spec.layerId, images)"))
         assertTrue(engine.contains("readbackRevisions"))
         assertTrue(engine.contains("ReadbackDelivery.Complete"))
         assertTrue(engine.contains("exportExecutor.execute"))
         // The gate, not its exact spelling: input stays dead until the
         // restored brush and colour are resolved, whatever else the
-        // condition grew to also require.
-        assertTrue(main.contains("val canvasInput = if (preferencesReady"))
-        assertTrue(main.contains("preferencesReady = true"))
+        // condition grew to also require — it is a `when` now, because
+        // placing the tracing image borrows the same pointer.
+        assertTrue(main.contains("state.preferencesReady && activeTool != null ->"))
+        assertTrue(main.contains("state.preferencesReady = true"))
     }
 
     @Test
@@ -76,10 +130,10 @@ class DesktopRenderingContractTest {
     @Test
     fun `renderer initialization schedules the first frame`() {
         val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
-        check("private fun initializeRenderer()" in engine && "private fun runTasksAndFrames()" in engine) { "renderer markers not found" }
+        check("private fun initializeRenderer()" in engine && "private fun pumpWetOverlay()" in engine) { "renderer markers not found" }
         val initialization = engine
             .substringAfter("private fun initializeRenderer()")
-            .substringBefore("private fun runTasksAndFrames()")
+            .substringBefore("private fun pumpWetOverlay()")
 
         assertTrue(initialization.contains("requestRepaintOnGl()"))
     }
@@ -89,7 +143,12 @@ class DesktopRenderingContractTest {
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
 
         assertEquals(1, Regex("MixboxBinding\\.create\\(\\)").findAll(main).count())
-        assertTrue(main.contains("mixer = mixer"))
+        // One mixer reaches every document, and each shell state reads it.
+        assertTrue(main.contains("DesktopDocuments(ready.memory, host, catalogue, mixer, prefs)"))
+        assertTrue(
+            source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopDocuments.kt")
+                .contains("DesktopShellState(engine, catalogue, mixer, prefs)"),
+        )
     }
 
     /**

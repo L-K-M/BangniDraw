@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.data
 
+import ch.lkmc.bangnidraw.data.shared.TileCodec
 import ch.lkmc.bangnidraw.engine.core.TileKey
 import java.io.File
 import java.io.IOException

@@ -29,9 +29,14 @@ internal class DesktopPrefs(
     private val file: java.io.File = java.io.File(DesktopPlatform.configDir(), STORE_FILE),
 ) {
 
+    /**
+     * One queued write. Generic rather than one arm per setting: the shell
+     * grew from two preferences to a settings window's worth, and a sealed
+     * arm each would be a list to forget to extend.
+     */
     private sealed interface PreferenceUpdate {
-        data class Brush(val id: String) : PreferenceUpdate
-        data class Color(val argb: Int) : PreferenceUpdate
+        data class Text(val key: String, val value: String) : PreferenceUpdate
+        data class Number(val key: String, val value: Int) : PreferenceUpdate
     }
 
     private val scope = CoroutineScope(DispatcherIO + SupervisorJob())
@@ -50,8 +55,10 @@ internal class DesktopPrefs(
             try {
                 store.edit { preferences ->
                     when (update) {
-                        is PreferenceUpdate.Brush -> preferences[BRUSH_ID] = update.id
-                        is PreferenceUpdate.Color -> preferences[COLOR] = update.argb
+                        is PreferenceUpdate.Text ->
+                            preferences[stringPreferencesKey(update.key)] = update.value
+                        is PreferenceUpdate.Number ->
+                            preferences[intPreferencesKey(update.key)] = update.value
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -62,18 +69,42 @@ internal class DesktopPrefs(
         }
     }
 
-    val brushId: Flow<String?> = store.data.map { it[BRUSH_ID] }
-    val colorArgb: Flow<Int?> = store.data.map { it[COLOR] }
+    val brushId: Flow<String?> = text(BRUSH_ID)
+    val colorArgb: Flow<Int?> = number(COLOR)
 
     suspend fun readBrushId(): String? = brushId.first()
     suspend fun readColorArgb(): Int? = colorArgb.first()
 
     fun writeBrush(preset: BrushPreset) {
-        send(PreferenceUpdate.Brush(preset.id))
+        writeText(BRUSH_ID, preset.id)
     }
 
     fun writeColor(argb: Int) {
-        send(PreferenceUpdate.Color(argb))
+        writeNumber(COLOR, argb)
+    }
+
+    /**
+     * A DataStore `Preferences.Key` compares and hashes by **name alone**, so
+     * `stringPreferencesKey("hand")` and `intPreferencesKey("hand")` are one
+     * slot. A name written through [writeNumber] and read through here throws
+     * `ClassCastException` inside the flow's `map`, taking down every
+     * collector of it, far from the write that caused it. Each name below is
+     * text or number for the life of the app, never both.
+     */
+    fun text(key: String): Flow<String?> = store.data.map { it[stringPreferencesKey(key)] }
+
+    fun number(key: String): Flow<Int?> = store.data.map { it[intPreferencesKey(key)] }
+
+    suspend fun readText(key: String): String? = text(key).first()
+
+    suspend fun readNumber(key: String): Int? = number(key).first()
+
+    fun writeText(key: String, value: String) {
+        send(PreferenceUpdate.Text(key, value))
+    }
+
+    fun writeNumber(key: String, value: Int) {
+        send(PreferenceUpdate.Number(key, value))
     }
 
     fun close() {
@@ -93,8 +124,8 @@ internal class DesktopPrefs(
 
     private companion object {
         const val STORE_FILE = "desktop.preferences_pb"
-        val BRUSH_ID = stringPreferencesKey("brush_id")
-        val COLOR = intPreferencesKey("color_argb")
+        const val BRUSH_ID = "brush_id"
+        const val COLOR = "color_argb"
         val DispatcherIO = Dispatchers.IO
     }
 }
@@ -102,6 +133,18 @@ internal class DesktopPrefs(
 internal enum class DesktopPreferenceKind {
     Brush,
     Color,
+    Settings,
+}
+
+/** The setting keys the shell persists, in one place so none is misspelled twice. */
+internal object DesktopPreferenceKeys {
+    const val THEME = "app_theme"
+    const val HAND = "hand"
+    const val MIXER = "mixer_choice"
+    /** A number, 1/0 — see [DesktopPrefs.text] for why the choice is binding. */
+    const val SNAP_RIGHT_ANGLES = "snap_right_angles"
+    const val RECENT_COLORS = "recent_colors"
+    const val PALETTES = "user_palettes"
 }
 
 /** Prevents a slow initial DataStore read from replacing fresh UI input. */
@@ -121,6 +164,19 @@ internal object DesktopPalette {
         0xFF212121.toInt(), 0xFF6D4C41.toInt(), 0xFFD84F45.toInt(), 0xFFFF9E1B.toInt(),
         0xFFFFDB44.toInt(), 0xFF7CB342.toInt(), 0xFF26A69A.toInt(), 0xFF3E86C8.toInt(),
         0xFF5C4BC8.toInt(), 0xFFB65AC4.toInt(), 0xFFFFFFFF.toInt(), 0xFF000000.toInt(),
+    )
+
+    /**
+     * The paper choices `:app`'s layer panel offers, in its order and with
+     * its colours (`ui/theme/Color.kt`'s `PaperSwatch*`). Transparent is one
+     * of them: the renderer draws its checker, and an export keeps the alpha.
+     */
+    val PAPERS = listOf(
+        "paper_white" to 0xFFFFFFFF.toInt(),
+        "paper_warm" to 0xFFF8F1E3.toInt(),
+        "paper_gray" to 0xFF9E9E9E.toInt(),
+        "paper_black" to 0xFF000000.toInt(),
+        "paper_transparent" to 0x00000000,
     )
 
     /** The stroke color as normalized RGB floats — what the engine's `u_color` takes. */

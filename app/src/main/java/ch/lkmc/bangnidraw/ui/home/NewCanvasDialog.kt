@@ -69,11 +69,11 @@ import ch.lkmc.bangnidraw.engine.core.SizeRefusal
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.ui.common.InfoButton
 import ch.lkmc.bangnidraw.ui.common.drawQuadrantChecker
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchBlack
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchCustomDefault
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchGray
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWarm
-import ch.lkmc.bangnidraw.ui.theme.PaperSwatchWhite
+import ch.lkmc.bangnidraw.ui.shared.PaperSwatchBlack
+import ch.lkmc.bangnidraw.ui.shared.PaperSwatchCustomDefault
+import ch.lkmc.bangnidraw.ui.shared.PaperSwatchGray
+import ch.lkmc.bangnidraw.ui.shared.PaperSwatchWarm
+import ch.lkmc.bangnidraw.ui.shared.PaperSwatchWhite
 
 /**
  * The New Canvas dialog (`docs/plan/08-ui-and-layout.md` §2.1): the fixed

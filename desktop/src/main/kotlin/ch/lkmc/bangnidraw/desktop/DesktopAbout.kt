@@ -25,21 +25,14 @@ internal object DesktopAbout {
  * used to print it.
  */
 internal object DesktopHelp {
+    /**
+     * The canvas help, from the shared `strings.xml` like every other label.
+     * It states the interactions this shell hides — the second click, the
+     * right button, the keyboard — which is the rule AGENTS.md sets for every
+     * help body in this product.
+     */
     fun canvasBody(picturesDirectory: String = DesktopPlatform.picturesDir().toString()): String =
-        listOf(
-            "Draw with the left mouse button. Holding the right button erases " +
-                "instead, the way a stylus flipped to its eraser end does. " +
-                "Scroll to zoom around the pointer.",
-            "The rail picks a brush: one icon per preset, the eraser below the " +
-                "rule. Clicking the eraser while it is already selected swaps " +
-                "between the hard and the soft eraser.",
-            "The two sliders at the foot of the rail set brush size and " +
-                "opacity — flow, on a watercolor preset. They follow the " +
-                "selected brush, and each preset keeps its own tuning.",
-            "Undo and Redo sit in the strip; the swatch beside them opens the " +
-                "colour panel.",
-            "Save PNG writes the painting to $picturesDirectory.",
-        ).joinToString("\n\n")
+        DesktopStrings.get("desktop_help_body", picturesDirectory)
 }
 
 /** Routes macOS's native About item into the Compose dialog. */

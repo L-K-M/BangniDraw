@@ -1,4 +1,10 @@
-package ch.lkmc.bangnidraw.ui.theme
+package ch.lkmc.bangnidraw.ui.shared
+
+// This directory is compiled by BOTH :app and :desktop (see the kotlin.srcDir
+// in desktop/build.gradle.kts), the same one-copy arrangement ui/glyphs uses.
+// Keep it free of android.* — Compose Multiplatform only — which is what
+// makes the sharing possible. The two products must not drift on type scale
+// any more than they drift on artwork.
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

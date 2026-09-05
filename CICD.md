@@ -60,10 +60,14 @@ an explicit `concurrency:` group, `timeout-minutes:` on every job, and
   90 minutes, discarding 19 chunks of real findings each time. Measured over
   that run, a chunk averages 4.52 min including the retry an
   output-token-limited one triggers — so 90 bought about 20 chunks, which is
-  exactly where it kept dying, and 180 buys about 40. Treat 40 as the
-  ceiling: a PR past it needs a bigger budget *before* the run, not another
-  silent timeout after it. Raise the number when that happens — do not remove
-  it, since the family contract wants every job bounded.
+  exactly where it kept dying. 180 divides to 39.8, so treat **38** as the
+  ceiling rather than 40: 40 chunks is 180.8 min of chunk time, which busts
+  the budget before the runner has checked anything out, and the mean hides a
+  wide spread (1.5–6.3 min per chunk over that run), so the two chunks of
+  margin are worth about one slow one. A PR past 38 needs a bigger budget
+  *before* the run, not another silent timeout after it. Raise the number when
+  that happens — do not remove it, since the family contract wants every job
+  bounded.
 - **Graceful degradation:** if the `ZAI_API_KEY` secret is absent the job
   logs a skip and stays green.
 - **Trust boundary:** the guard is same-repo, not admin-only — anyone with

@@ -31,8 +31,17 @@ internal class DesktopDocument(
     /** Where Save writes without asking; null until the first Save As. */
     var file by mutableStateOf(file)
 
-    /** Set by any edit, cleared by a successful save. */
+    /**
+     * Set by any edit, cleared by a save that is still current.
+     *
+     * Private setter, because [edits] only guards a save while every edit
+     * goes through [noteEdited]: a bare `dirty = true` somewhere else would
+     * bump no counter, and a save racing it would clear this flag and close
+     * the window over strokes the file does not carry. Making that a compile
+     * error is the same move the importer's two parallel lists make.
+     */
     var dirty by mutableStateOf(false)
+        private set
 
     /**
      * How many edits this document has seen. Only ever compared, never read
@@ -48,6 +57,11 @@ internal class DesktopDocument(
     fun noteEdited() {
         edits += 1
         dirty = true
+    }
+
+    /** Clears the mark. Only a completed save that is still current may call this. */
+    fun markClean() {
+        dirty = false
     }
 
     /** Raised to open the "close without saving?" prompt for this window. */

@@ -251,9 +251,13 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   derived rather than chosen — and it is a correctness bound: it refuses what
   the format cannot express (200,000 entries decode to 50 GB) and never a
   document either writer can produce. The *budget* is `Limits.forHeap`: half
-  this JVM's max heap, floored at 256 MiB, clamped to that ceiling, and it is
-  `Limits.DEFAULT`, so a caller passing nothing is still bounded by its own
-  memory. Do not put a device-sized constant here: this codec is shared, and a
+  this JVM's max heap, clamped to that ceiling, and it is `Limits.DEFAULT`, so
+  a caller passing nothing is still bounded by its own memory. **Do not floor
+  it.** A 256 MiB floor shipped here for one round and inverted the whole
+  point: it binds only *below* 512 MiB, which is to say only where it hands
+  out a budget larger than the heap it claims to respect — 133 % of it at
+  192 MiB. A heap too small for a painting must refuse it with a message,
+  which is the reason the budget exists. Do not put a device-sized constant here: this codec is shared, and a
   phone's GPU budget in it refuses a painting on a laptop that can hold it —
   which is exactly what a review caught. A tile is charged its decoded size
   **once**; charging the arrival bytes too silently shrinks the budget below
@@ -308,7 +312,12 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   returns the value from before the save, every time. The canvas stays live
   for the whole write, so the completion compares `DesktopDocument.edits`
   against a snapshot taken when it started: a document that moved on keeps
-  `dirty` and keeps its window, because the file does not hold what it holds.
+  `dirty`, keeps its window, and says so (`desktop_save_stale`) rather than
+  reporting a plain success. That counter only guards anything while **every**
+  edit goes through `noteEdited` and only a current save calls `markClean`, so
+  `dirty` has a private setter — a bare assignment elsewhere would bump no
+  counter and silently reopen the lost-stroke path, and this makes it a
+  compile error instead.
   **`DesktopBangniWriter` syncs the descriptor before the rename, and the
   buffer is flushed by hand rather than closed** — closing a
   `BufferedOutputStream` closes what it wraps, and `FileDescriptor.sync()` on

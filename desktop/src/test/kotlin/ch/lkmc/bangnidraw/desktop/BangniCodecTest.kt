@@ -207,12 +207,20 @@ class BangniCodecTest {
             "the format ceiling must admit every document the writers can produce",
         )
 
-        val tiny = BangniCodec.Limits.forHeap(64L * 1024 * 1024)
         val huge = BangniCodec.Limits.forHeap(64L * 1024 * 1024 * 1024)
+        assertEquals(format, huge.maxTotalBytes, "a heap past the ceiling gets the ceiling")
 
-        assertEquals(BangniCodec.Limits.MIN_TOTAL_BYTES, tiny.maxTotalBytes)
-        assertEquals(format, huge.maxTotalBytes)
-        assertTrue(BangniCodec.Limits.DEFAULT.maxTotalBytes in BangniCodec.Limits.MIN_TOTAL_BYTES..format)
+        // And never more than the heap it was derived from. A floor here — an
+        // earlier version had one at 256 MiB — binds only *below* 512 MiB,
+        // which is to say only where it would hand out a budget larger than
+        // the whole heap: 133 % of it at 192 MiB.
+        for (heapMib in listOf(64L, 128L, 192L, 256L, 384L, 512L, 1024L)) {
+            val heap = heapMib * 1024 * 1024
+            val budget = BangniCodec.Limits.forHeap(heap).maxTotalBytes
+            assertEquals(heap / 2, budget, "forHeap($heapMib MiB) must be half of it")
+            assertTrue(budget < heap, "forHeap($heapMib MiB) exceeded the heap it bounds")
+        }
+        assertTrue(BangniCodec.Limits.DEFAULT.maxTotalBytes <= format)
     }
 
 

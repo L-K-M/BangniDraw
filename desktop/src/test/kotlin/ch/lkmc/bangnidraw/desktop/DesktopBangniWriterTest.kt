@@ -68,8 +68,16 @@ class DesktopBangniWriterTest {
         assertIs<BangniReadResult.Ok>(BangniCodec.read(target.inputStream()))
     }
 
+    /**
+     * `File.deleteOnExit` cannot remove a directory that still holds files at
+     * shutdown, and every test here puts one in — so registering the
+     * directory alone leaks it, in a class whose subject is a writer that
+     * leaves nothing behind.
+     */
     private fun tempDir(): File =
-        java.nio.file.Files.createTempDirectory("bangni-writer").toFile().also { it.deleteOnExit() }
+        java.nio.file.Files.createTempDirectory("bangni-writer").toFile().also { dir ->
+            Runtime.getRuntime().addShutdownHook(Thread { dir.deleteRecursively() })
+        }
 
     private fun document() = BangniDocument(
         manifest = BangniManifest(

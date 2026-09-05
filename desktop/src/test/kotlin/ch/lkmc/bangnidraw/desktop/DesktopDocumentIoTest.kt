@@ -106,7 +106,10 @@ class DesktopDocumentIoTest {
 
         // Both, and only on success: a failed save must not claim the file.
         assertTrue(write.contains("document.file = file"))
-        assertTrue(write.contains("document.dirty = false"))
+        // Through markClean(), because `dirty` has a private setter: the
+        // edits counter only guards a save while every edit goes through
+        // noteEdited(), so a bare assignment anywhere is a compile error.
+        assertTrue(write.contains("document.markClean()"))
         assertTrue(write.contains("is DesktopSaveResult.Failed"))
     }
 
@@ -125,8 +128,15 @@ class DesktopDocumentIoTest {
         // have turned this into.
         assertTrue("val editsAtStart = document.edits" in write, write)
         assertTrue("val edited = document.edits != editsAtStart" in write, write)
-        assertTrue("if (!edited) document.dirty = false" in write, write)
+        assertTrue("if (!edited) document.markClean()" in write, write)
         assertTrue("if (!edited) onSaved()" in write, write)
+
+        // And the invariant that makes the counter mean anything: `dirty`
+        // cannot be assigned from outside the two functions that pair it
+        // with `edits`.
+        val documents =
+            source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopDocuments.kt")
+        assertTrue(collapsed(documents).contains("var dirty by mutableStateOf(false) private set"))
     }
 
     @Test

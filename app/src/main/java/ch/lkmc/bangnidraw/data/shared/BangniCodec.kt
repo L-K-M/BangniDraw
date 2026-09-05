@@ -114,16 +114,22 @@ object BangniCodec {
              * Bounded by what this JVM can hold rather than by a constant
              * someone guessed. The whole painting is built in memory before
              * `read` returns, so the ceiling is a property of the heap: half
-             * of it, floored so a small heap still opens a small painting and
-             * clamped to the format's own ceiling above.
+             * of it, clamped to the format's own ceiling above.
              *
              * Half, not all, because the decoded tiles are not the only thing
              * live at that moment — the compressed entry, the map, and
              * whatever the caller already holds share the heap with them.
+             *
+             * **No floor.** An earlier version raised the result to 256 MiB
+             * when half the heap fell short, which inverted the whole point:
+             * on a 192 MiB heap that is a 256 MiB budget — 133 % of the heap —
+             * and the floor bound *only* below 512 MiB, which is to say only
+             * on the devices least able to honour it. A heap too small for a
+             * painting should refuse it with a message, which is the reason
+             * this budget exists at all.
              */
             fun forHeap(maxMemoryBytes: Long): Limits = Limits(
-                maxTotalBytes = (maxMemoryBytes / 2)
-                    .coerceIn(MIN_TOTAL_BYTES, MAX_TOTAL_BYTES),
+                maxTotalBytes = (maxMemoryBytes / 2).coerceIn(0L, MAX_TOTAL_BYTES),
             )
 
             /**
@@ -131,9 +137,6 @@ object BangniCodec {
              * forgetting to pass one is safe rather than merely undefined.
              */
             val DEFAULT = forHeap(Runtime.getRuntime().maxMemory())
-
-            /** Four fully painted 4096-square layers; below this, refuse to shrink further. */
-            const val MIN_TOTAL_BYTES = 256L * 1024 * 1024
         }
     }
 

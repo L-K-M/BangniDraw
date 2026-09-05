@@ -79,7 +79,10 @@ class DesktopRenderingContractTest {
         assertTrue(engine.contains("GLES30.glCheckFramebufferStatus"))
         assertTrue(engine.contains("check(r.drawFrame("))
         assertTrue(engine.contains("fun savePng(target: java.io.File? = null"))
-        assertTrue(main.contains("document.state.savedMessage = result.path"))
+        // The clean-save path still reports the path it wrote; a stale one
+        // says so instead, which is why this is no longer the only form.
+        assertTrue(main.contains("document.state.savedMessage = if (edited) {"))
+        assertTrue(main.contains("result.path"))
         assertTrue(engine.contains("restoreCancelledRmw(spec.layerId, images)"))
         assertTrue(engine.contains("readbackRevisions"))
         assertTrue(engine.contains("ReadbackDelivery.Complete"))

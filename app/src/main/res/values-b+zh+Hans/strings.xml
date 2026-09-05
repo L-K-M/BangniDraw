@@ -430,6 +430,7 @@
     <string name="desktop_unsaved_this">这幅画</string>
     <string name="desktop_dont_save">不保存</string>
     <string name="desktop_save_failed">保存失败：%1$s</string>
+    <string name="desktop_save_stale">已保存 %1$s \u2014 不包含保存期间新画的笔画</string>
     <string name="desktop_open_failed">无法打开该文件</string>
     <string name="desktop_more_brushes">更多笔刷</string>
     <string name="desktop_eraser_settings_hint">" \u2014 再次点击可打开橡皮设置"</string>

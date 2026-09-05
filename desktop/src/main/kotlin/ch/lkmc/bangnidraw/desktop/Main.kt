@@ -632,9 +632,17 @@ private fun writeTo(
                         // Left dirty when the document moved on: the next
                         // close prompts again rather than discarding the
                         // strokes this file does not carry.
-                        if (!edited) document.dirty = false
+                        if (!edited) document.markClean()
                     }
-                    document.state.savedMessage = result.path
+                    // A stale save is not a plain success: the file lacks
+                    // what the canvas gained while it wrote, and saying only
+                    // "Saved" beside a window that then refuses to close
+                    // reads as the close being ignored.
+                    document.state.savedMessage = if (edited) {
+                        DesktopStrings.get("desktop_save_stale", result.path)
+                    } else {
+                        result.path
+                    }
                     if (!edited) onSaved()
                 }
                 is DesktopSaveResult.Failed ->

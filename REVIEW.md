@@ -3857,6 +3857,7 @@ Deferred, owed to a later PR:
 | --- | --- | --- | --- |
 | 1 | full, `e211a58` | `useful feedback` | 20 inline + a size-truncated summary; most applied, 3 refuted, 1 declined, 4 deferred |
 | 2 | hybrid → `b732c50` | `useful feedback` | a real BLOCKER in round 1's own fsync fix; 5 more applied, 1 remedy refused |
+| 3 | hybrid → `c2179b7` | `useful feedback` | a defect in round 2's own heap floor; 4 more applied, none declined |
 
 Real, and worth the 161 minutes the review took: a `.bangni` charged its
 expansion budget at *compressed* size while every tile decodes to 256 KiB, so
@@ -3951,4 +3952,53 @@ by an anchored regex instead.
   here either way. `DesktopDocument.edits` is snapshotted when the write starts
   and compared when it lands; a document that moved keeps `dirty` and its
   window, and the next close prompts again.
+
+### Round 3
+
+Two rounds running, the review has found a defect in the fix the round before
+it pushed — and both times in the part that had been reasoned about most.
+Round 2 replaced a mobile-sized constant with `Limits.forHeap`, half the JVM's
+max heap, and gave it a 256 MiB floor "so a small heap still opens a small
+painting". The floor inverts the thing it sits inside: it binds only *below*
+512 MiB, which is to say only where half the heap is already small, and there
+it hands out a budget larger than the heap — `forHeap(192 MiB)` returned
+256 MiB, 133 % of it. Every claim written around it, in the KDoc, in AGENTS.md
+and in this file, said the opposite ("a phone narrows itself"). Half of a small
+heap is *already* enough for a small painting; the floor only ever helped open
+one too big to hold, which is the `OutOfMemoryError` the whole two-round
+exercise existed to replace with a message. Deleted, and the test now walks
+64 MiB through 1 GiB asserting the budget is half the heap and never exceeds it.
+
+Nothing was declined this round.
+
+- The `edits` counter guards a save only while every edit goes through
+  `noteEdited`, and nothing forced that — one `dirty = true` elsewhere would
+  have reopened the lost-stroke path with no signal. `dirty` has a private
+  setter now, with `markClean` for the save completion, so it is a compile
+  error rather than a convention. The finding drew the parallel to this PR's
+  own layer/index pairing, which is exactly right.
+- A stale save reported a plain "Saved <path>" while withholding the close, so
+  the close read as ignored. It says `desktop_save_stale` instead, in both
+  locales.
+- The `PaperSwatchCustomDefault` move left its KDoc behind, orphaned onto
+  `DrawingSwatches`.
+- `DesktopBangniWriterTest`'s `tempDir()` registered the directory with
+  `deleteOnExit`, which cannot remove one that still holds files — in a class
+  whose whole subject is a writer that leaves nothing behind. A shutdown hook
+  deletes it recursively now.
+
+The reviewer also audited both locale files for format specifiers, key
+completeness and AAPT escaping and reported them clean, and flagged one
+informational asymmetry (`desktop_speed_threshold` is a predicate fragment in
+English and a noun label in Chinese) that reads correctly either way once
+concatenated with its value. No action.
+
+**On the pattern.** Three rounds, each finding a real defect in the last one's
+fix, is not the integration-failure stop rule: CI stayed green every time and
+no fix was reverted, which is what that rule actually names. It is worth saying
+plainly anyway. What CI cannot catch is precisely what these rounds caught — a
+sync on a closed descriptor, a floor that inverts its own budget — because both
+compiled, passed, and were wrong. The round-over-round trend is convergent: 20
+findings, then 6, then 5, and the severity has fallen from silent data loss to
+a leaked temp directory.
 

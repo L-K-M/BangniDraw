@@ -469,6 +469,7 @@
     <string name="desktop_unsaved_this">this painting</string>
     <string name="desktop_dont_save">Don\'t save</string>
     <string name="desktop_save_failed">Save failed: %1$s</string>
+    <string name="desktop_save_stale">Saved %1$s \u2014 without the strokes made while it wrote</string>
     <string name="desktop_open_failed">Could not open that file</string>
     <string name="desktop_more_brushes">More brushes</string>
     <string name="desktop_eraser_settings_hint">" \u2014 click again for eraser settings"</string>

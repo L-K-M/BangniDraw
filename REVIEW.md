@@ -13,6 +13,34 @@ _Nothing open._
 
 ## Declined
 
+- **R-269 ⏸️ Sentinel job announcing an unfinished review (PR #194, round
+  1).** The substance is right and it is this PR's own subject: raising the
+  budget to 180 moves the cliff to ~38 chunks, it does not remove it, and a
+  killed job still posts nothing — silence that reads exactly like a clean
+  review. Deferred rather than applied, and its *mechanism* refuted, because
+  the suggested `needs: review` + `if: failure()` would not have fired on any
+  of the four real cases: every one of PR #193's killed runs concluded
+  **`cancelled`**, not `failure` (job 101086691221, 101113962529,
+  101142439325, 101193357588 — and the run rollups with them), so
+  `failure()` is false and the sentinel stays silent in precisely the
+  situation it exists for. Implementing this needs a condition covering
+  `cancelled` as well, and possibly a guard against the *legitimate*
+  cancellation — `cancel-in-progress` superseding a review of an outdated
+  diff. Whether that guard is needed at all turns on the discriminator, and
+  the two cannot both be true: *if* a whole-run cancellation never starts a
+  dependent job while a job-level timeout does, the supersede case can never
+  reach the sentinel and no guard is required; only if that fails would every
+  push draw a comment. Deciding which needs a dry-run with *both* legs, on a
+  throwaway branch: `timeout-minutes: 1` reproduces the job-level timeout,
+  but never a whole-run cancellation — so the supersede half, the one the
+  guard question actually turns on, needs a second push while a run is live
+  (or a manual cancellation), with a window long enough for it to land
+  mid-run. That is a design change to a privileged `pull_request_target`
+  workflow with its own testing, not a line to fold into a one-line budget
+  change that is holding up PR #193. **Follow-up
+  owed**: the corrected condition, plus whatever the dry-run settles about the
+  supersede case, recorded in CICD.md when it lands.
+
 - **R-032 ⏸️ Contract-test root-walk consolidation (PR #172, round 1).**
   Seven engine-gl suites still carry private `repositoryRoot()` copies
   alongside the new `ContractTestSources`. Real cleanup, but the

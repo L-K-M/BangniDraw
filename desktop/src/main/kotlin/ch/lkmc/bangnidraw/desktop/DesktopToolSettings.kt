@@ -19,6 +19,7 @@ import ch.lkmc.bangnidraw.engine.core.SampleSource
 import ch.lkmc.bangnidraw.engine.core.SmudgeParams
 import ch.lkmc.bangnidraw.engine.core.WaterParams
 import ch.lkmc.bangnidraw.engine.core.WatercolorDabPlan
+import kotlin.math.roundToInt
 
 /**
  * The five secondary tools' settings — `:app`'s `RmwSettingsSheet`,
@@ -188,7 +189,7 @@ private fun Fill(params: FillParams, onChanged: (FillParams) -> Unit) {
         0f..FillParams.MAX_EXPAND.toFloat(),
         DesktopStrings.get("desktop_fill_expand_value", params.expand),
     ) {
-        onChanged(params.copy(expand = it.toInt().coerceIn(0, FillParams.MAX_EXPAND)))
+        onChanged(params.copy(expand = it.roundToInt().coerceIn(0, FillParams.MAX_EXPAND)))
     }
     SettingToggle(DesktopStrings.get("fill_antialias"), params.antialias) { onChanged(params.copy(antialias = it)) }
     SettingSlider(DesktopStrings.get("fill_opacity"), params.opacity, UNIT, percent(params.opacity)) {
@@ -220,7 +221,7 @@ private fun Eyedropper(params: EyedropperParams, onChanged: (EyedropperParams) -
         0f..EyedropperParams.MAX_RADIUS.toFloat(),
         radiusLabel(params.radius),
     ) {
-        onChanged(params.copy(radius = it.toInt().coerceIn(0, EyedropperParams.MAX_RADIUS)))
+        onChanged(params.copy(radius = it.roundToInt().coerceIn(0, EyedropperParams.MAX_RADIUS)))
     }
 }
 

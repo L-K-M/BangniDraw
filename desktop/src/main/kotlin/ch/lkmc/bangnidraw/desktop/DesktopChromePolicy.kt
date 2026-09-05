@@ -119,8 +119,7 @@ internal object DesktopRailPolicy {
      * eyedropper behind a menu, exactly as `:app`'s `groupedSecondarySlots`
      * does — so the same tools are one click away on both products.
      */
-    fun secondarySlotCount(layout: LayoutSpec): Int =
-        if (layout.railMode == RailMode.FULL) SECONDARY_TOOLS else GROUPED_SECONDARY_SLOTS
+    fun secondarySlotCount(layout: LayoutSpec): Int = visibleSecondary(layout).size
 
     /** Which secondary tools [layout] gives a slot of their own. */
     fun visibleSecondary(layout: LayoutSpec): List<DesktopSecondaryTool> =
@@ -194,9 +193,6 @@ internal object DesktopRailPolicy {
     private const val ERASER_SLOTS = 1
     private const val OVERFLOW_SLOTS = 1
     private const val SECONDARY_OVERFLOW_SLOTS = 1
-    private const val SECONDARY_TOOLS = 5
-    private const val GROUPED_SECONDARY_SLOTS = 3
-
     /** Paints | eraser | secondary tools: two rules, as `:app`'s rail draws. */
     private const val DIVIDERS = 2
 }

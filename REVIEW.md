@@ -3763,3 +3763,121 @@ Follow-ups owed to a later PR: `:app`'s `TopStrip` colour swatch has the same
 square-fill-under-rounded-border artifact fixed here; `Icons.Filled.Draw` and
 `Icons.Filled.Create` are similar silhouettes at rail size on both platforms;
 and the SHORT ledge discrepancy noted above.
+
+## PR #193 — desktop parity: layers, panels, secondary tools, `.bangni` (2026-09-05)
+
+One round, full scope, at `e211a58`: 20 inline suggestions and a summary
+GitHub truncated for size (the action said so and posted the findings
+separately, so nothing was lost). Most were real and are applied; five are
+recorded here.
+
+- **R-270 ⏸️ (refuted) round 1, Critical: `DesktopReferenceIo.kt:138` uses an
+  underscore instead of a dot and "the desktop module will not compile,
+  blocking the whole PR".** It does not. The line reads
+  `TracingReferencePolicy.normalizedSize(` with a dot, `grep -rn
+  "TracingReferencePolicy_"` matches nothing anywhere in the repository, and
+  the `desktop-linux` CI job compiled this exact commit successfully
+  (run 33953428594). Three independent checks, because a "won't compile"
+  claim on a green PR is the one that most misleads a merge decision — which
+  is why this one also got a reply on the PR rather than only an entry here.
+- **R-271 ⏸️ (refuted) round 1, Major: an imported reference asset name reaches
+  the filesystem unchecked (zip-slip).** The name never reaches it raw.
+  `BangniProjectIo.importedReference` calls `record.toReferenceOrNull()`
+  first, which constructs a `TracingReference`, whose `init` requires
+  `isSafeAssetName(assetName)` — `isSafePathSegment` plus a `.png` suffix. An
+  asset named `../../evil.png` fails that, returns null, and is dropped with a
+  warning; `writeReferenceAsset` is then handed `reference.assetName`, the
+  validated value, not `record.assetName`. The finding hedged on exactly this
+  ("unless `BangniProjectIo.import` or the store sanitizes it — both outside
+  this diff"), and it does. AGENTS.md already records the rule.
+- **R-272 ⏸️ (refuted) round 1, Major: the layer panel's opacity label
+  truncates where `:app` rounds, so the two disagree for half the slider.**
+  The premise is backwards. `:app`'s `LayerPanel.kt:633` reads
+  `(opacity * PERCENT).toInt()` — it truncates too, and the two panels
+  therefore already agree on every value. Applying the suggested `roundToInt`
+  would have *created* the one-percent disagreement the finding set out to
+  fix, on a reading AGENTS.md requires to match. What was genuinely wrong is
+  the comment above the call, which claimed `%.0f` rounding and cited parity
+  as the reason; it now says what the code does and why both sides must move
+  together. Fixed as documentation, refused as code.
+- **R-273 ⏸️ (partly refuted) round 1, Major: `tune` bypasses the restore
+  gate.** Two thirds of this finding were right and are applied — `notePainted`
+  and `persistPalettes` both write persisted state and now mark
+  `DesktopPreferenceKind.Color`, so a stroke or a palette edit during the
+  startup read is no longer overwritten by `restorePalettes`. `tune` is the
+  exception: the Brush restore in `Main.kt` only re-selects a preset
+  (`DesktopRailPolicy.select` and a slot assignment) and never rewrites a
+  preset's fields, and `tune` performs no persisted write of its own — so
+  there is no write for a restore to race. Marking it would claim a hazard
+  that does not exist and invite the next reader to look for it.
+- **R-274 ⏸️ (declined) round 1, Minor: drop the `*/*` entry from
+  `OPEN_MIME_TYPES`.** It is a catch-all and it does neutralize the two
+  entries beside it — that much is accurate. It stays because providers
+  disagree about what a `.bangni` is (octet-stream, `application/zip`,
+  `application/x-zip-compressed`, or a type invented from the extension), and
+  a filter that guesses wrong greys out the user's own file with no way to
+  reach it. Picking a wrong file is already safe: the format is recognized by
+  content and `BangniCodec.read` refuses anything else without throwing. The
+  KDoc claimed a filter that was not operative and now says this instead.
+
+Deferred, owed to a later PR:
+
+- **R-275 ⏸️ (deferred) round 1, Major: EXIF orientation is ignored, so phone
+  photos import sideways.** The observation is real; the stated reason is not
+  — the finding says desktop "diverges from Android", but `:app` has no
+  `ExifInterface` either (`grep -rn "ExifInterface\|TAG_ORIENTATION"` over
+  `app/src/main` is empty), so both products ignore orientation and there is
+  no parity gap. Fixing it properly means parsing the APP1 segment or adding
+  `metadata-extractor`, plus fixtures for all eight orientations, in *both*
+  products — a change with a dependency decision in it, not a review fix.
+- **R-276 ⏸️ (deferred) round 1, Major: `DesktopDocuments.openFile` does not
+  raise the window of an already-open file.** True, and the comment claiming
+  it did is corrected. Actually raising it needs a focus-request channel from
+  the list to the `Window` composable; that is a feature, and one whose only
+  honest verification is on a real desktop. The duplicate check itself was
+  strengthened in this round (canonical rather than absolute paths, so a
+  symlink cannot produce the overwriting pair the check exists to prevent).
+- **R-277 ⏸️ (deferred) round 1, Major: `DesktopPrefs`'s stringly-typed keys
+  drop DataStore's type safety.** Confirmed hazard: `Preferences.Key` compares
+  by name alone, so `stringPreferencesKey("x")` and `intPreferencesKey("x")`
+  are one slot and a mixed read throws `ClassCastException` inside the flow's
+  `map`, killing every collector far from the write. No key is currently used
+  both ways, so this is latent; the reviewer's own suggestion was a KDoc,
+  which is applied along with an encoding note on `SNAP_RIGHT_ANGLES`. Typed
+  `TextKey`/`NumberKey` value classes would make it a compile error and are
+  the real fix.
+- **R-278 ⏸️ (deferred) round 1, Critical (part): stream a `.bangni`'s tiles to
+  disk instead of holding the whole painting in memory.** The bounded part of
+  that finding is applied (see below). The architectural part is not: the
+  reader builds the entire tile map before returning, so a *legitimate* very
+  large painting is bounded by the same ceiling a malicious one is. Streaming
+  tiles into the project store as they are read removes that ceiling for both.
+
+| Round | Scope | Score | Notes |
+| --- | --- | --- | --- |
+| 1 | full, `e211a58` | `useful feedback` | 20 inline + a size-truncated summary; most applied, 3 refuted, 1 declined, 4 deferred |
+
+Real, and worth the 161 minutes the review took: a `.bangni` charged its
+expansion budget at *compressed* size while every tile decodes to 256 KiB, so
+200,000 stored tiles arrived as tens of megabytes and became tens of gigabytes;
+a crafted `"dpi": 0` reached `Document`'s own `require` and left `import` as an
+`IllegalArgumentException`, past every caller's catch, crashing the app on a
+file the user merely picked; opening a painting and saving it straight back
+wrote a blank file over it, because nothing drained the readback that fills the
+mirror both saves compose from; Save in the close prompt never closed the
+window, because the completion it checked runs an event later; a fill committed
+to whatever layer was selected when its multi-second scan *finished*, lock and
+all; the active layer was looked up by an index into the manifest and applied
+to the shorter list that skipping produced; and the `.bangni` writer renamed
+over the previous version without ever forcing the new bytes to the device.
+
+Refuted: the "will not compile" blocker (R-270) — the line has a dot, nothing
+in the repo matches the underscore form, and CI compiled the commit; the
+reference-asset zip-slip (R-271), guarded by `TracingReference`'s own
+constructor; and the opacity-rounding parity claim (R-272), which had the
+direction backwards — `:app` truncates too, so the suggested fix would have
+created the disagreement it meant to remove.
+
+Declined: the `*/*` MIME entry (R-274), which is a catch-all on purpose,
+because a filter that guesses a `.bangni`'s type wrong greys out the user's
+own file.

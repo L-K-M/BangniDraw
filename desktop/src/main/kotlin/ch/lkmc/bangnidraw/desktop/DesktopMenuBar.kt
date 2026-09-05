@@ -107,8 +107,9 @@ internal fun FrameWindowScope.DesktopMenuBar(
 }
 
 /**
- * The host's own modifier. macOS puts these on Command and everything else on
- * Control; `KeyShortcut` takes both flags, and only the platform's is applied.
+ * The host's own modifier: Command on macOS, Control everywhere else. The
+ * branch picks one flag, so only the host's accelerator is ever registered —
+ * `KeyShortcut` would happily carry both.
  */
 private fun shortcut(key: Key, shift: Boolean = false): KeyShortcut =
     if (DesktopPlatform.isMacOs) {

@@ -129,7 +129,11 @@ fun StudioScreen(
         onPauseOrDispose { }
     }
 
-    var pendingExport by remember { mutableStateOf<String?>(null) }
+    // Saveable, not remembered: the create-document picker is another
+    // activity, and a rotation or a process death behind it would otherwise
+    // lose which painting it was opened for — the result then arrives with
+    // nothing to export and the export silently does nothing.
+    var pendingExport by rememberSaveable { mutableStateOf<String?>(null) }
     val exportFile = rememberLauncherForActivityResult(
         // The system's own create-document picker: no permission, and the
         // user picks where the file lands (the app has none by ADR 0004).

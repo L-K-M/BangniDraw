@@ -34,20 +34,39 @@ internal object DesktopImageIo {
     /** The extensions the open dialog accepts and `save` writes. */
     const val EXTENSION = "png"
 
+    /**
+     * The size comes out of the header first, as [DesktopReferenceIo] reads
+     * it. `ImageIO.read` would decode the whole raster before anything could
+     * refuse it, so a 30000² PNG — a few hundred KB on disk — allocates
+     * gigabytes and throws `OutOfMemoryError`, which is an `Error` and passes
+     * straight through the catches below and out of the process.
+     */
     fun read(file: File): DesktopImageResult = try {
-        val decoded = javax.imageio.ImageIO.read(file)
-        when {
-            decoded == null -> DesktopImageResult.Failed("${file.name} is not an image this app can read")
-            decoded.width !in Document.MIN_EDGE..Document.MAX_EDGE ||
-                decoded.height !in Document.MIN_EDGE..Document.MAX_EDGE ->
-                DesktopImageResult.Failed(
-                    "${decoded.width}×${decoded.height} is outside " +
-                        "${Document.MIN_EDGE}–${Document.MAX_EDGE} px per side",
-                )
-            else -> {
-                val argb = IntArray(decoded.width * decoded.height)
-                decoded.getRGB(0, 0, decoded.width, decoded.height, argb, 0, decoded.width)
-                DesktopImageResult.Opened(DesktopImage(decoded.width, decoded.height, argb))
+        javax.imageio.ImageIO.createImageInputStream(file).use { stream ->
+            val reader = stream?.let { javax.imageio.ImageIO.getImageReaders(it).asSequence().firstOrNull() }
+            if (reader == null) {
+                DesktopImageResult.Failed("${file.name} is not an image this app can read")
+            } else {
+                try {
+                    reader.input = stream
+                    val width = reader.getWidth(0)
+                    val height = reader.getHeight(0)
+                    if (width !in Document.MIN_EDGE..Document.MAX_EDGE ||
+                        height !in Document.MIN_EDGE..Document.MAX_EDGE
+                    ) {
+                        DesktopImageResult.Failed(
+                            "${width}×$height is outside " +
+                                "${Document.MIN_EDGE}–${Document.MAX_EDGE} px per side",
+                        )
+                    } else {
+                        val decoded = reader.read(0)
+                        val argb = IntArray(width * height)
+                        decoded.getRGB(0, 0, width, height, argb, 0, width)
+                        DesktopImageResult.Opened(DesktopImage(width, height, argb))
+                    }
+                } finally {
+                    reader.dispose()
+                }
             }
         }
     } catch (failure: java.io.IOException) {

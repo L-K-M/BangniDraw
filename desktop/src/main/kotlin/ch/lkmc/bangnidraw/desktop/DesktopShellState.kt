@@ -330,6 +330,12 @@ internal class DesktopShellState(
 
     private fun returnEyedropper() {
         if (!borrowing) return
+        // Alt can be released while a panel pick is armed: the borrow was
+        // taken by `beginPickInto`, not by the key, and giving it back here
+        // would leave `pendingPick` armed on a brush — so the user's next
+        // deliberate sample would land in the well instead of the paint.
+        // `finishPick` clears the arming first, then returns it.
+        if (pendingPick != null) return
 
         borrowing = false
         val previous = borrowedFrom
@@ -444,6 +450,7 @@ internal class DesktopShellState(
         if (next == recentColors) return
 
         recentColors = next
+        restoreGate.markChanged(DesktopPreferenceKind.Color)
         prefs.writeText(DesktopPreferenceKeys.RECENT_COLORS, StoredColors.encode(next))
     }
 
@@ -575,6 +582,7 @@ internal class DesktopShellState(
     }
 
     private fun persistPalettes() {
+        restoreGate.markChanged(DesktopPreferenceKind.Color)
         prefs.writeText(DesktopPreferenceKeys.PALETTES, DesktopPaletteCodec.encode(userPalettes))
     }
 

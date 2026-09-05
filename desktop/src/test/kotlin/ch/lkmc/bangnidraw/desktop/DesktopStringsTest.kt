@@ -79,6 +79,26 @@ class DesktopStringsTest {
     }
 
     @Test
+    fun `a string-array is not mistaken for a string, and does not eat the next one`() {
+        // There is a word boundary between "string" and the "-" of
+        // `<string-array>`, so a `\b` matches one — and since a
+        // `</string-array>` holds no `</string>`, the lazy body then runs past
+        // it and swallows the next real string whole: one key gets a garbage
+        // value and another vanishes, showing a raw resource name on screen.
+        val parsed = DesktopStrings.parseStrings(
+            """
+            <resources>
+                <string-array name="sizes"><item>S</item><item>M</item></string-array>
+                <string name="ok">OK</string>
+            </resources>
+            """.trimIndent(),
+        )
+
+        assertEquals("OK", parsed["ok"])
+        assertTrue("sizes" !in parsed, "a string-array is not a string")
+    }
+
+    @Test
     fun `every string the desktop shell asks for exists in the catalogue`() {
         val sources = java.io.File(repoRoot(), "desktop/src/main/kotlin")
             .walkTopDown()

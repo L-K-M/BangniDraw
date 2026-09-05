@@ -158,7 +158,15 @@ internal class DesktopEngine(
     private var nextWetRefreshNs = 0L
     private var thumbnailSink: ((LayerId, LayerThumbnail?) -> Unit)? = null
     private var paperColor = initial?.paperArgb ?: DEFAULT_PAPER_ARGB
-    private var fillGeneration = 0
+    /**
+     * Volatile because the scan's `isCancelled` reads it on the fill worker
+     * while the GL thread bumps it. Without the edge, the read can be hoisted
+     * out of the scan loop and a cancelled fill runs to completion — and the
+     * executor is single-threaded, so the next fill queues behind it. `++` is
+     * still not atomic; it does not need to be, since the value only ever
+     * grows and any bump at all invalidates an older generation.
+     */
+    @Volatile private var fillGeneration = 0
 
     /**
      * The document model. Written only on the GL thread; `@Volatile` because
@@ -511,6 +519,17 @@ internal class DesktopEngine(
         // layer panel is a window of its own and the selection can have moved
         // while a full-canvas scan ran.
         val active = stack.active
+        // And re-checked, for the same reason it is re-read: the layer the
+        // scan was authorized against is not necessarily the layer this is
+        // about to commit to, and a lock refuses pixels (`05` §1).
+        if (StrokeLayerPolicy.decide(
+                visible = active.props.visible,
+                locked = active.props.locked,
+            ) == StrokeLayerDecision.REFUSE_LOCKED
+        ) {
+            onDone(false)
+            return
+        }
         val spec = StrokeSpec(
             layerId = active.id,
             mode = StrokeMode.PAINT,
@@ -881,6 +900,17 @@ internal class DesktopEngine(
         renderer.setStack(stack)
         if (!renderer.applyPixelOps(ops, nextRevision(), SandwichPolicy.Op.UndoRedo)) {
             GlLog.w(LOG_TAG, "the opened painting's pixels could not be uploaded")
+            return
+        }
+        // The upload's readback is what fills the mirror, and nothing else
+        // drains it until the first stroke or stack edit. Without this, an
+        // open followed straight by a Save composes from an empty mirror and
+        // writes a blank painting over the file it just read.
+        //
+        // Drained, not required: a timeout here is not worth refusing to open
+        // the painting over, which is what `requireReadback` would do.
+        if (DesktopReadbackPolicy.drain(renderer::finishReadback) != ReadbackDrain.Complete) {
+            GlLog.w(LOG_TAG, "the opened painting's readback did not drain")
         }
     }
 

@@ -121,12 +121,17 @@ internal object BangniProjectIo {
         }
 
         val layers = ArrayList<Layer>(manifest.layers.size)
+        // Which manifest record became `layers[i]`. The two lists are not the
+        // same length once a record is skipped, so the active id has to be
+        // looked up here rather than in `manifest.layers`.
+        val importedIds = ArrayList<String>(manifest.layers.size)
         for (record in manifest.layers) {
             val original = record.toPropsOrNull()
             if (original == null) {
                 warnings += "skipped a layer with an unusable id: ${record.id}"
                 continue
             }
+            importedIds += record.id
             val props = original.copy(id = newLayerId())
             val tiles = read.document.tiles[original.id].orEmpty().filterKeys(grid::contains)
             val written = LinkedHashSet<TileKey>(tiles.size)
@@ -139,9 +144,9 @@ internal object BangniProjectIo {
         }
         if (layers.isEmpty()) return ImportResult.Failed("the file has no layers this build can read")
 
-        val activeIndex = manifest.layers
-            .indexOfFirst { it.id == manifest.activeLayerId }
-            .takeIf { it in layers.indices } ?: 0
+        val activeIndex = importedIds
+            .indexOfFirst { it == manifest.activeLayerId }
+            .takeIf { it >= 0 } ?: 0
         val stack = try {
             LayerStack(
                 layers = layers,
@@ -154,7 +159,11 @@ internal object BangniProjectIo {
             return ImportResult.Failed(failure.message ?: "the file's layers are inconsistent")
         }
 
-        return ImportResult.Imported(
+        // `Document` validates fields the codec does not — dpi above all,
+        // which it divides by. A hand-written `"dpi": 0` would otherwise
+        // leave this function as an IllegalArgumentException, past every
+        // caller's catch, on a file the user merely picked.
+        val document = try {
             Document(
                 id = id,
                 title = manifest.title,
@@ -171,9 +180,11 @@ internal object BangniProjectIo {
                 ),
                 createdAt = if (manifest.createdAt > 0L) manifest.createdAt else now,
                 updatedAt = now,
-            ),
-            warnings,
-        )
+            )
+        } catch (failure: IllegalArgumentException) {
+            return ImportResult.Failed(failure.message ?: "the file's painting is unusable")
+        }
+        return ImportResult.Imported(document, warnings)
     }
 
     /**

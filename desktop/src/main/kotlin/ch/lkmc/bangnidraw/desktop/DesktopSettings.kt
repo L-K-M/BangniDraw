@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selectableGroup
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -154,9 +155,28 @@ private fun ThemeChip(theme: AppTheme, selected: Boolean, onClick: () -> Unit) {
                     .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
             )
         },
-        modifier = Modifier.semantics { },
+        modifier = Modifier.semantics { contentDescription = themeLabel(theme) },
     )
 }
+
+/**
+ * A theme's name, from `:app`'s own strings — the chip's label is a colour
+ * swatch, which announces nothing, so without this the picker reads as
+ * "selected, 1 of 8" eight times over. Exhaustive, so a new theme cannot ship
+ * nameless.
+ */
+private fun themeLabel(theme: AppTheme): String = DesktopStrings.get(
+    when (theme) {
+        AppTheme.SAFFRON -> "settings_theme_saffron"
+        AppTheme.CORAL -> "settings_theme_coral"
+        AppTheme.VIOLET -> "settings_theme_violet"
+        AppTheme.TEAL -> "settings_theme_teal"
+        AppTheme.NINETIES -> "settings_theme_nineties"
+        AppTheme.SYNTHWAVE -> "settings_theme_synthwave"
+        AppTheme.MIDNIGHT -> "settings_theme_midnight"
+        AppTheme.FOREST -> "settings_theme_forest"
+    },
+)
 
 /**
  * The catalogue rows' verbs. Android's Settings sheet prints a subset; the

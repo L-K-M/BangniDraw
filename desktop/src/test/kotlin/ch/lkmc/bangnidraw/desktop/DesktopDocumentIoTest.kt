@@ -111,12 +111,55 @@ class DesktopDocumentIoTest {
     }
 
     @Test
-    fun `reopening an open file raises its window instead of duplicating it`() {
+    fun `saving from the close prompt closes the window when the write lands`() {
+        val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")
+        val dialog = main.substringAfter("UnsavedChangesDialog(").substringBefore("onDiscard")
+
+        // `writeTo` completes on a later EDT event, so a `document.dirty`
+        // read on the line after it reads the value from before the save --
+        // every time, since the prompt only appears when dirty. The close has
+        // to travel with the completion instead.
+        assertTrue("onSaved = { documents.close(document) }" in dialog, dialog)
+        assertTrue("saveAs(window, document) { documents.close(document) }" in dialog, dialog)
+        assertTrue("if (!document.dirty) documents.close(document)" !in main)
+
+        // And it runs only where the write succeeded.
+        val write = main.substringAfter("private fun writeTo(").substringBefore("\n}")
+        val saved = write.substringAfter("is DesktopSaveResult.Saved").substringBefore("is DesktopSaveResult.Failed")
+        assertTrue("onSaved()" in saved, saved)
+    }
+
+    @Test
+    fun `the stack and paper reach Compose on the event thread`() {
+        val documents =
+            source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopDocuments.kt")
+        val engine = documents.substringAfter("val engine = DesktopEngine(").substringBefore("document = DesktopDocument(")
+
+        // The GL thread publishes all four of these, from the same call
+        // sites: `onEdited` sits one line below `onPaper` in DesktopEngine.
+        // Compose state written from there races the panels reading it.
+        for (callback in listOf("onFrame", "onStack", "onPaper", "onEdited")) {
+            val body = engine.substringAfter("$callback = ").substringBefore("\n            on")
+            assertTrue(
+                "java.awt.EventQueue.invokeLater" in body,
+                "$callback publishes Compose state off the event thread",
+            )
+        }
+    }
+
+    @Test
+    fun `reopening an open file does not open it a second time`() {
         val documents =
             source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopDocuments.kt")
 
-        // Two documents on one path would overwrite each other on save.
-        assertTrue(documents.contains("open.firstOrNull { it.file?.absoluteFile == file.absoluteFile }"))
+        // Two documents on one path would overwrite each other on save, and
+        // the comparison has to resolve the path first: a symlink or a `..`
+        // reaching the same file must not read as a different one.
+        assertTrue(documents.contains("val key = file.canonicalOrAbsolute()"))
+        assertTrue(documents.contains("open.firstOrNull { it.file?.canonicalOrAbsolute() == key }"))
+        // A path that cannot be canonicalized still has to compare as
+        // something, or an unreadable parent lets the file open twice.
+        assertTrue(documents.contains("} catch (_: java.io.IOException) {\n            absoluteFile"))
     }
 
     @Test

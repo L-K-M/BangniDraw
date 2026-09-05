@@ -560,7 +560,17 @@ class StudioViewModel @Inject constructor(
             } catch (e: IOException) {
                 android.util.Log.w(LOG_TAG, "bangni import failed", e)
                 BangniProjectIo.ImportResult.Failed(e.message ?: "")
-            } catch (e: SecurityException) {
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Nothing in the block above suspends today, so this cannot
+                // fire — it is here so that adding a suspending call later
+                // does not silently turn cancellation into a failed import.
+                throw e
+            } catch (e: Exception) {
+                // Everything in the block reads a file the user picked.
+                // Parse failures arrive as RuntimeExceptions — kotlinx's
+                // SerializationException is an IllegalArgumentException, a
+                // provider can throw IllegalState — and one escaping this
+                // coroutine ends the process while they are only browsing.
                 android.util.Log.w(LOG_TAG, "bangni import refused", e)
                 BangniProjectIo.ImportResult.Failed(e.message ?: "")
             }

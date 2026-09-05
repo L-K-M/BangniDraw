@@ -83,6 +83,14 @@ internal class DesktopPrefs(
         writeNumber(COLOR, argb)
     }
 
+    /**
+     * A DataStore `Preferences.Key` compares and hashes by **name alone**, so
+     * `stringPreferencesKey("hand")` and `intPreferencesKey("hand")` are one
+     * slot. A name written through [writeNumber] and read through here throws
+     * `ClassCastException` inside the flow's `map`, taking down every
+     * collector of it, far from the write that caused it. Each name below is
+     * text or number for the life of the app, never both.
+     */
     fun text(key: String): Flow<String?> = store.data.map { it[stringPreferencesKey(key)] }
 
     fun number(key: String): Flow<Int?> = store.data.map { it[intPreferencesKey(key)] }
@@ -133,6 +141,7 @@ internal object DesktopPreferenceKeys {
     const val THEME = "app_theme"
     const val HAND = "hand"
     const val MIXER = "mixer_choice"
+    /** A number, 1/0 — see [DesktopPrefs.text] for why the choice is binding. */
     const val SNAP_RIGHT_ANGLES = "snap_right_angles"
     const val RECENT_COLORS = "recent_colors"
     const val PALETTES = "user_palettes"

@@ -379,8 +379,11 @@ private fun LayerRow(
                         fillWidth = true,
                     )
                     Text(
-                        // %.0f rounds where toInt would truncate, matching
-                        // the reading `:app`'s panel shows for the same value.
+                        // Truncating, because `:app`'s LayerPanel truncates
+                        // the same product too: the two panels must read the
+                        // same number for the same layer, and rounding here
+                        // would put them one percent apart for half the
+                        // slider. Change both or neither.
                         DesktopStrings.get(
                             "layer_opacity_value",
                             (layer.props.opacity * PERCENT).toInt(),

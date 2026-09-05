@@ -62,6 +62,9 @@ internal object DesktopStrings {
     private fun read(path: String): String =
         javaClass.getResourceAsStream(path)?.bufferedReader()?.use { it.readText() }.orEmpty()
 
+    /** Visible for the test that pins which elements [STRING_PATTERN] claims. */
+    fun parseStrings(xml: String): Map<String, String> = parse(xml, STRING_PATTERN)
+
     private fun parse(xml: String, pattern: Regex): Map<String, String> =
         pattern.findAll(xml).associate { match ->
             match.groupValues[1] to decode(match.groupValues[2])
@@ -107,7 +110,11 @@ internal object DesktopStrings {
 
     private val UNICODE_ESCAPE = Regex("""\\u([0-9a-fA-F]{4})""")
     private val STRING_PATTERN = Regex(
-        """<string\b[^>]*\bname\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)</string>""",
+        // Lookahead, not `\b`: there is a word boundary between "string"
+        // and the "-" of `<string-array>`, so `\b` matches one — and since a
+        // `</string-array>` holds no `</string>`, the lazy body would then run
+        // past it and swallow the next real string whole.
+        """<string(?=[\s>])[^>]*\bname\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)</string>""",
     )
     private val PLURALS_PATTERN = Regex(
         """<plurals\b[^>]*\bname\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)</plurals>""",

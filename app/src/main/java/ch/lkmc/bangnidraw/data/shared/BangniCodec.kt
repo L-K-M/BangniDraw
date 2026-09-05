@@ -1,6 +1,7 @@
 package ch.lkmc.bangnidraw.data.shared
 
 import ch.lkmc.bangnidraw.engine.core.LayerId
+import ch.lkmc.bangnidraw.engine.core.PerfConstants
 import ch.lkmc.bangnidraw.engine.core.PerfConstants.TILE_BYTES
 import ch.lkmc.bangnidraw.engine.core.TileGrid
 import ch.lkmc.bangnidraw.engine.core.TileKey
@@ -45,10 +46,12 @@ import kotlinx.serialization.json.Json
  *   an entry called `layers/../../etc/passwd/0_0.tile` matches nothing and is
  *   reported as unknown. Nothing here builds a `File` from an entry name,
  *   which is what makes zip-slip inapplicable rather than merely guarded.
- * - **The expansion is bounded.** A tile decodes to exactly [TILE_BYTES]; a
- *   file may not carry more than [MAX_ENTRIES] entries or more than
- *   [MAX_TOTAL_BYTES] of payload, so a zip bomb fails the open instead of the
- *   process.
+ * - **The expansion is bounded, at decoded size.** A file may not carry more
+ *   than [MAX_ENTRIES] entries, expand past [MAX_TOTAL_BYTES] in total, or
+ *   past [MAX_ENTRY_BYTES] in any one entry — and a tile is charged the
+ *   [TILE_BYTES] it becomes, not the compressed bytes it arrives as, since
+ *   those differ by three orders of magnitude for an empty one. So a zip bomb
+ *   fails the open instead of the process.
  * - **A tile outside the canvas grid, or one that fails [TileCodec], is
  *   skipped with a warning.** One bad tile must not fail an open
  *   (`06-document-and-persistence.md` §4).
@@ -61,9 +64,51 @@ object BangniCodec {
     const val LAYERS_PREFIX = "layers/"
     const val TILE_SUFFIX = ".tile"
 
-    /** Room for a very large painting; far below what would exhaust a heap. */
     const val MAX_ENTRIES = 200_000
-    const val MAX_TOTAL_BYTES = 2L * 1024 * 1024 * 1024
+
+    /**
+     * The expansion budget, charged at **decoded** size.
+     *
+     * Tiles are stored, not deflated, by the zip — [TileCodec] already
+     * compressed them — so the bytes that arrive from the stream are a small
+     * fraction of the [TILE_BYTES] each becomes in memory, and a budget
+     * counting only what arrived bounds nothing: 200,000 transparent tiles
+     * compress to well under a hundred megabytes and decode to 50 GB.
+     *
+     * 256 MiB is `PerfConstants.LOW_RAM_GPU_TILE_BYTES` — every tile the
+     * smallest device this app supports can hold on the GPU at once. A file
+     * whose pixels exceed that could not be opened as a document there
+     * anyway, so refusing it with a message beats meeting it as an
+     * `OutOfMemoryError` halfway through.
+     */
+    const val MAX_TOTAL_BYTES = PerfConstants.LOW_RAM_GPU_TILE_BYTES
+
+    /**
+     * The ceiling on one entry. Without it the reader accumulates up to the
+     * whole remaining budget in one buffer before refusing, so the guard
+     * against a deflate bomb is itself the thing that exhausts the heap.
+     */
+    const val MAX_ENTRY_BYTES = 64L * 1024 * 1024
+
+    /** A crafted file must not turn 200,000 junk entries into 200,000 strings. */
+    const val MAX_WARNINGS = 64
+
+    /**
+     * What a read may expand to. A parameter rather than three constants read
+     * in place, so the accounting can be driven at test scale: proving that a
+     * tile is charged at its decoded size should not cost the budget itself
+     * in heap.
+     */
+    data class Limits(
+        val maxEntries: Int = MAX_ENTRIES,
+        val maxTotalBytes: Long = MAX_TOTAL_BYTES,
+        val maxEntryBytes: Long = MAX_ENTRY_BYTES,
+        val maxWarnings: Int = MAX_WARNINGS,
+    ) {
+        companion object {
+            val DEFAULT = Limits()
+        }
+    }
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -95,8 +140,8 @@ object BangniCodec {
      * Reads [input] to the end. Never throws for a bad file: a caller opening
      * whatever the user picked gets a [BangniReadResult.Failed] instead.
      */
-    fun read(input: InputStream): BangniReadResult = try {
-        readOrThrow(input)
+    fun read(input: InputStream, limits: Limits = Limits.DEFAULT): BangniReadResult = try {
+        readOrThrow(input, limits)
     } catch (failure: java.io.IOException) {
         BangniReadResult.Failed(failure.message ?: "the file could not be read")
     } catch (failure: RuntimeException) {
@@ -106,11 +151,11 @@ object BangniCodec {
         BangniReadResult.Failed(failure.message ?: "the file is not a readable ${EXTENSION} document")
     }
 
-    private fun readOrThrow(input: InputStream): BangniReadResult {
+    private fun readOrThrow(input: InputStream, limits: Limits): BangniReadResult {
         var manifest: BangniManifest? = null
         val tiles = HashMap<LayerId, HashMap<TileKey, ByteArray>>()
         var referencePng: ByteArray? = null
-        val warnings = ArrayList<String>()
+        val warnings = BoundedWarnings(limits.maxWarnings)
         var entries = 0
         var totalBytes = 0L
 
@@ -118,21 +163,33 @@ object BangniCodec {
         while (true) {
             val entry = zip.nextEntry ?: break
             entries += 1
-            if (entries > MAX_ENTRIES) {
-                return BangniReadResult.Failed("the file carries more than $MAX_ENTRIES entries")
+            if (entries > limits.maxEntries) {
+                return BangniReadResult.Failed("the file carries more than ${limits.maxEntries} entries")
             }
             if (entry.isDirectory) continue
 
-            val bytes = zip.readBoundedBytes(MAX_TOTAL_BYTES - totalBytes)
-                ?: return BangniReadResult.Failed("the file expands past ${MAX_TOTAL_BYTES / (1024 * 1024)} MB")
+            val bytes = zip.readBoundedBytes(minOf(limits.maxTotalBytes - totalBytes, limits.maxEntryBytes))
+                ?: return BangniReadResult.Failed(
+                    "the file expands past ${limits.maxTotalBytes / (1024 * 1024)} MB",
+                )
             totalBytes += bytes.size
 
             when {
                 entry.name == MANIFEST_ENTRY ->
                     manifest = json.decodeFromString(BangniManifest.serializer(), bytes.decodeToString())
                 entry.name == REFERENCE_ENTRY -> referencePng = bytes
-                entry.name.startsWith(LAYERS_PREFIX) && entry.name.endsWith(TILE_SUFFIX) ->
+                entry.name.startsWith(LAYERS_PREFIX) && entry.name.endsWith(TILE_SUFFIX) -> {
+                    // Charged before the decode, at the size the decode will
+                    // reach: what arrived is the compressed tile, and an
+                    // empty one is a few hundred bytes.
+                    totalBytes += TILE_BYTES
+                    if (totalBytes > limits.maxTotalBytes) {
+                        return BangniReadResult.Failed(
+                            "the file expands past ${limits.maxTotalBytes / (1024 * 1024)} MB",
+                        )
+                    }
                     readTile(entry.name, bytes, tiles, warnings)
+                }
                 // Forward compatibility: a newer writer's extra entry is not a
                 // reason to refuse a file whose painting this build can show.
                 else -> warnings += "ignored an unknown entry: ${entry.name}"
@@ -249,4 +306,23 @@ object BangniCodec {
     }
 
     private const val COPY_BUFFER = 64 * 1024
+
+    /**
+     * A warning list that stops growing. One malformed entry earns one
+     * string, and [MAX_ENTRIES] of them would otherwise be their own
+     * exhaustion path through the very list that reports the problem.
+     */
+    private class BoundedWarnings(private val limit: Int) : AbstractMutableList<String>() {
+        private val items = ArrayList<String>()
+
+        override val size: Int get() = items.size
+        override fun get(index: Int): String = items[index]
+        override fun set(index: Int, element: String): String = items.set(index, element)
+        override fun removeAt(index: Int): String = items.removeAt(index)
+
+        override fun add(index: Int, element: String) {
+            if (items.size >= limit) return
+            items.add(index, element)
+        }
+    }
 }

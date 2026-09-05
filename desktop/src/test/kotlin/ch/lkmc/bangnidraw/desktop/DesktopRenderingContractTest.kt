@@ -53,6 +53,25 @@ class DesktopRenderingContractTest {
     }
 
     @Test
+    fun `an opened painting drains its readback before anything reads the mirror`() {
+        val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
+        val upload = between(engine, "private fun uploadInitialTiles(", "private fun uploadInitialReference(")
+
+        // Both saves compose from the mirror, and only finishReadback fills
+        // it. Nothing else drains until the first stroke or stack edit — so
+        // without this, opening a painting and saving it straight back writes
+        // a blank file over the one just read.
+        assertTrue(
+            upload.contains("DesktopReadbackPolicy.drain(renderer::finishReadback)"),
+            "an opened painting can be saved from an empty mirror",
+        )
+        // Drained, not required: a timeout is not worth refusing to open the
+        // painting over, which is what the checking variant would do here.
+        // The call form, not the name — the source names it in a comment.
+        assertFalse(upload.contains("requireReadback(renderer)"), upload)
+    }
+
+    @Test
     fun `desktop validates its frame target and renderer output`() {
         val engine = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/DesktopEngine.kt")
         val main = source("desktop/src/main/kotlin/ch/lkmc/bangnidraw/desktop/Main.kt")

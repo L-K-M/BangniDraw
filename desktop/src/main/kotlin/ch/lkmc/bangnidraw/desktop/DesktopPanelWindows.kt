@@ -169,7 +169,7 @@ private fun PanelWindow(
     onClose: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    val windowState = rememberWindowState(size = size, position = WindowPosition(Alignment_PlatformDefault))
+    val windowState = rememberWindowState(size = size, position = WindowPosition.PlatformDefault)
     Window(
         onCloseRequest = onClose,
         state = windowState,
@@ -187,9 +187,6 @@ private fun PanelWindow(
         }
     }
 }
-
-/** The host window manager places a new panel; we only ask for a size. */
-private val Alignment_PlatformDefault = androidx.compose.ui.Alignment.Center
 
 private val LAYER_PANEL_WIDTH = 340.dp
 private val LAYER_PANEL_HEIGHT = 520.dp

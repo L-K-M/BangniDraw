@@ -11,6 +11,9 @@ class ColorPanelSelectionContractTest {
     @Test
     fun `panel retains its HSV commits and accepts external colors`() {
         val source = File(repositoryRoot(), COLOR_PANEL_PATH).readText()
+        // substringBefore returns the whole string when the marker is gone,
+        // so a rename would leave this scanning the wrong region and passing.
+        check(PANEL_BODY_END in source) { "missing source marker $PANEL_BODY_END" }
         val panel = source.substringBefore(PANEL_BODY_END)
             .replace(WHITESPACE, " ")
 

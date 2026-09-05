@@ -35,7 +35,15 @@ internal object DesktopBangniWriter {
             partial = java.nio.file.Files
                 .createTempFile(parent.toPath(), PARTIAL_PREFIX, PARTIAL_SUFFIX)
                 .toFile()
-            partial.outputStream().buffered().use { out -> BangniCodec.write(out, document) }
+            // Closing the stream reaches the page cache, not the device.
+            // The rename below is atomic either way, so without this sync a
+            // crash can commit the rename over the previous version while the
+            // new bytes are still only in cache — losing both. `AtomicFiles`
+            // syncs for the same reason on the Android side.
+            java.io.FileOutputStream(partial).use { raw ->
+                raw.buffered().use { out -> BangniCodec.write(out, document) }
+                raw.fd.sync()
+            }
             if (Thread.currentThread().isInterrupted) {
                 return DesktopSaveResult.Failed(INTERRUPTED)
             }

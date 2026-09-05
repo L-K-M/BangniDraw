@@ -42,7 +42,10 @@ internal sealed interface DesktopReferenceResult {
 internal object DesktopReferenceIo {
 
     /** The extensions the import dialog offers. */
-    val EXTENSIONS = listOf("png", "jpg", "jpeg", "gif", "bmp", "webp")
+    // What this JVM's ImageIO actually reads. WebP is deliberately absent:
+    // the JDK ships no reader for it, so offering it in the dialog only sends
+    // the user to "not an image this app can read" on a file they can see.
+    val EXTENSIONS = listOf("png", "jpg", "jpeg", "gif", "bmp")
 
     fun import(
         file: File,

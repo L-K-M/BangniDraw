@@ -438,9 +438,16 @@ private fun androidx.compose.ui.window.ApplicationScope.DocumentWindow(
                                 ?: DesktopStrings.get("desktop_unsaved_this"),
                             onSave = {
                                 document.confirmingClose = false
+                                // The write completes on a later EDT event,
+                                // so the close has to travel with it: reading
+                                // `document.dirty` on the next line reads the
+                                // value from before the save every time.
                                 val file = document.file
-                                if (file == null) saveAs(window, document) else writeTo(document, file)
-                                if (!document.dirty) documents.close(document)
+                                if (file == null) {
+                                    saveAs(window, document) { documents.close(document) }
+                                } else {
+                                    writeTo(document, file, onSaved = { documents.close(document) })
+                                }
                             },
                             onDiscard = {
                                 document.confirmingClose = false
@@ -567,10 +574,15 @@ private fun requestClose(document: DesktopDocument, documents: DesktopDocuments)
     documents.close(document)
 }
 
-private fun saveAs(parent: java.awt.Frame?, document: DesktopDocument) {
+/** [onSaved] runs on the EDT after a successful write, and not at all otherwise. */
+private fun saveAs(
+    parent: java.awt.Frame?,
+    document: DesktopDocument,
+    onSaved: () -> Unit = {},
+) {
     val suggested = document.file?.name ?: (defaultStem() + "." + BangniCodec.EXTENSION)
     val target = DesktopFileDialogs.save(parent, suggested, BangniCodec.EXTENSION) ?: return
-    writeTo(document, target)
+    writeTo(document, target, onSaved = onSaved)
 }
 
 /**
@@ -595,7 +607,13 @@ private fun defaultStem(): String = DesktopBrand.exportFileStem(DesktopBrand.dis
  * layer, anything else is a flattened PNG. [adopt] is false for an export,
  * which must not move the document onto the file it just wrote.
  */
-private fun writeTo(document: DesktopDocument, file: java.io.File, adopt: Boolean = true) {
+private fun writeTo(
+    document: DesktopDocument,
+    file: java.io.File,
+    adopt: Boolean = true,
+    /** Runs on the EDT once the write succeeded, after `dirty` is cleared. */
+    onSaved: () -> Unit = {},
+) {
     val onComplete: (DesktopSaveResult) -> Unit = { result ->
         java.awt.EventQueue.invokeLater {
             when (result) {
@@ -605,6 +623,7 @@ private fun writeTo(document: DesktopDocument, file: java.io.File, adopt: Boolea
                         document.dirty = false
                     }
                     document.state.savedMessage = result.path
+                    onSaved()
                 }
                 is DesktopSaveResult.Failed ->
                     document.state.savedMessage =
@@ -839,7 +858,7 @@ private fun Shell(
                 layout = layout,
                 canUndo = engine.canUndo(),
                 canRedo = engine.canRedo(),
-                layerCount = state.stack.activeIndex + 1,
+                activeLayer = state.stack.activeIndex + 1,
                 layerPanelOpen = state.showLayerPanel,
                 brushColor = colorArgb,
                 colorPanelOpen = state.showColorPanel,

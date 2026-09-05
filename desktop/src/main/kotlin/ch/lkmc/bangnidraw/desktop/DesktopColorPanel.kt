@@ -157,7 +157,7 @@ internal fun DesktopColorPanel(
                 onSwap = state::swapColors,
                 onAdd = { state.addToPalette(draft) },
             )
-            ColorFields(state.colorSelection.argb, ::select)
+            ColorFields(draft, ::select)
 
             PaletteSwitcher(
                 palettes = state.palettes,

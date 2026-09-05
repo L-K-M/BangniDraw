@@ -199,7 +199,8 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   because the drag counts rows by their height. The handle publishes no
   semantics of its own — a pointer drag is not something a screen reader can
   perform, and the row menu's four moves are the path that works without one.
-  **The document model is a mutable `LayerStack` on the GL thread.** Panel
+  **The document model is a mutable slot holding an immutable `LayerStack`,
+  on the GL thread.** Panel
   actions arrive as `engine.editStack { stack, ids -> … }`, evaluated against
   the live model so a stale panel index is refused rather than applied to the
   wrong layer, and `Refusal` values come back for the panel's hint. Undo does
@@ -236,10 +237,31 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   opens; only a `formatVersion` a reader cannot honour is refused.
   Everything in a `.bangni` came from outside the program, so the reader
   **parses entry names and never joins them onto a path** — that is what makes
-  zip-slip inapplicable rather than merely guarded — bounds the expansion
-  (`MAX_ENTRIES`, `MAX_TOTAL_BYTES`), and drops a tile outside the grid, one
-  for a layer the manifest does not list, or one that fails `TileCodec`, with
-  a warning rather than a failed open. Android's `BangniProjectIo` **re-mints
+  zip-slip inapplicable rather than merely guarded — bounds the expansion, and
+  drops a tile outside the grid, one for a layer the manifest does not list, or
+  one that fails `TileCodec`, with a warning rather than a failed open.
+  **That budget is charged at decoded size, and the distinction is the whole
+  point:** tiles are *stored*, not deflated, because `TileCodec` already
+  compressed them — so an empty tile arrives as a few hundred bytes and becomes
+  `TILE_BYTES`, and a budget counting arrival bytes bounds nothing (200,000 of
+  them are tens of megabytes on the way in and 50 GB on the way out).
+  `MAX_TOTAL_BYTES` is `PerfConstants.LOW_RAM_GPU_TILE_BYTES` — more pixels
+  than the smallest supported device holds on the GPU at once, so a file past
+  it could not be opened there anyway — `MAX_ENTRY_BYTES` stops one entry
+  accumulating the whole remaining budget in a single buffer before it is
+  refused, and the warning list is bounded too. The three live on
+  `BangniCodec.Limits`, a parameter rather than constants read in place, so a
+  test can drive the accounting at four tiles instead of a thousand. What is
+  still owed is streaming tiles to the project store as they are read: the
+  reader builds the whole map first, so a *legitimate* very large painting
+  meets the same ceiling a crafted one does.
+  The manifest is not trusted past the codec either — `Document`'s own
+  `require`s (dpi above all, which it divides by) run inside `import`'s guard,
+  because an `IllegalArgumentException` from there would otherwise pass every
+  caller's catch, and `StudioViewModel`'s import catches `Exception` for the
+  same reason. `TracingReference`'s constructor is what validates an imported
+  asset name; `writeReferenceAsset` is handed the validated `assetName`, never
+  the record's raw field. Android's `BangniProjectIo` **re-mints
   layer ids on import**: two devices can hold the same painting, and importing
   it twice must not give two projects the same layer directory names. It
   exports through the system's create-document picker and imports through
@@ -273,6 +295,26 @@ python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-source
   drops its queued tasks (`released`) because its renderer is already gone.
   Only the host deactivates the context; a document's `releaseGl` frees its
   own renderer and nothing else.
+  **A save completes an event later than it is asked for**, on the EDT through
+  `invokeLater`, so anything that must follow one travels on `writeTo`'s
+  `onSaved` rather than reading `document.dirty` on the next line — that read
+  returns the value from before the save, every time. **Everything the engine
+  publishes reaches Compose the same way**: `onFrame`, `onStack`, `onPaper` and
+  `onEdited` are all called on the GL thread, from adjacent lines, and all four
+  marshal. And **an opened painting drains its readback before anything reads
+  the mirror** — both saves compose from it, only `finishReadback` fills it, and
+  nothing else drains until the first stroke or stack edit, so without the drain
+  in `uploadInitialTiles` an open followed by a Save writes a blank file over
+  the one just read. A **fill re-checks the layer lock where it re-reads the
+  active layer**: `startFill` authorizes one layer and `finishFill` commits to
+  whatever is selected seconds later. `fillGeneration` is `@Volatile` because
+  the scan's `isCancelled` reads it off the GL thread.
+  Image dimensions are read from the **header** before any decode, in
+  `DesktopImageIo` as in `DesktopReferenceIo`: `ImageIO.read` decodes first and
+  a 30000² PNG throws `OutOfMemoryError`, which is an `Error` and passes
+  straight through both catches and out of the process. `EXTENSIONS` lists only
+  what this JVM's ImageIO actually reads — no WebP, which the JDK ships no
+  reader for.
   Rendering is engine → offscreen FBO → glReadPixels → Compose image
   (DESKTOP.md architecture 1), mouse → PointerSample records, in-memory undo
   from the readback mirror, JVM DataStore prefs, and Save PNG to
@@ -539,11 +581,16 @@ each painting mirrors to one MediaStore image. Decision logic lives in
   `values-b+zh+Hans` needs. Desktop-only wording therefore lives in
   `strings.xml` under a `desktop_` prefix in **both** locale files, in the
   same change. Its overflow Help is `desktop_help_body`, under the same rule
-  as every other help body: state the non-obvious interaction (the eraser's
-  second click, the right button erasing) and carry the export directory the
-  icon rail no longer prints. `DesktopStringsTest` scans the shell's sources
+  as every other help body: state the non-obvious interaction (a second click
+  on the selected slot opening its settings, the right button erasing) and
+  carry the export directory the icon rail no longer prints. `DesktopStringsTest` scans the shell's sources
   for every `DesktopStrings.get`/`plural` name and fails on one the catalogue
   does not have.
+- **`:app` and `:desktop` both *truncate* the layer opacity percent.**
+  `(opacity * PERCENT).toInt()`, in both panels. It reads like a rounding bug
+  from either side alone, and a reviewer has already proposed "fixing" one of
+  them — which would put the two products a percent apart for half the slider,
+  on a number AGENTS.md requires to match. Change both or neither.
 - **Greyscale ARGB cannot encode hue.** `ColorPanel` keeps an `HsvSelection`;
   panel-originated ARGB echoes must not reconstruct HSV, while external colors
   must. Do not key the selection state directly to the current ARGB.

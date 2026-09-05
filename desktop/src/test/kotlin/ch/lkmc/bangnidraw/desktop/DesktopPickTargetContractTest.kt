@@ -56,6 +56,22 @@ class DesktopPickTargetContractTest {
         )
     }
 
+    @Test
+    fun `releasing the eyedropper key does not disarm a pick that borrowed it`() {
+        // The borrow belongs to `beginPickInto`, not to the key. Alt pressed
+        // and released while a pick is armed would otherwise hand the tool
+        // back and leave `pendingPick` set on a brush — so the next
+        // deliberate sample lands in the well, the exact failure the cancel
+        // above exists to prevent. `finishPick` clears the arming first, so
+        // the ordinary path still returns the tool.
+        val body = body("private fun returnEyedropper(")
+
+        assertTrue(
+            "if (pendingPick != null) return" in body,
+            "Alt released during an armed pick strands it on the previous tool",
+        )
+    }
+
     private fun body(marker: String): String {
         val source = File(repositoryRoot(), STATE_PATH).readText()
         val from = source.indexOf(marker)

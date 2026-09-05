@@ -89,6 +89,73 @@ class BangniProjectIoTest {
             first.document.stack.layers.map { it.id },
             second.document.stack.layers.map { it.id },
         )
+        // And neither import kept the file's own ids: two lists can differ
+        // while one of them still carries `layer-a`, which is the case the
+        // re-minting exists to prevent.
+        val fromFile = setOf(LayerId("layer-a"), LayerId("layer-b"))
+        assertTrue(first.document.stack.layers.none { it.id in fromFile })
+        assertTrue(second.document.stack.layers.none { it.id in fromFile })
+    }
+
+    @Test
+    fun `a skipped layer record does not shift which layer is active`() {
+        // The manifest lists an unusable record before the active one, so the
+        // imported list is shorter than the manifest's and the active id has
+        // to be looked up in the list that was actually built.
+        val bytes = bangni(
+            layersJson = """
+                {"id":"../escape","name":"Bad"},
+                {"id":"layer-a","name":"Paper"},
+                {"id":"layer-b","name":"Ink"}
+            """.trimIndent(),
+            activeLayerId = "layer-b",
+        )
+
+        val imported = importInto(temp.newFolder("skipped"), bytes, "s")
+
+        assertEquals(2, imported.document.stack.size)
+        // Index 1 of the manifest is "layer-a"; index 1 of what was imported
+        // is "layer-b", and the active layer is the one the file named.
+        assertEquals("Ink", imported.document.stack.active.props.name)
+        assertTrue(imported.warnings.any { it.contains("unusable id") })
+    }
+
+    @Test
+    fun `a manifest the document model refuses fails the import instead of throwing`() {
+        // Document divides by dpi and requires it positive. A hand-written
+        // zero would otherwise leave `import` as an IllegalArgumentException,
+        // past every caller's catch, on a file the user merely picked.
+        val bytes = bangni(
+            layersJson = """{"id":"layer-a","name":"Paper"}""",
+            activeLayerId = "layer-a",
+            dpi = 0,
+        )
+
+        val result = BangniProjectIo.import(
+            input = ByteArrayInputStream(bytes),
+            id = "project-dpi",
+            newLayerId = { LayerId("fresh") },
+            layerDirFor = { File(temp.newFolder("dpi"), it.value) },
+        )
+
+        assertTrue(result is BangniProjectIo.ImportResult.Failed)
+    }
+
+    /** A `.bangni` holding nothing but a hand-written manifest. */
+    private fun bangni(layersJson: String, activeLayerId: String, dpi: Int = 300): ByteArray {
+        val manifest = """
+            {"formatVersion":1,"title":"Sketch","width":$CANVAS,"height":$CANVAS,
+             "dpi":$dpi,"paperColor":$PAPER,"layers":[$layersJson],
+             "activeLayerId":"$activeLayerId","nextLayerName":9}
+        """.trimIndent().toByteArray()
+
+        return ByteArrayOutputStream().also { out ->
+            java.util.zip.ZipOutputStream(out).use { zip ->
+                zip.putNextEntry(java.util.zip.ZipEntry("manifest.json"))
+                zip.write(manifest)
+                zip.closeEntry()
+            }
+        }.toByteArray()
     }
 
     @Test

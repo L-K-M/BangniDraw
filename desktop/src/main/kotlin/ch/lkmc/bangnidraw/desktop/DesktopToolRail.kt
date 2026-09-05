@@ -164,7 +164,17 @@ internal fun DesktopToolRail(
                             icon = brushGlyphIcon(BrushToolGlyphPolicy.forPreset(paint)),
                             description = DesktopBrushUi.label(paint),
                             active = rail.brushSelected() && rail.selectedId == paint.id,
-                            onClick = { onAssignPaint(paint) },
+                            // The same rule the visible slots follow: a
+                            // second click on the selected one opens its
+                            // settings. Without it a brush behind this menu
+                            // has no path to its settings at all.
+                            onClick = {
+                                if (rail.brushSelected() && rail.selectedId == paint.id) {
+                                    onSettings()
+                                } else {
+                                    onAssignPaint(paint)
+                                }
+                            },
                         )
                     },
                 ),
@@ -196,7 +206,9 @@ internal fun DesktopToolRail(
     // the eraser another, the secondary tools a third. A catalogue missing one
     // of them must not put a rule through the middle of what is left.
     val dividersAfter = buildSet {
-        if (paintSlotButtons.isNotEmpty() && (eraserButtons + secondaryButtons).isNotEmpty()) {
+        if (paintSlotButtons.isNotEmpty() &&
+            (eraserButtons.isNotEmpty() || secondaryButtons.isNotEmpty())
+        ) {
             add(paintSlotButtons.lastIndex)
         }
         if (eraserButtons.isNotEmpty() && secondaryButtons.isNotEmpty()) {

@@ -80,9 +80,14 @@ internal class DesktopDocuments(
      * failure message when the file cannot be read; nothing is opened then.
      */
     fun openFile(file: File): String? {
-        // Reopening a file that is already open raises its window instead of
-        // producing two documents that would overwrite each other on save.
-        val existing = open.firstOrNull { it.file?.absoluteFile == file.absoluteFile }
+        // Reopening a file that is already open does not open it twice: two
+        // documents on one path would overwrite each other on save. Canonical
+        // rather than absolute, so a symlink or a `..` cannot slip past the
+        // check and produce that pair anyway. (Raising the existing window
+        // would be the friendlier answer and is not implemented yet; nothing
+        // visible happens today.)
+        val key = file.canonicalOrAbsolute()
+        val existing = open.firstOrNull { it.file?.canonicalOrAbsolute() == key }
         if (existing != null) return null
 
         return when (val result = DesktopDocumentIo.read(file)) {
@@ -99,6 +104,18 @@ internal class DesktopDocuments(
             }
         }
     }
+
+    /**
+     * The canonical path, or the absolute one when the file system refuses to
+     * resolve it — a path that cannot be canonicalized still has to compare
+     * as *something*, or an unreadable directory would let a file open twice.
+     */
+    private fun File.canonicalOrAbsolute(): File =
+        try {
+            canonicalFile
+        } catch (_: java.io.IOException) {
+            absoluteFile
+        }
 
     fun close(document: DesktopDocument) {
         if (!open.remove(document)) return
@@ -121,8 +138,15 @@ internal class DesktopDocuments(
             onFrame = { frame ->
                 java.awt.EventQueue.invokeLater { document.frame.value = frame }
             },
-            onStack = { stack -> document.state.publishStack(stack) },
-            onPaper = { argb -> document.state.publishPaper(argb) },
+            // Both arrive on the GL thread, from the same call sites as
+            // `onEdited` above — publishing Compose state from there races the
+            // recomposition reading it in the panels.
+            onStack = { stack ->
+                java.awt.EventQueue.invokeLater { document.state.publishStack(stack) }
+            },
+            onPaper = { argb ->
+                java.awt.EventQueue.invokeLater { document.state.publishPaper(argb) }
+            },
             onEdited = { java.awt.EventQueue.invokeLater { document.dirty = true } },
             initial = initial,
         )

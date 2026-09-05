@@ -1,5 +1,6 @@
 package ch.lkmc.bangnidraw.desktop
 
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,10 +17,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.toggleableState
-import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.engine.core.Curve
 
@@ -136,14 +133,15 @@ internal fun SettingToggle(label: String, checked: Boolean, onChange: (Boolean) 
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .semantics(mergeDescendants = true) {
-                role = Role.Switch
-                toggleableState = ToggleableState(checked)
-            },
+            .toggleable(
+                value = checked,
+                role = Role.Switch,
+                onValueChange = onChange,
+            ),
     ) {
         Text(label, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 

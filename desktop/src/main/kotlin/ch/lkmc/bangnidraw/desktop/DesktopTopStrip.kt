@@ -72,7 +72,7 @@ internal fun DesktopTopStrip(
     layout: LayoutSpec,
     canUndo: Boolean,
     canRedo: Boolean,
-    layerCount: Int,
+    activeLayer: Int,
     layerPanelOpen: Boolean,
     brushColor: Int,
     colorPanelOpen: Boolean,
@@ -99,7 +99,7 @@ internal fun DesktopTopStrip(
     }
     val tools: @Composable () -> Unit = {
         Row(horizontalArrangement = Arrangement.End) {
-            LayersButton(layerCount, layerPanelOpen, onLayers)
+            LayersButton(activeLayer, layerPanelOpen, onLayers)
             ColorButton(brushColor, colorPanelOpen, onColor)
             OverflowMenu(
                 guidesVisible,

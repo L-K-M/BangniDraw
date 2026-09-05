@@ -190,6 +190,72 @@ class BangniCodecTest {
         }
     }
 
+    // ------------------------------------------------ the expansion budget
+
+    @Test
+    fun `a tile is charged the size it decodes to, not the size it arrives as`() {
+        // Six empty tiles. Compressed they are a few hundred bytes each, so a
+        // budget counting arrival bytes would let all six through; decoded
+        // they are TILE_BYTES each, and the budget stops at four.
+        val entries = (0 until 6).map { index ->
+            "layers/layer-1/${index}_0.tile" to TileCodec.encode(ByteArray(TILE_BYTES))
+        }
+        val zip = zipOf(
+            BangniCodec.MANIFEST_ENTRY to json(manifest(listOf(record("layer-1")))),
+            *entries.toTypedArray(),
+        )
+        val compressed = entries.sumOf { it.second.size }
+        assertTrue(compressed < 4L * TILE_BYTES, "an empty tile must compress well for this to bite")
+
+        val failed = assertIs<BangniReadResult.Failed>(
+            BangniCodec.read(
+                ByteArrayInputStream(zip),
+                BangniCodec.Limits(maxTotalBytes = 4L * TILE_BYTES),
+            ),
+        )
+        assertTrue(failed.message.contains("expands past"), failed.message)
+    }
+
+    @Test
+    fun `one entry cannot expand past its own ceiling`() {
+        // Deflated, so the payload that arrives is far smaller than what it
+        // becomes: the per-entry cap is what stops the reader accumulating
+        // the whole remaining budget in one buffer before refusing.
+        val bomb = ByteArrayOutputStream().also { out ->
+            ZipOutputStream(out).use { zip ->
+                zip.putNextEntry(ZipEntry(BangniCodec.MANIFEST_ENTRY))
+                zip.write(ByteArray(512 * 1024))
+                zip.closeEntry()
+            }
+        }.toByteArray()
+
+        val failed = assertIs<BangniReadResult.Failed>(
+            BangniCodec.read(
+                ByteArrayInputStream(bomb),
+                BangniCodec.Limits(maxTotalBytes = 64L * 1024 * 1024, maxEntryBytes = 4096),
+            ),
+        )
+        assertTrue(failed.message.contains("expands past"), failed.message)
+        assertTrue(bomb.size < 4096, "the bomb must arrive smaller than the cap it trips")
+    }
+
+    @Test
+    fun `warnings stop growing however many junk entries arrive`() {
+        val junk = (0 until 40).map { "extra/$it.bin" to ByteArray(1) }
+        val read = assertIs<BangniReadResult.Ok>(
+            BangniCodec.read(
+                ByteArrayInputStream(
+                    zipOf(
+                        BangniCodec.MANIFEST_ENTRY to json(manifest(listOf(record("layer-1")))),
+                        *junk.toTypedArray(),
+                    ),
+                ),
+                BangniCodec.Limits(maxWarnings = 5),
+            ),
+        )
+        assertEquals(5, read.warnings.size)
+    }
+
     private fun roundTrip(document: BangniDocument): BangniReadResult {
         val bytes = ByteArrayOutputStream().also { BangniCodec.write(it, document) }.toByteArray()
         return BangniCodec.read(ByteArrayInputStream(bytes))

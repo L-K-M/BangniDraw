@@ -160,12 +160,25 @@ class DesktopToolContractTest {
 
         // A 4096-square scan is seconds; the GL thread must keep presenting.
         assertTrue(fill.contains("fillExecutor.execute"))
-        assertFalse(fill.contains("scan.run(seedX = seedX, seedY = seedY, progress = {}, isCancelled = { false })"))
+        // Matched loosely: an exact literal stops biting the moment anyone
+        // reformats the call, and an assertion that cannot fail is worse
+        // than no assertion, because it reads as cover.
+        assertFalse(
+            Regex("""scan\.run\([^)]*isCancelled\s*=\s*\{\s*false\s*\}""").containsMatchIn(fill),
+            "the scan must not run inline with a cancellation that never fires",
+        )
 
         val finish = between(engine, "private fun finishFill(", "fun cancelFill()")
         // The layer panel is its own window; the selection can move mid-scan.
         assertTrue(finish.contains("val active = stack.active"))
         assertTrue(finish.contains("PixelCommitKind.Fill"))
+        // And re-reading it means re-checking it: the layer the scan was
+        // authorized against is not necessarily the one being committed to,
+        // so a lock acquired during the scan must still refuse the pixels.
+        assertTrue(
+            finish.contains("StrokeLayerDecision.REFUSE_LOCKED"),
+            "a fill can land on a layer locked while its scan ran",
+        )
     }
 
     @Test

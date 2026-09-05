@@ -51,6 +51,15 @@ an explicit `concurrency:` group, `timeout-minutes:` on every job, and
 - **Concurrency:** keyed on the PR number (for `pull_request_target`,
   `github.ref` is the base branch and would collide across PRs); superseded
   reviews of an outdated diff are cancelled.
+- **Time budget:** `timeout-minutes: 180`, sized to the work rather than to a
+  round number — the action chunks the diff and spends ~4.5 min of
+  high-effort reasoning per chunk, so a large PR runs well past an hour.
+  It is not a knob to trim: a job killed by this timeout posts nothing, and
+  a reviewer that says nothing looks exactly like one that found nothing
+  (CLAUDE.md's infrastructure-failure rule). PR #193 hit that four times at
+  90 minutes, discarding 19 chunks of real findings each time. If a PR ever
+  needs more, raise it — do not remove it, since the family contract wants
+  every job bounded.
 - **Graceful degradation:** if the `ZAI_API_KEY` secret is absent the job
   logs a skip and stays green.
 - **Trust boundary:** the guard is same-repo, not admin-only — anyone with

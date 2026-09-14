@@ -4,8 +4,8 @@
 # in build files, no version numbers restated in docs (ADR 0002).
 
 agp = "9.3.2"
-kotlin = "2.4.10"
-ksp = "2.3.11"
+kotlin = "2.4.20"
+ksp = "2.3.12"
 composeBom = "2026.08.00"
 activityCompose = "1.13.0"
 coreKtx = "1.19.0"

@@ -129,7 +129,7 @@ jobs:
 
           ROOT="$RUNNER_TEMP/bangnidraw-deb"
           dpkg-deb -x "$DEB" "$ROOT"
-          DESKTOP_ENTRY="$(find "$ROOT" -name '*.desktop' -print -quit)"
+          DESKTOP_ENTRY="$(find "$ROOT" -type f -name '*.desktop' -print -quit)"
           grep -Fx 'Name=帮你Draw' "$DESKTOP_ENTRY"
           grep -Fx 'Categories=Graphics' "$DESKTOP_ENTRY"
 

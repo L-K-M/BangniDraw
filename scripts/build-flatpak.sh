@@ -23,8 +23,8 @@ DEB=""
 for argument in "$@"; do
   case "$argument" in
     --install) INSTALL=1 ;;
-    -h|--help) sed -n '2,10s/^# //p' "$0"; exit 0 ;;
-    *.deb) DEB="$argument" ;;
+    -h|--help) awk 'NR==1&&/^#!/{next} /^set -euo pipefail/{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; exit 0 ;;
+    *.deb) [ -z "$DEB" ] || die "pass at most one .deb"; DEB="$argument" ;;
     *) echo "Unknown argument: $argument" >&2; exit 2 ;;
   esac
 done
@@ -118,6 +118,6 @@ BUNDLE="$ROOT/dist/bangnidraw-linux-amd64.flatpak"
 flatpak build-bundle --runtime-repo="$FLATHUB_REPO" \
   "$WORK/repo" "$BUNDLE" "$APP_ID"
 if ((INSTALL)); then
-  flatpak install --user -y --noninteractive --bundle "$BUNDLE"
+  flatpak install --user -y --noninteractive "$BUNDLE"
 fi
 echo "Built ${BUNDLE#"$ROOT"/}"

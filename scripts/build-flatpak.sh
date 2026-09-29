@@ -83,7 +83,7 @@ DESKTOP="$(find "$WORK/stage/share/applications" -type f -name '*.desktop' -prin
 [ "$(dirname "$DESKTOP")" = "$WORK/stage/share/applications" ] ||
   mv "$DESKTOP" "$WORK/stage/share/applications/"
 DESKTOP="$WORK/stage/share/applications/$(basename "$DESKTOP")"
-sed -i 's|Exec=/usr/bin/|Exec=|; s|Exec=/opt/[^/]*/bin/|Exec=|' "$DESKTOP"
+sed -i -e 's|Exec=/usr/bin/\|Exec=/opt/[^/]*/bin/\|Exec=/app/bin/|Exec=|g' -e '/^TryExec=/d' "$DESKTOP"
 [ "$(basename "$DESKTOP")" = "$APP_ID.desktop" ] ||
   mv "$DESKTOP" "$WORK/stage/share/applications/$APP_ID.desktop"
 DESKTOP="$WORK/stage/share/applications/$APP_ID.desktop"

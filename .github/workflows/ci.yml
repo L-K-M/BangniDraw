@@ -156,6 +156,17 @@ jobs:
             grep -iF "GLES 3.0 context via $HOST" "$HOST_LOG"
           done
 
+      # Repack the same .deb as a Flatpak bundle (the release workflow ships
+      # it — keep the two in step).
+      - name: Flatpak bundle
+        run: |
+          sudo apt-get install --no-install-recommends -y flatpak flatpak-builder
+          # Ubuntu 24.04 denies the unprivileged user namespaces bubblewrap
+          # (flatpak's sandbox helper) builds in.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          DEB="$(find desktop/build/compose/binaries/main/deb -name '*.deb' -print -quit)"
+          scripts/build-flatpak.sh "$DEB"
+
       - name: Upload desktop distributable
         uses: actions/upload-artifact@v7
         with:

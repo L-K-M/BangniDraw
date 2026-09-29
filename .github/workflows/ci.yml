@@ -160,7 +160,7 @@ jobs:
       # it — keep the two in step).
       - name: Flatpak bundle
         run: |
-          sudo apt-get install --no-install-recommends -y flatpak flatpak-builder
+          sudo apt-get install --no-install-recommends -y flatpak flatpak-builder elfutils
           # Ubuntu 24.04 denies the unprivileged user namespaces bubblewrap
           # (flatpak's sandbox helper) builds in.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true   # absent on kernels without the knob

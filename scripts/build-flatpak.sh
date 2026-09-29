@@ -77,8 +77,8 @@ done < <(grep -rl '/usr/\|/opt/' "$WORK/stage/bin/" 2>/dev/null || true)
 # jpackage lib/ tree — flatpak exports it only from share/applications,
 # named after the app id.
 mkdir -p "$WORK/stage/share/applications"
-DESKTOP="$(find "$WORK/stage/share/applications" -name '*.desktop' -print -quit 2>/dev/null || true)"
-[ -n "$DESKTOP" ] || DESKTOP="$(find "$WORK/stage" -name '*.desktop' | head -1)"
+DESKTOP="$(find "$WORK/stage/share/applications" -type f -name '*.desktop' -print -quit 2>/dev/null || true)"
+[ -n "$DESKTOP" ] || DESKTOP="$(find "$WORK/stage" -type f -name '*.desktop' | head -1)"
 [ -n "$DESKTOP" ] || die "no .desktop file inside $DEB"
 [ "$(dirname "$DESKTOP")" = "$WORK/stage/share/applications" ] ||
   mv "$DESKTOP" "$WORK/stage/share/applications/"

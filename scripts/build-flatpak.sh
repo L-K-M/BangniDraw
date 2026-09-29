@@ -112,7 +112,7 @@ flatpak-builder --user --install-deps-from=flathub --force-clean \
 COMMAND_NAME="$(sed -n 's/^command:[[:space:]]*//p' "$MANIFEST" | head -1)"
 [ -n "$COMMAND_NAME" ] || die "no command: key in $MANIFEST"
 flatpak-builder --run "$WORK/build" "$MANIFEST" \
-  sh -c 'test -x "/app/bin/$1" || { echo "missing /app/bin/$1" >&2; ls -l /app/bin >&2; exit 1; }' _ "$COMMAND_NAME"
+  sh -c 'bin="/app/bin/$1"; test -x "$bin" || { echo "missing $bin" >&2; ls -l /app/bin >&2; exit 1; }; bad="$(ldd "$bin" 2>/dev/null | grep "not found" || true)"; [ -z "$bad" ] || { echo "unresolved libraries:\n$bad" >&2; exit 1; }' _ "$COMMAND_NAME"
 
 BUNDLE="$ROOT/dist/bangnidraw-linux-amd64.flatpak"
 flatpak build-bundle --runtime-repo="$FLATHUB_REPO" \

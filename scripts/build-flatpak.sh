@@ -63,7 +63,7 @@ fi
 # normalize it to the manifest's command. (jpackage launchers resolve lib/
 # relative to their own path, so this must be a link inside bin/, not a copy.)
 if [[ ! -x "$WORK/stage/bin/$COMMAND" ]]; then
-  LAUNCHER="$(find "$WORK/stage/bin" -maxdepth 1 -type f -executable ! -name "$COMMAND" | head -1)"
+  LAUNCHER="$(find "$WORK/stage/bin" -maxdepth 1 -type f -executable ! -name "$COMMAND" -print -quit)"
   [ -n "$LAUNCHER" ] || die "no launcher binary in $DEB's bin/ (looked for $COMMAND)"
   ln -sf "$(basename "$LAUNCHER")" "$WORK/stage/bin/$COMMAND"
 fi
@@ -71,14 +71,14 @@ fi
 # Wrapper scripts hardcode /usr or /opt; inside flatpak the prefix is /app.
 while IFS= read -r f; do
   sed -i '1!s|/usr/|/app/|g; 1!s|/opt/[^/]*/|/app/|g' "$f"
-done < <(grep -rl '/usr/\|/opt/' "$WORK/stage/bin/" 2>/dev/null || true)
+done < <(grep -rIl -e '/usr/' -e '/opt/' "$WORK/stage/bin/" 2>/dev/null || true)
 
 # The desktop file may live in /usr/share/applications or inside the
 # jpackage lib/ tree — flatpak exports it only from share/applications,
 # named after the app id.
 mkdir -p "$WORK/stage/share/applications"
 DESKTOP="$(find "$WORK/stage/share/applications" -type f -name '*.desktop' -print -quit 2>/dev/null || true)"
-[ -n "$DESKTOP" ] || DESKTOP="$(find "$WORK/stage" -type f -name '*.desktop' | head -1)"
+[ -n "$DESKTOP" ] || DESKTOP="$(find "$WORK/stage" -type f -name '*.desktop' -print -quit)"
 [ -n "$DESKTOP" ] || die "no .desktop file inside $DEB"
 [ "$(dirname "$DESKTOP")" = "$WORK/stage/share/applications" ] ||
   mv "$DESKTOP" "$WORK/stage/share/applications/"
@@ -91,7 +91,7 @@ DESKTOP="$WORK/stage/share/applications/$APP_ID.desktop"
 sed -i "s|^Icon=.*|Icon=$APP_ID|" "$DESKTOP"
 
 # Icons likewise export only when named after the app id.
-if ! find "$WORK/stage/share/icons" "$WORK/stage/share/pixmaps" -name "$APP_ID.*" 2>/dev/null | grep -q .; then
+if ! find "$WORK/stage/share/icons" "$WORK/stage/share/pixmaps" -name "$APP_ID.*" -print -quit 2>/dev/null | grep -q .; then
   ICON="$(find "$WORK/stage" -name '*.png' ! -path '*/runtime/*' -printf '%s\t%p\n' 2>/dev/null | sort -rn | head -n1 | cut -f2- || true)"
   [ -n "$ICON" ] || die "no icon inside $DEB"
   mkdir -p "$WORK/stage/share/icons/hicolor/256x256/apps"
@@ -109,10 +109,10 @@ flatpak-builder --user --install-deps-from=flathub --force-clean \
 # Smoke check: the staged tree must leave an executable under
 # /app/bin — catches a failed /usr->/app remap before the bundle
 # ships.
-COMMAND_NAME="$(sed -n 's/^command:[[:space:]]*//p' "$MANIFEST" | head -1)"
+COMMAND_NAME="$(sed -n 's/^command:[[:space:]]*//{p;q}' "$MANIFEST")"
 [ -n "$COMMAND_NAME" ] || die "no command: key in $MANIFEST"
 flatpak-builder --run "$WORK/build" "$MANIFEST" \
-  sh -c 'bin="/app/bin/$1"; test -x "$bin" || { echo "missing $bin" >&2; ls -l /app/bin >&2; exit 1; }; bad="$(ldd "$bin" 2>/dev/null | grep "not found" || true)"; [ -z "$bad" ] || { echo "unresolved libraries:\n$bad" >&2; exit 1; }' _ "$COMMAND_NAME"
+  sh -c 'bin="/app/bin/$1"; test -x "$bin" || { echo "missing $bin" >&2; ls -l /app/bin >&2; exit 1; }; bad="$(ldd "$bin" 2>/dev/null | grep "not found" || true)"; [ -z "$bad" ] || { printf 'unresolved libraries:\n%s\n' "$bad" >&2; exit 1; }' _ "$COMMAND_NAME"
 
 BUNDLE="$ROOT/dist/bangnidraw-linux-amd64.flatpak"
 flatpak build-bundle --runtime-repo="$FLATHUB_REPO" \

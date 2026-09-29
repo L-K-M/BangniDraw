@@ -65,6 +65,9 @@ done
 
 if [ "$FLATPAK" -eq 1 ]; then
   [ "$(uname -s)" = "Linux" ] || { echo "!! --flatpak requires Linux" >&2; exit 1; }
+  if [ "$INSTALL" -eq 1 ]; then
+    exec scripts/build-flatpak.sh --install
+  fi
   exec scripts/build-flatpak.sh
 fi
 

@@ -1,0 +1,26 @@
+# Flatpak manifest. scripts/build-flatpak.sh extracts the release .deb
+# (jpackage layout: /opt/bangnidraw + /usr/share desktop metadata) into
+# dist/flatpak/stage and builds from that — the bundle ships the same files
+# the .deb installs, relaid under flatpak's /app prefix.
+id: ch.lkmc.bangnidraw
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: bangnidraw
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  # OpenGL painting surface.
+  - --device=dri
+  # Opens and saves the user's documents, not just portal-picked ones.
+  - --filesystem=home
+modules:
+  - name: bangnidraw
+    buildsystem: simple
+    sources:
+      - type: dir
+        path: ../dist/flatpak/stage
+    build-commands:
+      - rm -rf DEBIAN
+      - "if [ -d usr ]; then cp -a usr/. /app/; else cp -a . /app/; fi"

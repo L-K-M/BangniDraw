@@ -19,8 +19,9 @@
 #   scripts/build.sh --clean          # wipe Gradle build output first
 #   scripts/build.sh --check          # print resolved config; build nothing
 #   scripts/build.sh --install        # desktop .app -> /Applications (macOS)
+#   scripts/build.sh --flatpak        # .deb repacked as a Flatpak -> dist/ (Linux)
 #
-# Usage: scripts/build.sh [--debug] [--clean] [--check] [--install]
+# Usage: scripts/build.sh [--debug] [--clean] [--check] [--install] [--flatpak]
 # Requirements: JDK 17+; the Android SDK (local.properties or ANDROID_HOME);
 #   --install additionally needs macOS, curl, and network access on
 #   the first build so the pinned ANGLE runtime can be cached.
@@ -49,16 +50,28 @@ VARIANT="release"
 CLEAN=0
 CHECK=0
 INSTALL=0
+FLATPAK=0
 for arg in "$@"; do
   case "$arg" in
     --debug) VARIANT="debug" ;;
     --clean) CLEAN=1 ;;
     --check) CHECK=1 ;;
     --install) INSTALL=1 ;;
+    --flatpak) FLATPAK=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "!! unknown argument: $arg" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+if [ "$FLATPAK" -eq 1 ]; then
+  [ "$(uname -s)" = "Linux" ] || { echo "!! --flatpak requires Linux" >&2; exit 1; }
+  [ "$CLEAN" -eq 0 ] && [ "$CHECK" -eq 0 ] && [ "$VARIANT" = release ] ||
+    { echo "!! --flatpak cannot combine with --debug/--clean/--check" >&2; exit 2; }
+  if [ "$INSTALL" -eq 1 ]; then
+    exec scripts/build-flatpak.sh --install
+  fi
+  exec scripts/build-flatpak.sh
+fi
 
 DESKTOP_TASK=":desktop:createDistributable"
 DESKTOP_NAME="$(desktop_display_name app/src/main/res/values/strings.xml || true)"

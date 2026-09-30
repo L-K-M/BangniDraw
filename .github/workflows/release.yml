@@ -129,7 +129,7 @@ jobs:
 
           ROOT="$RUNNER_TEMP/bangnidraw-deb"
           dpkg-deb -x "$DEB" "$ROOT"
-          DESKTOP_ENTRY="$(find "$ROOT" -name '*.desktop' -print -quit)"
+          DESKTOP_ENTRY="$(find "$ROOT" -type f -name '*.desktop' -print -quit)"
           grep -Fx 'Name=帮你Draw' "$DESKTOP_ENTRY"
           grep -Fx 'Categories=Graphics' "$DESKTOP_ENTRY"
 
@@ -152,6 +152,16 @@ jobs:
             "dist/bangnidraw-desktop-${GITHUB_REF_NAME}-linux-amd64.deb"
           (cd dist && sha256sum "bangnidraw-desktop-${GITHUB_REF_NAME}-linux-amd64.deb" \
             > "bangnidraw-desktop-${GITHUB_REF_NAME}-linux-amd64.deb.sha256")
+
+      - name: Build Flatpak bundle
+        run: |
+          sudo apt-get install --no-install-recommends -y flatpak flatpak-builder elfutils
+          # Ubuntu 24.04 denies the unprivileged user namespaces bubblewrap
+          # (flatpak's sandbox helper) builds in.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true   # absent on kernels without the knob
+          scripts/build-flatpak.sh "dist/bangnidraw-desktop-${GITHUB_REF_NAME}-linux-amd64.deb"
+          (cd dist && sha256sum bangnidraw-linux-amd64.flatpak \
+            > bangnidraw-linux-amd64.flatpak.sha256)
 
       - name: Upload verified release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -299,6 +309,8 @@ jobs:
               (minSdk 29).
             - **Linux**: `bangnidraw-desktop-<tag>-linux-amd64.deb` — needs
               GLES from Mesa or your vendor driver; nothing else.
+              `bangnidraw-linux-amd64.flatpak` is the same payload sandboxed —
+              `flatpak install` pulls the GNOME runtime from Flathub.
             - **macOS**: `bangnidraw-desktop-<tag>-macos-<arch>.dmg` bundles
               ANGLE for Metal. This unsigned developer preview requires
               Control-click → Open. Production still requires Developer ID

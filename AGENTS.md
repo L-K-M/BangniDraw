@@ -31,6 +31,7 @@ as they happen.
 ./gradlew :engine-core:desktopTest  # engine model layer, desktop-JVM target
 scripts/build.sh               # release APK staged into dist/
 scripts/build.sh --install     # desktop .app installed to /Applications (macOS)
+scripts/build.sh --flatpak     # desktop .deb repacked as a Flatpak (Linux)
 scripts/install.sh             # build + install + launch on a device
 python3 scripts/generate_icons.py   # regenerate launcher PNGs from media-sources/icon.png
 ```

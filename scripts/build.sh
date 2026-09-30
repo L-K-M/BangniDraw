@@ -65,6 +65,8 @@ done
 
 if [ "$FLATPAK" -eq 1 ]; then
   [ "$(uname -s)" = "Linux" ] || { echo "!! --flatpak requires Linux" >&2; exit 1; }
+  [ "$CLEAN" -eq 0 ] && [ "$CHECK" -eq 0 ] && [ "$VARIANT" = release ] ||
+    { echo "!! --flatpak cannot combine with --debug/--clean/--check" >&2; exit 2; }
   if [ "$INSTALL" -eq 1 ]; then
     exec scripts/build-flatpak.sh --install
   fi

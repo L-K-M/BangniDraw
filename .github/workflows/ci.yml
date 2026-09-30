@@ -164,7 +164,8 @@ jobs:
           # Ubuntu 24.04 denies the unprivileged user namespaces bubblewrap
           # (flatpak's sandbox helper) builds in.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true   # absent on kernels without the knob
-          DEB="$(find desktop/build/compose/binaries/main/deb -name '*.deb' -print -quit)"
+          DEB="$(find desktop/build/compose/binaries/main/deb -type f -name '*.deb' -print -quit)"
+          [ -n "$DEB" ] || { echo "!! no .deb to repack under desktop/build/compose/binaries/main/deb" >&2; exit 1; }
           scripts/build-flatpak.sh "$DEB"
 
       - name: Upload desktop distributable

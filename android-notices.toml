@@ -18,6 +18,11 @@ requires = ["androidx.graphics:graphics-path"]
 reason = "Native part of the AndroidX graphics-path AAR, which Compose UI pulls in"
 
 [[claim]]
+paths = ["lib/*/libdatastore_shared_counter.so"]
+requires = ["androidx.datastore:datastore-core"]
+reason = "Native part of the AndroidX datastore-core-android AAR (multi-process counter), which datastore-preferences pulls in"
+
+[[claim]]
 paths = ["assets/mixbox/mixbox.glsl", "assets/mixbox/mixbox_lut.png"]
 requires = ["com.scrtwpns:mixbox"]
 reason = "Vendored from upstream Mixbox shaders/ (third-party/mixbox/README.md); the CC BY-NC 4.0 entry covers them"

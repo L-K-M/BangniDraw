@@ -1442,7 +1442,9 @@ and the contradiction is noted here.
 - Desktop packaging (`prepareAppResources`) needs `python3` 3.9 or newer.
 - CI and release check the notices inside every artifact (`android_notices.py
   check` and `scan` on the APKs, `test -s` and sentinels in the deb, the
-  Flatpak and the .app). Keep them passing.
+  Flatpak and the .app). Keep them passing. Every native library or
+  vendored asset in the APK, including those an AAR brings (graphics-core,
+  datastore-core), needs a `[[claim]]` in `android-notices.toml`.
 
 ## CI/CD
 

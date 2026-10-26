@@ -28,7 +28,7 @@ electronAngle = "41.10.3"
 # Mixbox 2.0 — CC BY-NC 4.0, see ADR 0003 and third-party/mixbox/.
 mixbox = "2.0.0"
 # Third-party notices (AboutLibraries): generated from the resolved graph.
-aboutLibraries = "15.2.0"
+aboutLibraries = "15.3.0"
 junit = "4.13.2"
 
 [libraries]

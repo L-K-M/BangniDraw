@@ -129,6 +129,15 @@ jobs:
 
           ROOT="$RUNNER_TEMP/bangnidraw-deb"
           dpkg-deb -x "$DEB" "$ROOT"
+          # The deb states the project's own license instead of jpackage's
+          # "License: Unknown". `if` rather than `! grep`: bash -e ignores a
+          # negated command's status, so `! grep` could never fail the step.
+          COPYRIGHT="$ROOT/opt/bangnidraw/share/doc/copyright"
+          grep -Fx 'License: Unlicense' "$COPYRIGHT"
+          if grep -F 'License: Unknown' "$COPYRIGHT"; then
+            echo "!! $COPYRIGHT still says License: Unknown" >&2
+            exit 1
+          fi
           DESKTOP_ENTRY="$(find "$ROOT" -type f -name '*.desktop' -print -quit)"
           grep -Fx 'Name=帮你Draw' "$DESKTOP_ENTRY"
           grep -Fx 'Categories=Graphics' "$DESKTOP_ENTRY"

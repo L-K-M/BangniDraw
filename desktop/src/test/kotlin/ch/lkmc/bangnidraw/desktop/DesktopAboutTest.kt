@@ -26,8 +26,28 @@ class DesktopAboutTest {
     fun `Mixbox build carries its required attribution`() {
         val body = DesktopAbout.body(MixboxAttribution.Included)
 
-        assertTrue(body.contains("Mixbox"))
-        assertTrue(body.contains("CC BY-NC 4.0"))
+        assertTrue(body.contains("Mixbox", ignoreCase = true))
+        // CC BY-NC 4.0 3(a)(1): the creators, the license by URI, the
+        // warranty notice and a link to the material, as Android shows them.
+        assertTrue(body.contains("Secret Weapons"))
+        assertTrue(body.contains("Sarka Sochorova and Ondrej Jamriska"))
+        assertTrue(body.contains(MIXBOX_LICENSE_URI), "the CC BY-NC 4.0 license URI is missing")
+        assertTrue(body.contains(MIXBOX_SOURCE), "the link to the Mixbox source is missing")
+    }
+
+    @Test
+    fun `both builds scope the Unlicense to the app's own code`() {
+        // The app bundles third-party libraries under their own licenses, so
+        // the dedication must not read as covering the whole download.
+        for (attribution in MixboxAttribution.entries) {
+            val body = DesktopAbout.body(attribution)
+
+            assertTrue(body.contains("Unlicense"), "$attribution About omits the app's own license")
+            assertTrue(
+                body.contains(DesktopStrings.get("open_source_licenses")),
+                "$attribution About does not point at the bundled notices",
+            )
+        }
     }
 
     @Test
@@ -35,5 +55,10 @@ class DesktopAboutTest {
         val body = DesktopAbout.body(MixboxAttribution.Excluded)
 
         assertFalse(body.contains("Mixbox"))
+    }
+
+    private companion object {
+        const val MIXBOX_LICENSE_URI = "https://creativecommons.org/licenses/by-nc/4.0/"
+        const val MIXBOX_SOURCE = "https://github.com/scrtwpns/mixbox"
     }
 }

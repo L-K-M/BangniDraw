@@ -75,7 +75,9 @@ jobs:
           APK=app/build/outputs/apk/release/app-release.apk
           python3 -I scripts/android_notices.py check "$APK" --config android-notices.toml \
             --require com.scrtwpns:mixbox
-          python3 -I scripts/android_notices.py scan "$APK" --config android-notices.toml
+          python3 -I scripts/android_notices.py scan "$APK" --config android-notices.toml \
+            --fetch-from https://dl.google.com/dl/android/maven2 \
+            --fetch-from https://repo.maven.apache.org/maven2
 
       - name: Stage release artifacts
         run: |

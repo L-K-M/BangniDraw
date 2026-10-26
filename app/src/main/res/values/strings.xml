@@ -413,11 +413,13 @@
     <string name="shortcut_action_toggle_color">Color panel</string>
     <string name="shortcut_action_eyedropper_hold">Eyedropper while held</string>
     <string name="about_title" translatable="false">帮你Draw %1$s</string>
-    <string name="about_body">帮你Draw helps you draw: a simple, fast sketching and painting app for phones and tablets, made for the S Pen. Fully offline — no permissions or network access. Paintings leave only when you share them or keep gallery copies.\n\nBuilt almost entirely by LLM agents. Public domain (Unlicense).</string>
+    <string name="about_body">帮你Draw helps you draw: a simple, fast sketching and painting app for phones and tablets, made for the S Pen. Fully offline — no permissions or network access. Paintings leave only when you share them or keep gallery copies.\n\nBuilt almost entirely by LLM agents.</string>
     <string name="about_autosave">Autosave runs after %1$d quiet seconds and never waits longer than %2$d seconds.</string>
     <string name="about_uninstall">Uninstalling removes paintings and undo history from the app. Gallery copies remain.</string>
-    <string name="about_mixbox">MIXBOX 2.0 (c) 2022 Secret Weapons. All rights reserved. License: Creative Commons Attribution-NonCommercial 4.0. Authors: Sarka Sochorova and Ondrej Jamriska. https://creativecommons.org/licenses/by-nc/4.0/. Unmodified; used for pigment-style color mixing. This makes the app non-commercial as distributed.</string>
+    <string name="about_mixbox">MIXBOX 2.0 (c) 2022 Secret Weapons. All rights reserved. License: Creative Commons Attribution-NonCommercial 4.0. Authors: Sarka Sochorova and Ondrej Jamriska. https://creativecommons.org/licenses/by-nc/4.0/. Source: https://github.com/scrtwpns/mixbox. Provided as-is, without warranty; see the license. Unmodified; used for pigment-style color mixing. This makes the app non-commercial as distributed.</string>
     <string name="about_mixbox_license">Open CC BY-NC 4.0 license</string>
+    <string name="about_license">帮你Draw\u2019s own code is public domain (Unlicense). The third-party components it bundles keep their own licenses; see Open-source licenses.</string>
+    <string name="open_source_licenses">Open-source licenses</string>
     <string name="about_close">Close</string>
     <string name="help_button_cd">Help: %1$s</string>
     <string name="canvas_help">Help</string>

@@ -1,0 +1,23 @@
+# Overrides for scripts/android_notices.py, which checks the third-party
+# notices inside the APK (CI and release). Every claim needs a reason; the
+# checker rejects unknown keys.
+
+require = ["org.jetbrains.kotlin:kotlin-stdlib"]
+
+# The vendored Mixbox shader and lookup table are third-party content too.
+watch = ["assets/mixbox/*"]
+
+[[claim]]
+paths = ["lib/*/libgraphics-core.so"]
+requires = ["androidx.graphics:graphics-core"]
+reason = "Native part of the AndroidX graphics-core AAR (front-buffered rendering)"
+
+[[claim]]
+paths = ["lib/*/libandroidx.graphics.path.so"]
+requires = ["androidx.graphics:graphics-path"]
+reason = "Native part of the AndroidX graphics-path AAR, which Compose UI pulls in"
+
+[[claim]]
+paths = ["assets/mixbox/mixbox.glsl", "assets/mixbox/mixbox_lut.png"]
+requires = ["com.scrtwpns:mixbox"]
+reason = "Vendored from upstream Mixbox shaders/ (third-party/mixbox/README.md); the CC BY-NC 4.0 entry covers them"

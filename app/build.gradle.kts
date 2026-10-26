@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.aboutlibraries.android)
 }
 
 val mixboxEnabled = providers.gradleProperty("bangnidraw.mixbox")
@@ -89,6 +90,28 @@ android {
                 assets.srcDir(mixboxAssets)
             }
         }
+    }
+}
+
+// Third-party notices: res/raw/aboutlibraries.json in every APK, generated
+// offline from the resolved graph plus config/libraries and config/licenses,
+// and shown by LicensesActivity. Fails on a dependency without a license or
+// with one outside this list; scripts/android_notices.py checks the APK.
+aboutLibraries {
+    offlineMode = true
+    collect {
+        configPath = file("config")
+        fetchRemoteLicense = false
+        fetchRemoteFunding = false
+    }
+    library {
+        requireLicense = true
+    }
+    license {
+        strictMode = com.mikepenz.aboutlibraries.plugin.StrictMode.FAIL
+        allowedLicenses.addAll("Apache-2.0", "BSD-3-Clause")
+        // Mixbox is non-commercial (ADR 0003) and allowed for it alone.
+        allowedLicensesMap = mapOf("CC-BY-NC-4.0" to listOf("com.scrtwpns:mixbox"))
     }
 }
 

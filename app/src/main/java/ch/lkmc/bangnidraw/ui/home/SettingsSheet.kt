@@ -51,6 +51,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import ch.lkmc.bangnidraw.BuildConfig
+import ch.lkmc.bangnidraw.LicensesActivity
 import ch.lkmc.bangnidraw.R
 import ch.lkmc.bangnidraw.engine.core.AppTheme
 import ch.lkmc.bangnidraw.engine.core.AutosavePolicy
@@ -529,6 +530,15 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(stringResource(R.string.about_uninstall))
+                    Spacer(Modifier.height(12.dp))
+                    // The dedication covers the app's own code; the bundled
+                    // libraries' notices are one tap away.
+                    Text(stringResource(R.string.about_license))
+                    TextButton(onClick = {
+                        context.startActivity(Intent(context, LicensesActivity::class.java))
+                    }) {
+                        Text(stringResource(R.string.open_source_licenses))
+                    }
                 }
                 if (BuildConfig.MIXBOX) {
                     item {

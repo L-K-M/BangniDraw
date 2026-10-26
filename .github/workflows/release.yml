@@ -68,6 +68,15 @@ jobs:
       - name: Build release APK
         run: ./gradlew assembleRelease
 
+      # The published APK carries its third-party notices (generated
+      # definitions with full texts, claims for native code and Mixbox).
+      - name: Check third-party notices in the release APK
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          python3 -I scripts/android_notices.py check "$APK" --config android-notices.toml \
+            --require com.scrtwpns:mixbox
+          python3 -I scripts/android_notices.py scan "$APK" --config android-notices.toml
+
       - name: Stage release artifacts
         run: |
           mkdir -p dist

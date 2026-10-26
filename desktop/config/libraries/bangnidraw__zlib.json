@@ -1,0 +1,14 @@
+{
+  "_comment": "Skia DEPS third_party/externals/zlib at 646b7f56 (deflate 1.3.0.1 in the binary), LICENSE; chromium/src 122.0.6261.0 LICENSE for its Chromium files",
+  "uniqueId": "bangnidraw:zlib",
+  "licenses": [
+    "Zlib-zlib",
+    "BSD-3-Clause-zlib-chromium"
+  ],
+  "name": "zlib (in libskiko)",
+  "artifactVersion": "1.3.0.1",
+  "website": "https://chromium.googlesource.com/chromium/src/third_party/zlib/+/646b7f569718921d7d4b5b8e22572ff6c76f2596",
+  "description": "Chromium's zlib, statically linked into libskiko. Copyright 1995-2023 Jean-loup Gailly and Mark Adler. Chromium's optimizations in it are Copyright 2017-2023 The Chromium Authors (chunkcopy.h also Copyright (C) 2017 ARM, Inc.), under the Chromium BSD-3-Clause license below or the zlib license, as each file states; crc_folding.c is Copyright (C) 2013 Intel Corporation, under the zlib license.",
+  "developers": [],
+  "tag": "bundled"
+}

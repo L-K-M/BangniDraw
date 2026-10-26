@@ -54,6 +54,19 @@ jobs:
           ./gradlew testDebugUnitTest lintDebug assembleDebug
           :engine-core:desktopTest :engine-gl:desktopTest :desktop:test
 
+      # Every APK that leaves CI carries its third-party notices: generated
+      # definitions with full texts, and claims for native code and the
+      # vendored Mixbox assets. scan reads the jars and AARs from the Gradle
+      # cache, so it runs in the job that built the APK.
+      - name: Check third-party notices in the debug APK
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          python3 -I scripts/android_notices.py check "$APK" --config android-notices.toml \
+            --require com.scrtwpns:mixbox
+          python3 -I scripts/android_notices.py scan "$APK" --config android-notices.toml \
+            --fetch-from https://dl.google.com/dl/android/maven2 \
+            --fetch-from https://repo.maven.apache.org/maven2
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
@@ -74,6 +87,16 @@ jobs:
       # proguard-rules.pro was written.
       - name: Assemble the shipped release configuration
         run: ./gradlew assembleRelease
+
+      # The same notices gate release.yml applies to the APK it publishes.
+      - name: Check third-party notices in the release APK
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          python3 -I scripts/android_notices.py check "$APK" --config android-notices.toml \
+            --require com.scrtwpns:mixbox
+          python3 -I scripts/android_notices.py scan "$APK" --config android-notices.toml \
+            --fetch-from https://dl.google.com/dl/android/maven2 \
+            --fetch-from https://repo.maven.apache.org/maven2
 
       # The stripped source set and its R8 graph differ from the default APK.
       - name: Assemble release without Mixbox
@@ -123,6 +146,33 @@ jobs:
 
           ROOT="$RUNNER_TEMP/bangnidraw-deb"
           dpkg-deb -x "$DEB" "$ROOT"
+          # The deb states the project's own license instead of jpackage's
+          # "License: Unknown". `if` rather than `! grep`: bash -e ignores a
+          # negated command's status, so `! grep` could never fail the step.
+          COPYRIGHT="$ROOT/opt/bangnidraw/share/doc/copyright"
+          grep -Fx 'License: Unlicense' "$COPYRIGHT"
+          if grep -F 'License: Unknown' "$COPYRIGHT"; then
+            echo "!! $COPYRIGHT still says License: Unknown" >&2
+            exit 1
+          fi
+          # Third-party notices and the app's own license ship with the app's
+          # resources, the runtime keeps its legal/ texts, and the notices name
+          # the ICU and zlib versions libskiko links statically.
+          NOTICES="$ROOT/opt/bangnidraw/lib/app/resources/Third-Party-Notices.txt"
+          test -s "$NOTICES"
+          test -s "$ROOT/opt/bangnidraw/lib/app/resources/BangniDraw-LICENSE.txt"
+          test -s "$ROOT/opt/bangnidraw/lib/runtime/legal/java.base/LICENSE"
+          for SENTINEL in 'org.lwjgl:lwjgl' 'Skia (in Skiko' 'GLFW' 'OpenJDK runtime' \
+            'Source: https://github.com/adoptium/jdk'; do
+            grep -Fq "$SENTINEL" "$NOTICES" || { echo "!! $NOTICES lacks $SENTINEL" >&2; exit 1; }
+          done
+          test -f "$ROOT/opt/bangnidraw/lib/app/libskiko-linux-x64.so"
+          python3 -I scripts/static-runtime-notices.py check "$ROOT/opt/bangnidraw/lib/app" --notices "$NOTICES"
+          # This job builds the Mixbox-stripped variant, which must not list it.
+          if grep -F 'com.scrtwpns:mixbox' "$NOTICES"; then
+            echo "!! the stripped package lists Mixbox in $NOTICES" >&2
+            exit 1
+          fi
           DESKTOP_ENTRY="$(find "$ROOT" -type f -name '*.desktop' -print -quit)"
           grep -Fx 'Name=帮你Draw' "$DESKTOP_ENTRY"
           grep -Fx 'Categories=Graphics' "$DESKTOP_ENTRY"
@@ -223,12 +273,24 @@ jobs:
           ANGLE_RESOURCES="$APP/Contents/app/resources"
           EGL="$ANGLE_RESOURCES/libEGL.dylib"
           GLES="$ANGLE_RESOURCES/libGLESv2.dylib"
-          LICENSE="$ANGLE_RESOURCES/LICENSE"
+          ELECTRON_LICENSE="$ANGLE_RESOURCES/Electron-LICENSE.txt"
           NOTICES="$ANGLE_RESOURCES/LICENSES.chromium.html"
           test -f "$EGL"
           test -f "$GLES"
-          test -f "$LICENSE"
-          test -f "$NOTICES"
+          test -s "$ELECTRON_LICENSE"
+          test -s "$NOTICES"
+          # Electron's MIT text must not sit there as a bare LICENSE.
+          test ! -e "$ANGLE_RESOURCES/LICENSE"
+
+          # Third-party notices, the app's own license and the runtime's legal/.
+          THIRD_PARTY="$ANGLE_RESOURCES/Third-Party-Notices.txt"
+          test -s "$THIRD_PARTY"
+          test -s "$ANGLE_RESOURCES/BangniDraw-LICENSE.txt"
+          test -s "$APP/Contents/runtime/Contents/Home/legal/java.base/LICENSE"
+          for SENTINEL in 'org.lwjgl:lwjgl' 'Skia (in Skiko' 'OpenJDK runtime' \
+            'ANGLE (libEGL.dylib' 'com.scrtwpns:mixbox'; do
+            grep -Fq "$SENTINEL" "$THIRD_PARTY" || { echo "!! $THIRD_PARTY lacks $SENTINEL" >&2; exit 1; }
+          done
 
           NATIVE_ARCH="$(uname -m)"
           case "$NATIVE_ARCH" in

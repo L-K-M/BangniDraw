@@ -139,6 +139,50 @@ class DesktopPackagingContractTest {
     }
 
     @Test
+    fun `packages carry the notices and the app's own license`() {
+        val build = source("desktop/build.gradle.kts")
+
+        assertTrue(build.contains("stageCommonAppResources"))
+        assertTrue(build.contains("dependsOn(stageMacAngle, stageCommonAppResources)"))
+        assertTrue(build.contains("BangniDraw-LICENSE.txt"))
+        assertTrue(build.contains("licenseFile.set(project.file(\"packaging/linux/copyright-license.txt\"))"))
+        assertTrue(build.contains("copyright = \"Public domain (Unlicense)."))
+    }
+
+    @Test
+    fun `the deb's License field carries the root LICENSE verbatim`() {
+        // jpackage pastes this file after "License: " in the deb's copyright
+        // file: the short name, then LICENSE as DEP-5 continuation lines.
+        val field = source("desktop/packaging/linux/copyright-license.txt").lines()
+        val license = source("LICENSE").trimEnd('\n').lines()
+
+        assertEquals("Unlicense", field.first())
+        val continuation = field.drop(1).takeWhile { it.startsWith(" ") }
+        assertEquals(license.map { if (it.isBlank()) " ." else " $it" }, continuation)
+        assertTrue(field.any { it.startsWith("Comment:") && "own code" in it })
+        assertTrue(field.joinToString("\n").contains("lib/app/resources/Third-Party-Notices.txt"))
+    }
+
+    @Test
+    fun `Linux CI and release check the notices inside the deb`() {
+        val ciLinux = source(".github/workflows/ci.yml")
+            .substringAfter("\n  desktop-linux:\n", "")
+            .substringBefore("\n  desktop-macos:\n", "")
+        val releaseLinux = source(".github/workflows/release.yml")
+            .substringAfter("\n  build-desktop-linux:\n", "")
+            .substringBefore("\n  build-desktop-macos:\n", "")
+
+        listOf(ciLinux, releaseLinux).forEach { workflow ->
+            assertTrue(workflow.contains("lib/app/resources/Third-Party-Notices.txt"))
+            assertTrue(workflow.contains("lib/app/resources/BangniDraw-LICENSE.txt"))
+            assertTrue(workflow.contains("lib/runtime/legal/java.base/LICENSE"))
+            assertTrue(workflow.contains("grep -Fx 'License: Unlicense'"))
+            assertTrue(workflow.contains("scripts/static-runtime-notices.py check"))
+        }
+        assertTrue(source("scripts/build-flatpak.sh").contains("/app/lib/app/resources/Third-Party-Notices.txt"))
+    }
+
+    @Test
     fun `Compose receives mac resources from its actual target directories`() {
         assertTrue(repoFile("desktop/packaging/angle/macos-arm64").isDirectory)
         assertTrue(repoFile("desktop/packaging/angle/macos-x64").isDirectory)

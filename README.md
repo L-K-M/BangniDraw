@@ -93,7 +93,22 @@ states this when included, and `-Pbangnidraw.mixbox=false` strips it.
 
 ## License
 
-[Unlicense](LICENSE) — public domain, for everything written here.
+帮你Draw's own code is released under the [Unlicense](LICENSE). The builds
+bundle third-party code that keeps its own licenses: the Android app bundles
+AndroidX, Jetpack Compose, Hilt and Kotlin libraries; the desktop packages
+bundle an OpenJDK runtime (GPL-2.0 with the Classpath Exception), Compose
+Multiplatform with Skiko and Skia, LWJGL with GLFW, Kotlin libraries and, on
+macOS, ANGLE from Electron. Their notices ship inside each artifact:
+
+- Android: About and licenses > Open-source licenses
+- Linux packages: `/opt/bangnidraw/lib/app/resources/Third-Party-Notices.txt`
+  (Flatpak: `/app/lib/app/resources/`), with the package's copyright file
+  in `/opt/bangnidraw/share/doc/copyright`
+- macOS: `帮你Draw.app/Contents/app/resources/Third-Party-Notices.txt`, next
+  to ANGLE's `LICENSES.chromium.html` and Electron's `Electron-LICENSE.txt`
+
+The desktop notices name the exact OpenJDK build and the URL of its source;
+the runtime's own license texts are in its `legal/` directory.
 
 Natural color mixing is [Mixbox](https://github.com/scrtwpns/mixbox)
 © 2022 Secret Weapons, licensed **CC BY-NC 4.0 — non-commercial use only**
@@ -101,3 +116,7 @@ Natural color mixing is [Mixbox](https://github.com/scrtwpns/mixbox)
 distributed is non-commercial; the reasoning and the way out are recorded in
 `docs/decisions/0003-mixbox-non-commercial.md`. Build without it with
 `-Pbangnidraw.mixbox=false`.
+
+The Unlicense covers 帮你Draw's own code only. `third-party/mixbox/LICENSE`
+is Mixbox's license text, not this project's, and the Mixbox shader files in
+`engine-gl/src/mixbox/assets/mixbox/` keep that license.

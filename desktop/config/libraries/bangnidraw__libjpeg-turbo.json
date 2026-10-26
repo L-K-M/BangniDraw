@@ -1,0 +1,14 @@
+{
+  "_comment": "Skia DEPS third_party/externals/libjpeg-turbo at e14cbfaa (3.1.0 in the binary), LICENSE.md; Skia DEPS third_party/externals/libjpeg-turbo at e14cbfaa, README.ijg (the IJG License)",
+  "uniqueId": "bangnidraw:libjpeg-turbo",
+  "licenses": [
+    "BSD-3-Clause-libjpeg-turbo",
+    "IJG-libjpeg-turbo"
+  ],
+  "name": "libjpeg-turbo (in libskiko)",
+  "artifactVersion": "3.1.0",
+  "website": "https://chromium.googlesource.com/chromium/deps/libjpeg_turbo.git/+/e14cbfaa85529d47f9f55b0f104a579c1061f9ad",
+  "description": "Statically linked into libskiko. This software is based in part on the work of the Independent JPEG Group.",
+  "developers": [],
+  "tag": "bundled"
+}

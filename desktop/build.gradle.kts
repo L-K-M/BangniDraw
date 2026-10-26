@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.aboutlibraries)
 }
 
 // Keep this packaging-time copy aligned with DesktopBrand.parseDisplayName.
@@ -81,7 +82,10 @@ val macAngleTarget = when (hostArchitecture) {
     in x64Architectures -> "macos-x64"
     else -> error("unsupported macOS architecture: $hostArchitecture")
 }
-val macAngleResources = layout.buildDirectory.dir("generated/angle/resources")
+// Compose app resources: common/ for every OS (the notices) and the macOS
+// ANGLE runtime under macos-arm64/ or macos-x64/. They land in lib/app/resources
+// (deb, Flatpak) and Contents/app/resources (dmg).
+val appResources = layout.buildDirectory.dir("generated/app-resources")
 val stageMacAngle = tasks.register<Exec>("stageMacAngle") {
     val fetchScript = layout.projectDirectory.file("../scripts/fetch-angle-macos.sh")
     val angleVersion = libs.versions.electronAngle.get()
@@ -89,14 +93,14 @@ val stageMacAngle = tasks.register<Exec>("stageMacAngle") {
     inputs.file(fetchScript)
     inputs.property("electronAngleVersion", angleVersion)
     inputs.property("macAngleTarget", macAngleTarget)
-    outputs.dir(macAngleResources.get().dir(macAngleTarget))
+    outputs.dir(appResources.get().dir(macAngleTarget))
 
     enabled = hostOsName.startsWith("Mac")
     commandLine(
         fetchScript.asFile.absolutePath,
         angleVersion,
         macAngleTarget,
-        macAngleResources.get().asFile.absolutePath,
+        appResources.get().asFile.absolutePath,
     )
 }
 
@@ -129,9 +133,20 @@ compose.desktop {
             vendor = "L-K-M"
             modules("java.instrument", "jdk.management", "jdk.unsupported")
 
-            // macOS packages stage pinned ANGLE binaries and notices here.
-            // Linux uses the system EGL/GLES implementation.
-            appResourcesRootDir = macAngleResources.get().asFile
+            // Third-party notices for every OS, plus the pinned ANGLE
+            // binaries and their notices on macOS (Linux uses the system
+            // EGL/GLES implementation).
+            appResourcesRootDir = appResources.get().asFile
+
+            // Finder's Get Info and the deb's copyright file: the app's own
+            // license, scoped, because the packages bundle third-party code.
+            copyright = "Public domain (Unlicense). Bundled components keep their own licenses."
+            // jpackage puts this text in the deb's share/doc/copyright as the
+            // License field, instead of "Unknown". Linux only: on macOS
+            // jpackage would turn it into a dmg license agreement.
+            if (hostOsName.startsWith("Linux")) {
+                licenseFile.set(project.file("packaging/linux/copyright-license.txt"))
+            }
 
             // Windows is out of scope for the desktop port (DESKTOP.md covers
             // macOS and Linux); if it returns, restore a windows { menuGroup … }
@@ -168,8 +183,126 @@ compose.desktop {
     }
 }
 
+// Third-party notices for the desktop packages: the runtime classpath that
+// ships, plus config/ for what no POM describes (Skia and the libraries
+// libskiko links statically, LWJGL's natives, Skiko's NOTICE). Offline, and
+// fails on a dependency without a license or outside the allow-list.
+aboutLibraries {
+    offlineMode = true
+    collect {
+        configPath = file("config")
+        fetchRemoteLicense = false
+        fetchRemoteFunding = false
+        filterVariants.add("runtimeClasspath")
+    }
+    export {
+        outputFile = layout.buildDirectory.file("generated/notices/aboutlibraries.json")
+        prettyPrint = true
+    }
+    library {
+        requireLicense = true
+    }
+    license {
+        strictMode = com.mikepenz.aboutlibraries.plugin.StrictMode.FAIL
+        allowedLicenses.addAll(
+            "Apache-2.0", "BSD-3-Clause", "FTL", "IJG", "LicenseRef-Adobe-DNG-SDK", "MIT",
+            "MIT-Khronos-old", "MIT-Modern-Variant", "Unicode-3.0", "Zlib", "libpng-2.0",
+        )
+        // Mixbox is non-commercial (ADR 0003) and allowed for it alone.
+        allowedLicensesMap = mapOf("CC-BY-NC-4.0" to listOf("com.scrtwpns:mixbox"))
+    }
+}
+
+// The jlink'd runtime (GPL-2.0-only WITH Classpath-exception-2.0) comes from
+// the JDK jpackage runs on, so name that exact build and its source.
+val packagedJdkRelease: Map<String, String> =
+    providers.fileContents(
+        layout.projectDirectory.file(File(compose.desktop.application.javaHome, "release").absolutePath),
+    ).asText.get()
+        .lines()
+        .mapNotNull { Regex("""^([A-Z_]+)="(.*)"$""").find(it.trim())?.destructured }
+        .associate { (key, value) -> key to value }
+val packagedJdkVersion = packagedJdkRelease["JAVA_RUNTIME_VERSION"]
+    ?: error("JAVA_RUNTIME_VERSION is missing from ${compose.desktop.application.javaHome}/release")
+val packagedJdkImplementor = packagedJdkRelease["IMPLEMENTOR"] ?: "unknown vendor"
+val packagedJdkCommit = Regex("""git:([0-9a-f]{7,40})""")
+    .find(packagedJdkRelease["SOURCE"].orEmpty())?.groupValues?.get(1)
+// Temurin, which CI and release use, records its adoptium/jdk<N>u commit.
+val packagedJdkSource = if (packagedJdkImplementor == "Eclipse Adoptium" && packagedJdkCommit != null) {
+    "https://github.com/adoptium/jdk${packagedJdkVersion.substringBefore('.')}u/tree/$packagedJdkCommit"
+} else {
+    "the $packagedJdkImplementor source for this version (release file SOURCE: " +
+        "${packagedJdkRelease["SOURCE"] ?: "not recorded"})"
+}
+val noticesRule = "=".repeat(72)
+// ASCII on purpose: the header travels as a command-line argument, which a
+// non-UTF-8 locale would mangle.
+val thirdPartyNoticesHeader = buildString {
+    appendLine("BangniDraw desktop: third-party notices")
+    appendLine()
+    appendLine("BangniDraw's own code is released under the Unlicense; see")
+    appendLine("BangniDraw-LICENSE.txt next to this file. This package also bundles the")
+    appendLine("third-party components below, which keep their own licenses. Each entry")
+    appendLine("names the component, its version, its license, its source and the full")
+    appendLine("license and notice texts.")
+    appendLine(noticesRule)
+    appendLine("OpenJDK runtime $packagedJdkVersion ($packagedJdkImplementor)")
+    appendLine("GPL-2.0-only WITH Classpath-exception-2.0")
+    appendLine("Source: $packagedJdkSource")
+    appendLine("The Java runtime jlink assembled for this package (lib/runtime, or")
+    appendLine("Contents/runtime on macOS). Its license texts and the notices of the code")
+    appendLine("it contains ship with it in its legal/ directory.")
+    if (hostOsName.startsWith("Mac")) {
+        val angleVersion = libs.versions.electronAngle.get()
+        appendLine(noticesRule)
+        appendLine("ANGLE (libEGL.dylib, libGLESv2.dylib), from Electron $angleVersion")
+        appendLine("https://github.com/electron/electron/releases/tag/v$angleVersion")
+        appendLine("Their notices ship next to this file: LICENSES.chromium.html for ANGLE")
+        appendLine("and the Chromium code it uses, and Electron-LICENSE.txt.")
+    }
+}
+
+val noticesScript = rootProject.layout.projectDirectory.file("scripts/android_notices.py")
+val noticesDefinitions = layout.buildDirectory.file("generated/notices/aboutlibraries.json")
+val renderedNotices = layout.buildDirectory.file("generated/notices/Third-Party-Notices.txt")
+
+// Every component has its full text; MIT/BSD-style ones carry their own
+// copyright line; Mixbox names its creators, source and modification status.
+val checkThirdPartyNotices = tasks.register<Exec>("checkThirdPartyNotices") {
+    dependsOn("exportLibraryDefinitions")
+    inputs.file(noticesScript)
+    inputs.file(noticesDefinitions)
+    commandLine(
+        "python3", "-I", noticesScript.asFile.absolutePath,
+        "check", noticesDefinitions.get().asFile.absolutePath, "-q",
+    )
+}
+
+val renderThirdPartyNotices = tasks.register<Exec>("renderThirdPartyNotices") {
+    dependsOn(checkThirdPartyNotices)
+    inputs.file(noticesScript)
+    inputs.file(noticesDefinitions)
+    inputs.property("header", thirdPartyNoticesHeader)
+    outputs.file(renderedNotices)
+    commandLine(
+        "python3", "-I", noticesScript.asFile.absolutePath,
+        "render", noticesDefinitions.get().asFile.absolutePath,
+        "-o", renderedNotices.get().asFile.absolutePath,
+        "--header", thirdPartyNoticesHeader,
+    )
+}
+
+// The notices and the app's own LICENSE, for every OS.
+val stageCommonAppResources = tasks.register<Sync>("stageCommonAppResources") {
+    from(renderThirdPartyNotices)
+    from(rootProject.layout.projectDirectory.file("LICENSE")) {
+        rename { "BangniDraw-LICENSE.txt" }
+    }
+    into(appResources.map { it.dir("common") })
+}
+
 tasks.configureEach {
-    if (name == "prepareAppResources") dependsOn(stageMacAngle)
+    if (name == "prepareAppResources") dependsOn(stageMacAngle, stageCommonAppResources)
 }
 
 dependencies {

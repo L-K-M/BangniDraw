@@ -1,0 +1,13 @@
+{
+  "_comment": "JetBrains/skia a3f509bf52 (Skiko 0.150.2's dependencies.skia), LICENSE",
+  "uniqueId": "bangnidraw:skia",
+  "licenses": [
+    "BSD-3-Clause-skia"
+  ],
+  "name": "Skia (in Skiko's native library)",
+  "artifactVersion": "m150-a3f509bf52",
+  "website": "https://github.com/JetBrains/skia/tree/a3f509bf52564dc8b27940bebe599d77ac0c4ae3",
+  "description": "Statically linked into libskiko by Skiko 0.150.2, together with the libraries marked (in libskiko) below.",
+  "developers": [],
+  "tag": "bundled"
+}

@@ -108,14 +108,15 @@ flatpak-builder --user --install-deps-from=flathub --force-clean \
 
 # Smoke check: the staged tree must leave an executable under
 # /app/bin — catches a failed /usr->/app remap before the bundle
-# ships.
+# ships — and the deb's license files: the copyright file and the
+# third-party notices in the app resources.
 COMMAND_NAME="$(sed -n '/^command:[[:space:]]*/{s///;p;q}' "$MANIFEST")"
 [ -n "$COMMAND_NAME" ] || die "no command: key in $MANIFEST"
 # Audit every bundled ELF. libjvm.so is whitelisted: the jpackage launcher
 # dlopens it via a path relative to the bundled JRE (lib/server/), which
 # plain ldd cannot resolve — that "not found" is expected, not missing.
 flatpak-builder --run "$WORK/build" "$MANIFEST" \
-  sh -c 'bin="/app/bin/$1"; test -x "$bin" || { echo "missing $bin" >&2; ls -l /app/bin >&2; exit 1; }; bad="$(find /app -type f \( -name "*.so*" -o -path "/app/bin/$1" \) -exec ldd {} \; 2>/dev/null | grep "not found" | grep -v "libjvm.so" | sort -u || true)"; [ -z "$bad" ] || { printf "unresolved libraries:\n%s\n" "$bad" >&2; exit 1; }' _ "$COMMAND_NAME"
+  sh -c 'bin="/app/bin/$1"; test -x "$bin" || { echo "missing $bin" >&2; ls -l /app/bin >&2; exit 1; }; for notice in /app/share/doc/copyright /app/lib/app/resources/Third-Party-Notices.txt; do test -s "$notice" || { echo "missing $notice" >&2; exit 1; }; done; bad="$(find /app -type f \( -name "*.so*" -o -path "/app/bin/$1" \) -exec ldd {} \; 2>/dev/null | grep "not found" | grep -v "libjvm.so" | sort -u || true)"; [ -z "$bad" ] || { printf "unresolved libraries:\n%s\n" "$bad" >&2; exit 1; }' _ "$COMMAND_NAME"
 
 BUNDLE="$ROOT/dist/bangnidraw-linux-amd64.flatpak"
 flatpak build-bundle --runtime-repo="$FLATHUB_REPO" \

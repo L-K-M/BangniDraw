@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Ship third-party license notices: Android's About and licenses opens a new
+  Open-source licenses screen, and the desktop packages carry
+  Third-Party-Notices.txt with the app's resources. The About texts now say
+  that the Unlicense covers the app's own code, and the Linux package's
+  copyright file names it instead of "Unknown".
 - Fix "OpenGL ES 3.0 is unavailable" when running the desktop app on macOS:
   the bundled ANGLE runtime is now loaded by absolute path, and a startup
   that still fails names the stage, the libraries it found and their

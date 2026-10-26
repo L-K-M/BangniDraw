@@ -35,6 +35,12 @@
             </intent-filter>
         </activity>
 
+        <!-- About and licenses > Open-source licenses: the generated
+             third-party notices (res/raw/aboutlibraries.json). Not exported. -->
+        <activity
+            android:name=".LicensesActivity"
+            android:exported="false" />
+
         <!-- Serves the share sheet's staged PNG/JPEG copies and nothing else:
              file_paths.xml exposes only cacheDir/share
              (docs/plan/06-document-and-persistence.md §9.5). Not exported;

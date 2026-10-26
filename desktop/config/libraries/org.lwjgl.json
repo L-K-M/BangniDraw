@@ -1,0 +1,7 @@
+{
+  "_comment": "Every LWJGL module: the BSD-3 text with LWJGL's copyright line. The ::regex id only merges into resolved modules.",
+  "uniqueId": "org\\.lwjgl:.*::regex",
+  "licenses": [
+    "BSD-3-Clause-lwjgl"
+  ]
+}

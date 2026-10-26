@@ -1,0 +1,18 @@
+{
+  "_comment": "CC BY-NC 4.0 attribution (ADR 0003, third-party/mixbox/README.md). The ::regex id merges only when the bangnidraw.mixbox=true build resolves the jar, so the stripped build lists nothing.",
+  "uniqueId": "com\\.scrtwpns:mixbox::regex",
+  "name": "Mixbox",
+  "website": "https://github.com/scrtwpns/mixbox",
+  "description": "MIXBOX 2.0 (c) 2022 Secret Weapons. All rights reserved. By Šárka Sochorová and Ondřej Jamriška. Unmodified: the com.scrtwpns:mixbox jar, plus mixbox.glsl and mixbox_lut.png from upstream shaders/ at commit a1bdb75a668f638ba066aa74bfd32809ed7fef45 (assets/mixbox/). Provided as-is, without warranty; see the license. Non-commercial use only; commercial licenses: mixbox@scrtwpns.com.",
+  "developers": [
+    {
+      "name": "Šárka Sochorová"
+    },
+    {
+      "name": "Ondřej Jamriška"
+    }
+  ],
+  "licenses": [
+    "CC-BY-NC-4.0"
+  ]
+}

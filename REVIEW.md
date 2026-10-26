@@ -4054,3 +4054,97 @@ That push is the last. Whatever the next round says, it is not read: the stop
 rule ended this at round 4, and "one more small thing" is the shape of a loop
 that never closes.
 
+## PR #210 — ship third-party license notices (2026-10-26)
+
+Round 1 at `33a9f09` was reviewed by the MiMo fallback and arrived truncated
+(cut off mid-finding), so it is unscored; its findings were still triaged.
+Round 2 at `2b64610` was complete: one minor finding plus inline
+suggestions, none blocking. Applied: HarfBuzz's `src/ms-use` license (round
+1), which led to the two other sub-licenses libskiko's static code needs
+(FreeType's `fthash.c`, Chromium's own zlib files, both verified as
+compiled through Skia's `BUILD.gn`); and one diagnostic loop for the release
+Mixbox greps (round 1, re-raised inline in round 2). Recorded here:
+
+- **R-281 ⏸️ (refuted) round 1, Blocker: the configuration-time read of the
+  JDK `release` file can fail every Gradle invocation.** Compose's
+  `javaHome` is not nullable: `JvmApplicationData.getJavaHome()` falls back
+  to `System.getProperty("java.home")` (compose-gradle-plugin 1.12.2
+  bytecode). Every JDK since 9 has a `release` file, Gradle 9.8.1 needs
+  JDK 17, and `providers.fileContents` is configuration-cache safe. Every
+  CI job was green with it.
+- **R-282 ⏸️ (refuted) round 1, Blocker: `DesktopAboutTest` passes only
+  where a notices file is staged.** `about_license` itself ends "see
+  Open-source licenses", so the assertion holds without one;
+  `:desktop:test` passed in CI.
+- **R-283 ⏸️ (declined) round 1, Blocker: `static-runtime-notices.py` exits
+  0 when it detects nothing.** The workflows `test -f` libskiko first.
+  Detecting nothing would mean libskiko stopped linking ICU or zlib
+  statically, so the notices would over-list, never omit. Mutating the
+  notices' ICU and zlib versions makes it exit 1. The script is the shared
+  recipe's, vendored byte for byte.
+- **R-284 ⏸️ (declined) round 1: the stripped `assembleRelease` overwrites
+  the checked release APK.** Nothing after it in the job reads that APK;
+  the check runs on the shipped configuration first.
+- **R-285 ⏸️ (refuted) round 1: the protobuf and CC BY-NC license ids have
+  no definitions.** Both files exist in `app/config/licenses` and
+  `desktop/config/licenses`; strict mode fails the build otherwise.
+- **R-286 ⏸️ (refuted) rounds 1 and 2: license text fidelity** (Apache
+  SHA-256 and leading newline, zlib's "version 1.2.12" header, libpng
+  "postdating" 1.6.56, FreeType's LICENSE.TXT "instead of" FTL.TXT and its
+  credit line, the FreeType URL, protobuf's extra paragraph and `_comment`,
+  libjpeg-turbo's Markdown links, the Wayland "verbatim" comment). Every
+  text was fetched again from its pinned upstream revision: all are
+  identical, up to surrounding whitespace, except the Skiko NOTICE, which
+  only gains the tool's "NOTICE file of Skiko:" header. Chromium's zlib
+  `LICENSE` at `646b7f56` really starts "version 1.2.12". FreeType ships
+  both FTL.TXT and LICENSE.TXT, with the credit line in the description.
+  Skia's DEPS pins `chromium/src/third_party/freetype2.git@264b5fbf`. The
+  Wayland blocks are verbatim under a labelled preamble.
+- **R-287 ⏸️ (declined) round 1: SPDX metadata and empty license `url`s**
+  (libjpeg-turbo, ICU, `MIT-Khronos-old`, which SPDX 3.29.0 lists). The
+  full texts ship, `render` prints neither field, the library entries link
+  the pinned commits, and each `_comment` names its file.
+- **R-288 ⏸️ (declined) round 1: the DNG SDK's terms.** Section 2 asks for
+  its notices in human-readable form, which `Third-Party-Notices.txt` is.
+  Section 5's indemnity binds commercial distributors, and the app as
+  distributed is non-commercial (ADR 0003). That is the owner's call.
+- **R-289 ⏸️ (declined) round 1: the generic BSD-3-Clause template with
+  placeholders.** AboutLibraries cannot drop a key a POM declares. Each
+  BSD component carries its own text next to it (android recipe), and
+  `check` requires one real text per family.
+- **R-290 ⏸️ (declined) round 1: `LicensesActivity` does not guard the
+  JSON.** The pinned plugin generates the file, and CI's `check` parses it
+  in every APK. The `Html.fromHtml` API 24 concern does not apply: minSdk
+  is 29.
+- **R-291 ⏸️ (refuted) round 1: `stageMacAngle` can wipe `common/`.**
+  `fetch-angle-macos.sh` replaces only `<root>/<target>`, through a
+  `mktemp` dir and `mv`.
+- **R-292 ⏸️ (refuted) round 1: Skiko gets only its NOTICE.** Skiko's
+  POMs declare Apache-2.0, so each Skiko entry carries the full Apache text
+  plus the NOTICE, as the CI-built notices show.
+- **R-293 ⏸️ (declined) rounds 1 and 2: `android_notices.py` internals.**
+  It is the shared recipe's script, vendored byte for byte. `DEFAULT_WATCH`
+  does reach the watch list (line 385). The glob regexes are applied with
+  `re.match`, so they are anchored at both ends. The `URLError`/`OSError`
+  and "copyrights" cases change only a message or an edge case that no
+  shipped text hits.
+- **R-294 ⏸️ (declined) round 1: style and duplication** (gate repeated in
+  both workflows, `python3` without a message, a test name, the protobuf
+  pin, the generic CC BY-NC entry, ICU4C/libcurl patterns, the check
+  running "only" at packaging, which CI does on every push).
+
+Round 3 at `5d6fda0` was complete: no actionable suggestions and one
+"major" comment, refuted below. It applied nothing, so it scores dismissed
+only, which ends the loop (rule 3).
+
+- **R-295 ⏸️ (refuted) round 3, Major: Mixbox's CC BY-NC 4.0 compliance is
+  undocumented, and the app ships on Google Play.** ADR 0003 records the
+  non-commercial decision and its obligations, and the README License
+  section and AGENTS.md repeat it. The APK is sideloaded from GitHub
+  Releases (ADR 0005); no build file has a billing, ads or Play services
+  dependency. Both config directories allow CC-BY-NC-4.0 for
+  `com.scrtwpns:mixbox` alone, citing ADR 0003. CI's `check --require
+  com.scrtwpns:mixbox` proves that the debug and release APK definitions,
+  which `LicensesActivity` lists, carry the entry with its creators,
+  source and full text. A release-gate comment in the license JSON would
+  only repeat the ADR; a commercial license stays the owner's call.

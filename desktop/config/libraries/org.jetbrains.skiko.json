@@ -1,0 +1,7 @@
+{
+  "_comment": "Skiko's NOTICE for every Skiko artifact, including the runtime jar with libskiko.",
+  "uniqueId": "org\\.jetbrains\\.skiko:.*::regex",
+  "licenses": [
+    "Apache-2.0-skiko-NOTICE"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "_comment": "LWJGL ships khronos_license.txt with its OpenGL ES and EGL modules, whose bindings are generated from the Khronos registry.",
+  "uniqueId": "org\\.lwjgl:lwjgl-(opengles|egl)::regex",
+  "licenses": [
+    "MIT-Khronos-old-lwjgl"
+  ]
+}

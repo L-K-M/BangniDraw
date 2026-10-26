@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
@@ -24,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
@@ -532,8 +534,23 @@ private fun androidx.compose.ui.window.ApplicationScope.AboutWindow(
                 modifier = Modifier.fillMaxSize(),
                 color = MaterialTheme.colorScheme.surfaceContainer,
             ) {
-                Box(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState())) {
-                    SelectionContainer { Text(DesktopAbout.body(attribution)) }
+                val notices = remember { DesktopNotices.file() }
+                Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState())) {
+                    SelectionContainer { Text(DesktopAbout.body(attribution, notices)) }
+                    // The text names the notices path and the license URI, so a
+                    // desktop that cannot open them still leaves the user a way.
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (notices != null) {
+                            TextButton(onClick = { DesktopNotices.open(notices) }) {
+                                Text(DesktopStrings.get("open_source_licenses"))
+                            }
+                        }
+                        if (attribution == MixboxAttribution.Included) {
+                            TextButton(onClick = { DesktopNotices.browse(DesktopNotices.MIXBOX_LICENSE_URL) }) {
+                                Text(DesktopStrings.get("about_mixbox_license"))
+                            }
+                        }
+                    }
                 }
             }
         }

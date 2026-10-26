@@ -102,7 +102,9 @@ mkdir -p "$OUTPUT_ROOT"
 STAGE_DIR="$(mktemp -d "$OUTPUT_ROOT/.${TARGET}.XXXXXX")"
 cp "$EGL_SOURCE" "$STAGE_DIR/libEGL.dylib"
 cp "$GLES_SOURCE" "$STAGE_DIR/libGLESv2.dylib"
-cp "$LICENSE_SOURCE" "$STAGE_DIR/LICENSE"
+# Electron's own MIT text, named for whose it is: a bare LICENSE in the
+# app's resources would read as the app's license.
+cp "$LICENSE_SOURCE" "$STAGE_DIR/Electron-LICENSE.txt"
 cp "$NOTICES_SOURCE" "$STAGE_DIR/LICENSES.chromium.html"
 
 TARGET_DIR="$OUTPUT_ROOT/$TARGET"

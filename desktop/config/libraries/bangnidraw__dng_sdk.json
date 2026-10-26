@@ -1,0 +1,13 @@
+{
+  "_comment": "Skia DEPS third_party/externals/dng_sdk at dbe0a676, LICENSE",
+  "uniqueId": "bangnidraw:dng_sdk",
+  "licenses": [
+    "LicenseRef-Adobe-DNG-SDK-dng-sdk"
+  ],
+  "name": "Adobe DNG SDK (in libskiko)",
+  "artifactVersion": "dbe0a676450d9b8c71bf00688bb306409b779e90",
+  "website": "https://android.googlesource.com/platform/external/dng_sdk.git/+/dbe0a676450d9b8c71bf00688bb306409b779e90",
+  "description": "Statically linked into libskiko. This product includes DNG technology under license by Adobe Systems Incorporated.",
+  "developers": [],
+  "tag": "bundled"
+}

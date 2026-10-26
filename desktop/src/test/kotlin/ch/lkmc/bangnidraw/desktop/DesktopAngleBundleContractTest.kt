@@ -15,9 +15,9 @@ class DesktopAngleBundleContractTest {
         assertTrue(build.contains("libs.versions.electronAngle.get()"))
         assertTrue(build.contains("stageMacAngle"))
         assertTrue(build.contains("scripts/fetch-angle-macos.sh"))
-        assertTrue(build.contains("angle/resources"))
+        assertTrue(build.contains("generated/app-resources"))
         assertTrue(build.contains("prepareAppResources"))
-        assertTrue(build.contains("dependsOn(stageMacAngle)"))
+        assertTrue(build.contains("dependsOn(stageMacAngle, "))
     }
 
     @Test
@@ -39,6 +39,10 @@ class DesktopAngleBundleContractTest {
         assertTrue(fetch.contains("libGLESv2.dylib"))
         assertTrue(fetch.contains("LICENSE"))
         assertTrue(fetch.contains("LICENSES.chromium.html"))
+        // Electron's MIT text is staged under a name that says whose it is:
+        // a bare LICENSE in the app's resources reads as the app's license.
+        assertTrue(fetch.contains(ELECTRON_LICENSE))
+        assertFalse(fetch.contains("\"${'$'}STAGE_DIR/LICENSE\""))
         assertTrue(fetch.contains("shasum -a 256"))
         assertTrue(fetch.contains("--retry-all-errors"))
         assertTrue(fetch.contains("${'$'}{STAGE_DIR:-}"))
@@ -46,7 +50,7 @@ class DesktopAngleBundleContractTest {
 
         assertTrue(provenance.contains("Electron v$ELECTRON_ANGLE_VERSION"))
         assertTrue(provenance.contains("https://github.com/electron/electron"))
-        assertTrue(provenance.contains("LICENSE"))
+        assertTrue(provenance.contains(ELECTRON_LICENSE))
         assertTrue(provenance.contains("LICENSES.chromium.html"))
     }
 
@@ -79,8 +83,10 @@ class DesktopAngleBundleContractTest {
         listOf(ciMac, releaseMac).forEach { workflow ->
             assertTrue(workflow.contains("libEGL.dylib"))
             assertTrue(workflow.contains("libGLESv2.dylib"))
-            assertTrue(workflow.contains("LICENSE"))
+            assertTrue(workflow.contains(ELECTRON_LICENSE))
             assertTrue(workflow.contains("LICENSES.chromium.html"))
+            assertTrue(workflow.contains("Third-Party-Notices.txt"))
+            assertTrue(workflow.contains("BangniDraw-LICENSE.txt"))
             assertTrue(workflow.contains("--smoke-window"))
             assertTrue(workflow.contains("帮你Draw window OK:"))
             assertFalse(workflow.contains("--smoke-startup-failure"))
@@ -115,6 +121,7 @@ class DesktopAngleBundleContractTest {
     private companion object {
         const val ELECTRON_ANGLE_VERSION = "41.10.3"
         const val MINIMUM_MACOS_VERSION = "12.0"
+        const val ELECTRON_LICENSE = "Electron-LICENSE.txt"
         const val PINNED_SHA256_COUNT = 8
         val SHA256 = Regex("(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])")
         val BUNDLED_ANGLE = Regex("(?:bundles?\\s+ANGLE|ANGLE\\s+is\\s+bundled)", RegexOption.IGNORE_CASE)

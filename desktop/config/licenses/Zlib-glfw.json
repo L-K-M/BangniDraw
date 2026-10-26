@@ -1,0 +1,8 @@
+{
+  "_comment": "LWJGL-CI/glfw d9d6f0f1 (3.5.1, the commit lwjgl-glfw-3.4.3-natives records), LICENSE.md",
+  "hash": "Zlib-glfw",
+  "spdxId": "Zlib",
+  "name": "Zlib (GLFW (in LWJGL's GLFW natives))",
+  "url": "",
+  "content": "Copyright (c) 2002-2006 Marcus Geelnard\n\nCopyright (c) 2006-2019 Camilla Löwy\n\nThis software is provided 'as-is', without any express or implied\nwarranty. In no event will the authors be held liable for any damages\narising from the use of this software.\n\nPermission is granted to anyone to use this software for any purpose,\nincluding commercial applications, and to alter it and redistribute it\nfreely, subject to the following restrictions:\n\n1. The origin of this software must not be misrepresented; you must not\n   claim that you wrote the original software. If you use this software\n   in a product, an acknowledgment in the product documentation would\n   be appreciated but is not required.\n\n2. Altered source versions must be plainly marked as such, and must not\n   be misrepresented as being the original software.\n\n3. This notice may not be removed or altered from any source\n   distribution.\n"
+}

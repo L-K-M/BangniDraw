@@ -1,0 +1,13 @@
+{
+  "_comment": "LWJGL/lwjgl3 tag 3.4.3, modules/lwjgl/core/libffi_license.txt",
+  "uniqueId": "bangnidraw:libffi",
+  "licenses": [
+    "MIT-libffi"
+  ],
+  "name": "libffi (in LWJGL's core natives)",
+  "artifactVersion": "LWJGL 3.4.3",
+  "website": "https://github.com/LWJGL/lwjgl3/blob/3.4.3/modules/lwjgl/core/libffi_license.txt",
+  "description": "Statically linked into liblwjgl.",
+  "developers": [],
+  "tag": "bundled"
+}

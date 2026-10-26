@@ -1,0 +1,13 @@
+{
+  "_comment": "Skia DEPS third_party/externals/icu at 364118a1 (U_ICU_VERSION 74.2, icudt74 in the binary), LICENSE",
+  "uniqueId": "bangnidraw:icu",
+  "licenses": [
+    "Unicode-3.0-icu"
+  ],
+  "name": "ICU (in libskiko)",
+  "artifactVersion": "74.2",
+  "website": "https://chromium.googlesource.com/chromium/deps/icu.git/+/364118a1d9da24bb5b770ac3d762ac144d6da5a4",
+  "description": "Statically linked into libskiko with its icudt74 data.",
+  "developers": [],
+  "tag": "bundled"
+}

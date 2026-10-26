@@ -14,7 +14,7 @@ navigationCompose = "2.10.2"
 datastore = "1.2.1"
 hilt = "2.60.1"
 androidxHilt = "1.4.0"
-kotlinxSerialization = "1.11.0"
+kotlinxSerialization = "1.12.0"
 kotlinxCoroutines = "1.11.0"
 # Drawing stack (docs/plan/03-canvas-engine.md, 07-input-and-stylus.md).
 graphicsCore = "1.0.4"

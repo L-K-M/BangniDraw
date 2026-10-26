@@ -1,0 +1,14 @@
+{
+  "_comment": "Skia DEPS third_party/externals/freetype at 264b5fbf: LICENSE.TXT and docs/FTL.TXT",
+  "uniqueId": "bangnidraw:freetype",
+  "licenses": [
+    "FTL-freetype",
+    "FTL-freetype-LICENSE"
+  ],
+  "name": "FreeType (in libskiko)",
+  "artifactVersion": "2.14.2",
+  "website": "https://chromium.googlesource.com/chromium/src/third_party/freetype2/+/264b5fbf5b912b39f98d038bf75d39be0a73f21b",
+  "description": "Used under the FreeType License (FTL). Portions of this software are copyright © 2026 The FreeType Project (www.freetype.org). All rights reserved.",
+  "developers": [],
+  "tag": "bundled"
+}

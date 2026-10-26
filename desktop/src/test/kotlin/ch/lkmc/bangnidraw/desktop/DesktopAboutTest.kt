@@ -1,7 +1,11 @@
 package ch.lkmc.bangnidraw.desktop
 
+import java.io.File
+import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DesktopAboutTest {
@@ -47,6 +51,20 @@ class DesktopAboutTest {
                 body.contains(DesktopStrings.get("open_source_licenses")),
                 "$attribution About does not point at the bundled notices",
             )
+        }
+    }
+
+    @Test
+    fun `About names the bundled notices file where the package ships it`() {
+        val resources = createTempDirectory("app-resources").toFile()
+        try {
+            assertNull(DesktopNotices.file(resources.path), "no notices file, no pointer")
+
+            val notices = File(resources, DesktopNotices.FILE_NAME).apply { writeText("notices") }
+            assertEquals(notices, DesktopNotices.file(resources.path))
+            assertTrue(DesktopAbout.body(MixboxAttribution.Excluded, notices).contains(notices.path))
+        } finally {
+            resources.deleteRecursively()
         }
     }
 

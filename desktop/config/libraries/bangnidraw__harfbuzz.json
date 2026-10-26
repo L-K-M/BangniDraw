@@ -1,0 +1,13 @@
+{
+  "_comment": "Skia DEPS third_party/externals/harfbuzz at 9cb1fee5 (HB_VERSION_STRING 13.1.0, also in the binary), COPYING",
+  "uniqueId": "bangnidraw:harfbuzz",
+  "licenses": [
+    "MIT-Modern-Variant-harfbuzz"
+  ],
+  "name": "HarfBuzz (in libskiko)",
+  "artifactVersion": "13.1.0",
+  "website": "https://github.com/harfbuzz/harfbuzz/tree/9cb1fee51069b206effb4736e443b038d230789d",
+  "description": "Statically linked into libskiko.",
+  "developers": [],
+  "tag": "bundled"
+}

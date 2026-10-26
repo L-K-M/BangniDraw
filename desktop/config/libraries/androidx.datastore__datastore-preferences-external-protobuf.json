@@ -1,0 +1,7 @@
+{
+  "_comment": "The jar repackages protobuf-javalite 4.28.2 (RuntimeVersion OSS_MAJOR/MINOR/PATCH) and embeds its BSD-3 text without the copyright line; this is protocolbuffers/protobuf v28.2 LICENSE",
+  "uniqueId": "androidx\\.datastore:datastore-preferences-external-protobuf::regex",
+  "licenses": [
+    "BSD-3-Clause-datastore-preferences-external-protobuf"
+  ]
+}

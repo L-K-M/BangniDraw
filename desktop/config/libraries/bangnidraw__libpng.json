@@ -1,0 +1,13 @@
+{
+  "_comment": "Skia DEPS third_party/externals/libpng at d5515b5b (1.6.56, also in the binary), LICENSE",
+  "uniqueId": "bangnidraw:libpng",
+  "licenses": [
+    "libpng-2.0-libpng"
+  ],
+  "name": "libpng (in libskiko)",
+  "artifactVersion": "1.6.56",
+  "website": "https://github.com/pnggroup/libpng/tree/d5515b5b8be3901aac04e5bd8bd5c89f287bcd33",
+  "description": "Statically linked into libskiko.",
+  "developers": [],
+  "tag": "bundled"
+}

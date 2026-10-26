@@ -147,6 +147,22 @@ jobs:
             echo "!! $COPYRIGHT still says License: Unknown" >&2
             exit 1
           fi
+          # Third-party notices and the app's own license ship with the app's
+          # resources, the runtime keeps its legal/ texts, and the notices name
+          # the ICU and zlib versions libskiko links statically.
+          NOTICES="$ROOT/opt/bangnidraw/lib/app/resources/Third-Party-Notices.txt"
+          test -s "$NOTICES"
+          test -s "$ROOT/opt/bangnidraw/lib/app/resources/BangniDraw-LICENSE.txt"
+          test -s "$ROOT/opt/bangnidraw/lib/runtime/legal/java.base/LICENSE"
+          for SENTINEL in 'org.lwjgl:lwjgl' 'Skia (in Skiko' 'GLFW' 'OpenJDK runtime' \
+            'Source: https://github.com/adoptium/jdk'; do
+            grep -Fq "$SENTINEL" "$NOTICES" || { echo "!! $NOTICES lacks $SENTINEL" >&2; exit 1; }
+          done
+          test -f "$ROOT/opt/bangnidraw/lib/app/libskiko-linux-x64.so"
+          python3 -I scripts/static-runtime-notices.py check "$ROOT/opt/bangnidraw/lib/app" --notices "$NOTICES"
+          # The published package includes Mixbox, so its CC BY-NC 4.0 entry.
+          grep -Fq 'com.scrtwpns:mixbox' "$NOTICES"
+          grep -Fq 'Attribution-NonCommercial 4.0' "$NOTICES"
           DESKTOP_ENTRY="$(find "$ROOT" -type f -name '*.desktop' -print -quit)"
           grep -Fx 'Name=帮你Draw' "$DESKTOP_ENTRY"
           grep -Fx 'Categories=Graphics' "$DESKTOP_ENTRY"
@@ -245,12 +261,24 @@ jobs:
           ANGLE_RESOURCES="$APP/Contents/app/resources"
           EGL="$ANGLE_RESOURCES/libEGL.dylib"
           GLES="$ANGLE_RESOURCES/libGLESv2.dylib"
-          LICENSE="$ANGLE_RESOURCES/LICENSE"
+          ELECTRON_LICENSE="$ANGLE_RESOURCES/Electron-LICENSE.txt"
           NOTICES="$ANGLE_RESOURCES/LICENSES.chromium.html"
           test -f "$EGL"
           test -f "$GLES"
-          test -f "$LICENSE"
-          test -f "$NOTICES"
+          test -s "$ELECTRON_LICENSE"
+          test -s "$NOTICES"
+          # Electron's MIT text must not sit there as a bare LICENSE.
+          test ! -e "$ANGLE_RESOURCES/LICENSE"
+
+          # Third-party notices, the app's own license and the runtime's legal/.
+          THIRD_PARTY="$ANGLE_RESOURCES/Third-Party-Notices.txt"
+          test -s "$THIRD_PARTY"
+          test -s "$ANGLE_RESOURCES/BangniDraw-LICENSE.txt"
+          test -s "$APP/Contents/runtime/Contents/Home/legal/java.base/LICENSE"
+          for SENTINEL in 'org.lwjgl:lwjgl' 'Skia (in Skiko' 'OpenJDK runtime' \
+            'ANGLE (libEGL.dylib' 'com.scrtwpns:mixbox'; do
+            grep -Fq "$SENTINEL" "$THIRD_PARTY" || { echo "!! $THIRD_PARTY lacks $SENTINEL" >&2; exit 1; }
+          done
 
           NATIVE_ARCH="$(uname -m)"
           case "$NATIVE_ARCH" in

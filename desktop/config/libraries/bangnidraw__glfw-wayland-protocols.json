@@ -1,0 +1,13 @@
+{
+  "_comment": "The <copyright> blocks of LWJGL-CI/glfw d9d6f0f1 deps/wayland/*.xml, extracted verbatim",
+  "uniqueId": "bangnidraw:glfw-wayland-protocols",
+  "licenses": [
+    "MIT-glfw-wayland-protocols"
+  ],
+  "name": "Wayland protocol code (in GLFW's Wayland backend)",
+  "artifactVersion": "d9d6f0f1f967807ffade6598ea9a631ebaf37a56",
+  "website": "https://github.com/LWJGL-CI/glfw/tree/d9d6f0f1f967807ffade6598ea9a631ebaf37a56/deps/wayland",
+  "description": "Code GLFW generates from these protocol files is compiled into the Linux libglfw.",
+  "developers": [],
+  "tag": "bundled"
+}

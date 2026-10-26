@@ -15,9 +15,9 @@ class DesktopAngleBundleContractTest {
         assertTrue(build.contains("libs.versions.electronAngle.get()"))
         assertTrue(build.contains("stageMacAngle"))
         assertTrue(build.contains("scripts/fetch-angle-macos.sh"))
-        assertTrue(build.contains("angle/resources"))
+        assertTrue(build.contains("generated/app-resources"))
         assertTrue(build.contains("prepareAppResources"))
-        assertTrue(build.contains("dependsOn(stageMacAngle)"))
+        assertTrue(build.contains("dependsOn(stageMacAngle, "))
     }
 
     @Test
@@ -85,6 +85,8 @@ class DesktopAngleBundleContractTest {
             assertTrue(workflow.contains("libGLESv2.dylib"))
             assertTrue(workflow.contains(ELECTRON_LICENSE))
             assertTrue(workflow.contains("LICENSES.chromium.html"))
+            assertTrue(workflow.contains("Third-Party-Notices.txt"))
+            assertTrue(workflow.contains("BangniDraw-LICENSE.txt"))
             assertTrue(workflow.contains("--smoke-window"))
             assertTrue(workflow.contains("帮你Draw window OK:"))
             assertFalse(workflow.contains("--smoke-startup-failure"))

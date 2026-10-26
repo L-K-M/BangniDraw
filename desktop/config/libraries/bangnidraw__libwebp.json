@@ -1,0 +1,13 @@
+{
+  "_comment": "Skia DEPS third_party/externals/libwebp at 845d5476 (DEC version 1.4.0), COPYING",
+  "uniqueId": "bangnidraw:libwebp",
+  "licenses": [
+    "BSD-3-Clause-libwebp"
+  ],
+  "name": "libwebp (in libskiko)",
+  "artifactVersion": "1.4.0",
+  "website": "https://chromium.googlesource.com/webm/libwebp.git/+/845d5476a866141ba35ac133f856fa62f0b7445f",
+  "description": "Statically linked into libskiko.",
+  "developers": [],
+  "tag": "bundled"
+}

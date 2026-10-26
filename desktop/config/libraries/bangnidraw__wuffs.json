@@ -1,0 +1,13 @@
+{
+  "_comment": "Skia DEPS third_party/externals/wuffs at e3f919cc; its LICENSE is the Apache-2.0 text",
+  "uniqueId": "bangnidraw:wuffs",
+  "licenses": [
+    "Apache-2.0"
+  ],
+  "name": "Wuffs (in libskiko)",
+  "artifactVersion": "e3f919ccfe3ef542cfc983a82146070258fb57f8",
+  "website": "https://skia.googlesource.com/external/github.com/google/wuffs-mirror-release-c.git/+/e3f919ccfe3ef542cfc983a82146070258fb57f8",
+  "description": "Statically linked into libskiko.",
+  "developers": [],
+  "tag": "bundled"
+}

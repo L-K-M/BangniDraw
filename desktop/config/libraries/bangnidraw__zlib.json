@@ -1,0 +1,13 @@
+{
+  "_comment": "Skia DEPS third_party/externals/zlib at 646b7f56 (deflate 1.3.0.1 in the binary), LICENSE",
+  "uniqueId": "bangnidraw:zlib",
+  "licenses": [
+    "Zlib-zlib"
+  ],
+  "name": "zlib (in libskiko)",
+  "artifactVersion": "1.3.0.1",
+  "website": "https://chromium.googlesource.com/chromium/src/third_party/zlib/+/646b7f569718921d7d4b5b8e22572ff6c76f2596",
+  "description": "Chromium's zlib, statically linked into libskiko. Copyright 1995-2023 Jean-loup Gailly and Mark Adler.",
+  "developers": [],
+  "tag": "bundled"
+}

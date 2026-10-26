@@ -1412,6 +1412,38 @@ and the contradiction is noted here.
   ordinary stroke and wet-backup reserves are mutually exclusive. The budget
   is `N·colour + N·wet + max(colour reserve, wet reserve)`.
 
+## Licensing
+
+- 帮你Draw's own code is the Unlicense (`LICENSE`); bundled components keep
+  their own licenses. Keep license statements consistent with that: the
+  About strings (`about_license`, `about_mixbox`), the desktop `copyright`
+  and `desktop/packaging/linux/copyright-license.txt` (the deb's License
+  field, pinned to `LICENSE` by `DesktopPackagingContractTest`), and the
+  README.
+- Before adding a dependency, vendored file or bundled asset, confirm its
+  license allows redistribution in the APK and the desktop packages. Never
+  vendor third-party code without its license file.
+- AboutLibraries generates the notices from the resolved graph, offline and
+  strict: the APK's `res/raw/aboutlibraries.json` (from `app/config`, shown
+  by `LicensesActivity`), and the desktop packages' `Third-Party-Notices.txt`
+  (from `desktop/config`, rendered by `scripts/android_notices.py` with the
+  OpenJDK build and source read from the packaging JDK's `release` file)
+  next to `BangniDraw-LICENSE.txt` in the app resources. A dependency
+  without a license, one outside the allow-list, or an MIT/BSD-style text
+  without its copyright line fails the build: add the text with
+  `scripts/android_notices.py stub` and its source in `_comment`, never from
+  memory. Mixbox's CC BY-NC 4.0 entries in both config directories belong
+  to its attribution too.
+- `desktop/config` hand-lists what no POM describes: Skia and the libraries
+  libskiko links statically (pinned to Skiko 0.150.2, Skia m150-a3f509bf52)
+  and LWJGL's natives (GLFW, libffi, liburing). Re-check them on every
+  Compose, Skiko or LWJGL bump; `scripts/static-runtime-notices.py` fails CI
+  when libskiko's ICU or zlib version no longer matches the notices.
+- Desktop packaging (`prepareAppResources`) needs `python3` 3.9 or newer.
+- CI and release check the notices inside every artifact (`android_notices.py
+  check` and `scan` on the APKs, `test -s` and sentinels in the deb, the
+  Flatpak and the .app). Keep them passing.
+
 ## CI/CD
 
 Three workflows (details: [CICD.md](CICD.md)): `ci.yml` (tests + lint +

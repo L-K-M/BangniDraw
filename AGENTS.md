@@ -1436,9 +1436,11 @@ and the contradiction is noted here.
   to its attribution too.
 - `desktop/config` hand-lists what no POM describes: Skia and the libraries
   libskiko links statically (pinned to Skiko 0.150.2, Skia m150-a3f509bf52)
-  and LWJGL's natives (GLFW, libffi, liburing). Re-check them on every
-  Compose, Skiko or LWJGL bump; `scripts/static-runtime-notices.py` fails CI
-  when libskiko's ICU or zlib version no longer matches the notices.
+  and LWJGL's natives (GLFW, libffi, liburing), with the files inside them
+  under other licenses (HarfBuzz's `src/ms-use`, FreeType's `fthash.c`,
+  Chromium's own files in its zlib). Re-check them on every Compose, Skiko
+  or LWJGL bump; `scripts/static-runtime-notices.py` fails CI when
+  libskiko's ICU or zlib version no longer matches the notices.
 - Desktop packaging (`prepareAppResources`) needs `python3` 3.9 or newer.
 - CI and release check the notices inside every artifact (`android_notices.py
   check` and `scan` on the APKs, `test -s` and sentinels in the deb, the

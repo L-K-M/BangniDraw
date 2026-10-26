@@ -163,8 +163,9 @@ jobs:
           test -f "$ROOT/opt/bangnidraw/lib/app/libskiko-linux-x64.so"
           python3 -I scripts/static-runtime-notices.py check "$ROOT/opt/bangnidraw/lib/app" --notices "$NOTICES"
           # The published package includes Mixbox, so its CC BY-NC 4.0 entry.
-          grep -Fq 'com.scrtwpns:mixbox' "$NOTICES"
-          grep -Fq 'Attribution-NonCommercial 4.0' "$NOTICES"
+          for SENTINEL in 'com.scrtwpns:mixbox' 'Attribution-NonCommercial 4.0'; do
+            grep -Fq "$SENTINEL" "$NOTICES" || { echo "!! $NOTICES lacks $SENTINEL" >&2; exit 1; }
+          done
           DESKTOP_ENTRY="$(find "$ROOT" -type f -name '*.desktop' -print -quit)"
           grep -Fx 'Name=帮你Draw' "$DESKTOP_ENTRY"
           grep -Fx 'Categories=Graphics' "$DESKTOP_ENTRY"

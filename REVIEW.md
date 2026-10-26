@@ -4132,3 +4132,19 @@ Mixbox greps (round 1, re-raised inline in round 2). Recorded here:
   both workflows, `python3` without a message, a test name, the protobuf
   pin, the generic CC BY-NC entry, ICU4C/libcurl patterns, the check
   running "only" at packaging, which CI does on every push).
+
+Round 3 at `5d6fda0` was complete: no actionable suggestions and one
+"major" comment, refuted below. It applied nothing, so it scores dismissed
+only, which ends the loop (rule 3).
+
+- **R-295 ⏸️ (refuted) round 3, Major: Mixbox's CC BY-NC 4.0 compliance is
+  undocumented, and the app ships on Google Play.** ADR 0003 records the
+  non-commercial decision and its obligations, and the README License
+  section and AGENTS.md repeat it. The APK is sideloaded from GitHub
+  Releases (ADR 0005); no build file has a billing, ads or Play services
+  dependency. Both config directories allow CC-BY-NC-4.0 for
+  `com.scrtwpns:mixbox` alone, citing ADR 0003. CI's `check --require
+  com.scrtwpns:mixbox` proves that the debug and release APK definitions,
+  which `LicensesActivity` lists, carry the entry with its creators,
+  source and full text. A release-gate comment in the license JSON would
+  only repeat the ADR; a commercial license stays the owner's call.

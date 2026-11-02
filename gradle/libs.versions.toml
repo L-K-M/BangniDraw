@@ -3,7 +3,7 @@
 # Meltorama2000. Single pin point for every dependency; no ad-hoc versions
 # in build files, no version numbers restated in docs (ADR 0002).
 
-agp = "9.4.1"
+agp = "9.5.0"
 kotlin = "2.4.21"
 ksp = "2.3.12"
 composeBom = "2026.09.00"

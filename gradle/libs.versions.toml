@@ -11,14 +11,14 @@ activityCompose = "1.13.0"
 coreKtx = "1.19.1"
 lifecycle = "2.11.0"
 navigationCompose = "2.10.2"
-datastore = "1.2.1"
+datastore = "1.3.0"
 hilt = "2.60.1"
 androidxHilt = "1.4.0"
 kotlinxSerialization = "1.11.0"
 kotlinxCoroutines = "1.11.0"
 # Drawing stack (docs/plan/03-canvas-engine.md, 07-input-and-stylus.md).
 graphicsCore = "1.0.4"
-inputMotionPrediction = "1.0.0"
+inputMotionPrediction = "1.0.1"
 # Desktop GL stack (DESKTOP.md): LWJGL 3.4 bindings for the desktop target.
 lwjgl = "3.4.3"
 # Compose Multiplatform (DESKTOP.md "UI layer"), same androidx.compose.*
